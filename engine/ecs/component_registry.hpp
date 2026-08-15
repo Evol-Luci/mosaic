@@ -1,0 +1,140 @@
+#pragma once
+
+#include <cstddef>
+#include <memory>
+#include <utility>
+#include <vector>
+
+#include "engine/ecs/component_type_id.hpp"
+#include "engine/ecs/entity_registry.hpp"
+#include "engine/ecs/sparse_set.hpp"
+#include "foundation/core/entity_id.hpp"
+
+namespace mosaic::engine::ecs
+{
+
+// Type-erased handle to one component type's storage, so the registry can hold
+// heterogeneous storages and erase an entity from all of them on destroy.
+class IComponentStorage
+{
+public:
+    virtual ~IComponentStorage() = default;
+    virtual bool remove(mosaic::foundation::EntityID id) = 0;
+    virtual bool contains(mosaic::foundation::EntityID id) const = 0;
+};
+
+template <typename T>
+class ComponentStorage final : public IComponentStorage
+{
+public:
+    using EntityID = mosaic::foundation::EntityID;
+
+    T& add(EntityID id, T value) { return set_.add(id, std::move(value)); }
+    T* get(EntityID id) noexcept { return set_.get(id); }
+    bool has(EntityID id) const noexcept { return set_.contains(id); }
+
+    bool remove(EntityID id) override { return set_.remove(id); }
+    bool contains(EntityID id) const override { return set_.contains(id); }
+
+private:
+    SparseSet<T> set_;
+};
+
+// Coordinates per-type component storage with entity validity. Every operation
+// rejects handles the owning EntityRegistry no longer considers valid.
+class ComponentRegistry
+{
+public:
+    using EntityID = mosaic::foundation::EntityID;
+
+    explicit ComponentRegistry(const EntityRegistry& entities) : entities_(&entities) {}
+
+    template <typename T>
+    bool add(EntityID id, T value)
+    {
+        if (!entities_->is_valid(id))
+        {
+            return false;
+        }
+        storage<T>().add(id, std::move(value));
+        return true;
+    }
+
+    template <typename T>
+    T* get(EntityID id)
+    {
+        if (!entities_->is_valid(id))
+        {
+            return nullptr;
+        }
+        ComponentStorage<T>* s = find_storage<T>();
+        return s ? s->get(id) : nullptr;
+    }
+
+    template <typename T>
+    bool has(EntityID id) const
+    {
+        if (!entities_->is_valid(id))
+        {
+            return false;
+        }
+        const ComponentTypeID tid = component_type_id<T>();
+        return tid < storages_.size() && storages_[tid] && storages_[tid]->contains(id);
+    }
+
+    template <typename T>
+    bool remove(EntityID id)
+    {
+        if (!entities_->is_valid(id))
+        {
+            return false;
+        }
+        ComponentStorage<T>* s = find_storage<T>();
+        return s ? s->remove(id) : false;
+    }
+
+    // Erase an entity from every storage. Call BEFORE EntityRegistry::destroy,
+    // while the handle still validates against its storage entries.
+    void on_destroy(EntityID id)
+    {
+        for (std::unique_ptr<IComponentStorage>& storage : storages_)
+        {
+            if (storage)
+            {
+                storage->remove(id);
+            }
+        }
+    }
+
+private:
+    template <typename T>
+    ComponentStorage<T>& storage()
+    {
+        const ComponentTypeID tid = component_type_id<T>();
+        if (tid >= storages_.size())
+        {
+            storages_.resize(tid + 1u);
+        }
+        if (!storages_[tid])
+        {
+            storages_[tid] = std::make_unique<ComponentStorage<T>>();
+        }
+        return static_cast<ComponentStorage<T>&>(*storages_[tid]);
+    }
+
+    template <typename T>
+    ComponentStorage<T>* find_storage()
+    {
+        const ComponentTypeID tid = component_type_id<T>();
+        if (tid >= storages_.size() || !storages_[tid])
+        {
+            return nullptr;
+        }
+        return static_cast<ComponentStorage<T>*>(storages_[tid].get());
+    }
+
+    const EntityRegistry* entities_;
+    std::vector<std::unique_ptr<IComponentStorage>> storages_; // indexed by ComponentTypeID
+};
+
+} // namespace mosaic::engine::ecs
