@@ -45,6 +45,20 @@ The CLA does **not** take away your rights to your own work — you retain
 copyright; you grant Mosaic the right to relicense your contribution. Sign it once;
 it covers your future contributions.
 
+Two agreements are provided:
+
+- **[Individual CLA (ICLA)](docs/legal/mosaic-icla.md)** — for contributors acting
+  on their own behalf. Most contributors sign this.
+- **[Corporate CLA (CCLA)](docs/legal/mosaic-ccla.md)** — for contributions made on
+  behalf of an employer; lists authorized employees in Schedule A.
+
+If your employer has rights to work you create, either have them sign the CCLA or
+confirm they have waived their rights before you sign the ICLA.
+
+> ⚠️ Both agreements are drafts adapted from the Apache CLAs and **must be reviewed
+> by legal counsel before the project accepts signatures**. The signing mechanism
+> (CLA-assistant bot vs. signed commit) will be finalized during project setup.
+
 ## Pull requests
 
 - Branch from the current development branch; keep PRs focused.
