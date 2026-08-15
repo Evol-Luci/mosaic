@@ -1,5 +1,6 @@
 add_executable(mosaic_unit_tests
   unit/ecs/bootstrap_test.cpp
+  unit/ecs/entity_id_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_foundation
