@@ -65,6 +65,7 @@ TEST_CASE("operations on an invalid entity are rejected", "[components]")
     ComponentRegistry components{entities};
     EntityID e = entities.create();
     components.add<Position>(e, Position{1.0f, 2.0f});
+    // on_destroy deliberately omitted to isolate validity rejection; stale component data intentionally remains.
     entities.destroy(e);
 
     REQUIRE_FALSE(components.has<Position>(e));

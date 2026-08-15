@@ -77,6 +77,7 @@ TEST_CASE("a handle bearing the retired sentinel generation is never valid", "[r
 {
     EntityRegistry registry;
     EntityID a = registry.create();
+    // Crafted against a live slot; the is_valid sentinel guard rejects it without needing a retired slot.
     EntityID crafted{a.index(), EntityRegistry::kRetiredGeneration};
     REQUIRE_FALSE(registry.is_valid(crafted));
 }

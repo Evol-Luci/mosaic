@@ -13,6 +13,7 @@ using ComponentTypeID = std::uint32_t;
 
 namespace detail
 {
+// Not thread-safe; assumes single-threaded component-type registration.
 inline ComponentTypeID next_component_type_id() noexcept
 {
     static ComponentTypeID counter = 0;

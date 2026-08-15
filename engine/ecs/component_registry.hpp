@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
@@ -31,7 +30,6 @@ public:
 
     T& add(EntityID id, T value) { return set_.add(id, std::move(value)); }
     T* get(EntityID id) noexcept { return set_.get(id); }
-    bool has(EntityID id) const noexcept { return set_.contains(id); }
 
     bool remove(EntityID id) override { return set_.remove(id); }
     bool contains(EntityID id) const override { return set_.contains(id); }
@@ -93,8 +91,9 @@ public:
         return s ? s->remove(id) : false;
     }
 
-    // Erase an entity from every storage. Call BEFORE EntityRegistry::destroy,
-    // while the handle still validates against its storage entries.
+    // Erase an entity from every storage. Safe to call before or after
+    // EntityRegistry::destroy, as long as the slot has not been recycled and re-added
+    // (storage matches on the stored EntityID directly, not via the registry).
     void on_destroy(EntityID id)
     {
         for (std::unique_ptr<IComponentStorage>& storage : storages_)
@@ -133,7 +132,7 @@ private:
         return static_cast<ComponentStorage<T>*>(storages_[tid].get());
     }
 
-    const EntityRegistry* entities_;
+    const EntityRegistry* entities_; // non-owning; must outlive this ComponentRegistry
     std::vector<std::unique_ptr<IComponentStorage>> storages_; // indexed by ComponentTypeID
 };
 
