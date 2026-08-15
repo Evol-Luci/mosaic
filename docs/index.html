@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mosaic — Documentation Hub</title>
+    <!-- Marked.js for parsing markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Mermaid.js for flowcharts -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        window.mermaid = mermaid;
+    </script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --surface-color: rgba(255, 255, 255, 0.05);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-color: #e2e8f0;
+            --accent-color: #38bdf8;
+            --sidebar-width: 300px;
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Glassmorphism Sidebar */
+        #sidebar {
+            width: var(--sidebar-width);
+            background: var(--surface-color);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        #sidebar h1 {
+            font-size: 1.5rem;
+            margin: 0;
+            color: var(--accent-color);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .nav-group h3 {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+
+        .nav-link {
+            display: block;
+            padding: 8px 12px;
+            color: var(--text-color);
+            text-decoration: none;
+            border-radius: 6px;
+            transition: background 0.2s, color 0.2s;
+            cursor: pointer;
+            margin-bottom: 5px;
+        }
+
+        .nav-link:hover, .nav-link.active {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-color);
+        }
+
+        /* Content Area */
+        #content-wrapper {
+            flex-grow: 1;
+            padding: 40px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        #content {
+            max-width: 900px;
+            margin: 0 auto;
+            background: rgba(15, 23, 42, 0.6);
+            padding: 40px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            line-height: 1.6;
+        }
+
+        /* Markdown Styling */
+        #content h1, #content h2, #content h3 { color: #fff; margin-top: 1.5em; }
+        #content h1 { border-bottom: 2px solid var(--border-color); padding-bottom: 10px; }
+        #content a { color: var(--accent-color); }
+        #content pre {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+        }
+        #content code { font-family: Consolas, monospace; background: #1e293b; padding: 2px 6px; border-radius: 4px; }
+        #content table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        #content th, #content td { padding: 10px; border: 1px solid var(--border-color); text-align: left; }
+        #content th { background: rgba(255,255,255,0.05); }
+        #content .mermaid { background: transparent; border: none; text-align: center; }
+
+        /* Loader */
+        #loader {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--accent-color);
+        }
+
+        /* Mobile responsiveness: stack the sidebar above the content on
+           narrow screens so the fixed 300px sidebar no longer eats the
+           viewport and the body can scroll normally. */
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+                overflow: auto;
+            }
+
+            #sidebar {
+                width: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            #content-wrapper {
+                padding: 20px;
+            }
+
+            #content {
+                padding: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h1>Mosaic</h1>
+
+        <div class="nav-group">
+            <h3>General</h3>
+            <a class="nav-link" onclick="loadFile('../README.md', this)">README</a>
+            <a class="nav-link" onclick="loadFile('vision/manifesto.md', this)">Manifesto</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Architecture</h3>
+            <a class="nav-link" onclick="loadFile('architecture/ARCHITECTURE.md', this)">Architecture</a>
+            <a class="nav-link" onclick="loadFile('architecture/data-model.md', this)">Data Model</a>
+            <a class="nav-link" onclick="loadFile('architecture/boundaries.md', this)">Boundaries</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Design</h3>
+            <a class="nav-link" onclick="loadFile('design/reflection.md', this)">Reflection</a>
+            <a class="nav-link" onclick="loadFile('design/command-event-system.md', this)">Commands &amp; Events</a>
+            <a class="nav-link" onclick="loadFile('design/asset-pipeline.md', this)">Asset Pipeline</a>
+            <a class="nav-link" onclick="loadFile('design/physics.md', this)">Physics</a>
+            <a class="nav-link" onclick="loadFile('design/automation-and-agents.md', this)">Automation &amp; Agents</a>
+            <a class="nav-link" onclick="loadFile('design/rendering.md', this)">Rendering</a>
+            <a class="nav-link" onclick="loadFile('design/scripting.md', this)">Scripting</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Project</h3>
+            <a class="nav-link" onclick="loadFile('project/licensing.md', this)">Licensing</a>
+            <a class="nav-link" onclick="loadFile('project/roadmap.md', this)">Roadmap</a>
+            <a class="nav-link" onclick="loadFile('project/repo-layout.md', this)">Repo Layout</a>
+            <a class="nav-link" onclick="loadFile('../CONTRIBUTING.md', this)">Contributing</a>
+            <a class="nav-link" onclick="loadFile('../CODE_OF_CONDUCT.md', this)">Code of Conduct</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>RFCs</h3>
+            <a class="nav-link" onclick="loadFile('rfcs/0000-template.md', this)">RFC Template</a>
+            <a class="nav-link" onclick="loadFile('rfcs/0001-core-data-model.md', this)">0001 · Core Data Model</a>
+        </div>
+    </div>
+
+    <div id="content-wrapper">
+        <div id="loader">Loading...</div>
+        <div id="content">
+            <h1>Mosaic Documentation Hub</h1>
+            <p>A programmable 3D operating environment. Select a document from the sidebar to begin — start with the <strong>Manifesto</strong> or the <strong>Architecture</strong>.</p>
+        </div>
+    </div>
+
+    <script>
+        async function loadFile(path, linkElement, isMermaid = false) {
+            // Update active state in sidebar
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            if (linkElement) linkElement.classList.add('active');
+
+            const contentDiv = document.getElementById('content');
+            const loader = document.getElementById('loader');
+
+            contentDiv.style.opacity = '0.5';
+            loader.style.display = 'block';
+
+            try {
+                const response = await fetch(path);
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                let text = await response.text();
+
+                if (isMermaid) {
+                    const match = text.match(/```mermaid\n([\s\S]*?)```/);
+                    const mermaidText = match ? match[1] : text;
+                    contentDiv.innerHTML = `<div class="mermaid">${mermaidText}</div>`;
+                    if (window.mermaid) {
+                        try {
+                            await window.mermaid.run({
+                                nodes: document.querySelectorAll('.mermaid')
+                            });
+                        } catch(err) {
+                            console.error('Mermaid rendering failed', err);
+                        }
+                    }
+                } else {
+                    // Normalize markdown link paths if necessary
+                    if(path.startsWith('../')) {
+                         text = text.replace(/\]\(docs\//g, '](');
+                    }
+                    contentDiv.innerHTML = marked.parse(text);
+
+                    // Render any inline ```mermaid fences that marked.js
+                    // emitted as <pre><code class="language-mermaid">…</code></pre>.
+                    const mermaidBlocks = contentDiv.querySelectorAll('pre code.language-mermaid');
+                    mermaidBlocks.forEach(code => {
+                        const holder = document.createElement('div');
+                        holder.className = 'mermaid';
+                        holder.textContent = code.textContent;
+                        code.closest('pre').replaceWith(holder);
+                    });
+                    if (mermaidBlocks.length && window.mermaid) {
+                        try {
+                            await window.mermaid.run({ nodes: contentDiv.querySelectorAll('.mermaid') });
+                        } catch (err) {
+                            console.error('Inline mermaid rendering failed', err);
+                        }
+                    }
+                }
+            } catch (error) {
+                contentDiv.innerHTML = `<h2 style="color: #ef4444;">Error Loading File</h2><p>${error.message}</p><p>Note: Fetching local files might fail due to CORS if you aren't running a local server.</p>`;
+            } finally {
+                contentDiv.style.opacity = '1';
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
