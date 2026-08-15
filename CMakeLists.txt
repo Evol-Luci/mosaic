@@ -17,4 +17,5 @@ FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 
 add_subdirectory(foundation)
+add_subdirectory(engine)
 add_subdirectory(tests)
