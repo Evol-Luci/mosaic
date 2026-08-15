@@ -14,30 +14,28 @@ done, update this file to point at what comes next.
   decisions*), so the data-model portion of **Phase 0 — Foundation** is unblocked
   and ready to implement.
 
-Nothing in `foundation/` or `engine/` is built yet. The next work is the first
-code against the accepted model.
+**ECS core ([#9](https://github.com/Evol-Luci/mosaic/issues/9)) is built and
+merged.** The C++ toolchain is stood up (CMake + CMakePresets, C++20, Catch2 via
+FetchContent), and the first foundation code is in place:
+
+- `foundation/core/entity_id.hpp` — `EntityID`, the **32 index / 32 generation**
+  handle; `EntityID(0)` null; slot **retired** (not recycled) on generation exhaustion.
+- `engine/ecs/` — `EntityRegistry` (slot table, free-list recycle, stale-handle
+  detection, retirement), sparse-set component storage (`ComponentRegistry` +
+  a minimal `ComponentTypeID` shim), and the declaration-only `System` contract.
+- `tests/unit/ecs/` — unit tests, all green.
+
+The next code is **serialization against the now-real component model**.
 
 ## What to build next
 
-Three implementation issues are open, in the order to tackle them. All are part of
-**Phase 0 — Foundation** and the **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**.
+Two implementation issues remain, both part of **Phase 0 — Foundation** and the
+**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**.
 
-### 1. ECS core — [#9](https://github.com/Evol-Luci/mosaic/issues/9)  ← start here
+### 1. Serialization — [#10](https://github.com/Evol-Luci/mosaic/issues/10)  ← start here
 
-`foundation/` + `engine/ecs/`. Everything else needs entities and components to
-exist first.
-
-- `EntityID`: 64-bit generational handle, **32 index / 32 generation** (index in
-  the low half). `EntityID(0)` is the null handle. Slot is **retired**, not
-  recycled, on generation exhaustion.
-- Slot table with free-list recycling; generation bump on recycle; stale-handle
-  detection.
-- Component storage keyed by `EntityID`; components are plain reflected data.
-- Systems *declare* the components they read/write (scheduling/threading is later).
-
-### 2. Serialization — [#10](https://github.com/Evol-Luci/mosaic/issues/10)
-
-`foundation/serialization/`. Depends on #9 (needs real components to round-trip).
+`foundation/serialization/`. Unblocked now that #9 provides real components to
+round-trip.
 
 - Reflection-driven, serialize **by field** — no hand-written serializers.
 - **TOML** (toml++) for config/asset metadata; **JSON** for nested scenes.
@@ -45,10 +43,10 @@ exist first.
   identity on the model.
 - `References`/`Handle<T>` serialize as `AssetID`/`EntityID` and re-resolve at load.
 
-### 3. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)
+### 2. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)
 
-`foundation/commands/` + `foundation/events/`. Can proceed in parallel with #10
-once #9 gives it entities to mutate.
+`foundation/commands/` + `foundation/events/`. Can proceed in parallel with #10 —
+#9 already provides the entities it mutates.
 
 - Commands: `id, parameters, required_permissions, execute(), undo(), serialize()`;
   the undoable transaction log.
@@ -59,13 +57,13 @@ once #9 gives it entities to mutate.
 ## Suggested sequence
 
 ```
-#9 ECS core ──┬── #10 Serialization
-              └── #11 Command/event system
+#9 ECS core ✓ ──┬── #10 Serialization  ← start here
+                └── #11 Command/event system
 ```
 
-Start with **#9**. Then #10 and #11 can go in either order (or in parallel);
-#10 has the harder dependency on the component representation, so if working
-solo, do #10 next while the ECS shape is fresh, then #11.
+#10 and #11 can go in either order (or in parallel). #10 has the harder dependency
+on the component representation, so if working solo, do #10 next while the ECS
+shape is fresh, then #11.
 
 ## Ground rules for the worker
 
@@ -73,8 +71,13 @@ solo, do #10 next while the ECS shape is fresh, then #11.
   [ARCHITECTURE.md](../architecture/ARCHITECTURE.md): `foundation/` knows nothing
   above it; `engine/` depends only on `foundation/`.
 - Each issue lists acceptance criteria and expects unit tests under `tests/unit/`.
-- Reflection metadata is a soft dependency for #9/#10; a minimal shim is acceptable
-  until the full reflection system lands. Flag it if it becomes a blocker.
+- Reflection metadata is a soft dependency for #10; #9 shipped a minimal
+  `ComponentTypeID` shim (type identity only). Reconcile it when the full
+  reflection system lands. Flag it if it becomes a blocker.
+- ECS handoff for #10 / the future World layer: own the `on_destroy(e)` →
+  `EntityRegistry::destroy(e)` sequencing, and add an interleaved multi-entity
+  create/add/destroy/recycle integration test — #9's per-unit tests don't cover
+  that cross-cutting cycle.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
   silently deviate — open an issue proposing an amendment and link the RFC.
 
@@ -83,4 +86,4 @@ solo, do #10 next while the ECS shape is fresh, then #11.
 With entities, serialization, and commands/events in place, the next foundation
 pieces (asset registry, World/Scene runtime, transform system, the runtime loop)
 become buildable — the on-ramp to **Phase 1 — First World**. Reassess and update
-this file when #9–#11 close.
+this file when #10–#11 close.
