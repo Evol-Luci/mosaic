@@ -61,3 +61,25 @@ TEST_CASE("remove uses swap-and-pop and keeps the rest reachable", "[sparse_set]
 
     REQUIRE_FALSE(set.remove(b)); // removing absent is a no-op
 }
+
+TEST_CASE("removing the only element is safe and empties the set", "[sparse_set]")
+{
+    SparseSet<int> set;
+    EntityID a{1u, 1u};
+    set.add(a, 42);
+    REQUIRE(set.remove(a));
+    REQUIRE(set.size() == 0u);
+    REQUIRE_FALSE(set.contains(a));
+    REQUIRE(set.get(a) == nullptr);
+}
+
+TEST_CASE("adding a newer generation for the same slot replaces the old entry", "[sparse_set]")
+{
+    SparseSet<int> set;
+    set.add(EntityID{5u, 1u}, 10);
+    set.add(EntityID{5u, 2u}, 20); // same slot, advanced generation, no remove
+    REQUIRE(set.size() == 1u);
+    REQUIRE(set.get(EntityID{5u, 2u}) != nullptr);
+    REQUIRE(*set.get(EntityID{5u, 2u}) == 20);
+    REQUIRE(set.get(EntityID{5u, 1u}) == nullptr); // stale handle no longer matches
+}
