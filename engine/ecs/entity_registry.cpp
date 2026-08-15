@@ -50,6 +50,10 @@ bool EntityRegistry::is_valid(EntityID id) const noexcept
     {
         return false;
     }
+    if (id.generation() == kRetiredGeneration)
+    {
+        return false;
+    }
     const std::uint32_t index = id.index();
     if (index >= generations_.size())
     {

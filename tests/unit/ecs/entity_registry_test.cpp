@@ -33,6 +33,12 @@ TEST_CASE("the null handle is never valid", "[registry]")
     REQUIRE_FALSE(registry.is_valid(EntityID{}));
 }
 
+TEST_CASE("out-of-range indices are not valid", "[registry]")
+{
+    EntityRegistry registry;
+    REQUIRE_FALSE(registry.is_valid(EntityID{9999u, 1u}));
+}
+
 TEST_CASE("slots recycle with a bumped generation, invalidating old handles", "[registry]")
 {
     EntityRegistry registry;
@@ -60,8 +66,17 @@ TEST_CASE("generation exhaustion retires the slot instead of recycling", "[regis
     // Destroying it bumps to 0xFFFFFFFF (the retired sentinel): retire, no recycle.
     REQUIRE(registry.destroy(brink));
     REQUIRE_FALSE(registry.is_valid(brink));
+    REQUIRE(registry.alive_count() == 0u);
 
     // The retired slot is never handed back out.
     EntityID next = registry.create();
     REQUIRE(next.index() != a.index());
+}
+
+TEST_CASE("a handle bearing the retired sentinel generation is never valid", "[registry]")
+{
+    EntityRegistry registry;
+    EntityID a = registry.create();
+    EntityID crafted{a.index(), EntityRegistry::kRetiredGeneration};
+    REQUIRE_FALSE(registry.is_valid(crafted));
 }
