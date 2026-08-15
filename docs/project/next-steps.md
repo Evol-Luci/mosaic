@@ -35,7 +35,8 @@ Two implementation issues remain, both part of **Phase 0 — Foundation** and th
 ### 1. Serialization — [#10](https://github.com/Evol-Luci/mosaic/issues/10)  ← start here
 
 `foundation/serialization/`. Unblocked now that #9 provides real components to
-round-trip.
+round-trip. Normative stance: [RFC 0001](../rfcs/0001-core-data-model.md)
+*Serialization stance*.
 
 - Reflection-driven, serialize **by field** — no hand-written serializers.
 - **TOML** (toml++) for config/asset metadata; **JSON** for nested scenes.
@@ -46,7 +47,9 @@ round-trip.
 ### 2. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)
 
 `foundation/commands/` + `foundation/events/`. Can proceed in parallel with #10 —
-#9 already provides the entities it mutates.
+#9 already provides the entities it mutates. Normative semantics live in
+[command-event-system](../design/command-event-system.md); `required_permissions`
+ties into [automation-and-agents](../design/automation-and-agents.md).
 
 - Commands: `id, parameters, required_permissions, execute(), undo(), serialize()`;
   the undoable transaction log.
@@ -73,7 +76,8 @@ shape is fresh, then #11.
 - Each issue lists acceptance criteria and expects unit tests under `tests/unit/`.
 - Reflection metadata is a soft dependency for #10; #9 shipped a minimal
   `ComponentTypeID` shim (type identity only). Reconcile it when the full
-  reflection system lands. Flag it if it becomes a blocker.
+  reflection system ([design/reflection.md](../design/reflection.md)) lands.
+  Flag it if it becomes a blocker.
 - ECS handoff for #10 / the future World layer: own the `on_destroy(e)` →
   `EntityRegistry::destroy(e)` sequencing, and add an interleaved multi-entity
   create/add/destroy/recycle integration test — #9's per-unit tests don't cover
@@ -81,9 +85,9 @@ shape is fresh, then #11.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
   silently deviate — open an issue proposing an amendment and link the RFC.
 
-## After these three
+## After these two
 
-With entities, serialization, and commands/events in place, the next foundation
-pieces (asset registry, World/Scene runtime, transform system, the runtime loop)
-become buildable — the on-ramp to **Phase 1 — First World**. Reassess and update
-this file when #10–#11 close.
+With entities (#9, done), serialization, and commands/events in place, the whole
+foundation trio is complete and the next pieces (asset registry, World/Scene
+runtime, transform system, the runtime loop) become buildable — the on-ramp to
+**Phase 1 — First World**. Reassess and update this file when #10–#11 close.
