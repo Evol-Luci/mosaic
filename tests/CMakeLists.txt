@@ -7,6 +7,7 @@ add_executable(mosaic_unit_tests
   unit/ecs/system_test.cpp
   unit/serialization/value_test.cpp
   unit/serialization/reference_test.cpp
+  unit/serialization/reflect_value_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
@@ -14,6 +15,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   Catch2::Catch2WithMain
 )
 target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)
+target_include_directories(mosaic_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit/serialization)
 
 include(Catch)
 catch_discover_tests(mosaic_unit_tests)
