@@ -26,7 +26,8 @@ FetchContent), and the first foundation code is in place:
 - `tests/unit/ecs/` — unit tests, all green.
 
 **Serialization ([#10](https://github.com/Evol-Luci/mosaic/issues/10)) is built and
-merged.** Reflection-driven, lossless cross-format projection:
+merged.** Reflection-driven, lossless cross-format projection; normative stance in
+[RFC 0001 *Serialization stance*](../rfcs/0001-core-data-model.md#serialization-stance):
 
 - `foundation/serialization/` — `Value` DOM, `AssetID`/`Handle<T>`/`ReferenceResolver`,
   reflection bridge (`to_value`/`from_value`), JSON backend (nlohmann), TOML backend
@@ -38,7 +39,10 @@ merged.** Reflection-driven, lossless cross-format projection:
   `[reflect]`, `[refenc]`, `[json]`, `[toml]`, `[crossfmt]` — 66 tests, all green.
 
 **Command / event system ([#11](https://github.com/Evol-Luci/mosaic/issues/11)) is
-built and merged.** The last Phase 0 foundation primitive:
+built and merged.** The last Phase 0 foundation primitive; normative semantics live
+in [design/command-event-system.md](../design/command-event-system.md), and
+`required_permissions` ties into
+[design/automation-and-agents.md](../design/automation-and-agents.md):
 
 - `foundation/commands/` — `Command` (the `id, parameters, required_permissions,
   execute(), undo(), serialize()` contract, with a default `serialize()` that
@@ -92,10 +96,11 @@ units of the
 are now the frontier. **None are filed as issues yet** — file them (mirroring the
 acceptance-criteria style of #9–#11) before picking one up:
 
-1. **Reflection system** — a type registry + reflection-driven *generic* component
-   construction (build a component from a serialized type name without the C++
-   type at the call site). This is the gap `World` deliberately left open, and it
-   gates Scene load/save. The `ComponentTypeID` shim from #9 is where it plugs in.
+1. **Reflection system** ([design/reflection.md](../design/reflection.md)) — a type
+   registry + reflection-driven *generic* component construction (build a component
+   from a serialized type name without the C++ type at the call site). This is the
+   gap `World` deliberately left open, and it gates Scene load/save. The
+   `ComponentTypeID` shim from #9 is where it plugs in.
 2. **Scene load/save** — serialize/deserialize an entity+component graph via #10,
    loading into a `World`. Depends on the reflection system above.
 3. **Asset registry** and the **transform system** — buildable in parallel; the
