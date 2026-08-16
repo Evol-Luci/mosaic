@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-15
+**Last updated:** 2026-08-16
 
 ## Where we are
 
