@@ -81,6 +81,18 @@ public:
 
     std::size_t size() const noexcept { return dense_.size(); }
 
+    // Visit every stored (entity, component) pair in dense order. Do not add or
+    // remove elements of this set from within fn — that can reallocate the dense
+    // arrays under the loop.
+    template <typename Fn>
+    void each(Fn&& fn)
+    {
+        for (std::size_t i = 0; i < dense_.size(); ++i)
+        {
+            fn(dense_[i], components_[i]);
+        }
+    }
+
 private:
     static constexpr std::uint32_t kInvalid = std::numeric_limits<std::uint32_t>::max();
 
