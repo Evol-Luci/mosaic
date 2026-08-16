@@ -55,6 +55,8 @@ public:
         auto it = sync_handlers_.find(std::type_index(typeid(E)));
         if (it != sync_handlers_.end())
         {
+            // Handlers must not subscribe to or unsubscribe from this bus during
+            // dispatch — that would reallocate the handler list being iterated.
             for (auto& handler : it->second)
             {
                 handler(&event);
