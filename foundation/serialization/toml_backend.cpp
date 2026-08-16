@@ -113,7 +113,7 @@ Value from_toml(const std::string& text)
     }
     catch (const toml::parse_error& e)
     {
-        throw SerializationError(std::string("TOML parse error: ") + e.description().data());
+        throw SerializationError("TOML parse error: " + std::string(e.description()));
     }
 }
 

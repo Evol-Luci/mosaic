@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -135,13 +136,35 @@ void decode(const Value& node, M& out, const ReferenceResolver& resolver)
     }
     else if constexpr (std::is_integral_v<U> && std::is_signed_v<U>)
     {
-        if (!node.is<std::int64_t>()) throw SerializationError("decode: expected signed integer");
-        out = static_cast<U>(node.as<std::int64_t>());
+        if (node.is<std::int64_t>())
+        {
+            out = static_cast<U>(node.as<std::int64_t>());
+        }
+        else if (node.is<std::uint64_t>() &&
+                 node.as<std::uint64_t>() <=
+                     static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+        {
+            out = static_cast<U>(node.as<std::uint64_t>());
+        }
+        else
+        {
+            throw SerializationError("decode: expected signed integer");
+        }
     }
     else if constexpr (std::is_integral_v<U> && std::is_unsigned_v<U>)
     {
-        if (!node.is<std::uint64_t>()) throw SerializationError("decode: expected unsigned integer");
-        out = static_cast<U>(node.as<std::uint64_t>());
+        if (node.is<std::uint64_t>())
+        {
+            out = static_cast<U>(node.as<std::uint64_t>());
+        }
+        else if (node.is<std::int64_t>() && node.as<std::int64_t>() >= 0)
+        {
+            out = static_cast<U>(node.as<std::int64_t>());
+        }
+        else
+        {
+            throw SerializationError("decode: expected unsigned integer");
+        }
     }
     else if constexpr (std::is_floating_point_v<U>)
     {
