@@ -24,6 +24,7 @@ public:
     using EventBus = mosaic::foundation::events::EventBus;
 
     EntityID create_entity();
+    void destroy_entity(EntityID id);
     bool is_valid(EntityID id) const { return entities_.is_valid(id); }
     std::size_t entity_count() const { return entities_.alive_count(); }
 
