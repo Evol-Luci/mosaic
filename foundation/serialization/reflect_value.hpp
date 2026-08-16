@@ -9,6 +9,7 @@
 
 #include "foundation/reflection/reflect.hpp"
 #include "foundation/serialization/reference.hpp"
+#include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
 
 namespace mosaic::foundation::serialization
@@ -44,6 +45,18 @@ Value encode(M& value)
     else if constexpr (std::is_same_v<U, bool>)
     {
         return Value(value);
+    }
+    else if constexpr (std::is_same_v<U, mosaic::foundation::EntityID>)
+    {
+        return Value(std::to_string(value.value()));
+    }
+    else if constexpr (std::is_same_v<U, AssetID>)
+    {
+        return Value(value.to_string());
+    }
+    else if constexpr (is_handle_v<U>)
+    {
+        return Value(value.asset_id().to_string());
     }
     else if constexpr (std::is_integral_v<U> && std::is_signed_v<U>)
     {
@@ -94,6 +107,23 @@ void decode(const Value& node, M& out, const ReferenceResolver& resolver)
     {
         if (!node.is<bool>()) throw SerializationError("decode: expected bool");
         out = node.as<bool>();
+    }
+    else if constexpr (std::is_same_v<U, mosaic::foundation::EntityID>)
+    {
+        if (!node.is<std::string>()) throw SerializationError("decode: expected EntityID string");
+        out = resolver.resolve_entity(
+            mosaic::foundation::EntityID(static_cast<std::uint64_t>(std::stoull(node.as<std::string>()))));
+    }
+    else if constexpr (std::is_same_v<U, AssetID>)
+    {
+        if (!node.is<std::string>()) throw SerializationError("decode: expected AssetID string");
+        out = resolver.resolve_asset(AssetID::from_string(node.as<std::string>()));
+    }
+    else if constexpr (is_handle_v<U>)
+    {
+        if (!node.is<std::string>()) throw SerializationError("decode: expected Handle AssetID string");
+        AssetID id = resolver.resolve_asset(AssetID::from_string(node.as<std::string>()));
+        out = U(id);
     }
     else if constexpr (std::is_integral_v<U> && std::is_signed_v<U>)
     {

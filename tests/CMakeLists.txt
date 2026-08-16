@@ -8,6 +8,7 @@ add_executable(mosaic_unit_tests
   unit/serialization/value_test.cpp
   unit/serialization/reference_test.cpp
   unit/serialization/reflect_value_test.cpp
+  unit/serialization/reference_encoding_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
