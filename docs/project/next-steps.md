@@ -37,33 +37,58 @@ merged.** Reflection-driven, lossless cross-format projection:
 - `tests/unit/serialization/` — unit tests for every tag: `[value]`, `[reference]`,
   `[reflect]`, `[refenc]`, `[json]`, `[toml]`, `[crossfmt]` — 66 tests, all green.
 
-The next code is the **command / event system**.
+**Command / event system ([#11](https://github.com/Evol-Luci/mosaic/issues/11)) is
+built and merged.** The last Phase 0 foundation primitive:
+
+- `foundation/commands/` — `Command` (the `id, parameters, required_permissions,
+  execute(), undo(), serialize()` contract, with a default `serialize()` that
+  projects `{ id, parameters, required_permissions }` through the serialization
+  `Value` DOM) and `CommandStack`, the undoable transaction log (execute pushes +
+  clears redo; undo inverts LIFO; redo re-executes).
+- `foundation/events/` — `EventBus`: synchronous subscribers fire in-tick before
+  `emit` returns; deferred subscribers are served from a **double-buffered queue**
+  drained once per tick, FIFO in global emit order across all event types, never
+  mid-tick. A re-emit from inside a drain defers to the next tick.
+- `tests/unit/events/` + `tests/unit/commands/` — `[events]`, `[commands]` unit
+  tests plus a command/event integration test (`[commands][events]`): a deferred
+  event emitted by a command announces on the next drain, and **undo announces
+  nothing** — the "enqueue on execute, not undo" acceptance. 80 tests, all green.
+  - *Interpretation note for the World layer:* the RFC says a deferred event
+    enqueues "on execute, not when undone/redone." `CommandStack::redo()` re-runs
+    the command's `execute()`, so a redo **does** re-announce — events live in the
+    command body, not the log, and the UI must observe a redo. This resolves the
+    RFC's ambiguity in the natural direction (redo == re-execute); flag it if the
+    World/UI layer needs redo to be silent.
+
+The three Phase 0 foundation implementation issues (#9, #10, #11) are now complete.
 
 ## What to build next
 
-One implementation issue remains in **Phase 0 — Foundation** as part of the
-**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**.
+Foundation's data-model spine is in place. The next buildable units are in the
+**Engine** layer of the
+**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**:
+World/Scene runtime, the asset registry, the transform system, and the runtime
+loop. **None of these are filed as issues yet** — file them (mirroring the
+acceptance-criteria style of #9–#11) before picking one up.
 
-### 1. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)  ← start here
-
-`foundation/commands/` + `foundation/events/`. Unblocked — #9 provides the
-entities it mutates and #10 provides the serialization it round-trips.
-
-- Commands: `id, parameters, required_permissions, execute(), undo(), serialize()`;
-  the undoable transaction log.
-- Events: synchronous in-tick by default; **double-buffered per-frame drain** for
-  deferred subscribers (FIFO, one tick after emit). Deferred events emitted by a
-  command enqueue on *execute*, not on undo/redo.
+Suggested first target: **World/Scene runtime**. It is the container the ECS core
+(#9) was built for, it consumes serialization (#10) to load scenes, and it is the
+natural owner of the `EntityRegistry` destroy sequencing and the per-tick
+`EventBus::drain_deferred()` call from #11 (see the handoff notes below).
 
 ## Suggested sequence
 
 ```
 #9 ECS core ✓ ──┬── #10 Serialization ✓
-                └── #11 Command/event system  ← start here
+                └── #11 Command/event system ✓
+                        │
+                        └── (unfiled) World/Scene runtime ── asset registry
+                                                          ── transform system
+                                                          ── runtime loop
 ```
 
-#10 is done. #11 is the next buildable unit — it depends only on #9, which is
-already in place.
+#9, #10, and #11 are done. The engine-layer pieces above are unblocked but not yet
+ticketed.
 
 ## Ground rules for the worker
 
@@ -74,16 +99,21 @@ already in place.
 - Reflection metadata is a soft dependency for #10; #9 shipped a minimal
   `ComponentTypeID` shim (type identity only). Reconcile it when the full
   reflection system lands. Flag it if it becomes a blocker.
-- ECS handoff for #10 / the future World layer: own the `on_destroy(e)` →
+- ECS handoff for the future World layer: own the `on_destroy(e)` →
   `EntityRegistry::destroy(e)` sequencing, and add an interleaved multi-entity
   create/add/destroy/recycle integration test — #9's per-unit tests don't cover
   that cross-cutting cycle.
+- Event-drain handoff for the World layer: the runtime loop owns the once-per-tick
+  `EventBus::drain_deferred()` call at the start of the tick. #11 ships the
+  mechanism but not a tick; there is no scheduler in `foundation/` by design.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
-  silently deviate — open an issue proposing an amendment and link the RFC.
+  silently deviate — open an issue proposing an amendment and link the RFC. (See
+  the redo/announce interpretation note under *Where we are* — a resolved
+  ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
 ## After these three
 
-With entities, serialization, and commands/events in place, the next foundation
-pieces (asset registry, World/Scene runtime, transform system, the runtime loop)
-become buildable — the on-ramp to **Phase 1 — First World**. Reassess and update
-this file when #10–#11 close.
+With entities, serialization, and commands/events all in place, the Engine-layer
+pieces (World/Scene runtime, asset registry, transform system, the runtime loop)
+are the on-ramp to **Phase 1 — First World**. File issues for them and reassess
+this file as each lands.
