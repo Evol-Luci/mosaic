@@ -13,6 +13,9 @@ add_executable(mosaic_unit_tests
   unit/serialization/toml_backend_test.cpp
   unit/serialization/cross_format_test.cpp
   unit/serialization/unsigned_roundtrip_test.cpp
+  unit/events/event_bus_test.cpp
+  unit/commands/command_stack_test.cpp
+  unit/commands/command_event_integration_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
