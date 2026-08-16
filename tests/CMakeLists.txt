@@ -11,6 +11,7 @@ add_executable(mosaic_unit_tests
   unit/serialization/reference_encoding_test.cpp
   unit/serialization/json_backend_test.cpp
   unit/serialization/toml_backend_test.cpp
+  unit/serialization/cross_format_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
