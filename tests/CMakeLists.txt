@@ -23,6 +23,7 @@ add_executable(mosaic_unit_tests
   unit/events/event_bus_test.cpp
   unit/commands/command_stack_test.cpp
   unit/commands/command_event_integration_test.cpp
+  unit/reflection/type_id_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
