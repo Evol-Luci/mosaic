@@ -62,19 +62,49 @@ built and merged.** The last Phase 0 foundation primitive:
 
 The three Phase 0 foundation implementation issues (#9, #10, #11) are now complete.
 
+**The runtime `World` (Engine layer) is built and merged.** The first Engine unit
+after the foundation primitives, designed and planned in
+[specs/2026-08-16-engine-world-runtime-design.md](../superpowers/specs/2026-08-16-engine-world-runtime-design.md)
+and [plans/2026-08-16-engine-world-runtime.md](../superpowers/plans/2026-08-16-engine-world-runtime.md):
+
+- `engine/world/` — `World`: owns the `EntityRegistry`, `ComponentRegistry`, and a
+  per-world `EventBus`; delegates entity/component ops; runs registered systems.
+  `tick(dt)` does exactly three things in order: **drain deferred events** (the
+  #11 fixed sync point), **run systems** in registration order, **commit deferred
+  destructions** (`on_destroy → destroy`). `destroy_entity` is deferred so systems
+  never have entities vanish mid-`for_each`.
+- `engine/ecs/` additions — `SparseSet::each` / `ComponentRegistry::for_each<T>`
+  single-component iteration, and `System::update(World&, dt)` (default no-op).
+- `tests/unit/world/` + `tests/unit/ecs/` — `[world]` cases plus the interleaved
+  create/add/destroy/recycle integration test the #9 handoff asked for. Full suite
+  95 tests, all green.
+
+Deliberately **out of scope** (their own future specs): Scene load/save, the
+reflection-driven *generic* component construction Scene needs, concrete systems
+(e.g. transform), and the outer runtime loop. `World` exposes `tick(dt)`; nothing
+calls it in a loop yet.
+
 ## What to build next
 
-Foundation's data-model spine is in place. The next buildable units are in the
-**Engine** layer of the
-**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**:
-World/Scene runtime, the asset registry, the transform system, and the runtime
-loop. **None of these are filed as issues yet** — file them (mirroring the
-acceptance-criteria style of #9–#11) before picking one up.
+The runtime `World` is in place. The remaining **Engine** / early **Phase 1**
+units of the
+**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
+are now the frontier. **None are filed as issues yet** — file them (mirroring the
+acceptance-criteria style of #9–#11) before picking one up:
 
-Suggested first target: **World/Scene runtime**. It is the container the ECS core
-(#9) was built for, it consumes serialization (#10) to load scenes, and it is the
-natural owner of the `EntityRegistry` destroy sequencing and the per-tick
-`EventBus::drain_deferred()` call from #11 (see the handoff notes below).
+1. **Reflection system** — a type registry + reflection-driven *generic* component
+   construction (build a component from a serialized type name without the C++
+   type at the call site). This is the gap `World` deliberately left open, and it
+   gates Scene load/save. The `ComponentTypeID` shim from #9 is where it plugs in.
+2. **Scene load/save** — serialize/deserialize an entity+component graph via #10,
+   loading into a `World`. Depends on the reflection system above.
+3. **Asset registry** and the **transform system** — buildable in parallel; the
+   transform system is the first concrete `System` subclass to exercise
+   `World::tick`.
+4. **Runtime loop** — the outer driver that calls `World::tick(dt)` each frame.
+
+Suggested first target: the **reflection system**, since Scene and the inspector
+both block on it and it is the last foundational unknown.
 
 ## Suggested sequence
 
@@ -82,13 +112,14 @@ natural owner of the `EntityRegistry` destroy sequencing and the per-tick
 #9 ECS core ✓ ──┬── #10 Serialization ✓
                 └── #11 Command/event system ✓
                         │
-                        └── (unfiled) World/Scene runtime ── asset registry
-                                                          ── transform system
-                                                          ── runtime loop
+                        └── World runtime ✓ ──┬── (unfiled) reflection ── Scene load/save
+                                              ├── (unfiled) asset registry
+                                              ├── (unfiled) transform system
+                                              └── (unfiled) runtime loop
 ```
 
-#9, #10, and #11 are done. The engine-layer pieces above are unblocked but not yet
-ticketed.
+#9, #10, #11, and the World runtime are done. The pieces above are unblocked but
+not yet ticketed.
 
 ## Ground rules for the worker
 
@@ -97,23 +128,25 @@ ticketed.
   above it; `engine/` depends only on `foundation/`.
 - Each issue lists acceptance criteria and expects unit tests under `tests/unit/`.
 - Reflection metadata is a soft dependency for #10; #9 shipped a minimal
-  `ComponentTypeID` shim (type identity only). Reconcile it when the full
-  reflection system lands. Flag it if it becomes a blocker.
-- ECS handoff for the future World layer: own the `on_destroy(e)` →
-  `EntityRegistry::destroy(e)` sequencing, and add an interleaved multi-entity
-  create/add/destroy/recycle integration test — #9's per-unit tests don't cover
-  that cross-cutting cycle.
-- Event-drain handoff for the World layer: the runtime loop owns the once-per-tick
-  `EventBus::drain_deferred()` call at the start of the tick. #11 ships the
-  mechanism but not a tick; there is no scheduler in `foundation/` by design.
+  `ComponentTypeID` shim (type identity only). The reflection system (next up)
+  reconciles it — and the `World` needs its *generic* construction path before
+  Scene load/save is buildable. Flag it if it becomes a blocker.
+- ~~ECS handoff: own the `on_destroy(e)` → `EntityRegistry::destroy(e)` sequencing
+  and add an interleaved create/add/destroy/recycle integration test.~~ **Done by
+  the `World`:** `tick` commits deferred destructions in that order, and
+  `tests/unit/world/world_integration_test.cpp` covers the interleaved cycle.
+- Event-drain handoff: the `World::tick` owns the once-per-tick
+  `EventBus::drain_deferred()` at the tick's start. The still-open piece is the
+  **runtime loop** that calls `World::tick(dt)` each frame — there is no scheduler
+  yet, by design.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
   silently deviate — open an issue proposing an amendment and link the RFC. (See
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After these three
+## After the World runtime
 
-With entities, serialization, and commands/events all in place, the Engine-layer
-pieces (World/Scene runtime, asset registry, transform system, the runtime loop)
-are the on-ramp to **Phase 1 — First World**. File issues for them and reassess
-this file as each lands.
+With entities, serialization, commands/events, and the runtime `World` in place,
+the on-ramp to **Phase 1 — First World** is the reflection system → Scene load/save,
+plus the asset registry, transform system, and runtime loop. File issues for them
+and reassess this file as each lands.
