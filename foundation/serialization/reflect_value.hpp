@@ -111,8 +111,16 @@ void decode(const Value& node, M& out, const ReferenceResolver& resolver)
     else if constexpr (std::is_same_v<U, mosaic::foundation::EntityID>)
     {
         if (!node.is<std::string>()) throw SerializationError("decode: expected EntityID string");
-        out = resolver.resolve_entity(
-            mosaic::foundation::EntityID(static_cast<std::uint64_t>(std::stoull(node.as<std::string>()))));
+        std::uint64_t raw = 0;
+        try
+        {
+            raw = std::stoull(node.as<std::string>());
+        }
+        catch (const std::exception& e)
+        {
+            throw SerializationError(std::string("decode: invalid EntityID string: ") + e.what());
+        }
+        out = resolver.resolve_entity(mosaic::foundation::EntityID(raw));
     }
     else if constexpr (std::is_same_v<U, AssetID>)
     {

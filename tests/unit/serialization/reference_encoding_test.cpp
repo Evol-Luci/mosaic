@@ -93,3 +93,17 @@ TEST_CASE("resolver re-resolves entity and asset references at load", "[refenc]"
     REQUIRE(out.material == AssetID::from_string("22222222-2222-2222-2222-222222222222"));
     REQUIRE(out.texture == Handle<int>{AssetID::from_string("22222222-2222-2222-2222-222222222222")});
 }
+
+TEST_CASE("malformed EntityID string surfaces as SerializationError", "[refenc]")
+{
+    using mosaic::foundation::serialization::SerializationError;
+
+    Table t;
+    t["target"] = Value{std::string{"not-a-number"}};
+    t["material"] = Value{std::string{"11111111-1111-1111-1111-111111111111"}};
+    t["texture"] = Value{std::string{"33333333-3333-3333-3333-333333333333"}};
+    Value v{std::move(t)};
+
+    Refs out;
+    REQUIRE_THROWS_AS(from_value(v, out), SerializationError);
+}
