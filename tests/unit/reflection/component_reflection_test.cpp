@@ -1,3 +1,6 @@
+#include <string>
+#include <vector>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine/reflection/component_reflection.hpp"
@@ -72,4 +75,49 @@ TEST_CASE("construct onto an invalid entity returns false", "[reflection]")
 
     const Value value = to_value(Position{1.0f, 1.0f});
     REQUIRE_FALSE(reflector.construct(world, e, "Position", value));
+}
+
+namespace
+{
+struct Inner
+{
+    int a;
+};
+template <class V> void reflect(V& visitor, Inner& i)
+{
+    visitor.member("a", i.a);
+}
+
+struct Complex
+{
+    Inner inner;
+    std::vector<int> values;
+    std::string label;
+};
+template <class V> void reflect(V& visitor, Complex& c)
+{
+    visitor.member("inner", c.inner);
+    visitor.member("values", c.values);
+    visitor.member("label", c.label);
+}
+} // namespace
+
+TEST_CASE("round-trip: reflect -> to_value -> construct reproduces the component", "[reflection]")
+{
+    TypeRegistry registry;
+    ComponentReflection reflector;
+    reflector.register_component<Complex>(registry, "Complex");
+
+    World world;
+    const EntityID e = world.create_entity();
+
+    Complex original{Inner{7}, {1, 2, 3}, "hp"};
+    const Value value = to_value(original);
+    REQUIRE(reflector.construct(world, e, "Complex", value));
+
+    Complex* got = world.get_component<Complex>(e);
+    REQUIRE(got != nullptr);
+    REQUIRE(got->inner.a == 7);
+    REQUIRE(got->values == std::vector<int>{1, 2, 3});
+    REQUIRE(got->label == "hp");
 }
