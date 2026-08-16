@@ -8,6 +8,7 @@ add_executable(mosaic_unit_tests
   unit/ecs/system_test.cpp
   unit/ecs/sparse_set_iteration_test.cpp
   unit/ecs/component_registry_iteration_test.cpp
+  unit/ecs/entity_registry_iteration_test.cpp
   unit/world/world_test.cpp
   unit/world/world_tick_test.cpp
   unit/world/world_destroy_test.cpp

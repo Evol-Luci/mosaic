@@ -38,6 +38,9 @@ public:
     bool is_valid(EntityID id) const { return entities_.is_valid(id); }
     std::size_t entity_count() const { return entities_.alive_count(); }
 
+    template <typename Fn>
+    void for_each_entity(Fn&& fn) const { entities_.for_each(std::forward<Fn>(fn)); }
+
     template <typename T>
     bool add_component(EntityID id, T value) { return components_.add<T>(id, std::move(value)); }
 
