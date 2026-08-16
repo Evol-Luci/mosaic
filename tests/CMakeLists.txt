@@ -27,6 +27,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/type_id_test.cpp
   unit/reflection/type_registry_test.cpp
   unit/reflection/component_reflection_test.cpp
+  unit/scene/scene_save_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
