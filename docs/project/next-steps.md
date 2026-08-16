@@ -93,23 +93,28 @@ calls it in a loop yet.
 The runtime `World` is in place. The remaining **Engine** / early **Phase 1**
 units of the
 **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
-are now the frontier. **None are filed as issues yet** — file them (mirroring the
-acceptance-criteria style of #9–#11) before picking one up:
+are now the frontier. **All five are now filed** (acceptance criteria on each issue):
 
-1. **Reflection system** ([design/reflection.md](../design/reflection.md)) — a type
-   registry + reflection-driven *generic* component construction (build a component
-   from a serialized type name without the C++ type at the call site). This is the
-   gap `World` deliberately left open, and it gates Scene load/save. The
-   `ComponentTypeID` shim from #9 is where it plugs in.
-2. **Scene load/save** — serialize/deserialize an entity+component graph via #10,
-   loading into a `World`. Depends on the reflection system above.
-3. **Asset registry** and the **transform system** — buildable in parallel; the
-   transform system is the first concrete `System` subclass to exercise
-   `World::tick`.
-4. **Runtime loop** — the outer driver that calls `World::tick(dt)` each frame.
+1. **Reflection system** — [#18](https://github.com/Evol-Luci/mosaic/issues/18).
+   Type registry + reflection-driven *generic* component construction (build a
+   component from a serialized type name without the C++ type at the call site).
+   This is the gap `World` deliberately left open, and it gates Scene load/save.
+   The `ComponentTypeID` shim from #9 is where it plugs in.
+   See [design/reflection.md](../design/reflection.md).
+2. **Scene load/save** — [#19](https://github.com/Evol-Luci/mosaic/issues/19).
+   Serialize/deserialize an entity+component graph via #10, loading into a `World`.
+   Depends on the reflection system (#18).
+3. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
+   Runtime `AssetID` → resource resolution + caching, wired into the #10
+   `ReferenceResolver` hook. Importer/cooker are future work.
+4. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
+   The first concrete `System` subclass to exercise `World::tick`. Buildable in
+   parallel with the asset registry; flags that `foundation/` has no math types yet.
+5. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
+   outer fixed-timestep driver that calls `World::tick(dt)` each frame.
 
-Suggested first target: the **reflection system**, since Scene and the inspector
-both block on it and it is the last foundational unknown.
+Suggested first target: the **reflection system** (#18), since Scene and the
+inspector both block on it and it is the last foundational unknown.
 
 ## Suggested sequence
 
@@ -117,14 +122,14 @@ both block on it and it is the last foundational unknown.
 #9 ECS core ✓ ──┬── #10 Serialization ✓
                 └── #11 Command/event system ✓
                         │
-                        └── World runtime ✓ ──┬── (unfiled) reflection ── Scene load/save
-                                              ├── (unfiled) asset registry
-                                              ├── (unfiled) transform system
-                                              └── (unfiled) runtime loop
+                        └── World runtime ✓ ──┬── #18 reflection ── #19 Scene load/save
+                                              ├── #20 asset registry
+                                              ├── #21 transform system
+                                              └── #22 runtime loop
 ```
 
-#9, #10, #11, and the World runtime are done. The pieces above are unblocked but
-not yet ticketed.
+#9, #10, #11, and the World runtime are done. #18–#22 are filed and unblocked;
+#19 depends on #18, the rest depend only on the World runtime.
 
 ## Ground rules for the worker
 
