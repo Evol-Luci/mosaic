@@ -4,6 +4,7 @@ add_executable(mosaic_unit_tests
   unit/ecs/entity_registry_test.cpp
   unit/ecs/sparse_set_test.cpp
   unit/ecs/component_registry_test.cpp
+  unit/ecs/component_registry_traits_test.cpp
   unit/ecs/system_test.cpp
   unit/ecs/sparse_set_iteration_test.cpp
   unit/ecs/component_registry_iteration_test.cpp
