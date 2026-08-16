@@ -1,3 +1,5 @@
 add_library(mosaic_foundation INTERFACE)
 target_include_directories(mosaic_foundation INTERFACE ${CMAKE_SOURCE_DIR})
 target_compile_features(mosaic_foundation INTERFACE cxx_std_20)
+
+add_subdirectory(serialization)

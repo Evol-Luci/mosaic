@@ -9,10 +9,12 @@ add_executable(mosaic_unit_tests
   unit/serialization/reference_test.cpp
   unit/serialization/reflect_value_test.cpp
   unit/serialization/reference_encoding_test.cpp
+  unit/serialization/json_backend_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
   mosaic_foundation
+  mosaic_serialization
   Catch2::Catch2WithMain
 )
 target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)

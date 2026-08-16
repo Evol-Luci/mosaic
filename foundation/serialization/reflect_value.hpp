@@ -207,6 +207,15 @@ Value to_value(T& obj)
     return Value(std::move(visitor.table));
 }
 
+// Overload for temporaries / rvalues: materialize and delegate to the
+// lvalue overload so callers can write to_value(MyType{...}) without a
+// named local.
+template <class T>
+Value to_value(T&& obj)
+{
+    return to_value(obj);
+}
+
 inline const ReferenceResolver& default_resolver()
 {
     static const ReferenceResolver resolver;

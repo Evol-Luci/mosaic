@@ -3,6 +3,9 @@
 #include <string>
 #include <vector>
 
+#include "foundation/core/entity_id.hpp"
+#include "foundation/serialization/value.hpp"
+
 // Sample reflected types shared by the serialization tests. Each type opts into
 // reflection with a free `reflect(visitor, value)` found via ADL (they live in
 // the same namespace as the type). More schemas are appended by later tasks.
@@ -61,6 +64,29 @@ struct Name
 template <class V> void reflect(V& v, Name& t)
 {
     v.member("value", t.value);
+}
+
+
+struct SceneEntity
+{
+    mosaic::foundation::EntityID id;
+    mosaic::foundation::serialization::Value components; // Table: type name -> component Value
+    friend bool operator==(const SceneEntity&, const SceneEntity&) = default;
+};
+template <class V> void reflect(V& v, SceneEntity& e)
+{
+    v.member("id", e.id);
+    v.member("components", e.components);
+}
+
+struct Scene
+{
+    std::vector<SceneEntity> entities;
+    friend bool operator==(const Scene&, const Scene&) = default;
+};
+template <class V> void reflect(V& v, Scene& s)
+{
+    v.member("entities", s.entities);
 }
 
 } // namespace mosaic_samples
