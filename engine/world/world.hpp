@@ -23,6 +23,16 @@ public:
     using EntityID = mosaic::foundation::EntityID;
     using EventBus = mosaic::foundation::events::EventBus;
 
+    World() = default;
+
+    // Non-copyable and non-movable: components_ holds a back-pointer into
+    // entities_, and the event bus captures `this` in deferred closures, so the
+    // World's address must be stable for its lifetime.
+    World(const World&) = delete;
+    World& operator=(const World&) = delete;
+    World(World&&) = delete;
+    World& operator=(World&&) = delete;
+
     EntityID create_entity();
     void destroy_entity(EntityID id);
     bool is_valid(EntityID id) const { return entities_.is_valid(id); }
