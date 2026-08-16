@@ -10,6 +10,7 @@ add_executable(mosaic_unit_tests
   unit/world/world_test.cpp
   unit/world/world_tick_test.cpp
   unit/world/world_destroy_test.cpp
+  unit/world/world_integration_test.cpp
   unit/serialization/value_test.cpp
   unit/serialization/reference_test.cpp
   unit/serialization/reflect_value_test.cpp
