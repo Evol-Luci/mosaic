@@ -22,6 +22,13 @@ using mosaic_samples::Vec3;
 
 namespace
 {
+// JSON text of `levels` nested arrays, e.g. levels=3 -> "[[[]]]". Each '[' opens
+// one more container level, so the innermost empty array sits at depth `levels`.
+std::string nested_json_arrays(int levels)
+{
+    return std::string(levels, '[') + std::string(levels, ']');
+}
+
 // Builds a scene of two entities, each carrying a Transform component encoded
 // into the components table (type name -> nested component Value).
 Scene sample_scene()
@@ -76,5 +83,29 @@ TEST_CASE("scene JSON round-trip is identity on the schema", "[json]")
 TEST_CASE("from_json throws SerializationError on malformed input", "[json]")
 {
     REQUIRE_THROWS_AS(from_json("{ not valid json "),
+                      mosaic::foundation::serialization::SerializationError);
+}
+
+TEST_CASE("from_json accepts nesting at the configured depth limit", "[json]")
+{
+    REQUIRE_NOTHROW(from_json(nested_json_arrays(4), /*max_depth=*/4));
+}
+
+TEST_CASE("from_json throws when nesting exceeds the configured depth limit", "[json]")
+{
+    REQUIRE_THROWS_AS(from_json(nested_json_arrays(5), /*max_depth=*/4),
+                      mosaic::foundation::serialization::SerializationError);
+}
+
+TEST_CASE("from_json accepts nesting at the default depth limit", "[json]")
+{
+    REQUIRE_NOTHROW(from_json(nested_json_arrays(128)));
+}
+
+// Adversarially deep input must surface a SerializationError rather than
+// overflowing the stack (DoS / UB) before or inside the DOM builder.
+TEST_CASE("from_json rejects adversarially deep input under the default limit", "[json]")
+{
+    REQUIRE_THROWS_AS(from_json(nested_json_arrays(1000)),
                       mosaic::foundation::serialization::SerializationError);
 }

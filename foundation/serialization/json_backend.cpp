@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <limits>
+#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -38,8 +39,12 @@ json to_json_node(const Value& v)
     return out;
 }
 
-Value from_json_node(const json& j)
+Value from_json_node(const json& j, int depth, int max_depth)
 {
+    if (depth > max_depth)
+    {
+        throw SerializationError("JSON nesting depth exceeds limit of " + std::to_string(max_depth));
+    }
     if (j.is_null()) return Value();
     if (j.is_boolean()) return Value(j.get<bool>());
     if (j.is_number_unsigned())
@@ -59,14 +64,14 @@ Value from_json_node(const json& j)
         Array out;
         for (const auto& e : j)
         {
-            out.push_back(from_json_node(e));
+            out.push_back(from_json_node(e, depth + 1, max_depth));
         }
         return Value(std::move(out));
     }
     Table out;
     for (auto it = j.begin(); it != j.end(); ++it)
     {
-        out[it.key()] = from_json_node(it.value());
+        out[it.key()] = from_json_node(it.value(), depth + 1, max_depth);
     }
     return Value(std::move(out));
 }
@@ -77,11 +82,11 @@ std::string to_json(const Value& value)
     return to_json_node(value).dump(2);
 }
 
-Value from_json(const std::string& text)
+Value from_json(const std::string& text, int max_depth)
 {
     try
     {
-        return from_json_node(json::parse(text));
+        return from_json_node(json::parse(text), 1, max_depth);
     }
     catch (const json::exception& e)
     {

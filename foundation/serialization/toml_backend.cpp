@@ -60,26 +60,34 @@ toml::table to_toml_table(const Table& t)
     return out;
 }
 
-Value node_to_value(const toml::node& n);
+Value node_to_value(const toml::node& n, int depth, int max_depth);
 
-Value table_to_value(const toml::table& t)
+Value table_to_value(const toml::table& t, int depth, int max_depth)
 {
+    if (depth > max_depth)
+    {
+        throw SerializationError("TOML nesting depth exceeds limit of " + std::to_string(max_depth));
+    }
     Table out;
     for (auto&& [key, value] : t)
     {
-        out[std::string(key.str())] = node_to_value(value);
+        out[std::string(key.str())] = node_to_value(value, depth + 1, max_depth);
     }
     return Value(std::move(out));
 }
 
-Value array_to_value(const toml::array& a)
+Value array_to_value(const toml::array& a, int depth, int max_depth)
 {
+    if (depth > max_depth)
+    {
+        throw SerializationError("TOML nesting depth exceeds limit of " + std::to_string(max_depth));
+    }
     Array out;
-    a.for_each([&](const toml::node& element) { out.push_back(node_to_value(element)); });
+    a.for_each([&](const toml::node& element) { out.push_back(node_to_value(element, depth + 1, max_depth)); });
     return Value(std::move(out));
 }
 
-Value node_to_value(const toml::node& n)
+Value node_to_value(const toml::node& n, int depth, int max_depth)
 {
     switch (n.type())
     {
@@ -87,8 +95,8 @@ Value node_to_value(const toml::node& n)
         case toml::node_type::integer: return Value(n.value<std::int64_t>().value());
         case toml::node_type::floating_point: return Value(n.value<double>().value());
         case toml::node_type::string: return Value(n.value<std::string>().value());
-        case toml::node_type::array: return array_to_value(*n.as_array());
-        case toml::node_type::table: return table_to_value(*n.as_table());
+        case toml::node_type::array: return array_to_value(*n.as_array(), depth, max_depth);
+        case toml::node_type::table: return table_to_value(*n.as_table(), depth, max_depth);
         default: return Value(); // date/time node types are unused by these schemas
     }
 }
@@ -105,11 +113,11 @@ std::string to_toml(const Value& value)
     return os.str();
 }
 
-Value from_toml(const std::string& text)
+Value from_toml(const std::string& text, int max_depth)
 {
     try
     {
-        return table_to_value(toml::parse(text));
+        return table_to_value(toml::parse(text), 1, max_depth);
     }
     catch (const toml::parse_error& e)
     {

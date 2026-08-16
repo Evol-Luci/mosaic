@@ -30,9 +30,12 @@ merged.** Reflection-driven, lossless cross-format projection:
 
 - `foundation/serialization/` — `Value` DOM, `AssetID`/`Handle<T>`/`ReferenceResolver`,
   reflection bridge (`to_value`/`from_value`), JSON backend (nlohmann), TOML backend
-  (toml++), and error handling via `SerializationError`.
+  (toml++), and error handling via `SerializationError`. `from_json`/`from_toml`
+  guard against adversarial deeply-nested input with a configurable
+  nesting-depth cap (default 128) that throws `SerializationError` rather than
+  overflowing the stack — the non-blocking hardening follow-up from the #10 review. ✓
 - `tests/unit/serialization/` — unit tests for every tag: `[value]`, `[reference]`,
-  `[reflect]`, `[refenc]`, `[json]`, `[toml]`, `[crossfmt]` — 55 tests, all green.
+  `[reflect]`, `[refenc]`, `[json]`, `[toml]`, `[crossfmt]` — 66 tests, all green.
 
 The next code is the **command / event system**.
 
