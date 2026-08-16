@@ -25,28 +25,26 @@ FetchContent), and the first foundation code is in place:
   a minimal `ComponentTypeID` shim), and the declaration-only `System` contract.
 - `tests/unit/ecs/` — unit tests, all green.
 
-The next code is **serialization against the now-real component model**.
+**Serialization ([#10](https://github.com/Evol-Luci/mosaic/issues/10)) is built and
+merged.** Reflection-driven, lossless cross-format projection:
+
+- `foundation/serialization/` — `Value` DOM, `AssetID`/`Handle<T>`/`ReferenceResolver`,
+  reflection bridge (`to_value`/`from_value`), JSON backend (nlohmann), TOML backend
+  (toml++), and error handling via `SerializationError`.
+- `tests/unit/serialization/` — unit tests for every tag: `[value]`, `[reference]`,
+  `[reflect]`, `[refenc]`, `[json]`, `[toml]`, `[crossfmt]` — 55 tests, all green.
+
+The next code is the **command / event system**.
 
 ## What to build next
 
-Two implementation issues remain, both part of **Phase 0 — Foundation** and the
+One implementation issue remains in **Phase 0 — Foundation** as part of the
 **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**.
 
-### 1. Serialization — [#10](https://github.com/Evol-Luci/mosaic/issues/10)  ← start here
+### 1. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)  ← start here
 
-`foundation/serialization/`. Unblocked now that #9 provides real components to
-round-trip.
-
-- Reflection-driven, serialize **by field** — no hand-written serializers.
-- **TOML** (toml++) for config/asset metadata; **JSON** for nested scenes.
-- Both are lossless projections of the same schema; cross-format round-trip is an
-  identity on the model.
-- `References`/`Handle<T>` serialize as `AssetID`/`EntityID` and re-resolve at load.
-
-### 2. Command / event system — [#11](https://github.com/Evol-Luci/mosaic/issues/11)
-
-`foundation/commands/` + `foundation/events/`. Can proceed in parallel with #10 —
-#9 already provides the entities it mutates.
+`foundation/commands/` + `foundation/events/`. Unblocked — #9 provides the
+entities it mutates and #10 provides the serialization it round-trips.
 
 - Commands: `id, parameters, required_permissions, execute(), undo(), serialize()`;
   the undoable transaction log.
@@ -57,13 +55,12 @@ round-trip.
 ## Suggested sequence
 
 ```
-#9 ECS core ✓ ──┬── #10 Serialization  ← start here
-                └── #11 Command/event system
+#9 ECS core ✓ ──┬── #10 Serialization ✓
+                └── #11 Command/event system  ← start here
 ```
 
-#10 and #11 can go in either order (or in parallel). #10 has the harder dependency
-on the component representation, so if working solo, do #10 next while the ECS
-shape is fresh, then #11.
+#10 is done. #11 is the next buildable unit — it depends only on #9, which is
+already in place.
 
 ## Ground rules for the worker
 
