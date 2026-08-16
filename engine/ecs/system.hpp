@@ -4,6 +4,8 @@
 
 #include "engine/ecs/component_type_id.hpp"
 
+namespace mosaic::engine { class World; }
+
 namespace mosaic::engine::ecs
 {
 
@@ -39,6 +41,10 @@ class System
 {
 public:
     virtual ~System() = default;
+
+    // Advance this system one tick. Default is a no-op so declaration-only
+    // systems (access sets but no per-tick work) still compile.
+    virtual void update(mosaic::engine::World&, float /*dt*/) {}
 
     const ComponentAccess& access() const noexcept { return access_; }
 

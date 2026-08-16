@@ -44,6 +44,17 @@ public:
 
     EventBus& events() { return events_; }
 
+    template <typename S, typename... Args>
+    S& add_system(Args&&... args)
+    {
+        auto system = std::make_unique<S>(std::forward<Args>(args)...);
+        S& ref = *system;
+        systems_.push_back(std::move(system));
+        return ref;
+    }
+
+    void tick(float dt);
+
 private:
     ecs::EntityRegistry entities_;
     ecs::ComponentRegistry components_{entities_};
