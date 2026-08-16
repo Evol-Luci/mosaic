@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16 (reflection system #18 built)
+**Last updated:** 2026-08-16 (Scene load/save #19 built)
 
 ## Where we are
 
@@ -116,29 +116,52 @@ normative intent in [design/reflection.md](../design/reflection.md):
     `TypeID` is a runtime-only handle and may vary in assignment order across runs;
     never persist it.
 
+**Scene load/save ([#19](https://github.com/Evol-Luci/mosaic/issues/19)) is built
+and merged.** The first persistence path — a `World`'s entity+component graph to
+JSON and back. Designed and planned in
+[specs/2026-08-16-scene-load-save-design.md](../superpowers/specs/2026-08-16-scene-load-save-design.md)
+and [plans/2026-08-16-scene-load-save.md](../superpowers/plans/2026-08-16-scene-load-save.md):
+
+- `engine/scene/scene.hpp` — `to_value`/`from_value` (World ↔ scene `Value`) and
+  `save_to_json`/`load_from_json` (via the #10 backend). Header-only, in-memory
+  only; filesystem I/O is a caller / asset-registry concern.
+- `engine/ecs/` + `engine/world/` — `EntityRegistry::for_each` /
+  `World::for_each_entity` live-entity enumeration (also feeds the future editor
+  hierarchy), so component-less entities round-trip faithfully.
+- `engine/reflection/` — `ComponentReflection` gained the **save** direction
+  (`save`/`has`) symmetric to `construct`; per-entity component order is
+  deterministic (sorted type name).
+- **Load is two-pass:** create every entity + build a serialized-id → new-handle
+  remap, then generically construct components through a `SceneReferenceResolver`
+  so intra-scene `EntityID` references remap to the loaded handles. An unknown
+  component type name throws `SerializationError`; a reference outside the scene
+  resolves to null. `AssetID`/`Handle` ids round-trip now; *resolving* them to
+  live resources is the asset registry (#20).
+- `tests/unit/scene/` — `[scene]` cases: populated round-trip (empties preserved),
+  non-trivial reference remap (bumped generation), broken-ref → null, unknown-type
+  throw, malformed-JSON throw, JSON convenience round-trip. Full suite 120 tests,
+  all green.
+
 ## What to build next
 
-The runtime `World` and the reflection system are in place. The remaining
-**Engine** / early **Phase 1** units of the
-**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
+Entities, serialization, commands/events, the runtime `World`, reflection, and
+Scene load/save are in place. The remaining **Engine** / early **Phase 1** units of
+the **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
 are now the frontier (acceptance criteria on each issue):
 
-1. **Scene load/save** — [#19](https://github.com/Evol-Luci/mosaic/issues/19).
-   Serialize/deserialize an entity+component graph via #10, loading into a `World`.
-   Now unblocked: it calls `ComponentReflection::construct` (#18) to materialize
-   each component from its serialized type name.
-2. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
+1. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
    Runtime `AssetID` → resource resolution + caching, wired into the #10
-   `ReferenceResolver` hook. Importer/cooker are future work.
-3. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
+   `ReferenceResolver` hook — it re-resolves the `AssetID`/`Handle` ids that scenes
+   (#19) now round-trip. Importer/cooker are future work.
+2. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
    The first concrete `System` subclass to exercise `World::tick`. Buildable in
-   parallel with the asset registry; flags that `foundation/` has no math types yet.
-4. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
+   parallel with the asset registry; blocks on foundation math types (see below).
+3. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
    outer fixed-timestep driver that calls `World::tick(dt)` each frame.
 
-Suggested first target: **Scene load/save** (#19) — the reflection system that
-gated it is now built, and Scene is the next piece of the vertical slice that the
-inspector and editor both build on.
+Suggested first target: **Asset registry** (#20) — it closes the last reference
+type scenes leave unresolved (`AssetID`/`Handle`), and the transform system (#21)
+is better tackled once foundation math types exist.
 
 ### Foundation still owed for v0.1 (not yet filed)
 
@@ -152,7 +175,7 @@ Foundation pieces that are **not built and not yet filed as issues**:
 - **Jobs** — the job/task system `World::tick` will eventually schedule systems on
   (today systems run single-threaded in registration order, by design).
 
-These don't gate #19/#20, but they are on the critical path to a *runnable, visible*
+These don't gate #20, but they are on the critical path to a *runnable, visible*
 slice. File issues for them as they come into play.
 
 ## Suggested sequence
@@ -161,15 +184,15 @@ slice. File issues for them as they come into play.
 #9 ECS core ✓ ──┬── #10 Serialization ✓
                 └── #11 Command/event system ✓
                         │
-                        └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save
+                        └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save ✓
                                               ├── #20 asset registry
                                               ├── #21 transform system
                                               └── #22 runtime loop
 ```
 
-#9, #10, #11, the World runtime, and #18 reflection are done. #19–#22 are filed and
-unblocked; #19 now depends only on already-built work (#18), the rest depend only on
-the World runtime.
+#9, #10, #11, the World runtime, #18 reflection, and #19 Scene load/save are done.
+#20–#22 are filed and unblocked; #20 re-resolves the asset references #19 round-trips,
+and the rest depend only on the World runtime (#21 also on foundation math).
 
 ## Ground rules for the worker
 
@@ -202,9 +225,9 @@ the World runtime.
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After the reflection system
+## After Scene load/save
 
-With entities, serialization, commands/events, the runtime `World`, and the
-reflection system in place, the on-ramp to **Phase 1 — First World** is Scene
-load/save (#19, now unblocked), plus the asset registry (#20), transform system
-(#21), and runtime loop (#22). Reassess this file as each lands.
+With entities, serialization, commands/events, the runtime `World`, reflection, and
+Scene load/save in place, the on-ramp to **Phase 1 — First World** is the asset
+registry (#20, now the frontier), transform system (#21, once foundation math
+exists), and runtime loop (#22). Reassess this file as each lands.
