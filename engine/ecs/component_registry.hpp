@@ -34,6 +34,9 @@ public:
     bool remove(EntityID id) override { return set_.remove(id); }
     bool contains(EntityID id) const override { return set_.contains(id); }
 
+    template <typename Fn>
+    void each(Fn&& fn) { set_.each(std::forward<Fn>(fn)); }
+
 private:
     SparseSet<T> set_;
 };
@@ -89,6 +92,17 @@ public:
         }
         ComponentStorage<T>* s = find_storage<T>();
         return s ? s->remove(id) : false;
+    }
+
+    // Visit (EntityID, T&) for every entity holding a T, in dense order. No-op if
+    // no T has ever been added. Do not add/remove T within fn (see SparseSet::each).
+    template <typename T, typename Fn>
+    void for_each(Fn&& fn)
+    {
+        if (ComponentStorage<T>* s = find_storage<T>())
+        {
+            s->each(std::forward<Fn>(fn));
+        }
     }
 
     // Erase an entity from every storage. Safe to call before or after
