@@ -8,6 +8,13 @@ World::EntityID World::create_entity()
     return entities_.create();
 }
 
+void World::destroy_entity(EntityID id)
+{
+    // Deferred: committed at the end of the next tick so systems iterating a
+    // component set never have entities vanish mid-iteration.
+    pending_destroy_.push_back(id);
+}
+
 void World::tick(float dt)
 {
     // 1. Deferred events emitted before this tick are delivered now, at the
@@ -19,6 +26,17 @@ void World::tick(float dt)
     {
         system->update(*this, dt);
     }
+
+    // 3. Commit deferred destructions: components first, then the entity slot.
+    for (EntityID id : pending_destroy_)
+    {
+        if (entities_.is_valid(id))
+        {
+            components_.on_destroy(id);
+            entities_.destroy(id);
+        }
+    }
+    pending_destroy_.clear();
 }
 
 } // namespace mosaic::engine

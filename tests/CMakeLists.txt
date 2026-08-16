@@ -9,6 +9,7 @@ add_executable(mosaic_unit_tests
   unit/ecs/component_registry_iteration_test.cpp
   unit/world/world_test.cpp
   unit/world/world_tick_test.cpp
+  unit/world/world_destroy_test.cpp
   unit/serialization/value_test.cpp
   unit/serialization/reference_test.cpp
   unit/serialization/reflect_value_test.cpp
