@@ -271,6 +271,13 @@ Full suite must stay green (the shim re-export must not regress any `[world]` /
 
 ## Open questions / follow-ups
 
+- **Shared `TypeID` space inflates `ComponentRegistry::storages_`** ([#25](https://github.com/Evol-Luci/mosaic/issues/25),
+  post-v0.1). `type_id<T>()` draws from one global counter shared across *all*
+  reflected types, but `ComponentRegistry` sizes its `storages_` vector to
+  `max_component_id + 1` — so non-component reflected types leave null gaps in that
+  vector. Bounded, correctness-safe memory waste accepted for v0.1; a later version
+  should give components a dense id space (or key `storages_` by `TypeID`) without
+  reintroducing the #9 identity drift.
 - **Foundation-only generic value round-trip** (type-erased `to_value`/`from_value`
   held by the registry) — deferred until an inspector/docs consumer needs it
   without the engine bridge. The registration path is structured so it can be added
