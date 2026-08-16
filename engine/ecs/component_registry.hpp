@@ -47,6 +47,13 @@ public:
 
     explicit ComponentRegistry(const EntityRegistry& entities) : entities_(&entities) {}
 
+    // Non-copyable/non-movable: holds a non-owning back-pointer to the EntityRegistry
+    // it was constructed from, so its address must stay stable.
+    ComponentRegistry(const ComponentRegistry&) = delete;
+    ComponentRegistry& operator=(const ComponentRegistry&) = delete;
+    ComponentRegistry(ComponentRegistry&&) = delete;
+    ComponentRegistry& operator=(ComponentRegistry&&) = delete;
+
     template <typename T>
     bool add(EntityID id, T value)
     {
