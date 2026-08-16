@@ -1,9 +1,11 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
 #include "foundation/core/entity_id.hpp"
+#include "foundation/serialization/reference.hpp"
 #include "foundation/serialization/value.hpp"
 
 // Sample reflected types shared by the serialization tests. Each type opts into
@@ -87,6 +89,44 @@ struct Scene
 template <class V> void reflect(V& v, Scene& s)
 {
     v.member("entities", s.entities);
+}
+
+struct AssetMetadata
+{
+    mosaic::foundation::serialization::AssetID uuid;
+    std::string type;
+    std::int32_t version = 0;
+    std::string source;
+    std::vector<mosaic::foundation::serialization::AssetID> dependencies;
+    mosaic::foundation::serialization::Value metadata;        // open-ended table
+    mosaic::foundation::serialization::Value import_settings; // open-ended table
+    friend bool operator==(const AssetMetadata&, const AssetMetadata&) = default;
+};
+template <class V> void reflect(V& v, AssetMetadata& a)
+{
+    v.member("uuid", a.uuid);
+    v.member("type", a.type);
+    v.member("version", a.version);
+    v.member("source", a.source);
+    v.member("dependencies", a.dependencies);
+    v.member("metadata", a.metadata);
+    v.member("import_settings", a.import_settings);
+}
+
+struct ProjectConfig
+{
+    std::string name;
+    std::string engine_version;
+    std::int32_t max_entities = 0;
+    bool enable_physics = false;
+    friend bool operator==(const ProjectConfig&, const ProjectConfig&) = default;
+};
+template <class V> void reflect(V& v, ProjectConfig& c)
+{
+    v.member("name", c.name);
+    v.member("engine_version", c.engine_version);
+    v.member("max_entities", c.max_entities);
+    v.member("enable_physics", c.enable_physics);
 }
 
 } // namespace mosaic_samples

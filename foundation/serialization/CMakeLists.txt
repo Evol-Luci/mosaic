@@ -1,5 +1,6 @@
 add_library(mosaic_serialization STATIC
   json_backend.cpp
+  toml_backend.cpp
 )
 target_include_directories(mosaic_serialization PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(mosaic_serialization
