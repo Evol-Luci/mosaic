@@ -140,6 +140,21 @@ Suggested first target: **Scene load/save** (#19) — the reflection system that
 gated it is now built, and Scene is the next piece of the vertical slice that the
 inspector and editor both build on.
 
+### Foundation still owed for v0.1 (not yet filed)
+
+The [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain) names three
+Foundation pieces that are **not built and not yet filed as issues**:
+
+- **Math** (right-handed, Y-up, meters, radians): `Vec3`, `Quat`, `Mat4`, etc.
+  The nearest to needed — **transform system (#21) blocks on it**, and rendering
+  will too. File and build this before, or as part of, #21.
+- **Logging** — a structured logging facility.
+- **Jobs** — the job/task system `World::tick` will eventually schedule systems on
+  (today systems run single-threaded in registration order, by design).
+
+These don't gate #19/#20, but they are on the critical path to a *runnable, visible*
+slice. File issues for them as they come into play.
+
 ## Suggested sequence
 
 ```
@@ -177,6 +192,11 @@ the World runtime.
   `EventBus::drain_deferred()` at the tick's start. The still-open piece is the
   **runtime loop** that calls `World::tick(dt)` each frame — there is no scheduler
   yet, by design.
+- Known tech debt ([#25](https://github.com/Evol-Luci/mosaic/issues/25), post-v0.1):
+  `type_id<T>()` shares one global counter across all reflected types, so
+  `ComponentRegistry::storages_` is sized by the max id of *any* reflected type
+  (null gaps for non-components). Accepted, correctness-safe for v0.1; give
+  components a dense id space later without reintroducing the #9 identity drift.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
   silently deviate — open an issue proposing an amendment and link the RFC. (See
   the redo/announce interpretation note under *Where we are* — a resolved
