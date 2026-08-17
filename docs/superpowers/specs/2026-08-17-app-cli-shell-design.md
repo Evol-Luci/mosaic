@@ -115,10 +115,14 @@ directly. Otherwise `options` is used.
 ### `engine/reflection/builtin_components.hpp`
 
 ```cpp
+// Matches the engine's registration API: register_component<T>(registry, name)
+// records type metadata into the TypeRegistry AND an attach thunk into the
+// ComponentReflection. The caller owns both and keeps them alive.
 inline void register_builtin_components(
-    mosaic::engine::reflection::ComponentReflection& registry)
+    mosaic::foundation::reflection::TypeRegistry& registry,
+    mosaic::engine::reflection::ComponentReflection& types)
 {
-    registry.register_component<mosaic::engine::transform::Transform>("Transform");
+    types.register_component<mosaic::engine::transform::Transform>(registry, "Transform");
     // future: Camera, Mesh, ...
 }
 ```
@@ -192,7 +196,9 @@ Loop body per iteration:
 Thin wiring, top to bottom:
 1. `auto pr = parse(argc, argv); if (pr.exit_code) return *pr.exit_code;`
 2. Build `World`; `world.add_system<TransformSystem>()`;
-   `ComponentReflection types; register_builtin_components(types);`
+   `TypeRegistry registry; ComponentReflection types;
+   register_builtin_components(registry, types);` (`registry` is kept alive for
+   the run).
 3. If `options.scene`: read the file into a string (filesystem I/O lives here);
    on read failure report + return non-zero; else
    `try { scene::load_from_json(text, world, types); } catch (SerializationError&)
