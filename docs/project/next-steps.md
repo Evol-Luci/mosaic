@@ -4,9 +4,9 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-17 (v0.1 engine core complete; logging #33 and the app/CLI
-shell #35 built — `mosaic run` runs a world for real; next on-ramp is jobs #34, then
-the first visible subsystem #36/#37)
+**Last updated:** 2026-08-17 (v0.1 engine core complete; logging #33, app/CLI shell
+#35, and jobs #34 built — the foundation is done; the frontier is now the first
+*visible* subsystem: rendering #36, then the Studio shell #37)
 
 ## Where we are
 
@@ -264,27 +264,46 @@ and [plans/2026-08-17-app-cli-shell.md](../superpowers/plans/2026-08-17-app-cli-
   - *Deferred (future Tools issues):* `mosaic create/editor/build`, a project
     generator, and the asset compiler — the CLI is structured for those subcommands.
 
+**Jobs ([#34](https://github.com/Evol-Luci/mosaic/issues/34)) is built** — the last
+remaining v0.1 foundation piece. A minimal task system for parallel work. Designed and
+planned in
+[specs/2026-08-17-jobs-design.md](../superpowers/specs/2026-08-17-jobs-design.md)
+and [plans/2026-08-17-jobs.md](../superpowers/plans/2026-08-17-jobs.md):
+
+- `foundation/jobs/thread_pool.{hpp,cpp}` — `ThreadPool`: N worker threads pulling FIFO
+  from a mutex/condvar queue. `submit(task)` returns `std::future<void>` (a throwing
+  task surfaces on `.get()`); `parallel_for(begin, end, body, grain)` splits a range
+  into up to `thread_count` chunks, **blocks on an internal latch** until all complete,
+  and rethrows the first body exception from the calling thread. The destructor
+  **drains the queue then joins** — no leaked/detached threads, no unfulfilled future.
+- Compiled `mosaic_jobs` STATIC lib (stdlib threads only, no third-party dep), wired via
+  `find_package(Threads)` — honors the foundation tier contract.
+- `tests/unit/jobs/` — `[jobs]` cases: submit-runs-all, future exception propagation,
+  drain-on-shutdown (1000 tasks), single-thread pool, `parallel_for` exact coverage,
+  empty range, body-exception rethrow, custom grain. Full suite 186, all green.
+  - *Deferred (post-v0.1, per #34):* work-stealing, job dependencies/graphs, priorities,
+    fibers, and **wiring the pool into `World::tick`** for parallel system execution
+    (honoring each `System`'s `ComponentAccess`) — a separate engine follow-up; today
+    ticking is single-threaded by design.
+
 ## What to build next
 
-The engine now **runs** (`mosaic run`), but it is still **invisible** — no window,
-nothing to look at. Per the
-[v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier now
-splits two ways (the app/CLI on-ramp is done), **all filed** (each its own
-brainstorm → spec → plan → TDD cycle):
+The engine **runs** (`mosaic run`) and the **v0.1 foundation is now complete** (logging
+#33, app/CLI #35, jobs #34) — but the engine is still **invisible**: no window, nothing
+to look at. Per the
+[v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier is now
+a single track (both on-ramps filed, each its own brainstorm → spec → plan → TDD cycle):
 
-1. **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
-   (Vulkan) and the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
-   (viewport + hierarchy + the reflection-driven inspector, the #18 payoff). Both are
-   **large tracking issues** that need their own decomposition into sub-issues during
-   design; the Studio depends on rendering.
-2. **Remaining foundation** — jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
-   (a thread pool / `parallel_for`; wiring it into `World::tick` for parallel systems
-   is a later follow-up — today ticking is single-threaded by design). Logging #33 and
-   the app/CLI shell #35 are done.
+- **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
+  (Vulkan) then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
+  (viewport + hierarchy + the reflection-driven inspector, the #18 payoff). Both are
+  **large tracking issues** that need their own decomposition into sub-issues during
+  design; the Studio depends on rendering. **Start with #36 rendering** — decompose it
+  first.
 
-**Suggested order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → **#34 jobs** (next;
-independent, small) → #36 rendering (first visible; decompose first) → #37 studio
-(needs rendering).
+**Suggested order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
+**#36 rendering** (next; first visible — decompose it first) → #37 studio (needs
+rendering).
 
 ## Suggested sequence
 
@@ -348,13 +367,15 @@ composes into a world that can be populated, serialized, reloaded, and ticked
 deterministically, and **`mosaic run` now runs it in real time outside a test** — but
 nothing is *visible* yet.
 
-The remaining on-ramps are all filed (each its own future spec):
+The **v0.1 foundation is now complete** too — logging
+[#33](https://github.com/Evol-Luci/mosaic/issues/33), the app/CLI shell
+[#35](https://github.com/Evol-Luci/mosaic/issues/35), and jobs
+[#34](https://github.com/Evol-Luci/mosaic/issues/34) are all built. The one remaining
+on-ramp is the first *visible* subsystem (its own future spec):
 - **First visible subsystem** — Vulkan rendering
-  [#36](https://github.com/Evol-Luci/mosaic/issues/36) or the Studio shell
+  [#36](https://github.com/Evol-Luci/mosaic/issues/36) then the Studio shell
   [#37](https://github.com/Evol-Luci/mosaic/issues/37). The milestone that makes the
-  engine something you can look at (both large — decompose during design).
-- **Remaining foundation** — jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
-  (small, independent). Logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
-  and the app/CLI shell [#35](https://github.com/Evol-Luci/mosaic/issues/35) are built.
+  engine something you can look at (both large — decompose during design; Studio
+  depends on rendering). **Start with #36.**
 
 Reassess this file as each lands.

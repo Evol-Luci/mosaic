@@ -47,12 +47,14 @@ add_executable(mosaic_unit_tests
   unit/app/options_test.cpp
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
+  unit/jobs/thread_pool_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
   mosaic_engine
   mosaic_foundation
   mosaic_serialization
+  mosaic_jobs
   Catch2::Catch2WithMain
 )
 target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)

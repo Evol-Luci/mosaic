@@ -33,6 +33,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(tomlplusplus nlohmann_json CLI11)
 
+find_package(Threads REQUIRED)
+
 add_subdirectory(foundation)
 add_subdirectory(engine)
 add_subdirectory(app)
