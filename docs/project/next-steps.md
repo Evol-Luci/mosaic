@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16 (foundation math + transform system #21 built)
+**Last updated:** 2026-08-16 (runtime loop #22 built — v0.1 engine core complete)
 
 ## Where we are
 
@@ -192,20 +192,45 @@ and [plans/2026-08-16-transform-system.md](../superpowers/plans/2026-08-16-trans
   - *Perf follow-up:* `update` recomputes each entity by re-walking ancestors —
     memoize per tick or process parent-first when scenes grow.
 
+**Runtime loop ([#22](https://github.com/Evol-Luci/mosaic/issues/22)) is built and
+merged.** The outer driver that finally *runs* the engine. Designed and planned in
+[specs/2026-08-16-runtime-loop-design.md](../superpowers/specs/2026-08-16-runtime-loop-design.md)
+and [plans/2026-08-16-runtime-loop.md](../superpowers/plans/2026-08-16-runtime-loop.md):
+
+- `engine/runtime/runtime_loop.hpp` — `RuntimeLoop`: a deterministic fixed-timestep
+  accumulator. `advance(world, real_dt)` banks externally-supplied elapsed time and
+  dispatches whole `World::tick(fixed_dt)` calls; `step` is manual single-step;
+  `start`/`stop` pause/resume; a `max_steps_per_advance` cap guards the spiral of
+  death. Owns pacing **only** — the per-tick order stays in `World::tick`.
+- The real `std::chrono` measure-and-sleep frame pump is deliberately **not** here —
+  it belongs to the app/CLI (`mosaic run`) that owns the process main loop; the loop
+  consumes an injected `real_dt` so it stays deterministic and testable.
+- `tests/unit/runtime/` — `[runtime]` cases: fixed dispatch + remainder carry,
+  start/stop/single-step, determinism (same schedule → equal tick count),
+  spiral-of-death cap, and a populated-`World` + `TransformSystem` run stable over
+  1000 ticks. Full suite 149 tests, all green.
+
+**The headless engine core of the v0.1 vertical slice is now complete** (#9 ECS,
+#10 serialization, #11 commands/events, the runtime `World`, #18 reflection, #19
+Scene, #20 assets, #21 transform + #26 math, #22 runtime loop).
+
 ## What to build next
 
-Entities, serialization, commands/events, the runtime `World`, reflection, Scene
-load/save, the asset registry, foundation math, and the transform system are in
-place. **The runtime loop is the last engine piece of the
-[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain):**
+The engine core runs, but it is still **headless** — there is nothing to look at yet
+and no process `main`. Per the
+[v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier now
+splits three ways (each its own future issue/spec):
 
-1. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
-   outer fixed-timestep driver that calls `World::tick(dt)` each frame — the piece
-   that finally *runs* the engine (nothing calls `tick` in a loop yet).
-
-After #22, the headless engine core of the vertical slice is complete; the frontier
-then moves to the first *visible* subsystems (rendering / studio) and the remaining
-foundation pieces below.
+1. **The app / CLI shell** — a `main` (`mosaic run`) that owns the real-time
+   `std::chrono` frame pump and drives a `RuntimeLoop`. The smallest step to actually
+   *running* a world outside a test, and the first thing that produces observable
+   output (even if only logs).
+2. **First *visible* subsystem — rendering (Vulkan) or the Studio shell.** The first
+   milestone that turns the engine from a test suite into something on screen. Large;
+   will want its own decomposition.
+3. **Remaining foundation — logging, then jobs.** Logging is the nearest (every
+   subsystem wants it); jobs (a scheduler for `World::tick`) comes when
+   single-threaded ticking is a bottleneck.
 
 ### Foundation still owed for v0.1 (not yet filed)
 
@@ -214,10 +239,9 @@ remain **unbuilt and unfiled** (math is now done, #26):
 
 - **Logging** — a structured logging facility.
 - **Jobs** — the job/task system `World::tick` will eventually schedule systems on
-  (today systems run single-threaded in registration order, by design). The runtime
-  loop (#22) is the natural first consumer of a scheduler, but does not require one.
+  (today systems run single-threaded in registration order, by design).
 
-Neither blocks #22. File issues for them as they come into play.
+File issues for them as they come into play.
 
 ## Suggested sequence
 
@@ -228,13 +252,18 @@ Neither blocks #22. File issues for them as they come into play.
                         └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save ✓
                                               ├── #20 asset registry ✓
                                               ├── #21 transform system ✓ (+ foundation math #26)
-                                              └── #22 runtime loop
+                                              └── #22 runtime loop ✓
 ```
 
+**The v0.1 headless engine core is complete.** The next frontier is the app/CLI
+shell, the first visible subsystem (rendering / studio), and the remaining
+foundation pieces (logging, jobs) — see *What to build next*.
+
 #9, #10, #11, the World runtime, #18 reflection, #19 Scene load/save, #20 asset
-registry, and #21 transform system (+ foundation math #26) are done. **#22 runtime
-loop is the only remaining engine unit** of the vertical slice; it depends only on
-the World runtime.
+registry, #21 transform system (+ foundation math #26), and #22 runtime loop are all
+done. **The v0.1 headless engine core is complete** — the frontier moves off this
+tree to the app/CLI shell, the first visible subsystem, and the remaining foundation
+pieces (see *What to build next*).
 
 ## Ground rules for the worker
 
@@ -267,11 +296,19 @@ the World runtime.
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After the transform system
+## After the engine core
 
-With entities, serialization, commands/events, the runtime `World`, reflection,
-Scene load/save, the asset registry, foundation math, and the transform system in
-place, only the **runtime loop (#22)** remains to complete the headless engine core
-of the vertical slice. After it, the frontier moves to the first *visible*
-subsystems (rendering, studio) plus the remaining foundation pieces (logging, jobs).
+The **v0.1 headless engine core is complete**: entities, serialization,
+commands/events, the runtime `World`, reflection, Scene load/save, the asset
+registry, foundation math, the transform system, and the runtime loop. Everything
+composes into a world that can be populated, serialized, reloaded, and ticked
+deterministically — but nothing *runs it* outside a test, and nothing is *visible*.
+
+The three on-ramps from here (each its own future spec):
+- **App / CLI shell** (`mosaic run`) — a process `main` owning the real-time frame
+  pump that drives `RuntimeLoop`. Smallest path to running a world for real.
+- **First visible subsystem** — Vulkan rendering or the Studio shell. The milestone
+  that makes the engine something you can look at.
+- **Remaining foundation** — logging, then jobs.
+
 Reassess this file as each lands.
