@@ -1,5 +1,6 @@
 add_library(mosaic_app STATIC
   cli/options.cpp
+  run/status_reporter.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine
