@@ -77,3 +77,59 @@ TEST_CASE("thread_count clamps zero to one", "[jobs]")
     ThreadPool pool(0);
     REQUIRE(pool.thread_count() == 1);
 }
+
+TEST_CASE("parallel_for visits every index exactly once", "[jobs]")
+{
+    ThreadPool pool(4);
+    const std::size_t n = 10000;
+    std::vector<int> hits(n, 0);
+    pool.parallel_for(0, n, [&hits](std::size_t i) { hits[i] += 1; });
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        REQUIRE(hits[i] == 1);
+    }
+}
+
+TEST_CASE("parallel_for on an empty or inverted range does nothing", "[jobs]")
+{
+    ThreadPool pool(4);
+    std::atomic<int> calls{0};
+    pool.parallel_for(5, 5, [&calls](std::size_t) { calls.fetch_add(1); });
+    pool.parallel_for(10, 3, [&calls](std::size_t) { calls.fetch_add(1); });
+    REQUIRE(calls.load() == 0);
+}
+
+TEST_CASE("parallel_for rethrows a body exception on the calling thread", "[jobs]")
+{
+    ThreadPool pool(4);
+    REQUIRE_THROWS_AS(
+        pool.parallel_for(0, 100,
+                          [](std::size_t i) {
+                              if (i == 50)
+                              {
+                                  throw std::runtime_error("body boom");
+                              }
+                          }),
+        std::runtime_error);
+}
+
+TEST_CASE("parallel_for completes on a single-thread pool", "[jobs]")
+{
+    ThreadPool pool(1);
+    const std::size_t n = 1000;
+    std::vector<int> hits(n, 0);
+    pool.parallel_for(0, n, [&hits](std::size_t i) { hits[i] = static_cast<int>(i); });
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        REQUIRE(hits[i] == static_cast<int>(i));
+    }
+}
+
+TEST_CASE("parallel_for covers the whole range under a custom grain", "[jobs]")
+{
+    ThreadPool pool(4);
+    const std::size_t n = 33; // not a multiple of thread_count or grain
+    std::atomic<int> sum{0};
+    pool.parallel_for(0, n, [&sum](std::size_t) { sum.fetch_add(1); }, 8);
+    REQUIRE(sum.load() == 33);
+}
