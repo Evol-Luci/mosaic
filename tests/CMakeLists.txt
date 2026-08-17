@@ -43,8 +43,10 @@ add_executable(mosaic_unit_tests
   unit/logging/logger_test.cpp
   unit/logging/log_api_test.cpp
   unit/logging/log_thread_safety_test.cpp
+  unit/app/options_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
+  mosaic_app
   mosaic_engine
   mosaic_foundation
   mosaic_serialization
