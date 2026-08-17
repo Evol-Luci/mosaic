@@ -1,7 +1,9 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <stdexcept>
 #include <string>
 
@@ -145,3 +147,19 @@ public:
 };
 
 } // namespace mosaic::foundation::serialization
+
+template <>
+struct std::hash<mosaic::foundation::serialization::AssetID>
+{
+    std::size_t operator()(const mosaic::foundation::serialization::AssetID& id) const noexcept
+    {
+        // FNV-1a over the 16 identity bytes.
+        std::size_t h = 1469598103934665603ull;
+        for (std::uint8_t byte : id.bytes())
+        {
+            h ^= byte;
+            h *= 1099511628211ull;
+        }
+        return h;
+    }
+};
