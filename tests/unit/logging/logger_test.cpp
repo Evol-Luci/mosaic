@@ -101,6 +101,20 @@ TEST_CASE("clear_sinks removes all sinks", "[logging]")
     REQUIRE(sink->entries.empty());
 }
 
+TEST_CASE("default min-level is Info (Debug dropped, Info kept)", "[logging]")
+{
+    Logger logger;  // no set_min_level call
+    auto sink = std::make_shared<CapturingSink>();
+    logger.add_sink(sink);
+
+    logger.log(Level::Debug, "c", "should be dropped");
+    logger.log(Level::Info,  "c", "should be kept");
+
+    REQUIRE(sink->entries.size() == 1);
+    REQUIRE(sink->entries[0].level == Level::Info);
+    REQUIRE(sink->entries[0].message == "should be kept");
+}
+
 TEST_CASE("to_string renders each level tag", "[logging]")
 {
     REQUIRE(mosaic::foundation::log::to_string(Level::Trace) == "TRACE");

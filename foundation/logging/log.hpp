@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -79,6 +80,8 @@ public:
         min_level_.store(level, std::memory_order_relaxed);
     }
 
+    // A sink's write() must not call back into this Logger (log/add_sink/clear_sinks):
+    // the dispatch mutex is non-recursive and would deadlock.
     void log(Level level, std::string_view category, std::string_view message)
     {
         // Drop below-threshold messages without taking the lock.
