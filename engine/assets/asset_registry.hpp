@@ -78,4 +78,23 @@ private:
     std::unordered_map<AssetID, Entry> entries_;
 };
 
+// Validates AssetID/Handle references against a registry on deserialize: a
+// registered id passes through; an unknown id becomes a nil AssetID, so the field
+// lands as a nil handle. resolve_entity stays identity (entity remap is Scene's).
+class AssetReferenceResolver final : public mosaic::foundation::serialization::ReferenceResolver
+{
+public:
+    explicit AssetReferenceResolver(const AssetRegistry& registry) : registry_(registry) {}
+
+    mosaic::foundation::serialization::AssetID resolve_asset(
+        mosaic::foundation::serialization::AssetID serialized) const override
+    {
+        return registry_.contains(serialized) ? serialized
+                                              : mosaic::foundation::serialization::AssetID();
+    }
+
+private:
+    const AssetRegistry& registry_;
+};
+
 } // namespace mosaic::engine::assets
