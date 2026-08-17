@@ -46,6 +46,7 @@ add_executable(mosaic_unit_tests
   unit/logging/log_thread_safety_test.cpp
   unit/app/options_test.cpp
   unit/app/status_reporter_test.cpp
+  unit/app/frame_pump_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
