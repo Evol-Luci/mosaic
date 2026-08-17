@@ -31,6 +31,7 @@ add_executable(mosaic_unit_tests
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp
   unit/assets/asset_metadata_test.cpp
+  unit/assets/asset_registry_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
