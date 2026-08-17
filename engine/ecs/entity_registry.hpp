@@ -28,6 +28,26 @@ public:
     bool is_valid(EntityID id) const noexcept;
     std::size_t alive_count() const noexcept { return alive_; }
 
+    // Visit each live entity in ascending slot order. Skips retired slots and
+    // slots currently on the free-list. fn is invoked as fn(EntityID).
+    template <typename Fn>
+    void for_each(Fn&& fn) const
+    {
+        std::vector<bool> is_free(generations_.size(), false);
+        for (std::uint32_t slot : free_list_)
+        {
+            is_free[slot] = true;
+        }
+        for (std::size_t i = 0; i < generations_.size(); ++i)
+        {
+            if (generations_[i] == kRetiredGeneration || is_free[i])
+            {
+                continue;
+            }
+            fn(EntityID{static_cast<std::uint32_t>(i), generations_[i]});
+        }
+    }
+
 private:
     friend struct detail::RegistryTestAccess;
 

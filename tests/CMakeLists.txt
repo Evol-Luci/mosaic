@@ -8,6 +8,7 @@ add_executable(mosaic_unit_tests
   unit/ecs/system_test.cpp
   unit/ecs/sparse_set_iteration_test.cpp
   unit/ecs/component_registry_iteration_test.cpp
+  unit/ecs/entity_registry_iteration_test.cpp
   unit/world/world_test.cpp
   unit/world/world_tick_test.cpp
   unit/world/world_destroy_test.cpp
@@ -26,6 +27,8 @@ add_executable(mosaic_unit_tests
   unit/reflection/type_id_test.cpp
   unit/reflection/type_registry_test.cpp
   unit/reflection/component_reflection_test.cpp
+  unit/scene/scene_save_test.cpp
+  unit/scene/scene_load_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine

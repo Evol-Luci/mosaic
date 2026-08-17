@@ -1,3 +1,5 @@
+#include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -120,4 +122,39 @@ TEST_CASE("round-trip: reflect -> to_value -> construct reproduces the component
     REQUIRE(got->inner.a == 7);
     REQUIRE(got->values == std::vector<int>{1, 2, 3});
     REQUIRE(got->label == "hp");
+}
+
+TEST_CASE("ComponentReflection::save emits (entity, name, value) per component", "[reflection]")
+{
+    TypeRegistry registry;
+    ComponentReflection reflector;
+    reflector.register_component<Position>(registry, "Position");
+
+    World world;
+    const EntityID a = world.create_entity();
+    const EntityID b = world.create_entity();
+    world.add_component<Position>(a, Position{1.0f, 2.0f});
+    world.add_component<Position>(b, Position{3.0f, 4.0f});
+
+    std::map<std::uint64_t, std::string> names;
+    int count = 0;
+    reflector.save(world, [&](EntityID e, const std::string& name, const Value&)
+    {
+        names[e.value()] = name;
+        ++count;
+    });
+
+    REQUIRE(count == 2);
+    REQUIRE(names[a.value()] == "Position");
+    REQUIRE(names[b.value()] == "Position");
+}
+
+TEST_CASE("ComponentReflection::has reports registered type names", "[reflection]")
+{
+    TypeRegistry registry;
+    ComponentReflection reflector;
+    reflector.register_component<Position>(registry, "Position");
+
+    REQUIRE(reflector.has("Position"));
+    REQUIRE_FALSE(reflector.has("Nope"));
 }
