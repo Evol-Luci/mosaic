@@ -36,6 +36,7 @@ add_executable(mosaic_unit_tests
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
   unit/math/mat4_test.cpp
+  unit/transform/transform_reflection_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
