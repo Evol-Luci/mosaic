@@ -62,3 +62,17 @@ TEST_CASE("missing subcommand sets a non-zero exit code", "[cli]")
     REQUIRE(result.exit_code.has_value());
     REQUIRE(*result.exit_code != 0);
 }
+
+TEST_CASE("fixed-hz zero is rejected with a non-zero exit code", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--fixed-hz", "0"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}
+
+TEST_CASE("fps zero is rejected with a non-zero exit code", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--fps", "0"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}

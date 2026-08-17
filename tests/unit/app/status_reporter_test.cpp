@@ -1,6 +1,7 @@
 #include <sstream>
 #include <string>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
@@ -33,6 +34,7 @@ TEST_CASE("JsonStatusReporter emits a summary object with all fields", "[app]")
     REQUIRE(parsed.at("event") == "summary");
     REQUIRE(parsed.at("ticks") == 600);
     REQUIRE(parsed.at("elapsed_s") == 10.0);
+    REQUIRE(parsed.at("fixed_dt").get<double>() == Catch::Approx(1.0 / 60.0));
     REQUIRE(parsed.at("scene") == "demo.json");
     REQUIRE(parsed.at("stopped_by") == "ticks");
 }

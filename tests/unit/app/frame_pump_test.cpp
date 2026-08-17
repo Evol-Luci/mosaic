@@ -1,6 +1,5 @@
 #include <cstdint>
 #include <functional>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,9 +26,8 @@ class CapturingReporter : public StatusReporter
 {
 public:
     std::vector<std::uint64_t> progress_ticks;
-    std::optional<RunSummary>  final_summary;
     void progress(std::uint64_t tick, double) override { progress_ticks.push_back(tick); }
-    void summary(const RunSummary& s) override { final_summary = s; }
+    void summary(const RunSummary&) override {}
     void error(const std::string&) override {}
 };
 
@@ -61,8 +59,7 @@ TEST_CASE("ticks option bounds the run to exactly N ticks", "[app]")
     options.fixed_hz = 60.0;
 
     StepClock clock{0.0, 1.0}; // 1s per call: always >= fixed_dt, so 1 tick/iter
-    int sleep_calls = 0;
-    PumpDeps deps{std::ref(clock), [&](double) { ++sleep_calls; }, [] { return false; }};
+    PumpDeps deps{std::ref(clock), [](double s) { REQUIRE(s > 0.0); }, [] { return false; }};
 
     CapturingReporter reporter;
     FramePump pump(loop, deps, reporter, options);

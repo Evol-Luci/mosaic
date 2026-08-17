@@ -24,9 +24,11 @@ ParseResult parse(int argc, char** argv)
         run->add_option("--ticks", ticks, "Stop after N fixed ticks");
     run->add_flag("--json", result.options.json, "Emit machine-readable status");
     run->add_option("--fps", result.options.fps, "Target wake frame rate")
-        ->capture_default_str();
+        ->capture_default_str()
+        ->check(CLI::PositiveNumber);
     run->add_option("--fixed-hz", result.options.fixed_hz, "Simulation timestep rate")
-        ->capture_default_str();
+        ->capture_default_str()
+        ->check(CLI::PositiveNumber);
 
     try
     {

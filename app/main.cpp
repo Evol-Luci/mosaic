@@ -69,7 +69,7 @@ int main(int argc, char** argv)
         }
     }
 
-    engine::runtime::RuntimeLoop loop(1.0F / static_cast<float>(options.fixed_hz));
+    engine::runtime::RuntimeLoop loop(1.0F / static_cast<float>(options.fixed_hz), options.ticks ? 1 : 8);
 
     std::signal(SIGINT, on_sigint);
 
