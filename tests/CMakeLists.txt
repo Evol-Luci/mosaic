@@ -35,6 +35,7 @@ add_executable(mosaic_unit_tests
   unit/assets/asset_resolver_test.cpp
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
+  unit/math/mat4_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
