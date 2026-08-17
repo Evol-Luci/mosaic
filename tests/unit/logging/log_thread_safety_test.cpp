@@ -1,5 +1,4 @@
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,10 +14,11 @@ using mosaic::foundation::log::Sink;
 
 namespace
 {
-// Appends each record's message as one whole entry under its own lock. If the
-// Logger did not serialize dispatch, concurrent writers could corrupt the
-// vector (a data race) or split a record; the count and the intact strings
-// prove neither happened.
+// Deliberately unguarded: this sink has NO mutex of its own. The only thing
+// that makes concurrent `emplace_back` safe is Logger::log's mutex, which
+// serializes all sink dispatch. If that mutex were ever removed, concurrent
+// writes here would be a data race — losing records (count != 4000) or
+// crashing — so the assertions below are a direct test of Logger's mutex.
 class CountingSink : public Sink
 {
 public:
@@ -26,12 +26,8 @@ public:
 
     void write(const Record& record) noexcept override
     {
-        std::lock_guard<std::mutex> lock(mutex_);
         lines.emplace_back(record.message);
     }
-
-private:
-    std::mutex mutex_;
 };
 } // namespace
 
