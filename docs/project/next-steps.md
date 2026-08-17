@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16 (runtime loop #22 built — v0.1 engine core complete)
+**Last updated:** 2026-08-17 (v0.1 engine core complete; on-ramp issues #33–#37 filed)
 
 ## Where we are
 
@@ -219,29 +219,25 @@ Scene, #20 assets, #21 transform + #26 math, #22 runtime loop).
 The engine core runs, but it is still **headless** — there is nothing to look at yet
 and no process `main`. Per the
 [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier now
-splits three ways (each its own future issue/spec):
+splits three ways, **all filed** (each its own brainstorm → spec → plan → TDD cycle):
 
-1. **The app / CLI shell** — a `main` (`mosaic run`) that owns the real-time
-   `std::chrono` frame pump and drives a `RuntimeLoop`. The smallest step to actually
-   *running* a world outside a test, and the first thing that produces observable
-   output (even if only logs).
-2. **First *visible* subsystem — rendering (Vulkan) or the Studio shell.** The first
-   milestone that turns the engine from a test suite into something on screen. Large;
-   will want its own decomposition.
-3. **Remaining foundation — logging, then jobs.** Logging is the nearest (every
-   subsystem wants it); jobs (a scheduler for `World::tick`) comes when
-   single-threaded ticking is a bottleneck.
+1. **App / CLI shell** — [#35](https://github.com/Evol-Luci/mosaic/issues/35).
+   A `main` (`mosaic run`) that owns the real-time `std::chrono` frame pump and drives
+   a `RuntimeLoop` (#22), optionally loading a scene (#19). The smallest step to
+   actually *running* a world outside a test, and the first observable output.
+2. **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
+   (Vulkan) and the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
+   (viewport + hierarchy + the reflection-driven inspector, the #18 payoff). Both are
+   **large tracking issues** that need their own decomposition into sub-issues during
+   design; the Studio depends on rendering.
+3. **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
+   (nearest; every subsystem wants it) and jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
+   (a thread pool / `parallel_for`; wiring it into `World::tick` for parallel systems
+   is a later follow-up — today ticking is single-threaded by design).
 
-### Foundation still owed for v0.1 (not yet filed)
-
-Two Foundation pieces from the [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain)
-remain **unbuilt and unfiled** (math is now done, #26):
-
-- **Logging** — a structured logging facility.
-- **Jobs** — the job/task system `World::tick` will eventually schedule systems on
-  (today systems run single-threaded in registration order, by design).
-
-File issues for them as they come into play.
+**Suggested order:** #33 logging → #35 app/CLI shell (makes the engine runnable) →
+#34 jobs (independent) → #36 rendering (first visible; decompose first) → #37 studio
+(needs rendering).
 
 ## Suggested sequence
 
@@ -304,11 +300,15 @@ registry, foundation math, the transform system, and the runtime loop. Everythin
 composes into a world that can be populated, serialized, reloaded, and ticked
 deterministically — but nothing *runs it* outside a test, and nothing is *visible*.
 
-The three on-ramps from here (each its own future spec):
-- **App / CLI shell** (`mosaic run`) — a process `main` owning the real-time frame
-  pump that drives `RuntimeLoop`. Smallest path to running a world for real.
-- **First visible subsystem** — Vulkan rendering or the Studio shell. The milestone
-  that makes the engine something you can look at.
-- **Remaining foundation** — logging, then jobs.
+The three on-ramps from here are all filed (each its own future spec):
+- **App / CLI shell** (`mosaic run`) — [#35](https://github.com/Evol-Luci/mosaic/issues/35).
+  A process `main` owning the real-time frame pump that drives `RuntimeLoop`.
+  Smallest path to running a world for real.
+- **First visible subsystem** — Vulkan rendering
+  [#36](https://github.com/Evol-Luci/mosaic/issues/36) or the Studio shell
+  [#37](https://github.com/Evol-Luci/mosaic/issues/37). The milestone that makes the
+  engine something you can look at (both large — decompose during design).
+- **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33),
+  then jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34).
 
 Reassess this file as each lands.
