@@ -39,6 +39,7 @@ add_executable(mosaic_unit_tests
   unit/transform/transform_reflection_test.cpp
   unit/transform/transform_system_test.cpp
   unit/runtime/runtime_loop_test.cpp
+  unit/runtime/runtime_stability_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_engine
