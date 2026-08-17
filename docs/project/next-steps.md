@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-16 (reflection system #18 built)
 
 ## Where we are
 
@@ -83,38 +83,77 @@ and [plans/2026-08-16-engine-world-runtime.md](../superpowers/plans/2026-08-16-e
   create/add/destroy/recycle integration test the #9 handoff asked for. Full suite
   95 tests, all green.
 
-Deliberately **out of scope** (their own future specs): Scene load/save, the
-reflection-driven *generic* component construction Scene needs, concrete systems
-(e.g. transform), and the outer runtime loop. `World` exposes `tick(dt)`; nothing
-calls it in a loop yet.
+Deliberately **out of scope** (their own future specs): Scene load/save, concrete
+systems (e.g. transform), and the outer runtime loop. `World` exposes `tick(dt)`;
+nothing calls it in a loop yet.
+
+**Reflection system ([#18](https://github.com/Evol-Luci/mosaic/issues/18)) is built
+and merged.** The gap `World` deliberately left open — reflection-driven *generic*
+component construction — is now closed. Designed and planned in
+[specs/2026-08-16-reflection-system-design.md](../superpowers/specs/2026-08-16-reflection-system-design.md)
+and [plans/2026-08-16-reflection-system.md](../superpowers/plans/2026-08-16-reflection-system.md);
+normative intent in [design/reflection.md](../design/reflection.md):
+
+- `foundation/reflection/` — `type_id.hpp` (`TypeID` + `type_id<T>()`, the stable
+  within-run type handle) and `type_registry.hpp` (`TypeRegistry`: register a
+  reflected type by stable name, look it up by name **or** `TypeID`, enumerate its
+  fields via the existing `reflect()` visitor). Pure foundation — no `World`.
+- `engine/reflection/component_reflection.hpp` — `ComponentReflection`: the
+  engine-layer bridge. `register_component<T>(registry, "Name")` records metadata
+  **and** an attach thunk; `construct(world, e, name, value)` deserializes a
+  `Value` into a fresh `T` (via the #10 `from_value`) and attaches it to an entity
+  — **no concrete C++ type at the call site**. This is the path Scene load/save
+  will call.
+- The #9 `ComponentTypeID` shim is now a **re-export** of
+  `foundation::reflection::TypeID`: one identity source, no drift. `ComponentRegistry`
+  is unchanged and now shares its per-type integer with `TypeInfo::id`.
+- `tests/unit/reflection/` — `[reflection]` cases: register/lookup by name & id,
+  field enumeration, generic construct-and-attach into a `World`, the
+  reflect → `to_value` → construct round-trip (nested + vector fields), and
+  unknown-name / invalid-entity rejection. Full suite 107 tests, all green.
+  - *Durability rule for future workers:* the **persisted** identity of a type is
+    its **name** (a string) — Scene files, replication, any on-disk form key on it.
+    `TypeID` is a runtime-only handle and may vary in assignment order across runs;
+    never persist it.
 
 ## What to build next
 
-The runtime `World` is in place. The remaining **Engine** / early **Phase 1**
-units of the
+The runtime `World` and the reflection system are in place. The remaining
+**Engine** / early **Phase 1** units of the
 **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
-are now the frontier. **All five are now filed** (acceptance criteria on each issue):
+are now the frontier (acceptance criteria on each issue):
 
-1. **Reflection system** — [#18](https://github.com/Evol-Luci/mosaic/issues/18).
-   Type registry + reflection-driven *generic* component construction (build a
-   component from a serialized type name without the C++ type at the call site).
-   This is the gap `World` deliberately left open, and it gates Scene load/save.
-   The `ComponentTypeID` shim from #9 is where it plugs in.
-   See [design/reflection.md](../design/reflection.md).
-2. **Scene load/save** — [#19](https://github.com/Evol-Luci/mosaic/issues/19).
+1. **Scene load/save** — [#19](https://github.com/Evol-Luci/mosaic/issues/19).
    Serialize/deserialize an entity+component graph via #10, loading into a `World`.
-   Depends on the reflection system (#18).
-3. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
+   Now unblocked: it calls `ComponentReflection::construct` (#18) to materialize
+   each component from its serialized type name.
+2. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
    Runtime `AssetID` → resource resolution + caching, wired into the #10
    `ReferenceResolver` hook. Importer/cooker are future work.
-4. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
+3. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
    The first concrete `System` subclass to exercise `World::tick`. Buildable in
    parallel with the asset registry; flags that `foundation/` has no math types yet.
-5. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
+4. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
    outer fixed-timestep driver that calls `World::tick(dt)` each frame.
 
-Suggested first target: the **reflection system** (#18), since Scene and the
-inspector both block on it and it is the last foundational unknown.
+Suggested first target: **Scene load/save** (#19) — the reflection system that
+gated it is now built, and Scene is the next piece of the vertical slice that the
+inspector and editor both build on.
+
+### Foundation still owed for v0.1 (not yet filed)
+
+The [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain) names three
+Foundation pieces that are **not built and not yet filed as issues**:
+
+- **Math** (right-handed, Y-up, meters, radians): `Vec3`, `Quat`, `Mat4`, etc.
+  The nearest to needed — **transform system (#21) blocks on it**, and rendering
+  will too. File and build this before, or as part of, #21.
+- **Logging** — a structured logging facility.
+- **Jobs** — the job/task system `World::tick` will eventually schedule systems on
+  (today systems run single-threaded in registration order, by design).
+
+These don't gate #19/#20, but they are on the critical path to a *runnable, visible*
+slice. File issues for them as they come into play.
 
 ## Suggested sequence
 
@@ -122,14 +161,15 @@ inspector both block on it and it is the last foundational unknown.
 #9 ECS core ✓ ──┬── #10 Serialization ✓
                 └── #11 Command/event system ✓
                         │
-                        └── World runtime ✓ ──┬── #18 reflection ── #19 Scene load/save
+                        └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save
                                               ├── #20 asset registry
                                               ├── #21 transform system
                                               └── #22 runtime loop
 ```
 
-#9, #10, #11, and the World runtime are done. #18–#22 are filed and unblocked;
-#19 depends on #18, the rest depend only on the World runtime.
+#9, #10, #11, the World runtime, and #18 reflection are done. #19–#22 are filed and
+unblocked; #19 now depends only on already-built work (#18), the rest depend only on
+the World runtime.
 
 ## Ground rules for the worker
 
@@ -137,10 +177,13 @@ inspector both block on it and it is the last foundational unknown.
   [ARCHITECTURE.md](../architecture/ARCHITECTURE.md): `foundation/` knows nothing
   above it; `engine/` depends only on `foundation/`.
 - Each issue lists acceptance criteria and expects unit tests under `tests/unit/`.
-- Reflection metadata is a soft dependency for #10; #9 shipped a minimal
-  `ComponentTypeID` shim (type identity only). The reflection system (next up)
-  reconciles it — and the `World` needs its *generic* construction path before
-  Scene load/save is buildable. Flag it if it becomes a blocker.
+- ~~Reflection metadata is a soft dependency for #10; #9 shipped a minimal
+  `ComponentTypeID` shim (type identity only). The reflection system reconciles
+  it — and the `World` needs its *generic* construction path before Scene
+  load/save is buildable.~~ **Done by #18:** `ComponentTypeID` is now a re-export
+  of `foundation::reflection::TypeID` (one identity source), and
+  `engine/reflection/component_reflection.hpp` supplies the generic construction
+  path Scene load/save calls.
 - ~~ECS handoff: own the `on_destroy(e)` → `EntityRegistry::destroy(e)` sequencing
   and add an interleaved create/add/destroy/recycle integration test.~~ **Done by
   the `World`:** `tick` commits deferred destructions in that order, and
@@ -149,14 +192,19 @@ inspector both block on it and it is the last foundational unknown.
   `EventBus::drain_deferred()` at the tick's start. The still-open piece is the
   **runtime loop** that calls `World::tick(dt)` each frame — there is no scheduler
   yet, by design.
+- Known tech debt ([#25](https://github.com/Evol-Luci/mosaic/issues/25), post-v0.1):
+  `type_id<T>()` shares one global counter across all reflected types, so
+  `ComponentRegistry::storages_` is sized by the max id of *any* reflected type
+  (null gaps for non-components). Accepted, correctness-safe for v0.1; give
+  components a dense id space later without reintroducing the #9 identity drift.
 - If a decision in RFC 0001 turns out to be wrong under implementation, don't
   silently deviate — open an issue proposing an amendment and link the RFC. (See
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After the World runtime
+## After the reflection system
 
-With entities, serialization, commands/events, and the runtime `World` in place,
-the on-ramp to **Phase 1 — First World** is the reflection system → Scene load/save,
-plus the asset registry, transform system, and runtime loop. File issues for them
-and reassess this file as each lands.
+With entities, serialization, commands/events, the runtime `World`, and the
+reflection system in place, the on-ramp to **Phase 1 — First World** is Scene
+load/save (#19, now unblocked), plus the asset registry (#20), transform system
+(#21), and runtime loop (#22). Reassess this file as each lands.

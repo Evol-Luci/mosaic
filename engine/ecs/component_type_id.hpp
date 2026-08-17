@@ -1,31 +1,28 @@
 #pragma once
 
-#include <cstdint>
+#include "foundation/reflection/type_id.hpp"
 
 namespace mosaic::engine::ecs
 {
 
-// Minimal reflection shim: a stable, per-type integer id assigned on first use
-// within a run. This is type identity only — NOT field reflection. The real
-// reflection system (see docs/design/reflection.md) will supply reflection-
-// derived TypeIDs and reconcile with this; see the design spec's Risks section.
-using ComponentTypeID = std::uint32_t;
-
-namespace detail
-{
-// Not thread-safe; assumes single-threaded component-type registration.
-inline ComponentTypeID next_component_type_id() noexcept
-{
-    static ComponentTypeID counter = 0;
-    return counter++;
-}
-} // namespace detail
+// The ECS keys component storage by a per-type integer id. That identity now
+// comes from the reflection system's single source (foundation/reflection):
+// ComponentTypeID is an alias of reflection::TypeID and component_type_id<T>()
+// forwards to type_id<T>(), so a component's storage slot and its reflected
+// TypeInfo::id are the same integer within a run.
+//
+// v0.1 trade-off (expand/fix later — see issue #25): type_id<T>() draws from a
+// single global counter shared with ALL reflected types, not just components. Since
+// ComponentRegistry sizes its storages_ vector to max_component_id + 1, non-component
+// reflected types inflate that vector with null gaps. Bounded, correctness-safe waste
+// for now; a later version should give components a dense id space (or map storages_
+// by TypeID) without reintroducing the #9 identity drift.
+using ComponentTypeID = mosaic::foundation::reflection::TypeID;
 
 template <typename T>
 ComponentTypeID component_type_id() noexcept
 {
-    static const ComponentTypeID id = detail::next_component_type_id();
-    return id;
+    return mosaic::foundation::reflection::type_id<T>();
 }
 
 } // namespace mosaic::engine::ecs
