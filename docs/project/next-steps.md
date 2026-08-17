@@ -4,7 +4,8 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-17 (v0.1 engine core complete; on-ramp issues #33–#37 filed)
+**Last updated:** 2026-08-17 (v0.1 engine core complete; logging #33 built — see
+[PR #39](https://github.com/Evol-Luci/mosaic/pull/39); next on-ramp is #35 app/CLI shell)
 
 ## Where we are
 
@@ -214,6 +215,29 @@ and [plans/2026-08-16-runtime-loop.md](../superpowers/plans/2026-08-16-runtime-l
 #10 serialization, #11 commands/events, the runtime `World`, #18 reflection, #19
 Scene, #20 assets, #21 transform + #26 math, #22 runtime loop).
 
+**Logging ([#33](https://github.com/Evol-Luci/mosaic/issues/33)) is built** (in
+[PR #39](https://github.com/Evol-Luci/mosaic/pull/39)). The nearest of the remaining
+foundation pieces — a leveled, categorized, thread-safe logging facility every later
+subsystem (app/CLI, rendering, assets, jobs) consumes. Designed and planned in
+[specs/2026-08-16-logging-design.md](../superpowers/specs/2026-08-16-logging-design.md)
+and [plans/2026-08-16-logging.md](../superpowers/plans/2026-08-16-logging.md):
+
+- `foundation/logging/log.hpp` — `Level` (trace/debug/info/warn/error), `Record`, a
+  `noexcept` `Sink` + `ConsoleSink`, and a `Logger` (sink list + `std::atomic`
+  min-level + a `std::mutex` serializing dispatch; below-threshold messages drop
+  without taking the lock). A process-global `std::format`-style free-function
+  surface (`log::info(cat, fmt, ...)`) forwards to a function-local-static default
+  `Logger`, so promoting `Logger` to a public *injectable* API later is additive.
+- Header-only and stdlib-only — honors the foundation tier contract.
+- `tests/unit/logging/` — `[logging]` cases: level routing, min-level filter, the
+  default `Info` level, multiple sinks, `std::format` substitution, exact
+  `ConsoleSink` output, and a concurrent 8×500 no-lost/no-torn test whose sink is
+  **deliberately unguarded** so the `Logger` mutex is the real subject under test
+  (proven a genuine detector: removing the lock aborts the test). Full suite 160
+  tests, all green.
+  - *Deferred (post-v0.1):* lazy-eval logging macros with `source_location` capture,
+    and file/rotating/JSON sinks + async queue (all named out of scope in #33).
+
 ## What to build next
 
 The engine core runs, but it is still **headless** — there is nothing to look at yet
@@ -231,13 +255,13 @@ splits three ways, **all filed** (each its own brainstorm → spec → plan → 
    **large tracking issues** that need their own decomposition into sub-issues during
    design; the Studio depends on rendering.
 3. **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
-   (nearest; every subsystem wants it) and jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
+   is **built** (PR #39), leaving jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
    (a thread pool / `parallel_for`; wiring it into `World::tick` for parallel systems
    is a later follow-up — today ticking is single-threaded by design).
 
-**Suggested order:** #33 logging → #35 app/CLI shell (makes the engine runnable) →
-#34 jobs (independent) → #36 rendering (first visible; decompose first) → #37 studio
-(needs rendering).
+**Suggested order:** ~~#33 logging~~ ✓ → **#35 app/CLI shell** (next; makes the engine
+runnable) → #34 jobs (independent) → #36 rendering (first visible; decompose first) →
+#37 studio (needs rendering).
 
 ## Suggested sequence
 
@@ -308,7 +332,7 @@ The three on-ramps from here are all filed (each its own future spec):
   [#36](https://github.com/Evol-Luci/mosaic/issues/36) or the Studio shell
   [#37](https://github.com/Evol-Luci/mosaic/issues/37). The milestone that makes the
   engine something you can look at (both large — decompose during design).
-- **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33),
-  then jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34).
+- **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
+  is built (PR #39); jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34) remains.
 
 Reassess this file as each lands.
