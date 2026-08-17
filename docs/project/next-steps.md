@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16 (Scene load/save #19 built)
+**Last updated:** 2026-08-16 (asset registry #20 built)
 
 ## Where we are
 
@@ -142,26 +142,51 @@ and [plans/2026-08-16-scene-load-save.md](../superpowers/plans/2026-08-16-scene-
   throw, malformed-JSON throw, JSON convenience round-trip. Full suite 120 tests,
   all green.
 
+**Asset registry ([#20](https://github.com/Evol-Luci/mosaic/issues/20)) is built
+and merged.** The runtime-side registry — resolve/cache `AssetID` → loaded
+resources, validate references on deserialize. Designed and planned in
+[specs/2026-08-16-asset-registry-design.md](../superpowers/specs/2026-08-16-asset-registry-design.md)
+and [plans/2026-08-16-asset-registry.md](../superpowers/plans/2026-08-16-asset-registry.md):
+
+- `engine/assets/asset_metadata.hpp` — `AssetMetadata` (uuid, type, version, source,
+  dependencies, open-ended metadata/import_settings), reflected, round-tripping
+  through TOML via #10.
+- `engine/assets/asset_registry.hpp` — `AssetRegistry`: `register_asset(meta, loader)`
+  (lazy) / `register_resource<T>` (eager), `load<T>(id)` resolves + caches
+  (loader invoked once), `metadata`/`contains`. Resources are type-erased
+  (`shared_ptr<void>` + `load<T>` cast) — no `Resource` base class, since no concrete
+  resource types exist until rendering. Missing id → null/nil, non-throwing.
+- `AssetReferenceResolver` (same header) — the #10 `ReferenceResolver` hook: on
+  deserialize a registered `AssetID`/`Handle` passes through, an unknown one becomes
+  a nil handle.
+- `foundation/serialization/reference.hpp` gained `std::hash<AssetID>` (mirrors
+  `EntityID`), the natural cross-reference key.
+- `tests/unit/assets/` — `[assets]` cases: hash-as-map-key, metadata TOML round-trip,
+  register/cached-load (loader-once), eager resource, unknown → null, Handle
+  validate/nil on deserialize. Full suite 127 tests, all green.
+  - **Deferred (small follow-up):** wiring `AssetReferenceResolver` *into* Scene's
+    load path (a combined entity-remap + asset-validation resolver), and any real
+    loader/resource type (rendering), importer, and cooker.
+
 ## What to build next
 
-Entities, serialization, commands/events, the runtime `World`, reflection, and
-Scene load/save are in place. The remaining **Engine** / early **Phase 1** units of
-the **[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)**
-are now the frontier (acceptance criteria on each issue):
+Entities, serialization, commands/events, the runtime `World`, reflection, Scene
+load/save, and the asset registry are in place. The remaining **Engine** / early
+**Phase 1** units of the
+**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)** are
+now the frontier (acceptance criteria on each issue):
 
-1. **Asset registry** — [#20](https://github.com/Evol-Luci/mosaic/issues/20).
-   Runtime `AssetID` → resource resolution + caching, wired into the #10
-   `ReferenceResolver` hook — it re-resolves the `AssetID`/`Handle` ids that scenes
-   (#19) now round-trip. Importer/cooker are future work.
-2. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
-   The first concrete `System` subclass to exercise `World::tick`. Buildable in
-   parallel with the asset registry; blocks on foundation math types (see below).
-3. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
+1. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
+   The first concrete `System` subclass to exercise `World::tick`. **Blocks on
+   foundation math types** (`Vec3`/`Quat`/`Mat4`) — file/build those first or as
+   part of #21 (see below).
+2. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
    outer fixed-timestep driver that calls `World::tick(dt)` each frame.
 
-Suggested first target: **Asset registry** (#20) — it closes the last reference
-type scenes leave unresolved (`AssetID`/`Handle`), and the transform system (#21)
-is better tackled once foundation math types exist.
+Suggested first target: **foundation math + transform system** (#21) — it is the
+first concrete `System`, the first exercise of `World::tick` with real work, and the
+piece that forces the math layer v0.1 needs everywhere downstream (physics,
+rendering).
 
 ### Foundation still owed for v0.1 (not yet filed)
 
@@ -175,8 +200,9 @@ Foundation pieces that are **not built and not yet filed as issues**:
 - **Jobs** — the job/task system `World::tick` will eventually schedule systems on
   (today systems run single-threaded in registration order, by design).
 
-These don't gate #20, but they are on the critical path to a *runnable, visible*
-slice. File issues for them as they come into play.
+**Math now gates the frontier** (transform #21). Logging and jobs remain on the
+critical path to a *runnable, visible* slice but don't block #21/#22. File issues
+for them as they come into play.
 
 ## Suggested sequence
 
@@ -185,14 +211,14 @@ slice. File issues for them as they come into play.
                 └── #11 Command/event system ✓
                         │
                         └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save ✓
-                                              ├── #20 asset registry
+                                              ├── #20 asset registry ✓
                                               ├── #21 transform system
                                               └── #22 runtime loop
 ```
 
-#9, #10, #11, the World runtime, #18 reflection, and #19 Scene load/save are done.
-#20–#22 are filed and unblocked; #20 re-resolves the asset references #19 round-trips,
-and the rest depend only on the World runtime (#21 also on foundation math).
+#9, #10, #11, the World runtime, #18 reflection, #19 Scene load/save, and #20 asset
+registry are done. #21–#22 are filed and unblocked; #21 (transform) additionally
+needs foundation math types, and both depend only on the World runtime.
 
 ## Ground rules for the worker
 
@@ -225,9 +251,9 @@ and the rest depend only on the World runtime (#21 also on foundation math).
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After Scene load/save
+## After the asset registry
 
-With entities, serialization, commands/events, the runtime `World`, reflection, and
-Scene load/save in place, the on-ramp to **Phase 1 — First World** is the asset
-registry (#20, now the frontier), transform system (#21, once foundation math
-exists), and runtime loop (#22). Reassess this file as each lands.
+With entities, serialization, commands/events, the runtime `World`, reflection,
+Scene load/save, and the asset registry in place, the on-ramp to **Phase 1 — First
+World** is foundation math + the transform system (#21, now the frontier) and the
+runtime loop (#22). Reassess this file as each lands.
