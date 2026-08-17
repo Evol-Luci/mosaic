@@ -101,15 +101,24 @@ private:
 };
 
 // The default console sink: writes "[LEVEL] category: message\n" to std::cerr
-// (unbuffered, so lines survive a crash). Output failures are swallowed to keep
-// the noexcept contract.
+// (unbuffered, so lines survive a crash). Stream exceptions are caught and
+// dropped to honour the noexcept contract.
 class ConsoleSink : public Sink
 {
 public:
     void write(const Record& record) noexcept override
     {
-        std::cerr << '[' << to_string(record.level) << "] " << record.category
-                  << ": " << record.message << '\n';
+        try
+        {
+            std::cerr << '[' << to_string(record.level) << "] " << record.category
+                      << ": " << record.message << '\n';
+        }
+        catch (...)
+        {
+            // A logging sink must never throw into its caller (noexcept). If the
+            // stream has exceptions enabled and fails, drop the line rather than
+            // terminate.
+        }
     }
 };
 
