@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-16 (asset registry #20 built)
+**Last updated:** 2026-08-16 (foundation math + transform system #21 built)
 
 ## Where we are
 
@@ -168,41 +168,56 @@ and [plans/2026-08-16-asset-registry.md](../superpowers/plans/2026-08-16-asset-r
     load path (a combined entity-remap + asset-validation resolver), and any real
     loader/resource type (rendering), importer, and cooker.
 
+**Foundation math + transform system ([#21](https://github.com/Evol-Luci/mosaic/issues/21),
+[#26](https://github.com/Evol-Luci/mosaic/issues/26)) is built and merged.** The
+first concrete `System`, and the math layer the rest of the slice inherits. Designed
+and planned in
+[specs/2026-08-16-transform-system-design.md](../superpowers/specs/2026-08-16-transform-system-design.md)
+and [plans/2026-08-16-transform-system.md](../superpowers/plans/2026-08-16-transform-system.md):
+
+- `foundation/math/{vec3,quat,mat4}.hpp` — minimal, hand-rolled (no GLM), header-only.
+  **Conventions now fixed for rendering/physics:** column-major storage, column
+  vectors, right-handed, Y-up, radians; `world = parent * local`, `local = T*R*S`.
+  `Vec3`/`Quat` are reflected so transforms serialize.
+- `engine/transform/transform.hpp` — reflected `Transform` (authored local
+  position/rotation/scale + optional `parent` EntityID, nil = root) and the derived
+  `WorldTransform{ Mat4 }` (system-written, not serialized).
+- `engine/transform/transform_system.hpp` — `TransformSystem`, the first concrete
+  `System`. `update` walks each entity's parent chain (`world(e) = world(parent) *
+  local(e)`) and writes its `WorldTransform`; a depth guard bounds malformed cycles.
+- `tests/unit/math/` + `tests/unit/transform/` — `[math]` (Vec3/Quat/Mat4 ops, TRS,
+  transform_point) and `[transform]` (single→world, parent compose, rotated parent,
+  moving a parent updates children next tick, reflection round-trip). Full suite 142
+  tests, all green.
+  - *Perf follow-up:* `update` recomputes each entity by re-walking ancestors —
+    memoize per tick or process parent-first when scenes grow.
+
 ## What to build next
 
 Entities, serialization, commands/events, the runtime `World`, reflection, Scene
-load/save, and the asset registry are in place. The remaining **Engine** / early
-**Phase 1** units of the
-**[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain)** are
-now the frontier (acceptance criteria on each issue):
+load/save, the asset registry, foundation math, and the transform system are in
+place. **The runtime loop is the last engine piece of the
+[v0.1 vertical slice](roadmap.md#the-v01-vertical-slice--the-first-mountain):**
 
-1. **Transform system** — [#21](https://github.com/Evol-Luci/mosaic/issues/21).
-   The first concrete `System` subclass to exercise `World::tick`. **Blocks on
-   foundation math types** (`Vec3`/`Quat`/`Mat4`) — file/build those first or as
-   part of #21 (see below).
-2. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
-   outer fixed-timestep driver that calls `World::tick(dt)` each frame.
+1. **Runtime loop** — [#22](https://github.com/Evol-Luci/mosaic/issues/22). The
+   outer fixed-timestep driver that calls `World::tick(dt)` each frame — the piece
+   that finally *runs* the engine (nothing calls `tick` in a loop yet).
 
-Suggested first target: **foundation math + transform system** (#21) — it is the
-first concrete `System`, the first exercise of `World::tick` with real work, and the
-piece that forces the math layer v0.1 needs everywhere downstream (physics,
-rendering).
+After #22, the headless engine core of the vertical slice is complete; the frontier
+then moves to the first *visible* subsystems (rendering / studio) and the remaining
+foundation pieces below.
 
 ### Foundation still owed for v0.1 (not yet filed)
 
-The [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain) names three
-Foundation pieces that are **not built and not yet filed as issues**:
+Two Foundation pieces from the [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain)
+remain **unbuilt and unfiled** (math is now done, #26):
 
-- **Math** (right-handed, Y-up, meters, radians): `Vec3`, `Quat`, `Mat4`, etc.
-  The nearest to needed — **transform system (#21) blocks on it**, and rendering
-  will too. File and build this before, or as part of, #21.
 - **Logging** — a structured logging facility.
 - **Jobs** — the job/task system `World::tick` will eventually schedule systems on
-  (today systems run single-threaded in registration order, by design).
+  (today systems run single-threaded in registration order, by design). The runtime
+  loop (#22) is the natural first consumer of a scheduler, but does not require one.
 
-**Math now gates the frontier** (transform #21). Logging and jobs remain on the
-critical path to a *runnable, visible* slice but don't block #21/#22. File issues
-for them as they come into play.
+Neither blocks #22. File issues for them as they come into play.
 
 ## Suggested sequence
 
@@ -212,13 +227,14 @@ for them as they come into play.
                         │
                         └── World runtime ✓ ──┬── #18 reflection ✓ ── #19 Scene load/save ✓
                                               ├── #20 asset registry ✓
-                                              ├── #21 transform system
+                                              ├── #21 transform system ✓ (+ foundation math #26)
                                               └── #22 runtime loop
 ```
 
-#9, #10, #11, the World runtime, #18 reflection, #19 Scene load/save, and #20 asset
-registry are done. #21–#22 are filed and unblocked; #21 (transform) additionally
-needs foundation math types, and both depend only on the World runtime.
+#9, #10, #11, the World runtime, #18 reflection, #19 Scene load/save, #20 asset
+registry, and #21 transform system (+ foundation math #26) are done. **#22 runtime
+loop is the only remaining engine unit** of the vertical slice; it depends only on
+the World runtime.
 
 ## Ground rules for the worker
 
@@ -251,9 +267,11 @@ needs foundation math types, and both depend only on the World runtime.
   the redo/announce interpretation note under *Where we are* — a resolved
   ambiguity, not a deviation, but worth revisiting at the World/UI layer.)
 
-## After the asset registry
+## After the transform system
 
 With entities, serialization, commands/events, the runtime `World`, reflection,
-Scene load/save, and the asset registry in place, the on-ramp to **Phase 1 — First
-World** is foundation math + the transform system (#21, now the frontier) and the
-runtime loop (#22). Reassess this file as each lands.
+Scene load/save, the asset registry, foundation math, and the transform system in
+place, only the **runtime loop (#22)** remains to complete the headless engine core
+of the vertical slice. After it, the frontier moves to the first *visible*
+subsystems (rendering, studio) plus the remaining foundation pieces (logging, jobs).
+Reassess this file as each lands.
