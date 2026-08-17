@@ -1,7 +1,6 @@
 #include "foundation/jobs/thread_pool.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <exception>
 #include <memory>
 #include <utility>
@@ -115,18 +114,16 @@ void ThreadPool::parallel_for(std::size_t begin, std::size_t end,
                 {
                     err = std::current_exception();
                 }
-                bool last = false;
                 {
                     std::lock_guard<std::mutex> llock(latch.m);
                     if (err && !latch.error)
                     {
                         latch.error = err;
                     }
-                    last = (--latch.remaining == 0);
-                }
-                if (last)
-                {
-                    latch.cv.notify_one();
+                    if (--latch.remaining == 0)
+                    {
+                        latch.cv.notify_one();
+                    }
                 }
             });
         }
