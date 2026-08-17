@@ -27,6 +27,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/type_id_test.cpp
   unit/reflection/type_registry_test.cpp
   unit/reflection/component_reflection_test.cpp
+  unit/reflection/builtin_components_test.cpp
   unit/scene/scene_save_test.cpp
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp
@@ -43,8 +44,12 @@ add_executable(mosaic_unit_tests
   unit/logging/logger_test.cpp
   unit/logging/log_api_test.cpp
   unit/logging/log_thread_safety_test.cpp
+  unit/app/options_test.cpp
+  unit/app/status_reporter_test.cpp
+  unit/app/frame_pump_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
+  mosaic_app
   mosaic_engine
   mosaic_foundation
   mosaic_serialization

@@ -4,8 +4,9 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-17 (v0.1 engine core complete; logging #33 built — see
-[PR #39](https://github.com/Evol-Luci/mosaic/pull/39); next on-ramp is #35 app/CLI shell)
+**Last updated:** 2026-08-17 (v0.1 engine core complete; logging #33 and the app/CLI
+shell #35 built — `mosaic run` runs a world for real; next on-ramp is jobs #34, then
+the first visible subsystem #36/#37)
 
 ## Where we are
 
@@ -238,30 +239,52 @@ and [plans/2026-08-16-logging.md](../superpowers/plans/2026-08-16-logging.md):
   - *Deferred (post-v0.1):* lazy-eval logging macros with `source_location` capture,
     and file/rotating/JSON sinks + async queue (all named out of scope in #33).
 
+**App / CLI shell ([#35](https://github.com/Evol-Luci/mosaic/issues/35)) is built** —
+the engine now *runs a world outside a test*. `mosaic run` owns a `main` and the
+real-time frame pump the runtime loop deliberately left out. Designed and planned in
+[specs/2026-08-17-app-cli-shell-design.md](../superpowers/specs/2026-08-17-app-cli-shell-design.md)
+and [plans/2026-08-17-app-cli-shell.md](../superpowers/plans/2026-08-17-app-cli-shell.md):
+
+- New top-level `app/` tier: a `mosaic_app` library holding all logic behind test
+  seams + a thin `mosaic` executable. `app/cli/` (CLI11 arg parsing → a plain
+  `Options`; CLI11 confined to the app tier), `app/run/frame_pump.hpp` (the
+  `FramePump` — measures wall-clock dt, drives `RuntimeLoop::advance`, sleeps to a
+  target rate, stops on SIGINT / `--duration` / `--ticks`; clock/sleep/stop are
+  **injected** as plain-`double`-seconds seams so tests run with no real time),
+  `app/run/status_reporter.*` (`--json` periodic + summary lines, human-readable via
+  logging #33), and `app/main.cpp` (real `std::chrono` + SIGINT wiring).
+- `engine/reflection/builtin_components.hpp` — a shared `register_builtin_components`
+  (registers `Transform`) the app and the future editor both call, so their component
+  sets can't drift.
+- `tests/unit/app/` — `[cli]`/`[app]` cases: arg parsing, the injected-clock pump
+  (exact `--ticks` count, duration/signal stop, progress cadence — the pump is the
+  real subject, `RuntimeLoop(fixed_dt, 1)` makes counts exact), non-positive
+  `--fps`/`--fixed-hz` rejected, and the JSON reporter shapes. Full suite 175, all
+  green; `mosaic run --ticks 10 --json` emits a summary and exits 0.
+  - *Deferred (future Tools issues):* `mosaic create/editor/build`, a project
+    generator, and the asset compiler — the CLI is structured for those subcommands.
+
 ## What to build next
 
-The engine core runs, but it is still **headless** — there is nothing to look at yet
-and no process `main`. Per the
+The engine now **runs** (`mosaic run`), but it is still **invisible** — no window,
+nothing to look at. Per the
 [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier now
-splits three ways, **all filed** (each its own brainstorm → spec → plan → TDD cycle):
+splits two ways (the app/CLI on-ramp is done), **all filed** (each its own
+brainstorm → spec → plan → TDD cycle):
 
-1. **App / CLI shell** — [#35](https://github.com/Evol-Luci/mosaic/issues/35).
-   A `main` (`mosaic run`) that owns the real-time `std::chrono` frame pump and drives
-   a `RuntimeLoop` (#22), optionally loading a scene (#19). The smallest step to
-   actually *running* a world outside a test, and the first observable output.
-2. **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
+1. **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
    (Vulkan) and the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
    (viewport + hierarchy + the reflection-driven inspector, the #18 payoff). Both are
    **large tracking issues** that need their own decomposition into sub-issues during
    design; the Studio depends on rendering.
-3. **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
-   is **built** (PR #39), leaving jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
+2. **Remaining foundation** — jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
    (a thread pool / `parallel_for`; wiring it into `World::tick` for parallel systems
-   is a later follow-up — today ticking is single-threaded by design).
+   is a later follow-up — today ticking is single-threaded by design). Logging #33 and
+   the app/CLI shell #35 are done.
 
-**Suggested order:** ~~#33 logging~~ ✓ → **#35 app/CLI shell** (next; makes the engine
-runnable) → #34 jobs (independent) → #36 rendering (first visible; decompose first) →
-#37 studio (needs rendering).
+**Suggested order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → **#34 jobs** (next;
+independent, small) → #36 rendering (first visible; decompose first) → #37 studio
+(needs rendering).
 
 ## Suggested sequence
 
@@ -322,17 +345,16 @@ The **v0.1 headless engine core is complete**: entities, serialization,
 commands/events, the runtime `World`, reflection, Scene load/save, the asset
 registry, foundation math, the transform system, and the runtime loop. Everything
 composes into a world that can be populated, serialized, reloaded, and ticked
-deterministically — but nothing *runs it* outside a test, and nothing is *visible*.
+deterministically, and **`mosaic run` now runs it in real time outside a test** — but
+nothing is *visible* yet.
 
-The three on-ramps from here are all filed (each its own future spec):
-- **App / CLI shell** (`mosaic run`) — [#35](https://github.com/Evol-Luci/mosaic/issues/35).
-  A process `main` owning the real-time frame pump that drives `RuntimeLoop`.
-  Smallest path to running a world for real.
+The remaining on-ramps are all filed (each its own future spec):
 - **First visible subsystem** — Vulkan rendering
   [#36](https://github.com/Evol-Luci/mosaic/issues/36) or the Studio shell
   [#37](https://github.com/Evol-Luci/mosaic/issues/37). The milestone that makes the
   engine something you can look at (both large — decompose during design).
-- **Remaining foundation** — logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
-  is built (PR #39); jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34) remains.
+- **Remaining foundation** — jobs [#34](https://github.com/Evol-Luci/mosaic/issues/34)
+  (small, independent). Logging [#33](https://github.com/Evol-Luci/mosaic/issues/33)
+  and the app/CLI shell [#35](https://github.com/Evol-Luci/mosaic/issues/35) are built.
 
 Reassess this file as each lands.

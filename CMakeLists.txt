@@ -26,8 +26,14 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   GIT_TAG        v3.11.3
 )
-FetchContent_MakeAvailable(tomlplusplus nlohmann_json)
+FetchContent_Declare(
+  CLI11
+  GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
+  GIT_TAG        v2.4.2
+)
+FetchContent_MakeAvailable(tomlplusplus nlohmann_json CLI11)
 
 add_subdirectory(foundation)
 add_subdirectory(engine)
+add_subdirectory(app)
 add_subdirectory(tests)
