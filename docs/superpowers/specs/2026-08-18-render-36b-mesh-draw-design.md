@@ -77,15 +77,21 @@ The device is **camera-agnostic**: it draws with whatever `mvp` it is handed. 36
 `clear()` becomes "remember the clear color"; the actual color+depth clear happens in
 `begin_frame`'s render-pass-begin.
 
-### `engine/render/mesh_renderer.hpp` — reflected component
+### `engine/render/mesh_renderer.hpp` — runtime component
 
 ```cpp
 namespace mosaic::engine::render
 {
 struct MeshRenderer { MeshHandle mesh = 0; };
-// reflected: a single MeshHandle field (plain integer) — no backend type.
 }
 ```
+
+`MeshRenderer` holds a **runtime** `MeshHandle` and is deliberately **not reflected /
+not serialized** — like `WorldTransform`, its value is a per-run device id that must
+never be persisted (the same reasoning the codebase applies to `TypeID`). The
+*serializable* mesh binding is an `AssetID`-referenced form that arrives in **36d**
+when meshes load through the asset registry. For 36b the cube is created
+procedurally and the handle is assigned at spawn time.
 
 ### `engine/render/render_system.hpp` — render-time traversal (NOT a tick System)
 
