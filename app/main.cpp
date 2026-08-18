@@ -7,8 +7,7 @@
 #include <string>
 #include <thread>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
+#include <GLFW/glfw3.h> // windowing only; Vulkan surface creation lives in the backend
 
 #include "app/cli/options.hpp"
 #include "app/run/frame_pump.hpp"
