@@ -19,6 +19,7 @@ struct PumpDeps
     std::function<double()>     now;
     std::function<void(double)> sleep;
     std::function<bool()>       stop_requested;
+    std::function<void()>       on_frame; // per-frame hook (render/poll); may be empty
 };
 
 // Drives a World in real time over a RuntimeLoop until a stop source fires.
@@ -66,6 +67,13 @@ public:
             t_prev = t;
 
             loop_.advance(world, static_cast<float>(real_dt));
+
+            // Per-frame side effects (e.g. poll window events + render). Empty in
+            // headless mode.
+            if (deps_.on_frame)
+            {
+                deps_.on_frame();
+            }
 
             // Periodic progress, keyed on tick count (deterministic).
             while (loop_.tick_count() >= next_progress_tick)

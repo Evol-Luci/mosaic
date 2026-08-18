@@ -23,6 +23,7 @@ ParseResult parse(int argc, char** argv)
     CLI::Option* ticks_opt =
         run->add_option("--ticks", ticks, "Stop after N fixed ticks");
     run->add_flag("--json", result.options.json, "Emit machine-readable status");
+    run->add_flag("--window", result.options.window, "Open a render window (Vulkan)");
     run->add_option("--fps", result.options.fps, "Target wake frame rate")
         ->capture_default_str()
         ->check(CLI::PositiveNumber);
