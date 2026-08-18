@@ -48,6 +48,7 @@ add_executable(mosaic_unit_tests
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
   unit/jobs/thread_pool_test.cpp
+  unit/render/swapchain_support_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -55,6 +56,8 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_foundation
   mosaic_serialization
   mosaic_jobs
+  mosaic_render_vulkan
+  Vulkan::Vulkan
   Catch2::Catch2WithMain
 )
 target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)

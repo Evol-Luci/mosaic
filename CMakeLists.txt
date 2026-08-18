@@ -35,7 +35,20 @@ FetchContent_MakeAvailable(tomlplusplus nlohmann_json CLI11)
 
 find_package(Threads REQUIRED)
 
+find_package(Vulkan REQUIRED)
+
+FetchContent_Declare(
+  glfw
+  GIT_REPOSITORY https://github.com/glfw/glfw.git
+  GIT_TAG        3.4
+)
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(glfw)
+
 add_subdirectory(foundation)
 add_subdirectory(engine)
+add_subdirectory(modules/render_vulkan)
 add_subdirectory(app)
 add_subdirectory(tests)
