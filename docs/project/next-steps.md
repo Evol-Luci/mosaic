@@ -4,9 +4,10 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-17 (v0.1 foundation complete; rendering #36 decomposed into
-sub-issues #42–#46 — next buildable is **#42 (36a): device + window + swapchain
-clear-screen**)
+**Last updated:** 2026-08-18 (v0.1 foundation complete; rendering #36 underway —
+36a (#42) built: `mosaic run --window` opens a window and clears the screen each frame
+via a Vulkan backend behind a neutral RenderDevice; next buildable is **#43 (36b):
+mesh draw at WorldTransform**)
 
 ## Where we are
 
@@ -299,12 +300,13 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   (viewport + hierarchy + the reflection-driven inspector, the #18 payoff); the Studio
   depends on rendering. **#36 is now decomposed** (design:
   [specs/2026-08-17-rendering-decomposition.md](../superpowers/specs/2026-08-17-rendering-decomposition.md))
-  into five linear sub-issues — start here:
-  1. [#42](https://github.com/Evol-Luci/mosaic/issues/42) **36a — device + window +
-     swapchain (clear-screen)** ← **next buildable.** Establishes the backend-neutral
-     `RenderDevice` interface + `modules/render_vulkan` (GLFW), up to clearing the
-     window each frame in the runtime loop.
-  2. [#43](https://github.com/Evol-Luci/mosaic/issues/43) 36b — mesh draw at `WorldTransform`
+  into five linear sub-issues:
+  1. ~~[#42](https://github.com/Evol-Luci/mosaic/issues/42) 36a — device + window +
+     swapchain (clear-screen)~~ ✓ **built.** The backend-neutral `RenderDevice`
+     interface + `modules/render_vulkan` (GLFW, swapchain + resize recreation, per-frame
+     sync, debug validation → logging) are in place; `mosaic run --window` clears the
+     window each frame. Design/plan: [spec](../superpowers/specs/2026-08-17-render-36a-clear-screen-design.md) · [plan](../superpowers/plans/2026-08-17-render-36a-clear-screen.md).
+  2. [#43](https://github.com/Evol-Luci/mosaic/issues/43) **36b — mesh draw at `WorldTransform`** ← **next buildable** (vertex upload + unlit pipeline + a `RenderSystem` drawing by `WorldTransform`; fixed camera)
   3. [#44](https://github.com/Evol-Luci/mosaic/issues/44) 36c — camera + view/projection
   4. [#45](https://github.com/Evol-Luci/mosaic/issues/45) 36d — material + texture + directional light
   5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) 36e — point light + minimal render graph
@@ -315,8 +317,8 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   its own brainstorm → spec → plan → TDD cycle.
 
 **Suggested order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
-~~#36 decompose~~ ✓ → **#42 (36a rendering clear-screen)** (next) → #43 → #44 → #45 →
-#46 → #37 studio (needs rendering).
+~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → **#43 (36b mesh draw)** (next) →
+#44 → #45 → #46 → #37 studio (needs rendering).
 
 ## Suggested sequence
 
@@ -390,7 +392,9 @@ on-ramp is the first *visible* subsystem (its own future spec):
   see [the decomposition](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37). The
   milestone that makes the engine something you can look at (Studio depends on
-  rendering). **Start with [#42](https://github.com/Evol-Luci/mosaic/issues/42) (36a):
-  device + window + swapchain clear-screen.**
+  rendering). **36a ([#42](https://github.com/Evol-Luci/mosaic/issues/42)) is built**
+  (`mosaic run --window` clears the screen); next is
+  **[#43](https://github.com/Evol-Luci/mosaic/issues/43) (36b): mesh draw at
+  WorldTransform.**
 
 Reassess this file as each lands.
