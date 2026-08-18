@@ -198,6 +198,19 @@ public:
 
     // --- RenderDevice interface -------------------------------------------
 
+    mosaic::engine::render::MeshHandle
+    create_mesh(const std::vector<mosaic::engine::render::Vertex>&,
+                const std::vector<std::uint32_t>&) override
+    {
+        throw std::runtime_error("VulkanRenderDevice::create_mesh not implemented (36b Task 3)");
+    }
+
+    void draw(mosaic::engine::render::MeshHandle,
+              const mosaic::foundation::math::Mat4&) override
+    {
+        throw std::runtime_error("VulkanRenderDevice::draw not implemented (36b Task 3)");
+    }
+
     void begin_frame() override
     {
         frame_skipped_ = false;
