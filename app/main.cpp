@@ -75,7 +75,6 @@ int main(int argc, char** argv)
                      : std::unique_ptr<StatusReporter>(std::make_unique<TextStatusReporter>());
 
     engine::World world;
-    world.add_system<SpinSystem>();          // advances Transform.rotation
     world.add_system<engine::transform::TransformSystem>();
 
     mosaic::foundation::reflection::TypeRegistry registry;
@@ -152,6 +151,11 @@ int main(int argc, char** argv)
         using mosaic::foundation::math::Vec3;
 
         // Upload the cube and spawn one entity that carries it.
+        // Demo-only: spin the cube. Registered here (not globally) so a headless
+        // scene run never mutates authored rotations. Runs after TransformSystem,
+        // so the spin lands one tick later — imperceptible for a continuous spin.
+        world.add_system<SpinSystem>();
+
         std::vector<render::Vertex>        cube_v;
         std::vector<std::uint32_t>         cube_i;
         render::make_cube_mesh(cube_v, cube_i);
