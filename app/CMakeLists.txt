@@ -6,6 +6,8 @@ target_link_libraries(mosaic_app PUBLIC
   mosaic_engine
   mosaic_foundation
   mosaic_serialization
+  mosaic_render_vulkan
+  glfw
   CLI11::CLI11
   nlohmann_json::nlohmann_json
 )

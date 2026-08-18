@@ -129,3 +129,26 @@ TEST_CASE("progress fires on the sim-second cadence", "[app]")
     REQUIRE(reporter.progress_ticks.front() == 60);
     REQUIRE(reporter.progress_ticks.back() == 180);
 }
+
+TEST_CASE("the on_frame hook fires once per iteration, skipped when empty", "[app]")
+{
+    World world;
+    RuntimeLoop loop(1.0F / 60.0F, 1);
+
+    Options options;
+    options.ticks = 3;
+    options.fixed_hz = 60.0;
+
+    StepClock clock{0.0, 1.0};
+    int frames = 0;
+    PumpDeps deps{std::ref(clock), [](double) {}, [] { return false; }};
+    deps.on_frame = [&frames] { ++frames; };
+
+    CapturingReporter reporter;
+    FramePump pump(loop, deps, reporter, options);
+    RunSummary summary = pump.run(world);
+
+    REQUIRE(summary.stopped_by == "ticks");
+    REQUIRE(frames == static_cast<int>(loop.tick_count())); // one hook call per iteration
+    REQUIRE(frames >= 3);
+}
