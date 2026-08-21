@@ -28,6 +28,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/type_registry_test.cpp
   unit/reflection/component_reflection_test.cpp
   unit/reflection/builtin_components_test.cpp
+  unit/reflection/camera_reflection_test.cpp
   unit/scene/scene_save_test.cpp
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp
@@ -37,6 +38,7 @@ add_executable(mosaic_unit_tests
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
   unit/math/mat4_test.cpp
+  unit/math/inverse_affine_test.cpp
   unit/math/projection_test.cpp
   unit/transform/transform_reflection_test.cpp
   unit/transform/transform_system_test.cpp

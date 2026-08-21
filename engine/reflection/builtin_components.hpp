@@ -3,6 +3,7 @@
 #include <string>
 
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/render/camera.hpp"
 #include "engine/transform/transform.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
@@ -17,7 +18,8 @@ inline void register_builtin_components(
     mosaic::foundation::reflection::TypeRegistry& registry, ComponentReflection& types)
 {
     types.register_component<mosaic::engine::transform::Transform>(registry, "Transform");
-    // future: Camera, Mesh, ...
+    types.register_component<mosaic::engine::render::Camera>(registry, "Camera");
+    // future: Mesh, Light, ...
 }
 
 } // namespace mosaic::engine::reflection

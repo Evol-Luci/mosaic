@@ -71,6 +71,7 @@ struct Mat4
 
     static Mat4 perspective(float fovy_radians, float aspect, float near_z, float far_z);
     static Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up);
+    static Mat4 inverse_affine(const Mat4& m);
 };
 
 inline Mat4 operator*(const Mat4& a, const Mat4& b)
@@ -128,6 +129,45 @@ inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& center, const Vec3& up)
     out.m[12] = -dot(s, eye);
     out.m[13] = -dot(u, eye);
     out.m[14] = dot(f, eye);
+    return out;
+}
+
+inline Mat4 Mat4::inverse_affine(const Mat4& m)
+{
+    // Upper-left 3x3 (column-major within the 4x4): element(row,col) = m[col*4+row].
+    const float a = m.m[0], b = m.m[4], c = m.m[8];
+    const float d = m.m[1], e = m.m[5], f = m.m[9];
+    const float g = m.m[2], h = m.m[6], i = m.m[10];
+
+    const float det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+    if (det > -1e-8f && det < 1e-8f)
+    {
+        return identity(); // singular linear part (e.g. zero scale)
+    }
+    const float inv_det = 1.0f / det;
+
+    // Inverse of the 3x3 (adjugate / det), as inv(row,col):
+    const float i00 = (e * i - f * h) * inv_det;
+    const float i01 = (c * h - b * i) * inv_det;
+    const float i02 = (b * f - c * e) * inv_det;
+    const float i10 = (f * g - d * i) * inv_det;
+    const float i11 = (a * i - c * g) * inv_det;
+    const float i12 = (c * d - a * f) * inv_det;
+    const float i20 = (d * h - e * g) * inv_det;
+    const float i21 = (b * g - a * h) * inv_det;
+    const float i22 = (a * e - b * d) * inv_det;
+
+    Mat4 out = identity();
+    // Store the inverse 3x3 column-major: out.m[col*4+row] = inv(row,col).
+    out.m[0] = i00; out.m[4] = i01; out.m[8] = i02;
+    out.m[1] = i10; out.m[5] = i11; out.m[9] = i12;
+    out.m[2] = i20; out.m[6] = i21; out.m[10] = i22;
+
+    // Translation: t' = -inv3x3 * t, where t = (m[12], m[13], m[14]).
+    const float tx = m.m[12], ty = m.m[13], tz = m.m[14];
+    out.m[12] = -(i00 * tx + i01 * ty + i02 * tz);
+    out.m[13] = -(i10 * tx + i11 * ty + i12 * tz);
+    out.m[14] = -(i20 * tx + i21 * ty + i22 * tz);
     return out;
 }
 
