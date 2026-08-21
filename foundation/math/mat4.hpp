@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 
 #include "foundation/math/quat.hpp"
 #include "foundation/math/vec3.hpp"
@@ -67,6 +68,9 @@ struct Mat4
 
     // Defined out-of-line below (needs operator*).
     static Mat4 trs(const Vec3& t, const Quat& r, const Vec3& s);
+
+    static Mat4 perspective(float fovy_radians, float aspect, float near_z, float far_z);
+    static Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up);
 };
 
 inline Mat4 operator*(const Mat4& a, const Mat4& b)
@@ -98,6 +102,33 @@ inline Vec3 transform_point(const Mat4& m, const Vec3& p)
         m.m[0] * p.x + m.m[4] * p.y + m.m[8] * p.z + m.m[12],
         m.m[1] * p.x + m.m[5] * p.y + m.m[9] * p.z + m.m[13],
         m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]};
+}
+
+inline Mat4 Mat4::perspective(float fovy_radians, float aspect, float near_z, float far_z)
+{
+    const float tan_half = std::tan(fovy_radians * 0.5f);
+    Mat4 out; // all-zero
+    out.m[0] = 1.0f / (aspect * tan_half);                  // [0][0]
+    out.m[5] = 1.0f / tan_half;                             // [1][1]
+    out.m[10] = far_z / (near_z - far_z);                   // [2][2]
+    out.m[11] = -1.0f;                                      // [2][3]
+    out.m[14] = -(far_z * near_z) / (far_z - near_z);       // [3][2]
+    return out;
+}
+
+inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& center, const Vec3& up)
+{
+    const Vec3 f = normalize(center - eye);
+    const Vec3 s = normalize(cross(f, up));
+    const Vec3 u = cross(s, f);
+    Mat4 out = identity();
+    out.m[0] = s.x;  out.m[4] = s.y;  out.m[8] = s.z;   // row 0 = right
+    out.m[1] = u.x;  out.m[5] = u.y;  out.m[9] = u.z;   // row 1 = up
+    out.m[2] = -f.x; out.m[6] = -f.y; out.m[10] = -f.z; // row 2 = -forward
+    out.m[12] = -dot(s, eye);
+    out.m[13] = -dot(u, eye);
+    out.m[14] = dot(f, eye);
+    return out;
 }
 
 } // namespace mosaic::foundation::math

@@ -1,25 +1,40 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
+#include "foundation/math/mat4.hpp"
+#include "foundation/math/vec3.hpp"
+
 namespace mosaic::engine::render
 {
 
-// A color in linear-ish 0..1 components; the backend maps it to the swapchain.
-struct Color
+struct Color { float r, g, b, a; };
+
+// Unlit vertex: position + per-vertex color.
+struct Vertex
 {
-    float r, g, b, a;
+    mosaic::foundation::math::Vec3 position;
+    mosaic::foundation::math::Vec3 color;
 };
 
-// Backend-neutral rendering device. A backend (Vulkan today) implements it;
-// engine and app code never see the backend's types. 36a clears the screen;
-// 36b will add draw() between clear() and end_frame().
+using MeshHandle = std::uint32_t; // opaque device mesh id; 0 == invalid
+
 class RenderDevice
 {
 public:
     virtual ~RenderDevice() = default;
 
-    virtual void begin_frame() = 0;        // acquire the next swapchain image
-    virtual void clear(const Color&) = 0;  // clear the acquired image to a color
-    virtual void end_frame() = 0;          // submit + present
+    virtual void begin_frame() = 0;
+    virtual void clear(const Color&) = 0;
+    virtual void end_frame() = 0;
+
+    // Upload a mesh; returns an opaque handle (0 on empty input).
+    virtual MeshHandle create_mesh(const std::vector<Vertex>& vertices,
+                                   const std::vector<std::uint32_t>& indices) = 0;
+
+    // Record one indexed draw of `mesh` transformed by `mvp`, between begin/end_frame.
+    virtual void draw(MeshHandle mesh, const mosaic::foundation::math::Mat4& mvp) = 0;
 };
 
 } // namespace mosaic::engine::render

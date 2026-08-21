@@ -4,10 +4,10 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-18 (v0.1 foundation complete; rendering #36 underway —
-36a (#42) built: `mosaic run --window` opens a window and clears the screen each frame
-via a Vulkan backend behind a neutral RenderDevice; next buildable is **#43 (36b):
-mesh draw at WorldTransform**)
+**Last updated:** 2026-08-18 (v0.1 foundation complete; rendering #36 underway — 36a
+(#42) + 36b (#43) built: `mosaic run --window` draws a spinning depth-tested cube at
+its WorldTransform via a Vulkan graphics pipeline; next buildable is **#44 (36c):
+Camera + view/projection**)
 
 ## Where we are
 
@@ -306,8 +306,8 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
      interface + `modules/render_vulkan` (GLFW, swapchain + resize recreation, per-frame
      sync, debug validation → logging) are in place; `mosaic run --window` clears the
      window each frame. Design/plan: [spec](../superpowers/specs/2026-08-17-render-36a-clear-screen-design.md) · [plan](../superpowers/plans/2026-08-17-render-36a-clear-screen.md).
-  2. [#43](https://github.com/Evol-Luci/mosaic/issues/43) **36b — mesh draw at `WorldTransform`** ← **next buildable** (vertex upload + unlit pipeline + a `RenderSystem` drawing by `WorldTransform`; fixed camera)
-  3. [#44](https://github.com/Evol-Luci/mosaic/issues/44) 36c — camera + view/projection
+  2. ~~[#43](https://github.com/Evol-Luci/mosaic/issues/43) 36b — mesh draw at `WorldTransform`~~ ✓ **built.** A `RenderSystem` (render-time traversal, fixed camera) draws entities with `WorldTransform` + `MeshRenderer` via a Vulkan graphics pipeline (glslc SPIR-V, depth buffer); `mosaic run --window` shows a spinning cube. `foundation/math` gained `perspective`/`look_at`. Design/plan: [spec](../superpowers/specs/2026-08-18-render-36b-mesh-draw-design.md) · [plan](../superpowers/plans/2026-08-18-render-36b-mesh-draw.md).
+  3. [#44](https://github.com/Evol-Luci/mosaic/issues/44) **36c — camera + view/projection** ← **next buildable** (a reflected `Camera` component replaces the RenderSystem's fixed camera; `perspective`/`look_at` already exist)
   4. [#45](https://github.com/Evol-Luci/mosaic/issues/45) 36d — material + texture + directional light
   5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) 36e — point light + minimal render graph
 
@@ -317,8 +317,8 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   its own brainstorm → spec → plan → TDD cycle.
 
 **Suggested order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
-~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → **#43 (36b mesh draw)** (next) →
-#44 → #45 → #46 → #37 studio (needs rendering).
+~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → ~~#43 (36b mesh draw)~~ ✓ →
+**#44 (36c camera)** (next) → #45 → #46 → #37 studio (needs rendering).
 
 ## Suggested sequence
 
@@ -392,9 +392,10 @@ on-ramp is the first *visible* subsystem (its own future spec):
   see [the decomposition](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37). The
   milestone that makes the engine something you can look at (Studio depends on
-  rendering). **36a ([#42](https://github.com/Evol-Luci/mosaic/issues/42)) is built**
-  (`mosaic run --window` clears the screen); next is
-  **[#43](https://github.com/Evol-Luci/mosaic/issues/43) (36b): mesh draw at
-  WorldTransform.**
+  rendering). **36a–36b ([#42](https://github.com/Evol-Luci/mosaic/issues/42),
+  [#43](https://github.com/Evol-Luci/mosaic/issues/43)) are built** (`mosaic run
+  --window` draws a spinning cube at its WorldTransform); next is
+  **[#44](https://github.com/Evol-Luci/mosaic/issues/44) (36c): camera +
+  view/projection.**
 
 Reassess this file as each lands.
