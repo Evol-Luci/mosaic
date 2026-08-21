@@ -37,6 +37,7 @@ add_executable(mosaic_unit_tests
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
   unit/math/mat4_test.cpp
+  unit/math/inverse_affine_test.cpp
   unit/math/projection_test.cpp
   unit/transform/transform_reflection_test.cpp
   unit/transform/transform_system_test.cpp
