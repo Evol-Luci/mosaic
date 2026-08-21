@@ -16,6 +16,7 @@
 #include "engine/ecs/system.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
@@ -46,11 +47,17 @@ public:
     void update(mosaic::engine::World& world, float dt) override
     {
         namespace m = mosaic::foundation::math;
+        angle_ += dt * 0.9F;
+        const float      half = angle_ * 0.5F;
+        const m::Quat    spin{0.0F, std::sin(half), 0.0F, std::cos(half)};
         world.for_each<mosaic::engine::transform::Transform>(
-            [&](mosaic::foundation::EntityID, mosaic::engine::transform::Transform& t) {
-                angle_ += dt * 0.9F;
-                const float half = angle_ * 0.5F;
-                t.rotation = m::Quat{0.0F, std::sin(half), 0.0F, std::cos(half)};
+            [&](mosaic::foundation::EntityID e, mosaic::engine::transform::Transform& t)
+            {
+                if (!world.has_component<mosaic::engine::render::MeshRenderer>(e))
+                {
+                    return; // only spin meshes (the cube), not the camera
+                }
+                t.rotation = spin;
             });
     }
 private:
@@ -166,6 +173,17 @@ int main(int argc, char** argv)
         world.add_component<transform::WorldTransform>(cube_entity,
             transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
         world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
+
+        // Camera entity: placed at (0,0,4) looking down -Z at the cube at the origin.
+        // Its Transform → WorldTransform (via TransformSystem) drives the view; the
+        // Camera component is the lens. Replaces the RenderSystem's fallback camera.
+        const auto camera_entity = world.create_entity();
+        world.add_component<transform::Transform>(camera_entity,
+            transform::Transform{Vec3{0.0F, 0.0F, 4.0F}, mosaic::foundation::math::Quat::identity(),
+                                 Vec3{1.0F, 1.0F, 1.0F}, {}});
+        world.add_component<transform::WorldTransform>(camera_entity,
+            transform::WorldTransform{mosaic::foundation::math::Mat4::translation(Vec3{0.0F, 0.0F, 4.0F})});
+        world.add_component<render::Camera>(camera_entity, render::Camera{});
 
         auto render_system = std::make_shared<render::RenderSystem>();
 
