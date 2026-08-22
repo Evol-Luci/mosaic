@@ -6,6 +6,7 @@
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/material.hpp"
+#include "engine/render/point_light.hpp"
 #include "engine/transform/transform.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
@@ -23,6 +24,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::render::Camera>(registry, "Camera");
     types.register_component<mosaic::engine::render::Material>(registry, "Material");
     types.register_component<mosaic::engine::render::DirectionalLight>(registry, "DirectionalLight");
+    types.register_component<mosaic::engine::render::PointLight>(registry, "PointLight");
 }
 
 } // namespace mosaic::engine::reflection
