@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -70,7 +71,10 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     add_camera(world, Vec3{0, 0, 4});
 
     auto light = world.create_entity();
-    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{0, -1, 0}, Vec3{1, 0.9f, 0.8f}});
+    // Light NOT aligned with the mesh's rotation axis (Y), so the object-space transform
+    // produces a genuinely different vector than the world direction — this is what makes
+    // the assertion below actually exercise inverse_affine + transform_direction.
+    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{1, -1, 0}, Vec3{1, 0.9f, 0.8f}});
 
     // Mesh with a 90-degree-about-Y world rotation, so object-space light differs from world.
     const Mat4 mesh_world =
@@ -93,12 +97,16 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     REQUIRE(p.light_color.x == Approx(1.0f));
     REQUIRE(p.light_color.z == Approx(0.8f));
     // light_direction is the world light transformed into the mesh's object space + normalized.
+    const Vec3 world_dir{1, -1, 0};
     const Vec3 expected_obj = mosaic::foundation::math::normalize(
-        mosaic::foundation::math::transform_direction(Mat4::inverse_affine(mesh_world),
-                                                      Vec3{0, -1, 0}));
+        mosaic::foundation::math::transform_direction(Mat4::inverse_affine(mesh_world), world_dir));
     REQUIRE(p.light_direction.x == Approx(expected_obj.x).margin(1e-5));
     REQUIRE(p.light_direction.y == Approx(expected_obj.y).margin(1e-5));
     REQUIRE(p.light_direction.z == Approx(expected_obj.z).margin(1e-5));
+    // Guard: the object-space direction must actually differ from the normalized world
+    // direction, so this test fails if the RenderSystem ever skips the object-space transform.
+    const Vec3 world_norm = mosaic::foundation::math::normalize(world_dir);
+    REQUIRE(std::abs(p.light_direction.x - world_norm.x) > 0.1f);
 }
 
 TEST_CASE("RenderSystem uses default base color and light when none present", "[render]")
