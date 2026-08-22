@@ -76,3 +76,26 @@ TEST_CASE("fps zero is rejected with a non-zero exit code", "[cli]")
     REQUIRE(result.exit_code.has_value());
     REQUIRE(*result.exit_code != 0);
 }
+
+TEST_CASE("parse selects the run command by default subcommand", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "run"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Run);
+}
+
+TEST_CASE("parse selects the editor command", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Editor);
+}
+
+TEST_CASE("editor accepts a bounded --duration", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor", "--duration", "1"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Editor);
+    REQUIRE(pr.options.duration_s.has_value());
+    REQUIRE(pr.options.duration_s.value() == 1.0);
+}
