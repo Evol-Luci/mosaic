@@ -34,6 +34,15 @@ using mosaic::foundation::math::Mat4;
 
 constexpr int kFramesInFlight = 2;
 
+struct PushConstants
+{
+    float mvp[16];
+    float light_direction[4]; // vec3 + pad
+    float light_color[4];
+    float base_color[4];
+};
+static_assert(sizeof(PushConstants) == 112, "push constant layout must match the shader");
+
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
 void vk_check(VkResult r, const char* what)
@@ -252,22 +261,29 @@ public:
 
     void draw(MeshHandle mesh, const mosaic::engine::render::DrawParams& params) override
     {
-        if (frame_skipped_)
+        if (frame_skipped_ || mesh == 0 || mesh > meshes_.size())
         {
-            return; // no command buffer is recording this frame
+            return;
         }
-        if (mesh == 0 || mesh > meshes_.size())
-        {
-            return; // invalid / out-of-range handle: no-op
-        }
-
         const MeshBuffers& mb = meshes_[mesh - 1];
-        VkBuffer     vbufs[]   = {mb.vbuf};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, vbufs, offsets);
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &mb.vbuf, &offset);
         vkCmdBindIndexBuffer(cmd_[frame_], mb.ibuf, 0, VK_INDEX_TYPE_UINT32);
-        vkCmdPushConstants(cmd_[frame_], pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                           sizeof(mosaic::foundation::math::Mat4), params.mvp.m.data());
+
+        PushConstants pc{};
+        std::memcpy(pc.mvp, params.mvp.m.data(), sizeof(pc.mvp));
+        pc.light_direction[0] = params.light_direction.x;
+        pc.light_direction[1] = params.light_direction.y;
+        pc.light_direction[2] = params.light_direction.z;
+        pc.light_color[0] = params.light_color.x;
+        pc.light_color[1] = params.light_color.y;
+        pc.light_color[2] = params.light_color.z;
+        pc.base_color[0] = params.base_color.x;
+        pc.base_color[1] = params.base_color.y;
+        pc.base_color[2] = params.base_color.z;
+        vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(pc), &pc);
         vkCmdDrawIndexed(cmd_[frame_], mb.index_count, 1, 0, 0, 0);
     }
 
@@ -933,9 +949,9 @@ private:
         cb.pAttachments = &blend;
 
         VkPushConstantRange push{};
-        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         push.offset = 0;
-        push.size = sizeof(Mat4); // 64 bytes == one mat4
+        push.size = sizeof(PushConstants);
 
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
