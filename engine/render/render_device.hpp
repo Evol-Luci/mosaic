@@ -11,30 +11,35 @@ namespace mosaic::engine::render
 
 struct Color { float r, g, b, a; };
 
-// Unlit vertex: position + per-vertex color.
+// Unlit vertex was {position, color}; lighting needs a normal.
 struct Vertex
 {
     mosaic::foundation::math::Vec3 position;
-    mosaic::foundation::math::Vec3 color;
+    mosaic::foundation::math::Vec3 normal;
 };
 
-using MeshHandle = std::uint32_t; // opaque device mesh id; 0 == invalid
+using MeshHandle = std::uint32_t;
+
+// Per-draw parameters. `light_direction` is in the mesh's OBJECT space (the RenderSystem
+// transforms the world light per mesh), so the backend needs no model/normal matrix.
+struct DrawParams
+{
+    mosaic::foundation::math::Mat4 mvp;
+    mosaic::foundation::math::Vec3 light_direction;
+    mosaic::foundation::math::Vec3 light_color;
+    mosaic::foundation::math::Vec3 base_color;
+};
 
 class RenderDevice
 {
 public:
     virtual ~RenderDevice() = default;
-
     virtual void begin_frame() = 0;
     virtual void clear(const Color&) = 0;
     virtual void end_frame() = 0;
-
-    // Upload a mesh; returns an opaque handle (0 on empty input).
     virtual MeshHandle create_mesh(const std::vector<Vertex>& vertices,
                                    const std::vector<std::uint32_t>& indices) = 0;
-
-    // Record one indexed draw of `mesh` transformed by `mvp`, between begin/end_frame.
-    virtual void draw(MeshHandle mesh, const mosaic::foundation::math::Mat4& mvp) = 0;
+    virtual void draw(MeshHandle mesh, const DrawParams& params) = 0;
 };
 
 } // namespace mosaic::engine::render

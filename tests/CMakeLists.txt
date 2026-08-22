@@ -39,6 +39,7 @@ add_executable(mosaic_unit_tests
   unit/math/quat_test.cpp
   unit/math/mat4_test.cpp
   unit/math/inverse_affine_test.cpp
+  unit/math/transform_direction_test.cpp
   unit/math/projection_test.cpp
   unit/transform/transform_reflection_test.cpp
   unit/transform/transform_system_test.cpp
@@ -53,6 +54,7 @@ add_executable(mosaic_unit_tests
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/render_system_test.cpp
+  unit/reflection/lighting_reflection_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

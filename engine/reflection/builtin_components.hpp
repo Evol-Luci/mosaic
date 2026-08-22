@@ -4,6 +4,8 @@
 
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
+#include "engine/render/directional_light.hpp"
+#include "engine/render/material.hpp"
 #include "engine/transform/transform.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
@@ -19,7 +21,8 @@ inline void register_builtin_components(
 {
     types.register_component<mosaic::engine::transform::Transform>(registry, "Transform");
     types.register_component<mosaic::engine::render::Camera>(registry, "Camera");
-    // future: Mesh, Light, ...
+    types.register_component<mosaic::engine::render::Material>(registry, "Material");
+    types.register_component<mosaic::engine::render::DirectionalLight>(registry, "DirectionalLight");
 }
 
 } // namespace mosaic::engine::reflection

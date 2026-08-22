@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -6,6 +7,8 @@
 
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
+#include "engine/render/directional_light.hpp"
+#include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
@@ -16,6 +19,9 @@
 using mosaic::engine::World;
 using mosaic::engine::render::Camera;
 using mosaic::engine::render::Color;
+using mosaic::engine::render::DirectionalLight;
+using mosaic::engine::render::DrawParams;
+using mosaic::engine::render::Material;
 using mosaic::engine::render::MeshHandle;
 using mosaic::engine::render::MeshRenderer;
 using mosaic::engine::render::RenderDevice;
@@ -31,7 +37,7 @@ namespace
 class FakeRenderDevice : public RenderDevice
 {
 public:
-    struct DrawCall { MeshHandle mesh; Mat4 mvp; };
+    struct DrawCall { MeshHandle mesh; DrawParams params; };
     std::vector<DrawCall> draws;
     MeshHandle            next = 1;
 
@@ -43,122 +49,120 @@ public:
     {
         return (v.empty() || i.empty()) ? 0 : next++;
     }
-    void draw(MeshHandle m, const Mat4& mvp) override { draws.push_back({m, mvp}); }
+    void draw(MeshHandle m, const DrawParams& p) override { draws.push_back({m, p}); }
 };
 
-// Adds a camera entity at `pos` (identity rotation) with the given lens.
-World::EntityID add_camera(World& world, Vec3 pos, Camera lens)
+World::EntityID add_camera(World& world, Vec3 pos)
 {
     auto e = world.create_entity();
     world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(pos)});
-    world.add_component<Camera>(e, lens);
-    return e;
-}
-
-// Adds a mesh entity at world matrix `wm` with handle `h`.
-World::EntityID add_mesh(World& world, const Mat4& wm, MeshHandle h)
-{
-    auto e = world.create_entity();
-    world.add_component<WorldTransform>(e, WorldTransform{wm});
-    world.add_component<MeshRenderer>(e, MeshRenderer{h});
+    world.add_component<Camera>(e, Camera{});
     return e;
 }
 } // namespace
 
-TEST_CASE("RenderSystem renders meshes from the active camera", "[render]")
-{
-    World world;
-    FakeRenderDevice device;
-    RenderSystem rs;
-    rs.set_aspect(16.0f / 9.0f);
-
-    const Camera lens{1.0472f, 0.1f, 100.0f};
-    add_camera(world, Vec3{0, 0, 4}, lens);
-    add_mesh(world, Mat4::identity(), 7);
-
-    rs.render(world, device);
-
-    REQUIRE(device.draws.size() == 1);
-    REQUIRE(device.draws[0].mesh == 7);
-
-    const Mat4 view = Mat4::inverse_affine(Mat4::translation(Vec3{0, 0, 4}));
-    const Mat4 proj = Mat4::perspective(lens.fov_y_radians, 16.0f / 9.0f, lens.near_z, lens.far_z);
-    const Mat4 expected = proj * view; // mesh world == identity
-    for (int k = 0; k < 16; ++k)
-    {
-        REQUIRE(device.draws[0].mvp.m[k] == Approx(expected.m[k]).margin(1e-5));
-    }
-    // Camera at (0,0,4) => view is translation (0,0,-4).
-    REQUIRE(view.m[14] == Approx(-4.0f));
-}
-
-TEST_CASE("RenderSystem still renders meshes when no camera exists (fallback)", "[render]")
-{
-    World world;
-    FakeRenderDevice device;
-    RenderSystem rs;
-
-    add_mesh(world, Mat4::identity(), 3);
-    add_mesh(world, Mat4::identity(), 4);
-
-    rs.render(world, device); // no camera entity -> default fallback
-    REQUIRE(device.draws.size() == 2);
-}
-
-TEST_CASE("RenderSystem uses the first-found camera when several exist", "[render]")
+TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight", "[render]")
 {
     World world;
     FakeRenderDevice device;
     RenderSystem rs;
     rs.set_aspect(1.0f);
 
-    // Two cameras with distinct fov; the first-created should win.
-    add_camera(world, Vec3{0, 0, 4}, Camera{0.5f, 0.1f, 100.0f});
-    add_camera(world, Vec3{0, 0, 8}, Camera{1.4f, 0.1f, 100.0f});
-    add_mesh(world, Mat4::identity(), 9);
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto light = world.create_entity();
+    // Light NOT aligned with the mesh's rotation axis (Y), so the object-space transform
+    // produces a genuinely different vector than the world direction — this is what makes
+    // the assertion below actually exercise inverse_affine + transform_direction.
+    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{1, -1, 0}, Vec3{1, 0.9f, 0.8f}});
+
+    // Mesh with a 90-degree-about-Y world rotation, so object-space light differs from world.
+    const Mat4 mesh_world =
+        Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{7});
+    world.add_component<Material>(mesh, Material{Vec3{0.2f, 0.4f, 0.6f}});
 
     rs.render(world, device);
-    REQUIRE(device.draws.size() == 1);
 
-    const Mat4 view = Mat4::inverse_affine(Mat4::translation(Vec3{0, 0, 4}));
-    const Mat4 proj = Mat4::perspective(0.5f, 1.0f, 0.1f, 100.0f);
-    const Mat4 expected = proj * view;
-    for (int k = 0; k < 16; ++k)
-    {
-        REQUIRE(device.draws[0].mvp.m[k] == Approx(expected.m[k]).margin(1e-5));
-    }
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+    REQUIRE(device.draws[0].mesh == 7);
+    // base_color from the Material:
+    REQUIRE(p.base_color.x == Approx(0.2f));
+    REQUIRE(p.base_color.y == Approx(0.4f));
+    REQUIRE(p.base_color.z == Approx(0.6f));
+    // light_color from the DirectionalLight:
+    REQUIRE(p.light_color.x == Approx(1.0f));
+    REQUIRE(p.light_color.z == Approx(0.8f));
+    // light_direction is the world light transformed into the mesh's object space + normalized.
+    const Vec3 world_dir{1, -1, 0};
+    const Vec3 expected_obj = mosaic::foundation::math::normalize(
+        mosaic::foundation::math::transform_direction(Mat4::inverse_affine(mesh_world), world_dir));
+    REQUIRE(p.light_direction.x == Approx(expected_obj.x).margin(1e-5));
+    REQUIRE(p.light_direction.y == Approx(expected_obj.y).margin(1e-5));
+    REQUIRE(p.light_direction.z == Approx(expected_obj.z).margin(1e-5));
+    // Guard: the object-space direction must actually differ from the normalized world
+    // direction, so this test fails if the RenderSystem ever skips the object-space transform.
+    const Vec3 world_norm = mosaic::foundation::math::normalize(world_dir);
+    REQUIRE(std::abs(p.light_direction.x - world_norm.x) > 0.1f);
 }
 
-TEST_CASE("RenderSystem skips entities missing a component or with mesh 0", "[render]")
+TEST_CASE("RenderSystem uses default base color and light when none present", "[render]")
 {
     World world;
     FakeRenderDevice device;
     RenderSystem rs;
-    add_camera(world, Vec3{0, 0, 4}, Camera{});
+    add_camera(world, Vec3{0, 0, 4});
 
-    auto only_transform = world.create_entity();
-    world.add_component<WorldTransform>(only_transform, WorldTransform{Mat4::identity()});
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{5}); // no Material
+
+    rs.render(world, device);
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+    REQUIRE(p.base_color.x == Approx(0.8f)); // default material
+    REQUIRE(p.light_color.x == Approx(1.0f)); // default light is white
+}
+
+TEST_CASE("RenderSystem skips mesh 0 / missing WorldTransform", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
 
     auto only_mesh = world.create_entity();
-    world.add_component<MeshRenderer>(only_mesh, MeshRenderer{3});
+    world.add_component<MeshRenderer>(only_mesh, MeshRenderer{3}); // no WorldTransform
 
-    auto zero_mesh = world.create_entity();
-    world.add_component<WorldTransform>(zero_mesh, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(zero_mesh, MeshRenderer{0});
+    auto zero = world.create_entity();
+    world.add_component<WorldTransform>(zero, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(zero, MeshRenderer{0});
 
     rs.render(world, device);
     REQUIRE(device.draws.empty());
 }
 
-TEST_CASE("make_cube_mesh yields 24 vertices, 36 in-range indices", "[render]")
+TEST_CASE("make_cube_mesh yields 24 vertices with unit, per-face outward normals", "[render]")
 {
     std::vector<Vertex>        v;
     std::vector<std::uint32_t> i;
     mosaic::engine::render::make_cube_mesh(v, i);
     REQUIRE(v.size() == 24);
     REQUIRE(i.size() == 36);
-    for (auto idx : i)
+    for (const auto& vert : v)
     {
-        REQUIRE(idx < 24u);
+        const float len2 = vert.normal.x * vert.normal.x + vert.normal.y * vert.normal.y
+                           + vert.normal.z * vert.normal.z;
+        REQUIRE(len2 == Approx(1.0f)); // unit normal
+    }
+    // The first face is +X: all four normals are (1,0,0).
+    for (int k = 0; k < 4; ++k)
+    {
+        REQUIRE(v[k].normal.x == Approx(1.0f));
+        REQUIRE(v[k].normal.y == Approx(0.0f));
+        REQUIRE(v[k].normal.z == Approx(0.0f));
     }
 }

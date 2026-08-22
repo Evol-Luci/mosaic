@@ -1,6 +1,8 @@
 #pragma once
 
 #include "engine/render/camera.hpp"
+#include "engine/render/directional_light.hpp"
+#include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/transform/transform.hpp"
@@ -10,30 +12,29 @@
 
 namespace mosaic::engine::render
 {
-// Render-time traversal (NOT a World tick System): each frame it finds the active
-// camera (first entity with Camera + WorldTransform), builds view = inverse of the
-// camera's world matrix and a perspective projection from its lens, and draws every
-// entity with WorldTransform + MeshRenderer. With no camera it falls back to a default
-// so the scene still renders. The app calls render() in on_frame between clear() and
-// end_frame().
+// Render-time traversal: finds the active camera + directional light and draws every
+// entity with WorldTransform + MeshRenderer, lit (Lambert; light transformed into each
+// mesh's object space so the backend needs no model matrix). Fallbacks keep the scene
+// lit/rendered when a camera/light/material is absent.
 class RenderSystem
 {
 public:
-    // Set the viewport aspect ratio (width/height); used when building the projection.
     void set_aspect(float aspect) { aspect_ = aspect; }
 
     void render(World& world, RenderDevice& device) const
     {
         using mosaic::foundation::math::Mat4;
+        using mosaic::foundation::math::Vec3;
 
         Mat4 view;
         Mat4 projection;
         if (!find_active_camera(world, view, projection))
         {
             view = fallback_view();
-            projection = mosaic::foundation::math::Mat4::perspective(kFallbackFovY, aspect_,
-                                                                     kFallbackNear, kFallbackFar);
+            projection = Mat4::perspective(kFallbackFovY, aspect_, kFallbackNear, kFallbackFar);
         }
+
+        DirectionalLight light = active_light(world);
 
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
@@ -47,26 +48,50 @@ public:
                 {
                     return;
                 }
-                device.draw(mr.mesh, projection * view * wt->matrix);
+                Vec3 base_color{0.8f, 0.8f, 0.8f};
+                if (const Material* mat = world.get_component<Material>(e))
+                {
+                    base_color = mat->base_color;
+                }
+                const Vec3 light_obj = mosaic::foundation::math::normalize(
+                    mosaic::foundation::math::transform_direction(
+                        Mat4::inverse_affine(wt->matrix), light.direction));
+
+                device.draw(mr.mesh, DrawParams{projection * view * wt->matrix, light_obj,
+                                                light.color, base_color});
             });
     }
 
 private:
-    static constexpr float kFallbackFovY = 1.0472f; // 60 degrees
+    static constexpr float kFallbackFovY = 1.0472f;
     static constexpr float kFallbackNear = 0.1f;
     static constexpr float kFallbackFar = 100.0f;
 
-    // Default camera used only when the world has no Camera entity.
     static mosaic::foundation::math::Mat4 fallback_view()
     {
         using mosaic::foundation::math::Mat4;
         using mosaic::foundation::math::Vec3;
-        return Mat4::look_at(Vec3{0.0f, 1.5f, 4.0f}, Vec3{0.0f, 0.0f, 0.0f},
-                             Vec3{0.0f, 1.0f, 0.0f});
+        return Mat4::look_at(Vec3{0.0f, 1.5f, 4.0f}, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f});
     }
 
-    // First entity with Camera + WorldTransform sets view/projection; returns false if
-    // none. Deterministic (component iteration order).
+    // First DirectionalLight, else a default.
+    DirectionalLight active_light(World& world) const
+    {
+        DirectionalLight light{mosaic::foundation::math::Vec3{-0.5f, -1.0f, -0.3f},
+                               mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}};
+        bool found = false;
+        world.for_each<DirectionalLight>(
+            [&](mosaic::foundation::EntityID, DirectionalLight& l)
+            {
+                if (!found)
+                {
+                    light = l;
+                    found = true;
+                }
+            });
+        return light;
+    }
+
     bool find_active_camera(World& world, mosaic::foundation::math::Mat4& view,
                             mosaic::foundation::math::Mat4& projection) const
     {

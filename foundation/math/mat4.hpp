@@ -105,6 +105,15 @@ inline Vec3 transform_point(const Mat4& m, const Vec3& p)
         m.m[2] * p.x + m.m[6] * p.y + m.m[10] * p.z + m.m[14]};
 }
 
+// Apply m's upper-left 3x3 (linear part) to a direction vector, ignoring translation.
+inline Vec3 transform_direction(const Mat4& m, const Vec3& v)
+{
+    return Vec3{
+        m.m[0] * v.x + m.m[4] * v.y + m.m[8] * v.z,
+        m.m[1] * v.x + m.m[5] * v.y + m.m[9] * v.z,
+        m.m[2] * v.x + m.m[6] * v.y + m.m[10] * v.z};
+}
+
 inline Mat4 Mat4::perspective(float fovy_radians, float aspect, float near_z, float far_z)
 {
     const float tan_half = std::tan(fovy_radians * 0.5f);

@@ -18,6 +18,8 @@
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
+#include "engine/render/directional_light.hpp"
+#include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
@@ -173,6 +175,11 @@ int main(int argc, char** argv)
         world.add_component<transform::WorldTransform>(cube_entity,
             transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
         world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
+        world.add_component<render::Material>(cube_entity, render::Material{Vec3{0.2F, 0.5F, 0.9F}});
+
+        const auto light_entity = world.create_entity();
+        world.add_component<render::DirectionalLight>(light_entity,
+            render::DirectionalLight{Vec3{-0.5F, -1.0F, -0.3F}, Vec3{1.0F, 1.0F, 1.0F}});
 
         // Camera entity: placed at (0,0,4) looking down -Z at the cube at the origin.
         // Its Transform → WorldTransform (via TransformSystem) drives the view; the
