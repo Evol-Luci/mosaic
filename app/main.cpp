@@ -1,3 +1,4 @@
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -13,6 +14,7 @@
 #include "app/cli/options.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
+#include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/ecs/system.hpp"
 #include "engine/reflection/builtin_components.hpp"
@@ -20,6 +22,7 @@
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
+#include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
@@ -166,6 +169,8 @@ int main(int argc, char** argv)
         // so the spin lands one tick later — imperceptible for a continuous spin.
         world.add_system<SpinSystem>();
 
+        mosaic::engine::assets::AssetRegistry asset_registry;
+
         std::vector<render::Vertex>        cube_v;
         std::vector<std::uint32_t>         cube_i;
         render::make_cube_mesh(cube_v, cube_i);
@@ -176,7 +181,25 @@ int main(int argc, char** argv)
         world.add_component<transform::WorldTransform>(cube_entity,
             transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
         world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
-        world.add_component<render::Material>(cube_entity, render::Material{Vec3{0.2F, 0.5F, 0.9F}});
+        // Procedural checkerboard texture (64x64, two shades), registered as an asset.
+        auto checker = std::make_shared<render::Image>();
+        checker->width = 64; checker->height = 64;
+        checker->pixels.resize(64 * 64 * 4);
+        for (std::uint32_t y = 0; y < 64; ++y)
+            for (std::uint32_t x = 0; x < 64; ++x)
+            {
+                const bool on = ((x / 8) + (y / 8)) % 2 == 0;
+                const std::uint8_t c = on ? 230 : 60;
+                std::uint8_t* p = &checker->pixels[(y * 64 + x) * 4];
+                p[0] = c; p[1] = c; p[2] = c; p[3] = 255;
+            }
+        std::array<std::uint8_t, 16> tex_uuid{}; tex_uuid[0] = 0xC0; tex_uuid[1] = 0xDE;
+        const mosaic::foundation::serialization::AssetID tex_id{tex_uuid};
+        asset_registry.register_resource<render::Image>(
+            mosaic::engine::assets::AssetMetadata{tex_id, "texture"}, checker);
+
+        world.add_component<render::Material>(cube_entity,
+            render::Material{Vec3{1.0F, 1.0F, 1.0F}, tex_id}); // white tint so the texture shows true colors
 
         const auto light_entity = world.create_entity();
         world.add_component<render::DirectionalLight>(light_entity,
@@ -194,8 +217,6 @@ int main(int argc, char** argv)
         world.add_component<render::Camera>(camera_entity, render::Camera{});
 
         auto render_system = std::make_shared<render::RenderSystem>();
-
-        mosaic::engine::assets::AssetRegistry asset_registry;
 
         auto* device = render_device.get();
         deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {
