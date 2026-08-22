@@ -646,6 +646,7 @@ public:
 
     void init_ui() override
     {
+        if (ui_ready_) { return; }
         // Dedicated descriptor pool for ImGui (combined-image-samplers for its textures).
         VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64};
         VkDescriptorPoolCreateInfo pool{};
@@ -690,9 +691,12 @@ public:
 
     void end_ui_frame() override
     {
-        if (!ui_ready_ || frame_skipped_) { return; }
-        ImGui::Render();
-        ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_[frame_]);
+        if (!ui_ready_) { return; }
+        ImGui::Render(); // always, to keep NewFrame/Render balanced even on a skipped frame
+        if (!frame_skipped_)
+        {
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_[frame_]);
+        }
     }
 
 private:
