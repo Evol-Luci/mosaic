@@ -26,6 +26,7 @@ namespace
 {
 
 using mosaic::engine::render::Color;
+using mosaic::engine::render::DrawParams;
 using mosaic::engine::render::MeshHandle;
 using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::Vertex;
@@ -249,7 +250,7 @@ public:
         return static_cast<MeshHandle>(meshes_.size()); // handle == index + 1
     }
 
-    void draw(MeshHandle mesh, const Mat4& mvp) override
+    void draw(MeshHandle mesh, const mosaic::engine::render::DrawParams& params) override
     {
         if (frame_skipped_)
         {
@@ -266,7 +267,7 @@ public:
         vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, vbufs, offsets);
         vkCmdBindIndexBuffer(cmd_[frame_], mb.ibuf, 0, VK_INDEX_TYPE_UINT32);
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
-                           sizeof(Mat4), mvp.m.data());
+                           sizeof(mosaic::foundation::math::Mat4), params.mvp.m.data());
         vkCmdDrawIndexed(cmd_[frame_], mb.index_count, 1, 0, 0, 0);
     }
 
@@ -871,7 +872,7 @@ private:
         attrs[1].location = 1;
         attrs[1].binding = 0;
         attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-        attrs[1].offset = static_cast<uint32_t>(offsetof(Vertex, color));
+        attrs[1].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
 
         VkPipelineVertexInputStateCreateInfo vin{};
         vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;

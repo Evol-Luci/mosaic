@@ -7,30 +7,28 @@
 
 namespace mosaic::engine::render
 {
-// A unit cube centered at the origin (±0.5), 4 vertices per face (24 total) so each
-// face carries a flat color, 36 indices (2 triangles per face, CCW outward).
+// A unit cube centered at the origin (±0.5), 4 vertices per face (24 total) with the
+// face's outward normal, 36 indices (2 triangles per face, CCW outward).
 inline void make_cube_mesh(std::vector<Vertex>& out_vertices,
                            std::vector<std::uint32_t>& out_indices)
 {
     using mosaic::foundation::math::Vec3;
-    const Vec3 red{1, 0, 0}, green{0, 1, 0}, blue{0, 0, 1};
-    const Vec3 yellow{1, 1, 0}, cyan{0, 1, 1}, magenta{1, 0, 1};
     const float h = 0.5f;
+    const Vec3 px{1, 0, 0}, nx{-1, 0, 0}, py{0, 1, 0}, ny{0, -1, 0}, pz{0, 0, 1}, nz{0, 0, -1};
 
-    // 6 faces × 4 corners; winding is CCW when viewed from outside (front face CCW).
     out_vertices = {
-        // +X (red)
-        {{h, -h, -h}, red}, {{h, -h, h}, red}, {{h, h, h}, red}, {{h, h, -h}, red},
-        // -X (green)
-        {{-h, -h, h}, green}, {{-h, -h, -h}, green}, {{-h, h, -h}, green}, {{-h, h, h}, green},
-        // +Y (blue)
-        {{-h, h, -h}, blue}, {{h, h, -h}, blue}, {{h, h, h}, blue}, {{-h, h, h}, blue},
-        // -Y (yellow)
-        {{-h, -h, h}, yellow}, {{h, -h, h}, yellow}, {{h, -h, -h}, yellow}, {{-h, -h, -h}, yellow},
-        // +Z (cyan)
-        {{h, -h, h}, cyan}, {{-h, -h, h}, cyan}, {{-h, h, h}, cyan}, {{h, h, h}, cyan},
-        // -Z (magenta)
-        {{-h, -h, -h}, magenta}, {{h, -h, -h}, magenta}, {{h, h, -h}, magenta}, {{-h, h, -h}, magenta},
+        // +X
+        {{h, -h, -h}, px}, {{h, -h, h}, px}, {{h, h, h}, px}, {{h, h, -h}, px},
+        // -X
+        {{-h, -h, h}, nx}, {{-h, -h, -h}, nx}, {{-h, h, -h}, nx}, {{-h, h, h}, nx},
+        // +Y
+        {{-h, h, -h}, py}, {{h, h, -h}, py}, {{h, h, h}, py}, {{-h, h, h}, py},
+        // -Y
+        {{-h, -h, h}, ny}, {{h, -h, h}, ny}, {{h, -h, -h}, ny}, {{-h, -h, -h}, ny},
+        // +Z
+        {{h, -h, h}, pz}, {{-h, -h, h}, pz}, {{-h, h, h}, pz}, {{h, h, h}, pz},
+        // -Z
+        {{-h, -h, -h}, nz}, {{h, -h, -h}, nz}, {{h, h, -h}, nz}, {{-h, h, -h}, nz},
     };
     out_indices.clear();
     out_indices.reserve(36);
