@@ -35,6 +35,7 @@ add_executable(mosaic_unit_tests
   unit/assets/asset_metadata_test.cpp
   unit/assets/asset_registry_test.cpp
   unit/assets/asset_resolver_test.cpp
+  unit/math/vec2_test.cpp
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
   unit/math/mat4_test.cpp
@@ -54,6 +55,7 @@ add_executable(mosaic_unit_tests
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/render_system_test.cpp
+  unit/render/texture_cache_test.cpp
   unit/reflection/lighting_reflection_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE

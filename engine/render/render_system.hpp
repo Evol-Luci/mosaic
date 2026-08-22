@@ -1,10 +1,13 @@
 #pragma once
 
+#include "engine/assets/asset_registry.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
+#include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
+#include "engine/render/texture_cache.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/math/mat4.hpp"
@@ -21,7 +24,8 @@ class RenderSystem
 public:
     void set_aspect(float aspect) { aspect_ = aspect; }
 
-    void render(World& world, RenderDevice& device) const
+    void render(World& world, RenderDevice& device,
+                mosaic::engine::assets::AssetRegistry& registry) const
     {
         using mosaic::foundation::math::Mat4;
         using mosaic::foundation::math::Vec3;
@@ -49,16 +53,23 @@ public:
                     return;
                 }
                 Vec3 base_color{0.8f, 0.8f, 0.8f};
+                TextureHandle texture = 0;
                 if (const Material* mat = world.get_component<Material>(e))
                 {
                     base_color = mat->base_color;
+                    texture = texture_cache_.get(mat->texture, registry, device);
+                }
+                if (texture == 0)
+                {
+                    texture = default_white(device);
                 }
                 const Vec3 light_obj = mosaic::foundation::math::normalize(
                     mosaic::foundation::math::transform_direction(
                         Mat4::inverse_affine(wt->matrix), light.direction));
 
-                device.draw(mr.mesh, DrawParams{projection * view * wt->matrix, light_obj,
-                                                light.color, base_color});
+                device.draw(mr.mesh, texture,
+                            DrawParams{projection * view * wt->matrix, light_obj,
+                                       light.color, base_color});
             });
     }
 
@@ -66,6 +77,19 @@ private:
     static constexpr float kFallbackFovY = 1.0472f;
     static constexpr float kFallbackNear = 0.1f;
     static constexpr float kFallbackFar = 100.0f;
+
+    TextureHandle default_white(RenderDevice& device) const
+    {
+        if (default_white_ == 0)
+        {
+            Image white;
+            white.width = 1;
+            white.height = 1;
+            white.pixels = {255, 255, 255, 255};
+            default_white_ = device.create_texture(white);
+        }
+        return default_white_;
+    }
 
     static mosaic::foundation::math::Mat4 fallback_view()
     {
@@ -117,5 +141,7 @@ private:
     }
 
     float aspect_ = 16.0f / 9.0f;
+    mutable TextureCache  texture_cache_;
+    mutable TextureHandle default_white_ = 0;
 };
 } // namespace mosaic::engine::render

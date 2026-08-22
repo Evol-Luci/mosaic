@@ -149,6 +149,7 @@ public:
         create_depth_resources();
         create_render_pass();
         create_framebuffers();
+        create_descriptor_infrastructure();
         create_pipeline();
         create_command_pool_and_buffers();
         create_sync_objects();
@@ -175,6 +176,26 @@ public:
                 if (mesh.imem != VK_NULL_HANDLE) { vkFreeMemory(device_, mesh.imem, nullptr); }
             }
             meshes_.clear();
+
+            // Textures (sampler, view, image, memory), then the pool (which
+            // frees the descriptor sets), then the set layout.
+            for (Texture& tex : textures_)
+            {
+                if (tex.sampler != VK_NULL_HANDLE) { vkDestroySampler(device_, tex.sampler, nullptr); }
+                if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device_, tex.view, nullptr); }
+                if (tex.image != VK_NULL_HANDLE) { vkDestroyImage(device_, tex.image, nullptr); }
+                if (tex.memory != VK_NULL_HANDLE) { vkFreeMemory(device_, tex.memory, nullptr); }
+            }
+            textures_.clear();
+
+            if (descriptor_pool_ != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
+            }
+            if (texture_set_layout_ != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorSetLayout(device_, texture_set_layout_, nullptr);
+            }
 
             if (pipeline_ != VK_NULL_HANDLE)
             {
@@ -259,12 +280,201 @@ public:
         return static_cast<MeshHandle>(meshes_.size()); // handle == index + 1
     }
 
-    void draw(MeshHandle mesh, const mosaic::engine::render::DrawParams& params) override
+    // Upload an RGBA8 image to a device-local sampled VkImage and wire it to a
+    // descriptor set so the fragment shader can sample it. Returns a 1-based
+    // handle (index into textures_ + 1); 0 for an empty image.
+    mosaic::engine::render::TextureHandle
+    create_texture(const mosaic::engine::render::Image& image) override
+    {
+        if (image.pixels.empty())
+        {
+            return 0u;
+        }
+
+        const VkDeviceSize size = static_cast<VkDeviceSize>(image.pixels.size());
+
+        // 1) Staging buffer (host-visible) holding the pixel bytes.
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory staging_mem = VK_NULL_HANDLE;
+        create_buffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      staging, staging_mem);
+
+        void* mapped = nullptr;
+        vk_check(vkMapMemory(device_, staging_mem, 0, size, 0, &mapped), "vkMapMemory(texture)");
+        std::memcpy(mapped, image.pixels.data(), static_cast<std::size_t>(size));
+        vkUnmapMemory(device_, staging_mem);
+
+        // 2) Device-local image (sRGB, sampled + transfer destination).
+        Texture tex{};
+
+        VkImageCreateInfo img{};
+        img.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        img.imageType = VK_IMAGE_TYPE_2D;
+        img.extent.width = image.width;
+        img.extent.height = image.height;
+        img.extent.depth = 1;
+        img.mipLevels = 1;
+        img.arrayLayers = 1;
+        img.format = VK_FORMAT_R8G8B8A8_SRGB;
+        img.tiling = VK_IMAGE_TILING_OPTIMAL;
+        img.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        img.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        img.samples = VK_SAMPLE_COUNT_1_BIT;
+        img.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &img, nullptr, &tex.image), "vkCreateImage(texture)");
+
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device_, tex.image, &req);
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = req.size;
+        alloc.memoryTypeIndex =
+            find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &tex.memory),
+                 "vkAllocateMemory(texture)");
+        vk_check(vkBindImageMemory(device_, tex.image, tex.memory, 0),
+                 "vkBindImageMemory(texture)");
+
+        // 3) One-time submit: transition UNDEFINED->TRANSFER_DST, copy, then
+        //    TRANSFER_DST->SHADER_READ_ONLY so the fragment stage can sample it.
+        VkCommandBuffer cmd = begin_single_time_commands();
+
+        VkImageMemoryBarrier to_transfer{};
+        to_transfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        to_transfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        to_transfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        to_transfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_transfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_transfer.image = tex.image;
+        to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        to_transfer.subresourceRange.baseMipLevel = 0;
+        to_transfer.subresourceRange.levelCount = 1;
+        to_transfer.subresourceRange.baseArrayLayer = 0;
+        to_transfer.subresourceRange.layerCount = 1;
+        to_transfer.srcAccessMask = 0;
+        to_transfer.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &to_transfer);
+
+        VkBufferImageCopy copy{};
+        copy.bufferOffset = 0;
+        copy.bufferRowLength = 0;
+        copy.bufferImageHeight = 0;
+        copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel = 0;
+        copy.imageSubresource.baseArrayLayer = 0;
+        copy.imageSubresource.layerCount = 1;
+        copy.imageOffset = {0, 0, 0};
+        copy.imageExtent = {image.width, image.height, 1};
+        vkCmdCopyBufferToImage(cmd, staging, tex.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+
+        VkImageMemoryBarrier to_read{};
+        to_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        to_read.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_read.image = tex.image;
+        to_read.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        to_read.subresourceRange.baseMipLevel = 0;
+        to_read.subresourceRange.levelCount = 1;
+        to_read.subresourceRange.baseArrayLayer = 0;
+        to_read.subresourceRange.layerCount = 1;
+        to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &to_read);
+
+        end_single_time_commands(cmd);
+
+        vkDestroyBuffer(device_, staging, nullptr);
+        vkFreeMemory(device_, staging_mem, nullptr);
+
+        // 4) View + sampler.
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = tex.image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = VK_FORMAT_R8G8B8A8_SRGB;
+        view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.baseMipLevel = 0;
+        view.subresourceRange.levelCount = 1;
+        view.subresourceRange.baseArrayLayer = 0;
+        view.subresourceRange.layerCount = 1;
+        vk_check(vkCreateImageView(device_, &view, nullptr, &tex.view),
+                 "vkCreateImageView(texture)");
+
+        VkSamplerCreateInfo sampler{};
+        sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler.magFilter = VK_FILTER_LINEAR;
+        sampler.minFilter = VK_FILTER_LINEAR;
+        sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        sampler.anisotropyEnable = VK_FALSE;
+        sampler.maxAnisotropy = 1.0f;
+        sampler.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        sampler.unnormalizedCoordinates = VK_FALSE;
+        sampler.compareEnable = VK_FALSE;
+        sampler.compareOp = VK_COMPARE_OP_ALWAYS;
+        sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sampler.mipLodBias = 0.0f;
+        sampler.minLod = 0.0f;
+        sampler.maxLod = 0.0f;
+        vk_check(vkCreateSampler(device_, &sampler, nullptr, &tex.sampler),
+                 "vkCreateSampler(texture)");
+
+        // 5) Allocate + write the descriptor set (binding 0: this image+sampler).
+        VkDescriptorSetAllocateInfo set_alloc{};
+        set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        set_alloc.descriptorPool = descriptor_pool_;
+        set_alloc.descriptorSetCount = 1;
+        set_alloc.pSetLayouts = &texture_set_layout_;
+        vk_check(vkAllocateDescriptorSets(device_, &set_alloc, &tex.set),
+                 "vkAllocateDescriptorSets(texture)");
+
+        VkDescriptorImageInfo image_info{};
+        image_info.sampler = tex.sampler;
+        image_info.imageView = tex.view;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = tex.set;
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &image_info;
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+
+        textures_.push_back(tex);
+        return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
+    }
+
+    void draw(MeshHandle mesh, mosaic::engine::render::TextureHandle texture,
+              const mosaic::engine::render::DrawParams& params) override
     {
         if (frame_skipped_ || mesh == 0 || mesh > meshes_.size())
         {
             return;
         }
+
+        // Map the 1-based handle to an index; fall back to the first texture
+        // (the default white, always created first) for 0 or out-of-range.
+        const std::uint32_t tex_index =
+            (texture == 0 || texture > textures_.size()) ? 0u : texture - 1u;
+        if (!textures_.empty())
+        {
+            vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout_, 0, 1, &textures_[tex_index].set, 0,
+                                    nullptr);
+        }
+
         const MeshBuffers& mb = meshes_[mesh - 1];
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &mb.vbuf, &offset);
@@ -826,6 +1036,40 @@ private:
         }
     }
 
+    // --- descriptor infrastructure ----------------------------------------
+
+    // One descriptor set layout (binding 0: a combined image+sampler visible to
+    // the fragment stage) and a pool to allocate per-texture sets from. Created
+    // once after the framebuffers and before the pipeline (the layout feeds the
+    // pipeline layout as set 0).
+    void create_descriptor_infrastructure()
+    {
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding = 0;
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding.descriptorCount = 1;
+        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layout.bindingCount = 1;
+        layout.pBindings = &binding;
+        vk_check(vkCreateDescriptorSetLayout(device_, &layout, nullptr, &texture_set_layout_),
+                 "vkCreateDescriptorSetLayout");
+
+        VkDescriptorPoolSize pool_size{};
+        pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        pool_size.descriptorCount = kMaxTextures;
+
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        pool.maxSets = kMaxTextures;
+        vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &descriptor_pool_),
+                 "vkCreateDescriptorPool");
+    }
+
     // --- pipeline ---------------------------------------------------------
 
     static std::vector<char> read_file(const std::string& path)
@@ -880,7 +1124,7 @@ private:
         binding.stride = sizeof(Vertex);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
         attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -889,6 +1133,10 @@ private:
         attrs[1].binding = 0;
         attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         attrs[1].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
+        attrs[2].location = 2;
+        attrs[2].binding = 0;
+        attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[2].offset = static_cast<uint32_t>(offsetof(Vertex, uv));
 
         VkPipelineVertexInputStateCreateInfo vin{};
         vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -955,6 +1203,8 @@ private:
 
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1;
+        layout.pSetLayouts = &texture_set_layout_;
         layout.pushConstantRangeCount = 1;
         layout.pPushConstantRanges = &push;
         vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &pipeline_layout_),
@@ -1199,6 +1449,23 @@ private:
 
     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline pipeline_ = VK_NULL_HANDLE;
+
+    // Descriptor infrastructure for sampled textures (set 0, binding 0).
+    static constexpr uint32_t kMaxTextures = 64;
+    VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
+
+    // A device texture: image + backing memory, view, sampler, and the
+    // descriptor set that binds them for sampling.
+    struct Texture
+    {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkSampler sampler = VK_NULL_HANDLE;
+        VkDescriptorSet set = VK_NULL_HANDLE; // freed with the pool
+    };
+    std::vector<Texture> textures_; // handle == index + 1; 0 is invalid
 
     // A device mesh: vertex + index buffers (device-local) and the index count.
     struct MeshBuffers
