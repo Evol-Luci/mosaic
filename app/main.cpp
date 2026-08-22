@@ -131,6 +131,9 @@ int main(int argc, char** argv)
 
     GLFWwindow*                                            glfw_window = nullptr;
     std::unique_ptr<mosaic::engine::render::RenderDevice>  render_device;
+    // Function-scoped so it outlives pump.run() below: the on_frame lambda captures it by
+    // reference and resolves textures from it every frame. (Populated inside the window block.)
+    mosaic::engine::assets::AssetRegistry                  asset_registry;
 
     if (options.window)
     {
@@ -168,8 +171,6 @@ int main(int argc, char** argv)
         // scene run never mutates authored rotations. Runs after TransformSystem,
         // so the spin lands one tick later — imperceptible for a continuous spin.
         world.add_system<SpinSystem>();
-
-        mosaic::engine::assets::AssetRegistry asset_registry;
 
         std::vector<render::Vertex>        cube_v;
         std::vector<std::uint32_t>         cube_i;
