@@ -10,6 +10,7 @@
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
+#include "engine/render/point_light.hpp"
 #include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
@@ -34,6 +35,7 @@ using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::RenderSystem;
 using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
+using mosaic::engine::render::PointLight;
 using mosaic::engine::transform::WorldTransform;
 using mosaic::foundation::math::Mat4;
 using mosaic::foundation::math::Vec3;
@@ -235,4 +237,68 @@ TEST_CASE("RenderSystem uses non-zero default white texture for untextured mater
     REQUIRE(device.draws.size() == 1);
     // Default white texture must be non-zero.
     REQUIRE(device.draws[0].texture != 0);
+}
+
+TEST_CASE("RenderSystem transforms point light into mesh object space", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+
+    // Point light at a known world position, placed via its WorldTransform.
+    const Vec3 light_world_pos{2.0f, 0.0f, 0.0f};
+    auto light = world.create_entity();
+    world.add_component<WorldTransform>(light, WorldTransform{Mat4::translation(light_world_pos)});
+    world.add_component<PointLight>(light, PointLight{Vec3{0.5f, 0.25f, 0.1f}, 2.0f, 6.0f});
+
+    // Mesh with a 90-degree-about-Y world rotation, so object-space pos differs from world.
+    const Mat4 mesh_world =
+        Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{7});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+
+    // point_position = light world pos transformed into the mesh's object space.
+    const Vec3 expected =
+        mosaic::foundation::math::transform_point(Mat4::inverse_affine(mesh_world), light_world_pos);
+    REQUIRE(p.point_position.x == Approx(expected.x).margin(1e-5));
+    REQUIRE(p.point_position.y == Approx(expected.y).margin(1e-5));
+    REQUIRE(p.point_position.z == Approx(expected.z).margin(1e-5));
+    // Guard: object-space position must actually differ from the raw world position,
+    // so this fails if the RenderSystem ever skips the object-space transform.
+    REQUIRE(std::abs(p.point_position.z - light_world_pos.z) > 0.1f);
+
+    // point_color is color * intensity (premultiplied); point_range passes through.
+    REQUIRE(p.point_color.x == Approx(1.0f));   // 0.5 * 2
+    REQUIRE(p.point_color.y == Approx(0.5f));   // 0.25 * 2
+    REQUIRE(p.point_color.z == Approx(0.2f));   // 0.1 * 2
+    REQUIRE(p.point_range == Approx(6.0f));
+}
+
+TEST_CASE("RenderSystem disables point light when none present", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{5}); // no PointLight in the world
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    // range 0 == contribution disabled in the shader.
+    REQUIRE(device.draws[0].params.point_range == Approx(0.0f));
 }
