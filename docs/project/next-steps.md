@@ -4,11 +4,12 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-22 (v0.1 foundation complete; rendering #36 done — 36a–36e-1
-built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`, lit by a
-directional light and textured with a checkerboard, now also **lit by a point light with
-distance falloff**. #46 mostly complete (36e-1 point light built; render graph deferred to
-first slice needing ≥2 passes). Next buildable is **#37 (Studio shell)**)
+**Last updated:** 2026-08-22 (v0.1 foundation complete; rendering #36 complete for v0.1 —
+36a–36e-1 built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`, lit
+by a directional light and textured with a checkerboard, now also **lit by a point light
+with distance falloff**. #46's point light (36e-1) is built; its render graph is
+deliberately deferred to the first slice needing ≥2 passes. Next buildable is
+**#37 (Studio shell)**)
 
 ## Where we are
 
@@ -328,7 +329,7 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
 ~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → ~~#43 (36b mesh draw)~~ ✓ →
 ~~#44 (36c camera)~~ ✓ → ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ →
-~~36e-1 (point light)~~ ✓ → **#37 studio** (next; needs rendering, which is now complete for v0.1).
+~~36e-1 (point light)~~ ✓ → **#37 studio** (next; v0.1 rendering now complete).
 
 ## Suggested sequence
 
