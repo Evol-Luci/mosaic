@@ -1,13 +1,16 @@
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include "engine/assets/asset_registry.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
+#include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
@@ -17,19 +20,24 @@
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
+using mosaic::engine::assets::AssetMetadata;
+using mosaic::engine::assets::AssetRegistry;
 using mosaic::engine::render::Camera;
 using mosaic::engine::render::Color;
 using mosaic::engine::render::DirectionalLight;
 using mosaic::engine::render::DrawParams;
+using mosaic::engine::render::Image;
 using mosaic::engine::render::Material;
 using mosaic::engine::render::MeshHandle;
 using mosaic::engine::render::MeshRenderer;
 using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::RenderSystem;
+using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
 using mosaic::engine::transform::WorldTransform;
 using mosaic::foundation::math::Mat4;
 using mosaic::foundation::math::Vec3;
+using mosaic::foundation::serialization::AssetID;
 using Catch::Approx;
 
 namespace
@@ -37,9 +45,10 @@ namespace
 class FakeRenderDevice : public RenderDevice
 {
 public:
-    struct DrawCall { MeshHandle mesh; DrawParams params; };
+    struct DrawCall { MeshHandle mesh; TextureHandle texture; DrawParams params; };
     std::vector<DrawCall> draws;
     MeshHandle            next = 1;
+    TextureHandle         next_tex = 1;
 
     void begin_frame() override {}
     void clear(const Color&) override {}
@@ -49,7 +58,14 @@ public:
     {
         return (v.empty() || i.empty()) ? 0 : next++;
     }
-    void draw(MeshHandle m, const DrawParams& p) override { draws.push_back({m, p}); }
+    TextureHandle create_texture(const Image& img) override
+    {
+        return img.pixels.empty() ? 0 : next_tex++;
+    }
+    void draw(MeshHandle m, TextureHandle t, const DrawParams& p) override
+    {
+        draws.push_back({m, t, p});
+    }
 };
 
 World::EntityID add_camera(World& world, Vec3 pos)
@@ -65,6 +81,7 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
 {
     World world;
     FakeRenderDevice device;
+    AssetRegistry registry;
     RenderSystem rs;
     rs.set_aspect(1.0f);
 
@@ -84,7 +101,7 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     world.add_component<MeshRenderer>(mesh, MeshRenderer{7});
     world.add_component<Material>(mesh, Material{Vec3{0.2f, 0.4f, 0.6f}});
 
-    rs.render(world, device);
+    rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
     const DrawParams& p = device.draws[0].params;
@@ -113,6 +130,7 @@ TEST_CASE("RenderSystem uses default base color and light when none present", "[
 {
     World world;
     FakeRenderDevice device;
+    AssetRegistry registry;
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
@@ -120,7 +138,7 @@ TEST_CASE("RenderSystem uses default base color and light when none present", "[
     world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
     world.add_component<MeshRenderer>(mesh, MeshRenderer{5}); // no Material
 
-    rs.render(world, device);
+    rs.render(world, device, registry);
     REQUIRE(device.draws.size() == 1);
     const DrawParams& p = device.draws[0].params;
     REQUIRE(p.base_color.x == Approx(0.8f)); // default material
@@ -131,6 +149,7 @@ TEST_CASE("RenderSystem skips mesh 0 / missing WorldTransform", "[render]")
 {
     World world;
     FakeRenderDevice device;
+    AssetRegistry registry;
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
@@ -141,7 +160,7 @@ TEST_CASE("RenderSystem skips mesh 0 / missing WorldTransform", "[render]")
     world.add_component<WorldTransform>(zero, WorldTransform{Mat4::identity()});
     world.add_component<MeshRenderer>(zero, MeshRenderer{0});
 
-    rs.render(world, device);
+    rs.render(world, device, registry);
     REQUIRE(device.draws.empty());
 }
 
@@ -165,4 +184,55 @@ TEST_CASE("make_cube_mesh yields 24 vertices with unit, per-face outward normals
         REQUIRE(v[k].normal.y == Approx(0.0f));
         REQUIRE(v[k].normal.z == Approx(0.0f));
     }
+}
+
+TEST_CASE("RenderSystem resolves Material texture via TextureCache", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+
+    // Register a 1x1 white image in the registry.
+    std::array<std::uint8_t, 16> bytes{};
+    bytes[0] = 42;
+    const AssetID tex_id{bytes};
+    auto img = std::make_shared<Image>();
+    img->width = 1; img->height = 1; img->pixels = {255, 255, 255, 255};
+    registry.register_resource<Image>(AssetMetadata{tex_id, "texture"}, img);
+
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(e, MeshRenderer{5});
+    Material mat{Vec3{1.0f, 1.0f, 1.0f}};
+    mat.texture = tex_id;
+    world.add_component<Material>(e, mat);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    // The texture handle must be non-zero (resolved from registry).
+    REQUIRE(device.draws[0].texture != 0);
+}
+
+TEST_CASE("RenderSystem uses non-zero default white texture for untextured material", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(e, MeshRenderer{5});
+    world.add_component<Material>(e, Material{Vec3{0.5f, 0.5f, 0.5f}}); // nil texture
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    // Default white texture must be non-zero.
+    REQUIRE(device.draws[0].texture != 0);
 }

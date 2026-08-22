@@ -12,23 +12,24 @@ namespace mosaic::engine::render
 inline void make_cube_mesh(std::vector<Vertex>& out_vertices,
                            std::vector<std::uint32_t>& out_indices)
 {
+    using mosaic::foundation::math::Vec2;
     using mosaic::foundation::math::Vec3;
     const float h = 0.5f;
     const Vec3 px{1, 0, 0}, nx{-1, 0, 0}, py{0, 1, 0}, ny{0, -1, 0}, pz{0, 0, 1}, nz{0, 0, -1};
 
     out_vertices = {
         // +X
-        {{h, -h, -h}, px}, {{h, -h, h}, px}, {{h, h, h}, px}, {{h, h, -h}, px},
+        {{h, -h, -h}, px, {0, 0}}, {{h, -h, h}, px, {1, 0}}, {{h, h, h}, px, {1, 1}}, {{h, h, -h}, px, {0, 1}},
         // -X
-        {{-h, -h, h}, nx}, {{-h, -h, -h}, nx}, {{-h, h, -h}, nx}, {{-h, h, h}, nx},
+        {{-h, -h, h}, nx, {0, 0}}, {{-h, -h, -h}, nx, {1, 0}}, {{-h, h, -h}, nx, {1, 1}}, {{-h, h, h}, nx, {0, 1}},
         // +Y
-        {{-h, h, -h}, py}, {{h, h, -h}, py}, {{h, h, h}, py}, {{-h, h, h}, py},
+        {{-h, h, -h}, py, {0, 0}}, {{h, h, -h}, py, {1, 0}}, {{h, h, h}, py, {1, 1}}, {{-h, h, h}, py, {0, 1}},
         // -Y
-        {{-h, -h, h}, ny}, {{h, -h, h}, ny}, {{h, -h, -h}, ny}, {{-h, -h, -h}, ny},
+        {{-h, -h, h}, ny, {0, 0}}, {{h, -h, h}, ny, {1, 0}}, {{h, -h, -h}, ny, {1, 1}}, {{-h, -h, -h}, ny, {0, 1}},
         // +Z
-        {{h, -h, h}, pz}, {{-h, -h, h}, pz}, {{-h, h, h}, pz}, {{h, h, h}, pz},
+        {{h, -h, h}, pz, {0, 0}}, {{-h, -h, h}, pz, {1, 0}}, {{-h, h, h}, pz, {1, 1}}, {{h, h, h}, pz, {0, 1}},
         // -Z
-        {{-h, -h, -h}, nz}, {{h, -h, -h}, nz}, {{h, h, -h}, nz}, {{-h, h, -h}, nz},
+        {{-h, -h, -h}, nz, {0, 0}}, {{h, -h, -h}, nz, {1, 0}}, {{h, h, -h}, nz, {1, 1}}, {{-h, h, -h}, nz, {0, 1}},
     };
     out_indices.clear();
     out_indices.reserve(36);

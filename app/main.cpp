@@ -13,6 +13,7 @@
 #include "app/cli/options.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
+#include "engine/assets/asset_registry.hpp"
 #include "engine/ecs/system.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
@@ -194,8 +195,10 @@ int main(int argc, char** argv)
 
         auto render_system = std::make_shared<render::RenderSystem>();
 
+        mosaic::engine::assets::AssetRegistry asset_registry;
+
         auto* device = render_device.get();
-        deps.on_frame = [glfw_window, device, &world, render_system] {
+        deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {
             glfwPollEvents();
             int fbw = 0, fbh = 0;
             glfwGetFramebufferSize(glfw_window, &fbw, &fbh);
@@ -205,7 +208,7 @@ int main(int argc, char** argv)
             }
             device->begin_frame();
             device->clear(render::Color{0.1F, 0.1F, 0.12F, 1.0F});
-            render_system->render(world, *device);
+            render_system->render(world, *device, asset_registry);
             device->end_frame();
         };
         deps.stop_requested = [glfw_window] {

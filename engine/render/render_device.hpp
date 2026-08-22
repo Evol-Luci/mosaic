@@ -3,7 +3,9 @@
 #include <cstdint>
 #include <vector>
 
+#include "engine/render/image.hpp"
 #include "foundation/math/mat4.hpp"
+#include "foundation/math/vec2.hpp"
 #include "foundation/math/vec3.hpp"
 
 namespace mosaic::engine::render
@@ -11,14 +13,16 @@ namespace mosaic::engine::render
 
 struct Color { float r, g, b, a; };
 
-// Unlit vertex was {position, color}; lighting needs a normal.
+// Unlit vertex was {position, color}; lighting needs a normal. 36d-2 adds uv.
 struct Vertex
 {
     mosaic::foundation::math::Vec3 position;
     mosaic::foundation::math::Vec3 normal;
+    mosaic::foundation::math::Vec2 uv;
 };
 
 using MeshHandle = std::uint32_t;
+using TextureHandle = std::uint32_t; // opaque; 0 == invalid/default
 
 // Per-draw parameters. `light_direction` is in the mesh's OBJECT space (the RenderSystem
 // transforms the world light per mesh), so the backend needs no model/normal matrix.
@@ -39,7 +43,8 @@ public:
     virtual void end_frame() = 0;
     virtual MeshHandle create_mesh(const std::vector<Vertex>& vertices,
                                    const std::vector<std::uint32_t>& indices) = 0;
-    virtual void draw(MeshHandle mesh, const DrawParams& params) = 0;
+    virtual TextureHandle create_texture(const Image& image) = 0;
+    virtual void draw(MeshHandle mesh, TextureHandle texture, const DrawParams& params) = 0;
 };
 
 } // namespace mosaic::engine::render

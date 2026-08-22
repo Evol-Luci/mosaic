@@ -259,7 +259,15 @@ public:
         return static_cast<MeshHandle>(meshes_.size()); // handle == index + 1
     }
 
-    void draw(MeshHandle mesh, const mosaic::engine::render::DrawParams& params) override
+    // Task 3 replaces this with a real upload + descriptor set.
+    mosaic::engine::render::TextureHandle
+    create_texture(const mosaic::engine::render::Image& image) override
+    {
+        return image.pixels.empty() ? 0u : 1u; // placeholder handle; not yet uploaded
+    }
+
+    void draw(MeshHandle mesh, mosaic::engine::render::TextureHandle /*texture*/,
+              const mosaic::engine::render::DrawParams& params) override
     {
         if (frame_skipped_ || mesh == 0 || mesh > meshes_.size())
         {
@@ -880,7 +888,7 @@ private:
         binding.stride = sizeof(Vertex);
         binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
         attrs[0].location = 0;
         attrs[0].binding = 0;
         attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -889,6 +897,10 @@ private:
         attrs[1].binding = 0;
         attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         attrs[1].offset = static_cast<uint32_t>(offsetof(Vertex, normal));
+        attrs[2].location = 2;
+        attrs[2].binding = 0;
+        attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[2].offset = static_cast<uint32_t>(offsetof(Vertex, uv));
 
         VkPipelineVertexInputStateCreateInfo vin{};
         vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
