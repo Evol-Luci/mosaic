@@ -5,9 +5,10 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-18 (v0.1 foundation complete; rendering #36 underway — 36a–36c
-(#42/#43/#44) built: `mosaic run --window` draws a spinning cube viewed through a
-reflected `Camera` component (view = inverse of its Transform); next buildable is
-**#45 (36d): material + texture + directional light**)
++ 36d-1 built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`,
+lit by a directional light (Lambert). #45 was split into 36d-1 (lighting, done) and
+36d-2 (texture); next buildable is **36d-2: texture + descriptor sets + asset-registry
+resolution**)
 
 ## Where we are
 
@@ -308,7 +309,9 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
      window each frame. Design/plan: [spec](../superpowers/specs/2026-08-17-render-36a-clear-screen-design.md) · [plan](../superpowers/plans/2026-08-17-render-36a-clear-screen.md).
   2. ~~[#43](https://github.com/Evol-Luci/mosaic/issues/43) 36b — mesh draw at `WorldTransform`~~ ✓ **built.** A `RenderSystem` (render-time traversal, fixed camera) draws entities with `WorldTransform` + `MeshRenderer` via a Vulkan graphics pipeline (glslc SPIR-V, depth buffer); `mosaic run --window` shows a spinning cube. `foundation/math` gained `perspective`/`look_at`. Design/plan: [spec](../superpowers/specs/2026-08-18-render-36b-mesh-draw-design.md) · [plan](../superpowers/plans/2026-08-18-render-36b-mesh-draw.md).
   3. ~~[#44](https://github.com/Evol-Luci/mosaic/issues/44) 36c — camera + view/projection~~ ✓ **built.** A reflected `Camera` component (lens: fov/near/far) placed via a `Transform`; the `RenderSystem` derives `view = inverse_affine(camera WorldTransform)` from the active camera (fallback if none). `foundation/math` gained `inverse_affine`. Design/plan: [spec](../superpowers/specs/2026-08-18-render-36c-camera-design.md) · [plan](../superpowers/plans/2026-08-18-render-36c-camera.md).
-  4. [#45](https://github.com/Evol-Luci/mosaic/issues/45) **36d — material + texture + directional light** ← **next buildable** (texture upload + sampling via the asset registry #20; a reflected `Material`; a directional light + Lambert shading)
+  4. [#45](https://github.com/Evol-Luci/mosaic/issues/45) 36d — material + texture + directional light — **split into two**:
+     - ~~36d-1 (lighting)~~ ✓ **built.** Reflected `Material{base_color}` + `DirectionalLight` components; `Vertex` gained a normal; Lambert + ambient shading via object-space light in push constants (no descriptor sets). `foundation/math` gained `transform_direction`. Design/plan: [spec](../superpowers/specs/2026-08-18-render-36d1-lighting-design.md) · [plan](../superpowers/plans/2026-08-18-render-36d1-lighting.md).
+     - **36d-2 (texture)** ← **next buildable** — UVs on `Vertex`, `create_texture` + a Vulkan sampler + **descriptor sets**, `Material.texture` (`AssetID`), and texture resolution through the asset registry (#20). A procedural checkerboard texture avoids an image-decoder dependency (real image loading is a later Tools follow-up).
   5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) 36e — point light + minimal render graph
 
   Decisions fixed in the decomposition: **GLFW** windowing (backend/app only, never
@@ -317,12 +320,12 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   its own brainstorm → spec → plan → TDD cycle.
 
 **Suggested order (rendering):** ~~#42 (36a)~~ ✓ → ~~#43 (36b)~~ ✓ → ~~#44 (36c)~~ ✓ →
-**#45 (36d material+light)** (next) → #46 (36e) → #37 studio.
+~~36d-1 (lighting)~~ ✓ → **36d-2 (texture)** (next) → #46 (36e) → #37 studio.
 
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
 ~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → ~~#43 (36b mesh draw)~~ ✓ →
-~~#44 (36c camera)~~ ✓ → **#45 (36d material+light)** (next) → #46 → #37 studio
-(needs rendering).
+~~#44 (36c camera)~~ ✓ → ~~36d-1 (lighting)~~ ✓ → **36d-2 (texture)** (next) → #46 →
+#37 studio (needs rendering).
 
 ## Suggested sequence
 
@@ -396,11 +399,9 @@ on-ramp is the first *visible* subsystem (its own future spec):
   see [the decomposition](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37). The
   milestone that makes the engine something you can look at (Studio depends on
-  rendering). **36a–36c ([#42](https://github.com/Evol-Luci/mosaic/issues/42),
-  [#43](https://github.com/Evol-Luci/mosaic/issues/43),
-  [#44](https://github.com/Evol-Luci/mosaic/issues/44)) are built** (`mosaic run
-  --window` draws a spinning cube viewed through a `Camera` component); next is
-  **[#45](https://github.com/Evol-Luci/mosaic/issues/45) (36d): material + texture +
-  directional light.**
+  rendering). **36a–36c + 36d-1 are built** (`mosaic run --window` draws a spinning cube,
+  viewed through a `Camera`, lit by a directional light); next is **36d-2** (the texture
+  half of [#45](https://github.com/Evol-Luci/mosaic/issues/45): UVs, a Vulkan sampler +
+  descriptor sets, and asset-registry texture resolution).
 
 Reassess this file as each lands.
