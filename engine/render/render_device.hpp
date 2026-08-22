@@ -50,6 +50,14 @@ public:
                                    const std::vector<std::uint32_t>& indices) = 0;
     virtual TextureHandle create_texture(const Image& image) = 0;
     virtual void draw(MeshHandle mesh, TextureHandle texture, const DrawParams& params) = 0;
+
+    // Editor UI overlay hooks. Default no-ops so headless devices and test fakes
+    // need not implement them. On a UI-capable backend, call init_ui() once after
+    // construction, then per frame: begin_ui_frame() before building the UI and
+    // end_ui_frame() between begin_frame() and end_frame() to record the UI.
+    virtual void init_ui() {}
+    virtual void begin_ui_frame() {}
+    virtual void end_ui_frame() {}
 };
 
 } // namespace mosaic::engine::render

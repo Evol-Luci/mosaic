@@ -5,7 +5,7 @@ add_library(mosaic_render_vulkan STATIC
 target_include_directories(mosaic_render_vulkan PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(mosaic_render_vulkan
   PUBLIC  mosaic_engine
-  PRIVATE Vulkan::Vulkan glfw mosaic_foundation
+  PRIVATE Vulkan::Vulkan glfw mosaic_foundation mosaic_imgui
 )
 target_compile_features(mosaic_render_vulkan PUBLIC cxx_std_20)
 
