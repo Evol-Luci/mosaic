@@ -1,12 +1,14 @@
 add_library(mosaic_app STATIC
   cli/options.cpp
   run/status_reporter.cpp
+  run/editor.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine
   mosaic_foundation
   mosaic_serialization
   mosaic_render_vulkan
+  mosaic_studio
   glfw
   CLI11::CLI11
   nlohmann_json::nlohmann_json

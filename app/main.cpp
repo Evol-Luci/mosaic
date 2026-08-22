@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h> // windowing only; Vulkan surface creation lives in the backend
 
 #include "app/cli/options.hpp"
+#include "app/run/editor.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -82,6 +83,12 @@ int main(int argc, char** argv)
     {
         return *pr.exit_code;
     }
+
+    if (pr.options.command == Command::Editor)
+    {
+        return mosaic::app::run_editor(pr.options);
+    }
+
     const Options& options = pr.options;
 
     std::unique_ptr<StatusReporter> reporter =
