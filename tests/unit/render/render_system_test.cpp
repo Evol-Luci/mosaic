@@ -268,11 +268,14 @@ TEST_CASE("RenderSystem transforms point light into mesh object space", "[render
     const DrawParams& p = device.draws[0].params;
 
     // point_position = light world pos transformed into the mesh's object space.
-    const Vec3 expected =
-        mosaic::foundation::math::transform_point(Mat4::inverse_affine(mesh_world), light_world_pos);
-    REQUIRE(p.point_position.x == Approx(expected.x).margin(1e-5));
-    REQUIRE(p.point_position.y == Approx(expected.y).margin(1e-5));
-    REQUIRE(p.point_position.z == Approx(expected.z).margin(1e-5));
+    // Golden value derived independently of the production formula: the mesh is rotated
+    // +90 deg about Y, so world->object is the inverse rotation R_y(-90). Applying it to
+    // the world light {2,0,0} maps +X -> +Z, giving object-space {0,0,2}. Hardcoding this
+    // (rather than recomputing with transform_point/inverse_affine) means a systematic
+    // error in that formula cannot make the test pass by matching itself on both sides.
+    REQUIRE(p.point_position.x == Approx(0.0f).margin(1e-5));
+    REQUIRE(p.point_position.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(p.point_position.z == Approx(2.0f).margin(1e-5));
     // Guard: object-space position must actually differ from the raw world position,
     // so this fails if the RenderSystem ever skips the object-space transform.
     REQUIRE(std::abs(p.point_position.z - light_world_pos.z) > 0.1f);

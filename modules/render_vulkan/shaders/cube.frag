@@ -20,12 +20,17 @@ void main()
     vec3 albedo = texture(tex, fragUV).rgb * pc.base_color.xyz;
 
     // Point light (object space): windowed inverse-square attenuation.
+    // range <= 0 means "no point light" -> skip the window computation entirely.
     vec3  toL   = pc.point_position.xyz - fragPos;
     float d     = length(toL);
     float range = pc.point_position.w;
-    float win   = clamp(1.0 - pow(d / max(range, 1e-4), 4.0), 0.0, 1.0);
-    float atten = (range > 0.0) ? (win * win) / (d * d + 1.0) : 0.0;
-    float pl    = max(0.0, dot(n, toL / max(d, 1e-4))) * atten;
+    float atten = 0.0;
+    if (range > 0.0)
+    {
+        float win = clamp(1.0 - pow(d / range, 4.0), 0.0, 1.0);
+        atten = (win * win) / (d * d + 1.0);
+    }
+    float pl = max(0.0, dot(n, toL / max(d, 1e-4))) * atten;
 
     vec3 color = albedo * (0.1 + lambert * pc.light_color.xyz)
                + albedo * pl * pc.point_color.xyz;

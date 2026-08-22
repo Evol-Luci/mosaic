@@ -36,7 +36,7 @@ struct DrawParams
     mosaic::foundation::math::Vec3 base_color;
     mosaic::foundation::math::Vec3 point_position;
     mosaic::foundation::math::Vec3 point_color;
-    float                          point_range;
+    float                          point_range = 0.0f; // 0 == no point light (disabled)
 };
 
 class RenderDevice
