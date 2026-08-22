@@ -7,12 +7,16 @@ layout(push_constant) uniform Push {
     vec4 light_direction; // object space, .xyz
     vec4 light_color;     // .xyz
     vec4 base_color;      // .xyz
+    vec4 point_position;  // object space .xyz, .w = range
+    vec4 point_color;     // .xyz = color * intensity
 } pc;
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
+layout(location = 2) out vec3 fragPos;
 void main()
 {
     gl_Position = pc.mvp * vec4(inPosition, 1.0);
-    fragNormal = inNormal; // object space; light is provided in object space too
+    fragNormal = inNormal; // object space; lights are provided in object space too
     fragUV = inUV;
+    fragPos = inPosition;  // object space
 }

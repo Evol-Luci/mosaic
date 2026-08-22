@@ -24,14 +24,19 @@ struct Vertex
 using MeshHandle = std::uint32_t;
 using TextureHandle = std::uint32_t; // opaque; 0 == invalid/default
 
-// Per-draw parameters. `light_direction` is in the mesh's OBJECT space (the RenderSystem
-// transforms the world light per mesh), so the backend needs no model/normal matrix.
+// Per-draw parameters. `light_direction` and `point_position` are in the mesh's OBJECT
+// space (the RenderSystem transforms world lights per mesh), so the backend needs no
+// model/normal matrix. `point_color` is premultiplied by intensity; `point_range == 0`
+// disables the point-light contribution.
 struct DrawParams
 {
     mosaic::foundation::math::Mat4 mvp;
     mosaic::foundation::math::Vec3 light_direction;
     mosaic::foundation::math::Vec3 light_color;
     mosaic::foundation::math::Vec3 base_color;
+    mosaic::foundation::math::Vec3 point_position;
+    mosaic::foundation::math::Vec3 point_color;
+    float                          point_range = 0.0f; // 0 == no point light (disabled)
 };
 
 class RenderDevice

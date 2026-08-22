@@ -25,6 +25,7 @@
 #include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
+#include "engine/render/point_light.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
@@ -205,6 +206,18 @@ int main(int argc, char** argv)
         const auto light_entity = world.create_entity();
         world.add_component<render::DirectionalLight>(light_entity,
             render::DirectionalLight{Vec3{-0.5F, -1.0F, -0.3F}, Vec3{1.0F, 1.0F, 1.0F}});
+
+        // Point light: a warm lamp offset from the cube so its distance falloff reads
+        // across the spinning faces. Position comes from its WorldTransform.
+        const auto point_light_entity = world.create_entity();
+        world.add_component<transform::Transform>(point_light_entity,
+            transform::Transform{Vec3{1.5F, 1.0F, 1.5F}, mosaic::foundation::math::Quat::identity(),
+                                 Vec3{1.0F, 1.0F, 1.0F}, {}});
+        world.add_component<transform::WorldTransform>(point_light_entity,
+            transform::WorldTransform{mosaic::foundation::math::Mat4::translation(
+                Vec3{1.5F, 1.0F, 1.5F})});
+        world.add_component<render::PointLight>(point_light_entity,
+            render::PointLight{Vec3{1.0F, 0.85F, 0.6F}, 3.0F, 6.0F});
 
         // Camera entity: placed at (0,0,4) looking down -Z at the cube at the origin.
         // Its Transform → WorldTransform (via TransformSystem) drives the view; the

@@ -3,6 +3,7 @@
 #include "engine/assets/asset_registry.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
+#include "engine/render/point_light.hpp"
 #include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
@@ -39,6 +40,7 @@ public:
         }
 
         DirectionalLight light = active_light(world);
+        const PointLightState point = active_point_light(world);
 
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
@@ -67,9 +69,20 @@ public:
                     mosaic::foundation::math::transform_direction(
                         Mat4::inverse_affine(wt->matrix), light.direction));
 
+                Vec3 point_position{0.0f, 0.0f, 0.0f};
+                Vec3 point_color{0.0f, 0.0f, 0.0f};
+                float point_range = 0.0f;
+                if (point.present)
+                {
+                    point_position = mosaic::foundation::math::transform_point(
+                        Mat4::inverse_affine(wt->matrix), point.world_pos);
+                    point_color = point.color;
+                    point_range = point.range;
+                }
+
                 device.draw(mr.mesh, texture,
                             DrawParams{projection * view * wt->matrix, light_obj,
-                                       light.color, base_color});
+                                       light.color, base_color, point_position, point_color, point_range});
             });
     }
 
@@ -96,6 +109,40 @@ private:
         using mosaic::foundation::math::Mat4;
         using mosaic::foundation::math::Vec3;
         return Mat4::look_at(Vec3{0.0f, 1.5f, 4.0f}, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 1.0f, 0.0f});
+    }
+
+    struct PointLightState
+    {
+        bool                           present = false;
+        mosaic::foundation::math::Vec3 world_pos{};
+        mosaic::foundation::math::Vec3 color{}; // premultiplied by intensity
+        float                          range = 0.0f;
+    };
+
+    // First PointLight whose entity has a WorldTransform; world position = its translation.
+    PointLightState active_point_light(World& world) const
+    {
+        using mosaic::foundation::math::Vec3;
+        PointLightState s;
+        world.for_each<PointLight>(
+            [&](mosaic::foundation::EntityID e, PointLight& p)
+            {
+                if (s.present)
+                {
+                    return;
+                }
+                const auto* wt = world.get_component<transform::WorldTransform>(e);
+                if (wt == nullptr)
+                {
+                    return;
+                }
+                s.present = true;
+                s.world_pos =
+                    mosaic::foundation::math::transform_point(wt->matrix, Vec3{0.0f, 0.0f, 0.0f});
+                s.color = p.color * p.intensity;
+                s.range = p.range;
+            });
+        return s;
     }
 
     // First DirectionalLight, else a default.

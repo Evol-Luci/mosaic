@@ -40,8 +40,10 @@ struct PushConstants
     float light_direction[4]; // vec3 + pad
     float light_color[4];
     float base_color[4];
+    float point_position[4]; // xyz = object-space pos, w = range
+    float point_color[4];    // xyz = color * intensity
 };
-static_assert(sizeof(PushConstants) == 112, "push constant layout must match the shader");
+static_assert(sizeof(PushConstants) == 144, "push constant layout must match the shader");
 
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
@@ -491,6 +493,13 @@ public:
         pc.base_color[0] = params.base_color.x;
         pc.base_color[1] = params.base_color.y;
         pc.base_color[2] = params.base_color.z;
+        pc.point_position[0] = params.point_position.x;
+        pc.point_position[1] = params.point_position.y;
+        pc.point_position[2] = params.point_position.z;
+        pc.point_position[3] = params.point_range;
+        pc.point_color[0] = params.point_color.x;
+        pc.point_color[1] = params.point_color.y;
+        pc.point_color[2] = params.point_color.z;
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
@@ -748,6 +757,17 @@ private:
                 continue;
             }
 
+            // The renderer's 144-byte push constants exceed Vulkan's guaranteed 128-byte
+            // minimum (desktop GPUs offer 256). Treat an insufficient budget as "device
+            // not suitable" and keep looking, rather than failing on the first candidate —
+            // a multi-GPU host may still have a capable device further down the list.
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(dev, &props);
+            if (sizeof(PushConstants) > props.limits.maxPushConstantsSize)
+            {
+                continue;
+            }
+
             physical_ = dev;
             graphics_family_ = *q.graphics;
             present_family_ = *q.present;
@@ -755,7 +775,8 @@ private:
         }
 
         throw std::runtime_error(
-            "no suitable Vulkan physical device (need graphics+present+swapchain)");
+            "no suitable Vulkan physical device (need graphics+present+swapchain and "
+            "maxPushConstantsSize >= the renderer's push constants)");
     }
 
     void create_logical_device()
