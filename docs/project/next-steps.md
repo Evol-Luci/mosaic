@@ -4,11 +4,11 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-22 (v0.1 foundation complete; rendering #36 mostly done — 36a–36d
-built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`, **lit by a
-directional light and textured** with a checkerboard resolved through the asset registry.
-#45 complete (36d-1 lighting + 36d-2 texture). Next buildable is the **last rendering slice,
-#46 (36e): point light + minimal render graph**)
+**Last updated:** 2026-08-22 (v0.1 foundation complete; rendering #36 done — 36a–36e-1
+built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`, lit by a
+directional light and textured with a checkerboard, now also **lit by a point light with
+distance falloff**. #46 mostly complete (36e-1 point light built; render graph deferred to
+first slice needing ≥2 passes). Next buildable is **#37 (Studio shell)**)
 
 ## Where we are
 
@@ -312,20 +312,23 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   4. [#45](https://github.com/Evol-Luci/mosaic/issues/45) 36d — material + texture + directional light — **split into two**:
      - ~~36d-1 (lighting)~~ ✓ **built.** Reflected `Material{base_color}` + `DirectionalLight` components; `Vertex` gained a normal; Lambert + ambient shading via object-space light in push constants (no descriptor sets). `foundation/math` gained `transform_direction`. Design/plan: [spec](../superpowers/specs/2026-08-18-render-36d1-lighting-design.md) · [plan](../superpowers/plans/2026-08-18-render-36d1-lighting.md).
      - ~~36d-2 (texture)~~ ✓ **built.** UVs on `Vertex`; `create_texture` + a Vulkan sampler + **descriptor sets**; an `Image` asset resource + a `TextureCache` resolving `Material.texture` (`AssetID`) through the asset registry (#20, cached/uploaded once); a procedural checkerboard demo. `foundation/math` gained `Vec2`. Design/plan: [spec](../superpowers/specs/2026-08-22-render-36d2-texture-design.md) · [plan](../superpowers/plans/2026-08-22-render-36d2-texture.md).
-  5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) **36e — point light + minimal render graph** ← **next buildable** (a `PointLight` component; introduce the `RenderGraph` abstraction — passes + resources + dependency ordering — now that there are ≥2 passes to justify it). Last v0.1 rendering slice.
+  5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) 36e — point light + minimal render graph — **split into two**:
+     - ~~36e-1 (point light)~~ ✓ **built.** A reflected `PointLight` component (`color`, `intensity`, `range`; world position derived from its entity's `WorldTransform`, like `Camera`); object-space Lambert point term with windowed inverse-square attenuation added to the fragment shader; the vertex shader now passes object-space fragment position; push constants grew 112→144 bytes (device `maxPushConstantsSize` assert). `mosaic run --window` now shows point-light distance falloff across the spinning cube alongside the existing directional light. Known limitation: attenuation distance is measured in object space, so non-uniform mesh scale warps it (exact for the unit-scale demo cube). Design/plan: [spec](../superpowers/specs/2026-08-22-render-36e1-point-light-design.md) · [plan](../superpowers/plans/2026-08-22-render-36e1-point-light.md).
+     - **Render graph deferred** — a point light does not create a second pass, so the "≥2 passes justify a graph" bar is not met; re-filed to the first slice that genuinely needs ≥2 passes (a shadow-map depth pre-pass, or the Studio's offscreen-viewport-to-texture in #37). Not dropped.
 
   Decisions fixed in the decomposition: **GLFW** windowing (backend/app only, never
-  engine/foundation); the **RenderGraph is deferred to 36e** (direct submission behind
-  the neutral device interface until ≥2 passes justify a graph). Each sub-issue gets
-  its own brainstorm → spec → plan → TDD cycle.
+  engine/foundation); the **RenderGraph is deferred past 36e** (direct submission behind
+  the neutral device interface until ≥2 passes justify a graph — 36e-1 did not meet
+  that bar; deferred to the next ≥2-pass slice). Each sub-issue gets its own brainstorm
+  → spec → plan → TDD cycle.
 
 **Suggested order (rendering):** ~~#42 (36a)~~ ✓ → ~~#43 (36b)~~ ✓ → ~~#44 (36c)~~ ✓ →
-~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → **#46 (36e point light + render graph)** (next) → #37 studio.
+~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → ~~36e-1 (point light)~~ ✓ → **#37 studio** (next).
 
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
 ~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → ~~#43 (36b mesh draw)~~ ✓ →
-~~#44 (36c camera)~~ ✓ → ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → **#46 (36e)**
-(next) → #37 studio (needs rendering).
+~~#44 (36c camera)~~ ✓ → ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ →
+~~36e-1 (point light)~~ ✓ → **#37 studio** (next; needs rendering, which is now complete for v0.1).
 
 ## Suggested sequence
 
@@ -399,10 +402,12 @@ on-ramp is the first *visible* subsystem (its own future spec):
   see [the decomposition](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37). The
   milestone that makes the engine something you can look at (Studio depends on
-  rendering). **36a–36d are built** (`mosaic run --window` draws a spinning cube, viewed
-  through a `Camera`, lit by a directional light and **textured** with a checkerboard
-  resolved through the asset registry); next is the last rendering slice,
-  **[#46](https://github.com/Evol-Luci/mosaic/issues/46) (36e): point light + minimal
-  render graph**.
+  rendering). **36a–36e-1 are built** (`mosaic run --window` draws a spinning cube,
+  viewed through a `Camera`, lit by a directional light and textured with a checkerboard
+  resolved through the asset registry, now also lit by a point light with distance
+  falloff). The render-graph half of #46 is deferred (not dropped) to the first slice
+  that genuinely needs ≥2 passes. **Rendering is complete for v0.1** (modulo the
+  deferred graph); next is **[#37](https://github.com/Evol-Luci/mosaic/issues/37)
+  (Studio shell)**: viewport + hierarchy + reflection-driven inspector.
 
 Reassess this file as each lands.
