@@ -757,24 +757,26 @@ private:
                 continue;
             }
 
+            // The renderer's 144-byte push constants exceed Vulkan's guaranteed 128-byte
+            // minimum (desktop GPUs offer 256). Treat an insufficient budget as "device
+            // not suitable" and keep looking, rather than failing on the first candidate —
+            // a multi-GPU host may still have a capable device further down the list.
+            VkPhysicalDeviceProperties props{};
+            vkGetPhysicalDeviceProperties(dev, &props);
+            if (sizeof(PushConstants) > props.limits.maxPushConstantsSize)
+            {
+                continue;
+            }
+
             physical_ = dev;
             graphics_family_ = *q.graphics;
             present_family_ = *q.present;
-
-            // 144-byte push constants exceed Vulkan's guaranteed 128-byte minimum but fit
-            // desktop GPUs (256). Fail loud rather than let validation catch it downstream.
-            VkPhysicalDeviceProperties props{};
-            vkGetPhysicalDeviceProperties(physical_, &props);
-            if (sizeof(PushConstants) > props.limits.maxPushConstantsSize)
-            {
-                throw std::runtime_error(
-                    "device maxPushConstantsSize is smaller than the renderer's push constants");
-            }
             return;
         }
 
         throw std::runtime_error(
-            "no suitable Vulkan physical device (need graphics+present+swapchain)");
+            "no suitable Vulkan physical device (need graphics+present+swapchain and "
+            "maxPushConstantsSize >= the renderer's push constants)");
     }
 
     void create_logical_device()
