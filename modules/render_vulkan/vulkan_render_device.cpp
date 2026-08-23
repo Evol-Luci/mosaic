@@ -478,6 +478,12 @@ public:
     void draw(MeshHandle mesh, mosaic::engine::render::TextureHandle texture,
               const mosaic::engine::render::DrawParams& params) override
     {
+        // A viewport pass (if open) already bound its own pipeline/viewport; otherwise
+        // the swapchain pass must be active before recording draws.
+        if (!viewport_pass_open_)
+        {
+            ensure_swapchain_pass();
+        }
         if (frame_skipped_ || mesh == 0 || mesh > meshes_.size())
         {
             return;
@@ -552,6 +558,22 @@ public:
         begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         vk_check(vkBeginCommandBuffer(cmd_[frame_], &begin), "vkBeginCommandBuffer");
 
+        // The swapchain render pass is now begun lazily (ensure_swapchain_pass), so the
+        // editor can record an offscreen viewport pass before it. Reset per-frame state.
+        swapchain_pass_open_ = false;
+        viewport_pass_open_  = false;
+    }
+
+    // Begins the swapchain render pass once per frame (idempotent). Sets the
+    // negative-height (Y-flip) viewport/scissor and binds the scene pipeline. A
+    // skipped frame (swapchain out-of-date) never opens a pass.
+    void ensure_swapchain_pass()
+    {
+        if (swapchain_pass_open_ || frame_skipped_)
+        {
+            return;
+        }
+
         // Negative-height viewport flips Y so that our right-handed, Y-up world
         // maps to Vulkan's Y-down clip space (origin top-left) — the cube reads
         // right-side up without transposing the projection.
@@ -585,6 +607,7 @@ public:
         vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        swapchain_pass_open_ = true;
     }
 
     void clear(const Color& c) override
@@ -602,7 +625,9 @@ public:
             return;
         }
 
+        ensure_swapchain_pass(); // empty scene still clears + transitions to PRESENT_SRC
         vkCmdEndRenderPass(cmd_[frame_]);
+        swapchain_pass_open_ = false;
 
         vk_check(vkEndCommandBuffer(cmd_[frame_]), "vkEndCommandBuffer");
 
@@ -695,6 +720,7 @@ public:
         ImGui::Render(); // always, to keep NewFrame/Render balanced even on a skipped frame
         if (!frame_skipped_)
         {
+            ensure_swapchain_pass(); // ImGui always records into an open swapchain pass
             ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_[frame_]);
         }
     }
@@ -1586,6 +1612,13 @@ private:
     uint32_t image_index_ = 0;
     bool framebuffer_resized_ = false;
     bool frame_skipped_ = false;
+
+    // The swapchain render pass is begun lazily (on the first swapchain-targeted draw,
+    // at end_ui_frame, or at end_frame) so the editor can record an offscreen viewport
+    // pass first. viewport_pass_open_ tracks whether draw() is currently targeting the
+    // offscreen target instead of the swapchain.
+    bool swapchain_pass_open_ = false;
+    bool viewport_pass_open_  = false;
 };
 
 } // namespace
