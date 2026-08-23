@@ -4,20 +4,20 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-23 (v0.1 foundation + rendering complete; **Studio #37 underway** —
-decomposed into 37a–37e, with **37a–37d built**: `mosaic editor` opens an ImGui docking
-window with a scene **hierarchy** (click to select), a **reflection-driven inspector** that
-edits a selected entity's components live (the #18 payoff), and now a **viewport** panel
-showing the live 3D scene (the spinning, textured, lit cube) rendered into a panel-sized
-offscreen target and sampled by ImGui. Rendering 36a–36e-1 remains complete (`mosaic run
---window` draws the same cube directly). Next buildable is **37e (play/stop + console)** — a
-toolbar play/stop driving `RuntimeLoop`, and a console panel surfacing #33 logging via a
-custom `Sink`. **RenderGraph decision at 37d:** minimal **direct two-pass submission** was
-chosen (scene→offscreen pass + ImGui pass, one command buffer, one submit; the inter-pass
-hazard handled by the offscreen render pass's `finalLayout` + subpass dependencies). The
-**RenderGraph stays deferred** — two fixed passes don't reveal graph requirements — re-filed
-to the first slice with a genuinely dynamic or ≥3-pass set (a shadow-map depth pre-pass or a
-post-processing chain))
+**Last updated:** 2026-08-23 (v0.1 foundation + rendering complete; **Studio #37 v0.1 lean
+core COMPLETE** — 37a–37e all built. `mosaic editor` opens an ImGui docking window with a
+scene **hierarchy** (click to select), a **reflection-driven inspector** that edits a
+selected entity's components live (the #18 payoff), a **viewport** panel showing the live 3D
+scene (spinning, textured, lit cube) via a panel-sized offscreen target sampled by ImGui, and
+a **toolbar play/stop/step + Console panel** — play/stop drives the `RuntimeLoop` (pause =
+`stop()`, resume = `start()`; a Step ticks once while paused), and the Console surfaces #33
+logging live via a capturing `Sink` + thread-safe ring buffer. Rendering 36a–36e-1 remains
+complete (`mosaic run --window` draws the same cube directly). **RenderGraph** stays deferred
+(37d chose direct two-pass submission; re-filed to the first dynamic/≥3-pass slice). **Known
+gap surfaced by 37e (follow-up filed):** the app installs no logging sink outside the editor,
+so `mosaic run`/headless runs drop all `log::` output — install a stderr `ConsoleSink` in the
+CLI entry path. **Next frontier:** post-v0.1 Studio work (asset browser, Blender live-link) or
+the next roadmap milestone)
 
 ## Where we are
 
@@ -360,18 +360,27 @@ gets its own brainstorm → spec → plan → TDD cycle:
      **direct two-pass submission** (one command buffer, one submit; inter-pass hazard via the
      offscreen pass `finalLayout` + subpass dependencies) — the graph stays deferred to the
      first dynamic/≥3-pass slice. Design/plan: [spec](../superpowers/specs/2026-08-23-studio-37d-viewport-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37d-viewport.md).
-  5. **37e — play/stop + console** ← **next buildable.** A toolbar play/stop driving
-     `RuntimeLoop`; a console panel surfacing #33 logging via a custom `Sink`.
+  5. ~~37e — play/stop + console~~ ✓ **built.** A headless `PlayState` drives the
+     `RuntimeLoop` from the editor frame loop (pause = `stop()`, resume = `start()`, Step =
+     one `RuntimeLoop::step()` while paused); Play/Stop/Step live in the menu bar. A
+     thread-safe `ConsoleBuffer` (capacity-capped ring, owned copies of the transient
+     `Record` strings) + a `ConsoleSink : log::Sink` registered on the process-global logger
+     capture #33 log output; the Console panel renders it. **Surfaced a gap:** the app
+     installs no sink outside the editor, so `mosaic run` drops all logging — filed as a
+     follow-up (install a stderr `ConsoleSink` in the CLI entry path). Design/plan:
+     [spec](../superpowers/specs/2026-08-23-studio-37e-play-stop-console-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37e-play-stop-console.md).
 
 **Suggested order (rendering):** ~~#42 (36a)~~ ✓ → ~~#43 (36b)~~ ✓ → ~~#44 (36c)~~ ✓ →
 ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → ~~36e-1 (point light)~~ ✓ → **rendering complete.**
 
 **Suggested order (Studio #37):** ~~37a (shell)~~ ✓ → ~~37b (hierarchy)~~ ✓ →
-~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → **37e (play/stop + console)** (next).
+~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → ~~37e (play/stop + console)~~ ✓ →
+**Studio #37 v0.1 lean core complete.**
 
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
 ~~#36 decompose~~ ✓ → ~~#42–#46 rendering (36a–36e-1)~~ ✓ → ~~37a (shell)~~ ✓ →
-~~37b (hierarchy)~~ ✓ → ~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → **37e (play/stop + console)** (next).
+~~37b (hierarchy)~~ ✓ → ~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → ~~37e (play/stop + console)~~ ✓ →
+**v0.1 Studio (#37) lean core complete.**
 
 ## Suggested sequence
 
@@ -451,9 +460,12 @@ on-ramp is the first *visible* subsystem (its own future spec):
   deferred (not dropped) — 37d met the ≥2-pass bar but chose direct two-pass submission, so
   the graph is re-filed to the first dynamic/≥3-pass slice. **Studio #37 is underway**
   (decomposed into 37a–37e; see [the decomposition](../superpowers/specs/2026-08-22-studio-decomposition.md)):
-  **37a (editor shell), 37b (hierarchy), 37c (reflection inspector), 37d (viewport) are
-  built** — `mosaic editor` opens a docking window with a scene hierarchy, a live reflection
-  inspector, and a viewport showing the live 3D scene via an offscreen render target. Next is
-  **37e (play/stop + console)**.
+  **all five slices — 37a (editor shell), 37b (hierarchy), 37c (reflection inspector), 37d
+  (viewport), 37e (play/stop + console) — are built.** `mosaic editor` opens a docking window
+  with a scene hierarchy, a live reflection inspector, a viewport showing the live 3D scene via
+  an offscreen render target, and a play/stop/step toolbar + Console panel. **The v0.1 Studio
+  (#37) lean core is complete.** Deferred post-v0.1 (their own future work): the asset browser
+  and the Blender live-link preview. A small follow-up also stands: install a stderr
+  `ConsoleSink` in the CLI entry path so `mosaic run` output (currently dropped) is visible.
 
 Reassess this file as each lands.
