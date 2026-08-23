@@ -63,6 +63,7 @@ add_executable(mosaic_unit_tests
   unit/studio/studio_layout_test.cpp
   unit/studio/selection_test.cpp
   unit/studio/hierarchy_test.cpp
+  unit/studio/viewport_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
