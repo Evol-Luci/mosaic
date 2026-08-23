@@ -25,8 +25,8 @@ public:
     virtual void end_group() = 0;
 };
 
-// std::vector<mosaic::foundation::serialization::Handle<R>> detection, kept local so this
-// header needs only reference.hpp (not the serialization value machinery).
+// mosaic::foundation::serialization::Handle<R> detection, kept local so this header
+// needs only reference.hpp (not the serialization value machinery).
 template <class> inline constexpr bool is_handle_v = false;
 template <class R>
 inline constexpr bool is_handle_v<mosaic::foundation::serialization::Handle<R>> = true;
