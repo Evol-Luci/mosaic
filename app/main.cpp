@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h> // windowing only; Vulkan surface creation lives in the backend
 
 #include "app/cli/options.hpp"
+#include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
@@ -49,28 +50,6 @@ namespace mosaic::app
 {
 // Demo-only: spins every entity that has a Transform around Y, so the cube visibly
 // rotates and its WorldTransform flows to the screen.
-class SpinSystem : public mosaic::engine::ecs::System
-{
-public:
-    void update(mosaic::engine::World& world, float dt) override
-    {
-        namespace m = mosaic::foundation::math;
-        angle_ += dt * 0.9F;
-        const float      half = angle_ * 0.5F;
-        const m::Quat    spin{0.0F, std::sin(half), 0.0F, std::cos(half)};
-        world.for_each<mosaic::engine::transform::Transform>(
-            [&](mosaic::foundation::EntityID e, mosaic::engine::transform::Transform& t)
-            {
-                if (!world.has_component<mosaic::engine::render::MeshRenderer>(e))
-                {
-                    return; // only spin meshes (the cube), not the camera
-                }
-                t.rotation = spin;
-            });
-    }
-private:
-    float angle_ = 0.0F;
-};
 } // namespace mosaic::app
 
 int main(int argc, char** argv)
@@ -174,70 +153,10 @@ int main(int argc, char** argv)
         namespace transform = mosaic::engine::transform;
         using mosaic::foundation::math::Vec3;
 
-        // Upload the cube and spawn one entity that carries it.
-        // Demo-only: spin the cube. Registered here (not globally) so a headless
-        // scene run never mutates authored rotations. Runs after TransformSystem,
-        // so the spin lands one tick later — imperceptible for a continuous spin.
-        world.add_system<SpinSystem>();
-
-        std::vector<render::Vertex>        cube_v;
-        std::vector<std::uint32_t>         cube_i;
-        render::make_cube_mesh(cube_v, cube_i);
-        const render::MeshHandle cube = render_device->create_mesh(cube_v, cube_i);
-
-        const auto cube_entity = world.create_entity();
-        world.add_component<transform::Transform>(cube_entity, transform::Transform{});
-        world.add_component<transform::WorldTransform>(cube_entity,
-            transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
-        world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
-        // Procedural checkerboard texture (64x64, two shades), registered as an asset.
-        auto checker = std::make_shared<render::Image>();
-        checker->width = 64; checker->height = 64;
-        checker->pixels.resize(64 * 64 * 4);
-        for (std::uint32_t y = 0; y < 64; ++y)
-            for (std::uint32_t x = 0; x < 64; ++x)
-            {
-                const bool on = ((x / 8) + (y / 8)) % 2 == 0;
-                const std::uint8_t c = on ? 230 : 60;
-                std::uint8_t* p = &checker->pixels[(y * 64 + x) * 4];
-                p[0] = c; p[1] = c; p[2] = c; p[3] = 255;
-            }
-        std::array<std::uint8_t, 16> tex_uuid{}; tex_uuid[0] = 0xC0; tex_uuid[1] = 0xDE;
-        const mosaic::foundation::serialization::AssetID tex_id{tex_uuid};
-        asset_registry.register_resource<render::Image>(
-            mosaic::engine::assets::AssetMetadata{tex_id, "texture"}, checker);
-
-        world.add_component<render::Material>(cube_entity,
-            render::Material{Vec3{1.0F, 1.0F, 1.0F}, tex_id}); // white tint so the texture shows true colors
-
-        const auto light_entity = world.create_entity();
-        world.add_component<render::DirectionalLight>(light_entity,
-            render::DirectionalLight{Vec3{-0.5F, -1.0F, -0.3F}, Vec3{1.0F, 1.0F, 1.0F}});
-
-        // Point light: a warm lamp offset from the cube so its distance falloff reads
-        // across the spinning faces. Position comes from its WorldTransform.
-        const auto point_light_entity = world.create_entity();
-        world.add_component<transform::Transform>(point_light_entity,
-            transform::Transform{Vec3{1.5F, 1.0F, 1.5F}, mosaic::foundation::math::Quat::identity(),
-                                 Vec3{1.0F, 1.0F, 1.0F}, {}});
-        world.add_component<transform::WorldTransform>(point_light_entity,
-            transform::WorldTransform{mosaic::foundation::math::Mat4::translation(
-                Vec3{1.5F, 1.0F, 1.5F})});
-        world.add_component<render::PointLight>(point_light_entity,
-            render::PointLight{Vec3{1.0F, 0.85F, 0.6F}, 3.0F, 6.0F});
-
-        // Camera entity: placed at (0,0,4) looking down -Z at the cube at the origin.
-        // Its Transform → WorldTransform (via TransformSystem) drives the view; the
-        // Camera component is the lens. Replaces the RenderSystem's fallback camera.
-        const auto camera_entity = world.create_entity();
-        world.add_component<transform::Transform>(camera_entity,
-            transform::Transform{Vec3{0.0F, 0.0F, 4.0F}, mosaic::foundation::math::Quat::identity(),
-                                 Vec3{1.0F, 1.0F, 1.0F}, {}});
-        world.add_component<transform::WorldTransform>(camera_entity,
-            transform::WorldTransform{mosaic::foundation::math::Mat4::translation(Vec3{0.0F, 0.0F, 4.0F})});
-        world.add_component<render::Camera>(camera_entity, render::Camera{});
-
-        auto render_system = std::make_shared<render::RenderSystem>();
+        // The textured spinning cube + lights + camera demo scene, shared with the
+        // editor viewport (build_demo_scene adds a SpinSystem and returns a RenderSystem).
+        auto render_system =
+            build_demo_scene(world, *render_device, asset_registry).render_system;
 
         auto* device = render_device.get();
         deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {
