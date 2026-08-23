@@ -17,8 +17,12 @@ complete (`mosaic run --window` draws the same cube directly). **RenderGraph** s
 **logging-sink gap** surfaced by 37e is now **closed** — `app/main.cpp` installs a stderr
 `ConsoleSink` for every command, so `mosaic run`/headless runs emit their `log::` output and
 Vulkan validation messages surface (the JSON reporter still writes structured output to stdout,
-so stdout stays pure JSON). **Next frontier:** post-v0.1 Studio work (asset browser, Blender
-live-link) or the next roadmap milestone)
+so stdout stays pure JSON). **Validation-layer fix:** with `VK_LAYER_KHRONOS_validation` now
+installed, a pre-existing swapchain-semaphore-reuse bug (latent since the 36a swapchain work)
+surfaced and is fixed — `render_finished_` is now per swapchain image, indexed by
+`image_index_`, so a present-wait semaphore is never reused while its present is still pending
+(`editor --ticks 180` now emits 0 `pSignalSemaphores` warnings). **Next frontier:** post-v0.1
+Studio work (asset browser, Blender live-link) or the next roadmap milestone)
 
 ## Where we are
 

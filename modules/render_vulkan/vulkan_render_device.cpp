@@ -236,12 +236,17 @@ public:
                 vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
             }
 
+            for (VkSemaphore s : render_finished_)
+            {
+                if (s != VK_NULL_HANDLE)
+                {
+                    vkDestroySemaphore(device_, s, nullptr);
+                }
+            }
+            render_finished_.clear();
+
             for (int i = 0; i < kFramesInFlight; ++i)
             {
-                if (render_finished_[i] != VK_NULL_HANDLE)
-                {
-                    vkDestroySemaphore(device_, render_finished_[i], nullptr);
-                }
                 if (image_available_[i] != VK_NULL_HANDLE)
                 {
                     vkDestroySemaphore(device_, image_available_[i], nullptr);
@@ -644,7 +649,7 @@ public:
 
         VkSemaphore          wait_sems[]   = {image_available_[frame_]};
         VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        VkSemaphore          signal_sems[] = {render_finished_[frame_]};
+        VkSemaphore          signal_sems[] = {render_finished_[image_index_]};
 
         VkSubmitInfo submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1740,10 +1745,35 @@ private:
         {
             vk_check(vkCreateSemaphore(device_, &sem, nullptr, &image_available_[i]),
                      "vkCreateSemaphore");
-            vk_check(vkCreateSemaphore(device_, &sem, nullptr, &render_finished_[i]),
-                     "vkCreateSemaphore");
             vk_check(vkCreateFence(device_, &fence, nullptr, &in_flight_[i]),
                      "vkCreateFence");
+        }
+
+        create_render_finished_semaphores();
+    }
+
+    // render_finished_ is sized per swapchain image and indexed by the acquired
+    // image index (not frame_), so a present wait semaphore is never reused while
+    // its present is still pending. Rebuilt on swapchain recreation because the
+    // image count can change. Callers must ensure the device is idle first.
+    void create_render_finished_semaphores()
+    {
+        VkSemaphoreCreateInfo sem{};
+        sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        for (VkSemaphore s : render_finished_)
+        {
+            if (s != VK_NULL_HANDLE)
+            {
+                vkDestroySemaphore(device_, s, nullptr);
+            }
+        }
+
+        render_finished_.assign(images_.size(), VK_NULL_HANDLE);
+        for (VkSemaphore& s : render_finished_)
+        {
+            vk_check(vkCreateSemaphore(device_, &sem, nullptr, &s),
+                     "vkCreateSemaphore");
         }
     }
 
@@ -1806,6 +1836,9 @@ private:
         create_image_views();
         create_depth_resources();
         create_framebuffers();
+        // The swapchain image count can change on recreation; rebuild the per-image
+        // present semaphores to match (device is idle from vkDeviceWaitIdle above).
+        create_render_finished_semaphores();
         // render pass and pipeline are format-stable, so they are not recreated
     }
 
@@ -1879,7 +1912,12 @@ private:
     std::array<VkCommandBuffer, kFramesInFlight> cmd_{};
 
     VkSemaphore image_available_[kFramesInFlight] = {};
-    VkSemaphore render_finished_[kFramesInFlight] = {};
+    // Per swapchain image, not per frame-in-flight: render_finished_ is used as the
+    // present wait semaphore, which must not be reused until its present completes.
+    // Since the swapchain can hold more images than frames-in-flight, indexing this
+    // by frame_ would reuse a semaphore while a present on another image is pending.
+    // Indexed by image_index_ instead. See swapchain_semaphore_reuse in the Vulkan guide.
+    std::vector<VkSemaphore> render_finished_;
     VkFence in_flight_[kFramesInFlight] = {};
 
     uint32_t frame_ = 0;
