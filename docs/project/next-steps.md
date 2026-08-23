@@ -4,12 +4,15 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-22 (v0.1 foundation complete; rendering #36 complete for v0.1 —
-36a–36e-1 built: `mosaic run --window` draws a spinning cube, viewed through a `Camera`, lit
-by a directional light and textured with a checkerboard, now also **lit by a point light
-with distance falloff**. #46's point light (36e-1) is built; its render graph is
-deliberately deferred to the first slice needing ≥2 passes. Next buildable is
-**#37 (Studio shell)**)
+**Last updated:** 2026-08-23 (v0.1 foundation + rendering complete; **Studio #37 underway** —
+decomposed into 37a–37e, with **37a–37c built + merged**: `mosaic editor` opens an ImGui
+docking window with a scene **hierarchy** (click to select) and a **reflection-driven
+inspector** that edits a selected entity's components live (the #18 payoff). Rendering
+36a–36e-1 remains complete (`mosaic run --window` draws a spinning, textured cube lit by a
+directional + point light). Next buildable is **37d (viewport)** — embed the renderer's
+output in a dock panel via an offscreen render target, where the **render graph deferred
+from 36e finally comes due** (scene→offscreen pass + ImGui pass = the ≥2 passes that justify
+it))
 
 ## Where we are
 
@@ -291,16 +294,17 @@ and [plans/2026-08-17-jobs.md](../superpowers/plans/2026-08-17-jobs.md):
 
 ## What to build next
 
-The engine **runs** (`mosaic run`) and the **v0.1 foundation is now complete** (logging
-#33, app/CLI #35, jobs #34) — but the engine is still **invisible**: no window, nothing
-to look at. Per the
-[v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), the frontier is now
-a single track (both on-ramps filed, each its own brainstorm → spec → plan → TDD cycle):
+The engine is now **visible and operable**: `mosaic run --window` renders, and `mosaic
+editor` opens the Studio with a hierarchy + a live reflection inspector. The v0.1 foundation
+(logging #33, app/CLI #35, jobs #34) and rendering (#36 / 36a–36e-1) are complete; the
+frontier is the remainder of the **Studio (#37)** — the viewport, then play/stop + console.
+Per the [v0.1 scope](roadmap.md#the-v01-vertical-slice--the-first-mountain), each sub-issue
+gets its own brainstorm → spec → plan → TDD cycle:
 
 - **First *visible* subsystem** — rendering [#36](https://github.com/Evol-Luci/mosaic/issues/36)
-  (Vulkan) then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
-  (viewport + hierarchy + the reflection-driven inspector, the #18 payoff); the Studio
-  depends on rendering. **#36 is now decomposed** (design:
+  (Vulkan, **complete for v0.1**) then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37)
+  (**underway** — see the Studio decomposition below); the Studio depends on rendering.
+  **#36 was decomposed** (design:
   [specs/2026-08-17-rendering-decomposition.md](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   into five linear sub-issues:
   1. ~~[#42](https://github.com/Evol-Luci/mosaic/issues/42) 36a — device + window +
@@ -320,16 +324,42 @@ a single track (both on-ramps filed, each its own brainstorm → spec → plan �
   Decisions fixed in the decomposition: **GLFW** windowing (backend/app only, never
   engine/foundation); the **RenderGraph is deferred past 36e** (direct submission behind
   the neutral device interface until ≥2 passes justify a graph — 36e-1 did not meet
-  that bar; deferred to the next ≥2-pass slice). Each sub-issue gets its own brainstorm
-  → spec → plan → TDD cycle.
+  that bar; deferred to the next ≥2-pass slice, which is **37d**). Each sub-issue gets its
+  own brainstorm → spec → plan → TDD cycle.
+
+- **Studio shell** [#37](https://github.com/Evol-Luci/mosaic/issues/37) — the editor
+  front-end, and where reflection (#18) becomes user-visible. **Decomposed** (design:
+  [specs/2026-08-22-studio-decomposition.md](../superpowers/specs/2026-08-22-studio-decomposition.md))
+  into five slices — v0.1 scope is the **lean core + console** (asset browser + Blender
+  live-link deferred), GUI is **Dear ImGui (docking)**:
+  1. ~~37a — editor shell~~ ✓ **built.** New `studio/` tier + `mosaic_studio`; a `mosaic
+     editor` subcommand opens an ImGui docking window (dockspace + menu bar + placeholder
+     panels); three default-no-op UI hooks on `RenderDevice` driven by the Vulkan backend.
+     Design/plan: [spec](../superpowers/specs/2026-08-22-studio-37a-editor-shell-design.md) · [plan](../superpowers/plans/2026-08-22-studio-37a-editor-shell.md).
+  2. ~~37b — scene hierarchy~~ ✓ **built.** A `SelectionModel` + `build_hierarchy(World)`
+     seam; the Hierarchy panel lists entities (via `World::for_each_entity`) with
+     click-to-select. Folded in two 37a review follow-ups. Design/plan:
+     [spec](../superpowers/specs/2026-08-23-studio-37b-hierarchy-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37b-hierarchy.md).
+  3. ~~37c — reflection inspector~~ ✓ **built** (the #18 payoff). A mutable `FieldVisitor`
+     + a `reflect()`-bridging adapter (the shared reflected-property API) + `ComponentReflection::components_on`/`inspect`;
+     the Inspector edits a selected entity's component fields **live** (float `DragFloat`,
+     others read-only). Design/plan: [spec](../superpowers/specs/2026-08-23-studio-37c-inspector-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37c-inspector.md).
+  4. **37d — viewport** ← **next buildable.** Embed the renderer's output in a dock panel via
+     a panel-sized offscreen render target. **This is where the RenderGraph deferred from 36e
+     comes due** (scene→offscreen pass + ImGui UI pass = ≥2 passes); its brainstorm decides
+     minimal two-pass submission vs. formalizing the graph.
+  5. 37e — play/stop + console. A toolbar play/stop driving `RuntimeLoop`; a console panel
+     surfacing #33 logging via a custom `Sink`.
 
 **Suggested order (rendering):** ~~#42 (36a)~~ ✓ → ~~#43 (36b)~~ ✓ → ~~#44 (36c)~~ ✓ →
-~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → ~~36e-1 (point light)~~ ✓ → **#37 studio** (next).
+~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → ~~36e-1 (point light)~~ ✓ → **rendering complete.**
+
+**Suggested order (Studio #37):** ~~37a (shell)~~ ✓ → ~~37b (hierarchy)~~ ✓ →
+~~37c (inspector)~~ ✓ → **37d (viewport)** (next) → 37e (play/stop + console).
 
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
-~~#36 decompose~~ ✓ → ~~#42 (36a clear-screen)~~ ✓ → ~~#43 (36b mesh draw)~~ ✓ →
-~~#44 (36c camera)~~ ✓ → ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ →
-~~36e-1 (point light)~~ ✓ → **#37 studio** (next; v0.1 rendering now complete).
+~~#36 decompose~~ ✓ → ~~#42–#46 rendering (36a–36e-1)~~ ✓ → ~~37a (shell)~~ ✓ →
+~~37b (hierarchy)~~ ✓ → ~~37c (inspector)~~ ✓ → **37d (viewport)** (next) → 37e (play/stop + console).
 
 ## Suggested sequence
 
@@ -399,16 +429,17 @@ The **v0.1 foundation is now complete** too — logging
 [#34](https://github.com/Evol-Luci/mosaic/issues/34) are all built. The one remaining
 on-ramp is the first *visible* subsystem (its own future spec):
 - **First visible subsystem** — Vulkan rendering
-  [#36](https://github.com/Evol-Luci/mosaic/issues/36) (now decomposed into #42–#46;
+  [#36](https://github.com/Evol-Luci/mosaic/issues/36) (decomposed into #42–#46;
   see [the decomposition](../superpowers/specs/2026-08-17-rendering-decomposition.md))
   then the Studio shell [#37](https://github.com/Evol-Luci/mosaic/issues/37). The
-  milestone that makes the engine something you can look at (Studio depends on
-  rendering). **36a–36e-1 are built** (`mosaic run --window` draws a spinning cube,
-  viewed through a `Camera`, lit by a directional light and textured with a checkerboard
-  resolved through the asset registry, now also lit by a point light with distance
-  falloff). The render-graph half of #46 is deferred (not dropped) to the first slice
-  that genuinely needs ≥2 passes. **Rendering is complete for v0.1** (modulo the
-  deferred graph); next is **[#37](https://github.com/Evol-Luci/mosaic/issues/37)
-  (Studio shell)**: viewport + hierarchy + reflection-driven inspector.
+  milestone that makes the engine something you can look at and operate (Studio depends on
+  rendering). **Rendering 36a–36e-1 is complete** (`mosaic run --window` draws a spinning
+  cube, viewed through a `Camera`, lit by a directional + point light and textured with a
+  checkerboard resolved through the asset registry); the render-graph half of #46 is
+  deferred (not dropped) to **37d**. **Studio #37 is underway** (decomposed into 37a–37e;
+  see [the decomposition](../superpowers/specs/2026-08-22-studio-decomposition.md)):
+  **37a (editor shell), 37b (hierarchy), 37c (reflection inspector) are built + merged** —
+  `mosaic editor` opens a docking window with a scene hierarchy and a live reflection
+  inspector. Next is **37d (viewport)**, then **37e (play/stop + console)**.
 
 Reassess this file as each lands.
