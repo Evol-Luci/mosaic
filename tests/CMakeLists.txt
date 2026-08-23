@@ -59,6 +59,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/lighting_reflection_test.cpp
   unit/studio/studio_layout_test.cpp
   unit/studio/selection_test.cpp
+  unit/studio/hierarchy_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
