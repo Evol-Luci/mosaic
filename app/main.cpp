@@ -35,6 +35,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "foundation/serialization/reference.hpp" // SerializationError
@@ -62,6 +63,13 @@ int main(int argc, char** argv)
     {
         return *pr.exit_code;
     }
+
+    // Install a stderr log sink for every command. Without it the process-global
+    // logger has no sinks and all log output (StatusReporter, Vulkan validation) is
+    // dropped. The JSON reporter writes its structured output to stdout separately,
+    // so stdout stays pure JSON while human log lines go to stderr. The editor adds
+    // its own Console-panel sink on top of this.
+    mosaic::foundation::log::add_sink(std::make_shared<mosaic::foundation::log::ConsoleSink>());
 
     if (pr.options.command == Command::Editor)
     {
