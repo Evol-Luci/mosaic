@@ -29,6 +29,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/component_reflection_test.cpp
   unit/reflection/builtin_components_test.cpp
   unit/reflection/camera_reflection_test.cpp
+  unit/reflection/field_visitor_test.cpp
   unit/scene/scene_save_test.cpp
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp
