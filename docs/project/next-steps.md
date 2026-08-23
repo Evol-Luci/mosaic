@@ -5,14 +5,19 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-23 (v0.1 foundation + rendering complete; **Studio #37 underway** —
-decomposed into 37a–37e, with **37a–37c built + merged**: `mosaic editor` opens an ImGui
-docking window with a scene **hierarchy** (click to select) and a **reflection-driven
-inspector** that edits a selected entity's components live (the #18 payoff). Rendering
-36a–36e-1 remains complete (`mosaic run --window` draws a spinning, textured cube lit by a
-directional + point light). Next buildable is **37d (viewport)** — embed the renderer's
-output in a dock panel via an offscreen render target, where the **render graph deferred
-from 36e finally comes due** (scene→offscreen pass + ImGui pass = the ≥2 passes that justify
-it))
+decomposed into 37a–37e, with **37a–37d built**: `mosaic editor` opens an ImGui docking
+window with a scene **hierarchy** (click to select), a **reflection-driven inspector** that
+edits a selected entity's components live (the #18 payoff), and now a **viewport** panel
+showing the live 3D scene (the spinning, textured, lit cube) rendered into a panel-sized
+offscreen target and sampled by ImGui. Rendering 36a–36e-1 remains complete (`mosaic run
+--window` draws the same cube directly). Next buildable is **37e (play/stop + console)** — a
+toolbar play/stop driving `RuntimeLoop`, and a console panel surfacing #33 logging via a
+custom `Sink`. **RenderGraph decision at 37d:** minimal **direct two-pass submission** was
+chosen (scene→offscreen pass + ImGui pass, one command buffer, one submit; the inter-pass
+hazard handled by the offscreen render pass's `finalLayout` + subpass dependencies). The
+**RenderGraph stays deferred** — two fixed passes don't reveal graph requirements — re-filed
+to the first slice with a genuinely dynamic or ≥3-pass set (a shadow-map depth pre-pass or a
+post-processing chain))
 
 ## Where we are
 
@@ -319,7 +324,7 @@ gets its own brainstorm → spec → plan → TDD cycle:
      - ~~36d-2 (texture)~~ ✓ **built.** UVs on `Vertex`; `create_texture` + a Vulkan sampler + **descriptor sets**; an `Image` asset resource + a `TextureCache` resolving `Material.texture` (`AssetID`) through the asset registry (#20, cached/uploaded once); a procedural checkerboard demo. `foundation/math` gained `Vec2`. Design/plan: [spec](../superpowers/specs/2026-08-22-render-36d2-texture-design.md) · [plan](../superpowers/plans/2026-08-22-render-36d2-texture.md).
   5. [#46](https://github.com/Evol-Luci/mosaic/issues/46) 36e — point light + minimal render graph — **split into two**:
      - ~~36e-1 (point light)~~ ✓ **built.** A reflected `PointLight` component (`color`, `intensity`, `range`; world position derived from its entity's `WorldTransform`, like `Camera`); object-space Lambert point term with windowed inverse-square attenuation added to the fragment shader; the vertex shader now passes object-space fragment position; push constants grew 112→144 bytes (device `maxPushConstantsSize` assert). `mosaic run --window` now shows point-light distance falloff across the spinning cube alongside the existing directional light. Known limitation: attenuation distance is measured in object space, so non-uniform mesh scale warps it (exact for the unit-scale demo cube). Design/plan: [spec](../superpowers/specs/2026-08-22-render-36e1-point-light-design.md) · [plan](../superpowers/plans/2026-08-22-render-36e1-point-light.md).
-     - **Render graph deferred** — a point light does not create a second pass, so the "≥2 passes justify a graph" bar is not met; re-filed to the first slice that genuinely needs ≥2 passes (a shadow-map depth pre-pass, or the Studio's offscreen-viewport-to-texture in #37). Not dropped.
+     - **Render graph deferred** — a point light does not create a second pass, so the "≥2 passes justify a graph" bar is not met; re-filed to the first slice that genuinely needs ≥2 passes (a shadow-map depth pre-pass, or the Studio's offscreen-viewport-to-texture in #37). Not dropped. **Update: 37d met the ≥2-pass bar but still chose direct two-pass submission** (see 37d below); the RenderGraph is now re-filed to the first *dynamic* or ≥3-pass slice.
 
   Decisions fixed in the decomposition: **GLFW** windowing (backend/app only, never
   engine/foundation); the **RenderGraph is deferred past 36e** (direct submission behind
@@ -344,22 +349,29 @@ gets its own brainstorm → spec → plan → TDD cycle:
      + a `reflect()`-bridging adapter (the shared reflected-property API) + `ComponentReflection::components_on`/`inspect`;
      the Inspector edits a selected entity's component fields **live** (float `DragFloat`,
      others read-only). Design/plan: [spec](../superpowers/specs/2026-08-23-studio-37c-inspector-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37c-inspector.md).
-  4. **37d — viewport** ← **next buildable.** Embed the renderer's output in a dock panel via
-     a panel-sized offscreen render target. **This is where the RenderGraph deferred from 36e
-     comes due** (scene→offscreen pass + ImGui UI pass = ≥2 passes); its brainstorm decides
-     minimal two-pass submission vs. formalizing the graph.
-  5. 37e — play/stop + console. A toolbar play/stop driving `RuntimeLoop`; a console panel
-     surfacing #33 logging via a custom `Sink`.
+  4. ~~37d — viewport~~ ✓ **built.** A dockable **Viewport** panel shows the live 3D scene
+     rendered into a panel-sized **offscreen** color+depth target and sampled by ImGui
+     (`ImGui::Image`). The neutral `RenderDevice` gained four default-no-op viewport hooks
+     (`set_viewport_size`/`begin_viewport_pass`/`end_viewport_pass`/`viewport_texture`); the
+     Vulkan backend implements them behind a **lazy swapchain-pass** refactor so `mosaic run
+     --window` and `mosaic editor` share one device unchanged. A headless `ViewportPanel`
+     model + a `render_scene_to_viewport` seam carry the testable sizing/ordering; `mosaic
+     editor` now renders the shared demo scene each frame. **RenderGraph decision:** minimal
+     **direct two-pass submission** (one command buffer, one submit; inter-pass hazard via the
+     offscreen pass `finalLayout` + subpass dependencies) — the graph stays deferred to the
+     first dynamic/≥3-pass slice. Design/plan: [spec](../superpowers/specs/2026-08-23-studio-37d-viewport-design.md) · [plan](../superpowers/plans/2026-08-23-studio-37d-viewport.md).
+  5. **37e — play/stop + console** ← **next buildable.** A toolbar play/stop driving
+     `RuntimeLoop`; a console panel surfacing #33 logging via a custom `Sink`.
 
 **Suggested order (rendering):** ~~#42 (36a)~~ ✓ → ~~#43 (36b)~~ ✓ → ~~#44 (36c)~~ ✓ →
 ~~36d-1 (lighting)~~ ✓ → ~~36d-2 (texture)~~ ✓ → ~~36e-1 (point light)~~ ✓ → **rendering complete.**
 
 **Suggested order (Studio #37):** ~~37a (shell)~~ ✓ → ~~37b (hierarchy)~~ ✓ →
-~~37c (inspector)~~ ✓ → **37d (viewport)** (next) → 37e (play/stop + console).
+~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → **37e (play/stop + console)** (next).
 
 **Full v0.1 order:** ~~#33 logging~~ ✓ → ~~#35 app/CLI shell~~ ✓ → ~~#34 jobs~~ ✓ →
 ~~#36 decompose~~ ✓ → ~~#42–#46 rendering (36a–36e-1)~~ ✓ → ~~37a (shell)~~ ✓ →
-~~37b (hierarchy)~~ ✓ → ~~37c (inspector)~~ ✓ → **37d (viewport)** (next) → 37e (play/stop + console).
+~~37b (hierarchy)~~ ✓ → ~~37c (inspector)~~ ✓ → ~~37d (viewport)~~ ✓ → **37e (play/stop + console)** (next).
 
 ## Suggested sequence
 
@@ -435,11 +447,13 @@ on-ramp is the first *visible* subsystem (its own future spec):
   milestone that makes the engine something you can look at and operate (Studio depends on
   rendering). **Rendering 36a–36e-1 is complete** (`mosaic run --window` draws a spinning
   cube, viewed through a `Camera`, lit by a directional + point light and textured with a
-  checkerboard resolved through the asset registry); the render-graph half of #46 is
-  deferred (not dropped) to **37d**. **Studio #37 is underway** (decomposed into 37a–37e;
-  see [the decomposition](../superpowers/specs/2026-08-22-studio-decomposition.md)):
-  **37a (editor shell), 37b (hierarchy), 37c (reflection inspector) are built + merged** —
-  `mosaic editor` opens a docking window with a scene hierarchy and a live reflection
-  inspector. Next is **37d (viewport)**, then **37e (play/stop + console)**.
+  checkerboard resolved through the asset registry); the render-graph half of #46 remains
+  deferred (not dropped) — 37d met the ≥2-pass bar but chose direct two-pass submission, so
+  the graph is re-filed to the first dynamic/≥3-pass slice. **Studio #37 is underway**
+  (decomposed into 37a–37e; see [the decomposition](../superpowers/specs/2026-08-22-studio-decomposition.md)):
+  **37a (editor shell), 37b (hierarchy), 37c (reflection inspector), 37d (viewport) are
+  built** — `mosaic editor` opens a docking window with a scene hierarchy, a live reflection
+  inspector, and a viewport showing the live 3D scene via an offscreen render target. Next is
+  **37e (play/stop + console)**.
 
 Reassess this file as each lands.
