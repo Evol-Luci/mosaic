@@ -673,8 +673,8 @@ public:
         info.Queue = graphics_queue_;
         info.DescriptorPool = imgui_pool_;
         info.RenderPass = render_pass_;
-        info.MinImageCount = kFramesInFlight;
-        info.ImageCount = kFramesInFlight;
+        info.MinImageCount = static_cast<uint32_t>(images_.size());
+        info.ImageCount = static_cast<uint32_t>(images_.size());
         info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
         ImGui_ImplVulkan_Init(&info);
 

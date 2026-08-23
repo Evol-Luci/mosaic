@@ -12,6 +12,7 @@
 #include "app/run/status_reporter.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/runtime/runtime_loop.hpp"
+#include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "studio/studio_app.hpp"
@@ -56,14 +57,30 @@ int run_editor(const Options& options)
         glfwTerminate();
         return 1;
     }
-    device->init_ui();
+    try
+    {
+        device->init_ui();
+    }
+    catch (const std::exception& e)
+    {
+        reporter->error(std::string("editor UI init failed: ") + e.what());
+        device.reset(); // ImGui/Vulkan torn down before the window
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
 
     std::signal(SIGINT, on_editor_sigint);
     g_editor_stop.store(false);
 
     mosaic::studio::StudioApp studio;
 
-    engine::World              world;      // empty, idle: no systems registered
+    engine::World world; // idle (no systems); a few entities so the hierarchy is populated
+    for (int i = 0; i < 4; ++i)
+    {
+        const auto e = world.create_entity();
+        world.add_component<engine::transform::Transform>(e, engine::transform::Transform{});
+    }
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
     using clock = std::chrono::steady_clock;
@@ -80,12 +97,12 @@ int run_editor(const Options& options)
         return g_editor_stop.load() || studio.exit_requested()
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
-    deps.on_frame = [window, &device, &studio] {
+    deps.on_frame = [window, &device, &studio, &world] {
         glfwPollEvents();
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
         device->begin_ui_frame();
-        studio.draw_ui();
+        studio.draw_ui(world);
         device->end_ui_frame();
         device->end_frame();
     };
