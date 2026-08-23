@@ -154,6 +154,7 @@ public:
         create_image_views();
         create_depth_resources();
         create_render_pass();
+        create_offscreen_render_pass();
         create_framebuffers();
         create_descriptor_infrastructure();
         create_pipeline();
@@ -172,6 +173,15 @@ public:
         if (device_ != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(device_);
+
+            // Offscreen viewport target — free while the ImGui-Vulkan backend is still
+            // up (destroy_offscreen_target calls ImGui_ImplVulkan_RemoveTexture).
+            destroy_offscreen_target();
+            if (vp_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, vp_sampler_, nullptr); }
+            if (vp_render_pass_ != VK_NULL_HANDLE)
+            {
+                vkDestroyRenderPass(device_, vp_render_pass_, nullptr);
+            }
 
             if (ui_ready_)
             {
@@ -725,6 +735,76 @@ public:
         }
     }
 
+    void set_viewport_size(std::uint32_t width, std::uint32_t height) override
+    {
+        if (width == 0 || height == 0)
+        {
+            return;
+        }
+        if (vp_framebuffer_ != VK_NULL_HANDLE && width == vp_extent_.width &&
+            height == vp_extent_.height)
+        {
+            return; // unchanged
+        }
+        vkDeviceWaitIdle(device_); // resizes are transient (panel drag); idle is fine for v0.1
+        destroy_offscreen_target();
+        create_offscreen_target(width, height);
+    }
+
+    void begin_viewport_pass(const Color& clear) override
+    {
+        if (frame_skipped_ || vp_framebuffer_ == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = static_cast<float>(vp_extent_.height);
+        viewport.width = static_cast<float>(vp_extent_.width);
+        viewport.height = -static_cast<float>(vp_extent_.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd_[frame_], 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = vp_extent_;
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+
+        std::array<VkClearValue, 2> clears{};
+        clears[0].color = {{clear.r, clear.g, clear.b, clear.a}};
+        clears[1].depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass = vp_render_pass_;
+        rp.framebuffer = vp_framebuffer_;
+        rp.renderArea.offset = {0, 0};
+        rp.renderArea.extent = vp_extent_;
+        rp.clearValueCount = static_cast<uint32_t>(clears.size());
+        rp.pClearValues = clears.data();
+        vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        viewport_pass_open_ = true;
+    }
+
+    void end_viewport_pass() override
+    {
+        if (!viewport_pass_open_)
+        {
+            return;
+        }
+        vkCmdEndRenderPass(cmd_[frame_]);
+        viewport_pass_open_ = false;
+    }
+
+    mosaic::engine::render::ViewportTextureId viewport_texture() const override
+    {
+        return reinterpret_cast<mosaic::engine::render::ViewportTextureId>(vp_imgui_tex_);
+    }
+
 private:
     // --- static GLFW callback ---------------------------------------------
 
@@ -1133,6 +1213,191 @@ private:
 
         vk_check(vkCreateRenderPass(device_, &ci, nullptr, &render_pass_),
                  "vkCreateRenderPass");
+    }
+
+    // --- offscreen viewport target (37d) ----------------------------------
+
+    void bind_image_memory(VkImage image, VkDeviceMemory& mem, const char* what)
+    {
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device_, image, &req);
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = req.size;
+        alloc.memoryTypeIndex =
+            find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &mem),
+                 (std::string("vkAllocateMemory(") + what + ")").c_str());
+        vk_check(vkBindImageMemory(device_, image, mem, 0),
+                 (std::string("vkBindImageMemory(") + what + ")").c_str());
+    }
+
+    VkImageView make_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect)
+    {
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = format;
+        view.subresourceRange.aspectMask = aspect;
+        view.subresourceRange.baseMipLevel = 0;
+        view.subresourceRange.levelCount = 1;
+        view.subresourceRange.baseArrayLayer = 0;
+        view.subresourceRange.layerCount = 1;
+        VkImageView out = VK_NULL_HANDLE;
+        vk_check(vkCreateImageView(device_, &view, nullptr, &out), "vkCreateImageView");
+        return out;
+    }
+
+    // Format-stable: color = swapchain_format_ (so the scene pipeline stays compatible),
+    // finalLayout SHADER_READ_ONLY_OPTIMAL so ImGui can sample the result directly.
+    void create_offscreen_render_pass()
+    {
+        VkAttachmentDescription color{};
+        color.format = swapchain_format_;
+        color.samples = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference color_ref{};
+        color_ref.attachment = 0;
+        color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription depth{};
+        depth.format = kDepthFormat;
+        depth.samples = VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depth_ref{};
+        depth_ref.attachment = 1;
+        depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &color_ref;
+        subpass.pDepthStencilAttachment = &depth_ref;
+
+        // Two dependencies: external -> subpass (start), subpass -> external (make the
+        // color image visible to the fragment shader sampling it in the ImGui pass).
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        std::array<VkAttachmentDescription, 2> attachments{color, depth};
+
+        VkRenderPassCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        ci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        ci.pAttachments = attachments.data();
+        ci.subpassCount = 1;
+        ci.pSubpasses = &subpass;
+        ci.dependencyCount = static_cast<uint32_t>(deps.size());
+        ci.pDependencies = deps.data();
+
+        vk_check(vkCreateRenderPass(device_, &ci, nullptr, &vp_render_pass_),
+                 "vkCreateRenderPass(offscreen)");
+
+        VkSamplerCreateInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        si.magFilter = VK_FILTER_LINEAR;
+        si.minFilter = VK_FILTER_LINEAR;
+        si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.maxLod = 1.0f;
+        vk_check(vkCreateSampler(device_, &si, nullptr, &vp_sampler_),
+                 "vkCreateSampler(offscreen)");
+    }
+
+    void destroy_offscreen_target()
+    {
+        if (vp_imgui_tex_ != VK_NULL_HANDLE)
+        {
+            ImGui_ImplVulkan_RemoveTexture(vp_imgui_tex_);
+            vp_imgui_tex_ = VK_NULL_HANDLE;
+        }
+        if (vp_framebuffer_ != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device_, vp_framebuffer_, nullptr);
+            vp_framebuffer_ = VK_NULL_HANDLE;
+        }
+        if (vp_color_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, vp_color_view_, nullptr); vp_color_view_ = VK_NULL_HANDLE; }
+        if (vp_color_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, vp_color_, nullptr); vp_color_ = VK_NULL_HANDLE; }
+        if (vp_color_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, vp_color_mem_, nullptr); vp_color_mem_ = VK_NULL_HANDLE; }
+        if (vp_depth_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, vp_depth_view_, nullptr); vp_depth_view_ = VK_NULL_HANDLE; }
+        if (vp_depth_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, vp_depth_, nullptr); vp_depth_ = VK_NULL_HANDLE; }
+        if (vp_depth_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, vp_depth_mem_, nullptr); vp_depth_mem_ = VK_NULL_HANDLE; }
+        vp_extent_ = {0, 0};
+    }
+
+    void create_offscreen_target(uint32_t width, uint32_t height)
+    {
+        // --- color image (sampled + color attachment) ---
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.extent = {width, height, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.format = swapchain_format_;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &ci, nullptr, &vp_color_), "vkCreateImage(vp color)");
+        bind_image_memory(vp_color_, vp_color_mem_, "vp color");
+        vp_color_view_ = make_image_view(vp_color_, swapchain_format_, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        // --- depth image ---
+        VkImageCreateInfo di = ci;
+        di.format = kDepthFormat;
+        di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        vk_check(vkCreateImage(device_, &di, nullptr, &vp_depth_), "vkCreateImage(vp depth)");
+        bind_image_memory(vp_depth_, vp_depth_mem_, "vp depth");
+        vp_depth_view_ = make_image_view(vp_depth_, kDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        // --- framebuffer ---
+        std::array<VkImageView, 2> attachments{vp_color_view_, vp_depth_view_};
+        VkFramebufferCreateInfo fb{};
+        fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fb.renderPass = vp_render_pass_;
+        fb.attachmentCount = static_cast<uint32_t>(attachments.size());
+        fb.pAttachments = attachments.data();
+        fb.width = width;
+        fb.height = height;
+        fb.layers = 1;
+        vk_check(vkCreateFramebuffer(device_, &fb, nullptr, &vp_framebuffer_),
+                 "vkCreateFramebuffer(offscreen)");
+
+        // --- ImGui descriptor (only if the ImGui-Vulkan backend is up) ---
+        if (ui_ready_)
+        {
+            vp_imgui_tex_ = ImGui_ImplVulkan_AddTexture(
+                vp_sampler_, vp_color_view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+
+        vp_extent_ = {width, height};
     }
 
     void create_framebuffers()
@@ -1619,6 +1884,19 @@ private:
     // offscreen target instead of the swapchain.
     bool swapchain_pass_open_ = false;
     bool viewport_pass_open_  = false;
+
+    // Offscreen viewport target (37d). Sampled by ImGui into the editor Viewport panel.
+    VkExtent2D      vp_extent_ = {0, 0};
+    VkRenderPass    vp_render_pass_ = VK_NULL_HANDLE; // format-stable; color = swapchain_format_
+    VkImage         vp_color_ = VK_NULL_HANDLE;
+    VkDeviceMemory  vp_color_mem_ = VK_NULL_HANDLE;
+    VkImageView     vp_color_view_ = VK_NULL_HANDLE;
+    VkImage         vp_depth_ = VK_NULL_HANDLE;
+    VkDeviceMemory  vp_depth_mem_ = VK_NULL_HANDLE;
+    VkImageView     vp_depth_view_ = VK_NULL_HANDLE;
+    VkFramebuffer   vp_framebuffer_ = VK_NULL_HANDLE;
+    VkSampler       vp_sampler_ = VK_NULL_HANDLE;       // persistent across resizes
+    VkDescriptorSet vp_imgui_tex_ = VK_NULL_HANDLE;     // from ImGui_ImplVulkan_AddTexture
 };
 
 } // namespace
