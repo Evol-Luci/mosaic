@@ -8,8 +8,10 @@
 
 #include <GLFW/glfw3.h>
 
+#include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
+#include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/material.hpp"
@@ -17,10 +19,14 @@
 #include "engine/render/render_device.hpp"
 #include "engine/runtime/runtime_loop.hpp"
 #include "engine/transform/transform.hpp"
+#include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/logging/log.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
+#include "studio/console.hpp"
 #include "studio/studio_app.hpp"
+#include "studio/viewport.hpp"
 
 namespace mosaic::app
 {
@@ -80,27 +86,22 @@ int run_editor(const Options& options)
 
     mosaic::studio::StudioApp studio;
 
+    // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
+    mosaic::foundation::log::add_sink(
+        std::make_shared<mosaic::studio::ConsoleSink>(studio.console()));
+
     mosaic::foundation::reflection::TypeRegistry     registry;
     mosaic::engine::reflection::ComponentReflection  reflection;
     mosaic::engine::reflection::register_builtin_components(registry, reflection);
 
-    engine::World world; // idle (no systems); varied components so the inspector shows several types
-    {
-        const auto e0 = world.create_entity();
-        world.add_component<engine::transform::Transform>(e0, engine::transform::Transform{});
-        world.add_component<engine::render::Camera>(e0, engine::render::Camera{});
+    // A live demo scene (shared with `mosaic run`): a textured spinning cube lit by a
+    // directional + point light, viewed through a placed camera. Rendered into the
+    // Viewport panel's offscreen target; also gives the inspector varied components.
+    engine::assets::AssetRegistry asset_registry;
+    engine::World                 world;
+    world.add_system<engine::transform::TransformSystem>();
+    auto render_system = build_demo_scene(world, *device, asset_registry).render_system;
 
-        const auto e1 = world.create_entity();
-        world.add_component<engine::transform::Transform>(e1, engine::transform::Transform{});
-        world.add_component<engine::render::Material>(e1, engine::render::Material{});
-
-        const auto e2 = world.create_entity();
-        world.add_component<engine::transform::Transform>(e2, engine::transform::Transform{});
-        world.add_component<engine::render::PointLight>(e2, engine::render::PointLight{});
-
-        const auto e3 = world.create_entity();
-        world.add_component<engine::transform::Transform>(e3, engine::transform::Transform{});
-    }
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
     using clock = std::chrono::steady_clock;
@@ -117,12 +118,33 @@ int run_editor(const Options& options)
         return g_editor_stop.load() || studio.exit_requested()
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
-    deps.on_frame = [window, &device, &studio, &world, &reflection] {
+    deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
+                     &loop] {
         glfwPollEvents();
+
+        // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
+        mosaic::studio::PlayState& play = studio.play_state();
+        if (play.is_playing()) { loop.start(); } else { loop.stop(); }
+        if (play.consume_step_request()) { loop.step(world); }
+
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
+
+        // Pass 1: scene -> panel-sized offscreen target.
+        mosaic::studio::ViewportPanel& vp = studio.viewport();
+        if (vp.needs_resize())
+        {
+            device->set_viewport_size(vp.size().width, vp.size().height);
+            vp.mark_applied();
+        }
+        render_system->set_aspect(vp.aspect());
+        mosaic::studio::render_scene_to_viewport(
+            *device, vp, engine::render::Color{0.05f, 0.05f, 0.07f, 1.0f},
+            [&](engine::render::RenderDevice& d) { render_system->render(world, d, asset_registry); });
+
+        // Pass 2: ImGui UI (samples the offscreen target in the Viewport panel).
         device->begin_ui_frame();
-        studio.draw_ui(world, reflection);
+        studio.draw_ui(*device, world, reflection);
         device->end_ui_frame();
         device->end_frame();
     };
@@ -134,6 +156,7 @@ int run_editor(const Options& options)
     device.reset(); // device (and ImGui) destroyed before the window
     glfwDestroyWindow(window);
     glfwTerminate();
+    mosaic::foundation::log::clear_sinks(); // drop the console sink before the buffer dies
     return 0;
 }
 

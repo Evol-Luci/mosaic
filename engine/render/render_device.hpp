@@ -23,6 +23,7 @@ struct Vertex
 
 using MeshHandle = std::uint32_t;
 using TextureHandle = std::uint32_t; // opaque; 0 == invalid/default
+using ViewportTextureId = std::uint64_t; // ImTextureID-compatible; 0 == none
 
 // Per-draw parameters. `light_direction` and `point_position` are in the mesh's OBJECT
 // space (the RenderSystem transforms world lights per mesh), so the backend needs no
@@ -58,6 +59,15 @@ public:
     virtual void init_ui() {}
     virtual void begin_ui_frame() {}
     virtual void end_ui_frame() {}
+
+    // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
+    // need not implement them. The editor renders the scene into a panel-sized
+    // offscreen target (set_viewport_size + begin/end_viewport_pass), then samples
+    // it in the UI via viewport_texture().
+    virtual void set_viewport_size(std::uint32_t /*width*/, std::uint32_t /*height*/) {}
+    virtual void begin_viewport_pass(const Color& /*clear*/) {}
+    virtual void end_viewport_pass() {}
+    virtual ViewportTextureId viewport_texture() const { return 0; }
 };
 
 } // namespace mosaic::engine::render

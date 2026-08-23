@@ -4,11 +4,12 @@
 
 using mosaic::studio::StudioLayout;
 
-TEST_CASE("StudioLayout default has the three panels, all open", "[studio]")
+TEST_CASE("StudioLayout default has the four panels, all open", "[studio]")
 {
     StudioLayout layout;
-    REQUIRE(layout.panels().size() == 3);
+    REQUIRE(layout.panels().size() == 4);
     REQUIRE(layout.is_open("Hierarchy"));
+    REQUIRE(layout.is_open("Viewport"));
     REQUIRE(layout.is_open("Inspector"));
     REQUIRE(layout.is_open("Console"));
 }
