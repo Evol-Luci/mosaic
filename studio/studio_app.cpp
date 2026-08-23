@@ -8,7 +8,7 @@
 namespace mosaic::studio
 {
 
-void StudioApp::draw_ui(mosaic::engine::World& world,
+void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection)
 {
     // Full-window dockspace host so panels can be docked/tabbed/floated.
@@ -39,6 +39,10 @@ void StudioApp::draw_ui(mosaic::engine::World& world,
             {
                 draw_hierarchy(world);
             }
+            else if (panel.name == "Viewport")
+            {
+                draw_viewport(device);
+            }
             else if (panel.name == "Inspector")
             {
                 draw_inspector(world, reflection);
@@ -60,6 +64,24 @@ void StudioApp::draw_hierarchy(const mosaic::engine::World& world)
         {
             selection_.select(row.id);
         }
+    }
+}
+
+void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device)
+{
+    const ImVec2 avail = ImGui::GetContentRegionAvail();
+    viewport_.set_measured_size(avail.x, avail.y);
+
+    const auto tex = device.viewport_texture();
+    if (tex != 0)
+    {
+        const ViewportSize s = viewport_.size();
+        ImGui::Image(static_cast<ImTextureID>(tex),
+                     ImVec2(static_cast<float>(s.width), static_cast<float>(s.height)));
+    }
+    else
+    {
+        ImGui::TextUnformatted("(no viewport)");
     }
 }
 
