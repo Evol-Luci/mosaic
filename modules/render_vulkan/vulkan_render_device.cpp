@@ -177,6 +177,7 @@ public:
             // Offscreen viewport target — free while the ImGui-Vulkan backend is still
             // up (destroy_offscreen_target calls ImGui_ImplVulkan_RemoveTexture).
             destroy_offscreen_target();
+            if (vp_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_pipeline_, nullptr); }
             if (vp_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, vp_sampler_, nullptr); }
             if (vp_render_pass_ != VK_NULL_HANDLE)
             {
@@ -786,7 +787,7 @@ public:
         rp.pClearValues = clears.data();
         vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
 
-        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, vp_pipeline_);
         viewport_pass_open_ = true;
     }
 
@@ -1612,7 +1613,15 @@ private:
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &pipeline_),
                  "vkCreateGraphicsPipelines");
 
-        // Modules are baked into the pipeline; safe to release immediately.
+        // A second pipeline for the offscreen viewport pass. It is identical except for
+        // the render pass: a pipeline must be render-pass-compatible with the pass it
+        // draws in, and vp_render_pass_ differs from render_pass_ in its subpass
+        // dependencies (2 vs 1), so the swapchain pipeline cannot be reused there.
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_pipeline_),
+                 "vkCreateGraphicsPipelines(offscreen)");
+
+        // Modules are baked into the pipelines; safe to release immediately.
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
     }
@@ -1888,6 +1897,7 @@ private:
     // Offscreen viewport target (37d). Sampled by ImGui into the editor Viewport panel.
     VkExtent2D      vp_extent_ = {0, 0};
     VkRenderPass    vp_render_pass_ = VK_NULL_HANDLE; // format-stable; color = swapchain_format_
+    VkPipeline      vp_pipeline_ = VK_NULL_HANDLE;    // scene pipeline built against vp_render_pass_
     VkImage         vp_color_ = VK_NULL_HANDLE;
     VkDeviceMemory  vp_color_mem_ = VK_NULL_HANDLE;
     VkImageView     vp_color_view_ = VK_NULL_HANDLE;
