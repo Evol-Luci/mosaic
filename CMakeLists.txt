@@ -47,8 +47,32 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
+# --- Dear ImGui (docking branch): core + GLFW/Vulkan backends -----------------
+FetchContent_Declare(
+  imgui
+  GIT_REPOSITORY https://github.com/ocornut/imgui.git
+  GIT_TAG        v1.91.5-docking
+)
+FetchContent_MakeAvailable(imgui)
+
+add_library(mosaic_imgui STATIC
+  ${imgui_SOURCE_DIR}/imgui.cpp
+  ${imgui_SOURCE_DIR}/imgui_draw.cpp
+  ${imgui_SOURCE_DIR}/imgui_tables.cpp
+  ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+  ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(mosaic_imgui PUBLIC
+  ${imgui_SOURCE_DIR}
+  ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(mosaic_imgui PUBLIC glfw Vulkan::Vulkan)
+target_compile_features(mosaic_imgui PUBLIC cxx_std_20)
+
 add_subdirectory(foundation)
 add_subdirectory(engine)
 add_subdirectory(modules/render_vulkan)
 add_subdirectory(app)
+add_subdirectory(studio)
 add_subdirectory(tests)

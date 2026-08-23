@@ -57,6 +57,7 @@ add_executable(mosaic_unit_tests
   unit/render/render_system_test.cpp
   unit/render/texture_cache_test.cpp
   unit/reflection/lighting_reflection_test.cpp
+  unit/studio/studio_layout_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -65,6 +66,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_serialization
   mosaic_jobs
   mosaic_render_vulkan
+  mosaic_studio
   Vulkan::Vulkan
   Catch2::Catch2WithMain
 )

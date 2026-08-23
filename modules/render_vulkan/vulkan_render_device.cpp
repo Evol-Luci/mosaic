@@ -2,6 +2,10 @@
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
+#include <imgui.h>
+#include <imgui_impl_glfw.h>
+#include <imgui_impl_vulkan.h>
+
 #include "engine/render/render_device.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/render_vulkan/vulkan_swapchain_support.hpp"
@@ -168,6 +172,19 @@ public:
         if (device_ != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(device_);
+
+            if (ui_ready_)
+            {
+                ImGui_ImplVulkan_Shutdown();
+                ImGui_ImplGlfw_Shutdown();
+                ImGui::DestroyContext();
+                ui_ready_ = false;
+            }
+            if (imgui_pool_ != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorPool(device_, imgui_pool_, nullptr);
+                imgui_pool_ = VK_NULL_HANDLE;
+            }
 
             // Device-local mesh buffers (4 Vulkan objects each) come down first.
             for (MeshBuffers& mesh : meshes_)
@@ -625,6 +642,61 @@ public:
         }
 
         frame_ = (frame_ + 1) % kFramesInFlight;
+    }
+
+    void init_ui() override
+    {
+        if (ui_ready_) { return; }
+        // Dedicated descriptor pool for ImGui (combined-image-samplers for its textures).
+        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 64};
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+        pool.maxSets = 64;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &imgui_pool_),
+                 "vkCreateDescriptorPool(imgui)");
+
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        ImGui::StyleColorsDark();
+
+        ImGui_ImplGlfw_InitForVulkan(window_, true);
+
+        ImGui_ImplVulkan_InitInfo info{};
+        info.Instance = instance_;
+        info.PhysicalDevice = physical_;
+        info.Device = device_;
+        info.QueueFamily = graphics_family_;
+        info.Queue = graphics_queue_;
+        info.DescriptorPool = imgui_pool_;
+        info.RenderPass = render_pass_;
+        info.MinImageCount = kFramesInFlight;
+        info.ImageCount = kFramesInFlight;
+        info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+        ImGui_ImplVulkan_Init(&info);
+
+        ui_ready_ = true;
+    }
+
+    void begin_ui_frame() override
+    {
+        if (!ui_ready_) { return; }
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+    }
+
+    void end_ui_frame() override
+    {
+        if (!ui_ready_) { return; }
+        ImGui::Render(); // always, to keep NewFrame/Render balanced even on a skipped frame
+        if (!frame_skipped_)
+        {
+            ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd_[frame_]);
+        }
     }
 
 private:
@@ -1440,6 +1512,8 @@ private:
     // --- members ----------------------------------------------------------
 
     GLFWwindow* window_ = nullptr;
+    VkDescriptorPool imgui_pool_ = VK_NULL_HANDLE;
+    bool             ui_ready_ = false;
     VkInstance instance_ = VK_NULL_HANDLE;
 #ifndef NDEBUG
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;

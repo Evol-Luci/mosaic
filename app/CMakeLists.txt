@@ -1,6 +1,7 @@
 add_library(mosaic_app STATIC
   cli/options.cpp
   run/status_reporter.cpp
+  run/editor.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine
@@ -11,6 +12,9 @@ target_link_libraries(mosaic_app PUBLIC
   CLI11::CLI11
   nlohmann_json::nlohmann_json
 )
+# mosaic_studio is an implementation detail of run/editor.cpp; nothing in mosaic_app's
+# public headers exposes mosaic::studio types, so keep it (and ImGui) off the interface.
+target_link_libraries(mosaic_app PRIVATE mosaic_studio)
 target_include_directories(mosaic_app PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_features(mosaic_app PUBLIC cxx_std_20)
 

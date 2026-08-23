@@ -7,9 +7,14 @@
 namespace mosaic::app
 {
 
-// Parsed `mosaic run` arguments. A plain value type: no CLI11 in this header.
+// Which subcommand the user invoked.
+enum class Command { Run, Editor };
+
+// Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value
+// type: no CLI11 in this header.
 struct Options
 {
+    Command                      command = Command::Run;
     std::optional<std::string>   scene;        // --scene <file>
     std::optional<double>        duration_s;   // --duration <seconds>
     std::optional<std::uint64_t> ticks;        // --ticks <n>

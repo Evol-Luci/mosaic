@@ -10,7 +10,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (only `run` for now)
+    app.require_subcommand(1); // exactly one subcommand (`run` or `editor`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
@@ -31,6 +31,10 @@ ParseResult parse(int argc, char** argv)
         ->capture_default_str()
         ->check(CLI::PositiveNumber);
 
+    CLI::App* editor = app.add_subcommand("editor", "Open the Studio editor window");
+    editor->add_option("--duration", duration_s, "Stop after N seconds");
+    editor->add_option("--ticks", ticks, "Stop after N fixed ticks");
+
     try
     {
         app.parse(argc, argv);
@@ -41,15 +45,20 @@ ParseResult parse(int argc, char** argv)
         return result;
     }
 
+    if (editor->parsed())
+    {
+        result.options.command = Command::Editor;
+    }
+
     if (!scene.empty())
     {
         result.options.scene = scene;
     }
-    if (*duration_opt)
+    if (run->parsed() ? static_cast<bool>(*duration_opt) : editor->count("--duration") > 0)
     {
         result.options.duration_s = duration_s;
     }
-    if (*ticks_opt)
+    if (run->parsed() ? static_cast<bool>(*ticks_opt) : editor->count("--ticks") > 0)
     {
         result.options.ticks = ticks;
     }
