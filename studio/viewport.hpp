@@ -1,6 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
+
+#include "engine/render/render_device.hpp"
 
 namespace mosaic::studio
 {
@@ -52,5 +55,24 @@ private:
     ViewportSize measured_{1, 1};
     ViewportSize applied_{0, 0}; // 0,0 == nothing applied yet -> first frame needs a resize
 };
+
+// Records the offscreen scene pass in the canonical order. `draw_scene` is invoked
+// between begin_viewport_pass and end_viewport_pass. A degenerate size renders nothing.
+inline void render_scene_to_viewport(
+    engine::render::RenderDevice&                              device,
+    const ViewportPanel&                                      panel,
+    const engine::render::Color&                              clear,
+    const std::function<void(engine::render::RenderDevice&)>& draw_scene)
+{
+    const ViewportSize s = panel.size();
+    if (s.width == 0 || s.height == 0)
+    {
+        return;
+    }
+    device.set_viewport_size(s.width, s.height);
+    device.begin_viewport_pass(clear);
+    draw_scene(device);
+    device.end_viewport_pass();
+}
 
 } // namespace mosaic::studio
