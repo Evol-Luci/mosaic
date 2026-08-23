@@ -21,8 +21,10 @@
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/logging/log.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
+#include "studio/console.hpp"
 #include "studio/studio_app.hpp"
 #include "studio/viewport.hpp"
 
@@ -84,6 +86,10 @@ int run_editor(const Options& options)
 
     mosaic::studio::StudioApp studio;
 
+    // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
+    mosaic::foundation::log::add_sink(
+        std::make_shared<mosaic::studio::ConsoleSink>(studio.console()));
+
     mosaic::foundation::reflection::TypeRegistry     registry;
     mosaic::engine::reflection::ComponentReflection  reflection;
     mosaic::engine::reflection::register_builtin_components(registry, reflection);
@@ -112,8 +118,15 @@ int run_editor(const Options& options)
         return g_editor_stop.load() || studio.exit_requested()
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
-    deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry] {
+    deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
+                     &loop] {
         glfwPollEvents();
+
+        // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
+        mosaic::studio::PlayState& play = studio.play_state();
+        if (play.is_playing()) { loop.start(); } else { loop.stop(); }
+        if (play.consume_step_request()) { loop.step(world); }
+
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
 
@@ -143,6 +156,7 @@ int run_editor(const Options& options)
     device.reset(); // device (and ImGui) destroyed before the window
     glfwDestroyWindow(window);
     glfwTerminate();
+    mosaic::foundation::log::clear_sinks(); // drop the console sink before the buffer dies
     return 0;
 }
 
