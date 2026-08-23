@@ -99,8 +99,14 @@ int run_editor(const Options& options)
     // Viewport panel's offscreen target; also gives the inspector varied components.
     engine::assets::AssetRegistry asset_registry;
     engine::World                 world;
-    world.add_system<engine::transform::TransformSystem>();
     auto render_system = build_demo_scene(world, *device, asset_registry).render_system;
+
+    // Transform propagation (Transform -> WorldTransform) is *derived state*, not
+    // simulation: run it every frame regardless of play/pause so inspector edits appear
+    // in the viewport even while paused. Only gameplay systems (the SpinSystem added by
+    // build_demo_scene) are gated behind the RuntimeLoop, so pausing freezes the spin but
+    // still reflects edits. It is deliberately NOT added via world.add_system().
+    engine::transform::TransformSystem transform_system;
 
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
@@ -119,13 +125,16 @@ int run_editor(const Options& options)
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
     deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
-                     &loop] {
+                     &loop, &transform_system] {
         glfwPollEvents();
 
         // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
         mosaic::studio::PlayState& play = studio.play_state();
         if (play.is_playing()) { loop.start(); } else { loop.stop(); }
         if (play.consume_step_request()) { loop.step(world); }
+
+        // Refresh derived transforms every frame (even paused) so inspector edits show.
+        transform_system.update(world, 0.0f);
 
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});

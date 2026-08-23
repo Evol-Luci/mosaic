@@ -1559,7 +1559,11 @@ private:
         rast.polygonMode = VK_POLYGON_MODE_FILL;
         rast.lineWidth = 1.0f;
         rast.cullMode = VK_CULL_MODE_BACK_BIT;
-        rast.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        // Meshes are authored CCW-outward, but every pass renders with a negative-height
+        // (Y-flipped) viewport, which reverses triangle winding in framebuffer space.
+        // Declare CLOCKWISE as front so outward faces stay front-facing and back-face
+        // culling hides the interior (otherwise the cube renders inside-out).
+        rast.frontFace = VK_FRONT_FACE_CLOCKWISE;
         rast.depthBiasEnable = VK_FALSE;
 
         VkPipelineMultisampleStateCreateInfo ms{};
