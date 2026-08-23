@@ -16,8 +16,12 @@ complete (`mosaic run --window` draws the same cube directly). **RenderGraph** s
 (37d chose direct two-pass submission; re-filed to the first dynamic/≥3-pass slice). **Known
 gap surfaced by 37e (follow-up filed):** the app installs no logging sink outside the editor,
 so `mosaic run`/headless runs drop all `log::` output — install a stderr `ConsoleSink` in the
-CLI entry path. **Next frontier:** post-v0.1 Studio work (asset browser, Blender live-link) or
-the next roadmap milestone)
+CLI entry path. **Validation-layer fix:** with `VK_LAYER_KHRONOS_validation` now installed,
+a pre-existing swapchain-semaphore-reuse bug (latent since the 36a swapchain work) surfaced and
+is fixed — `render_finished_` is now per swapchain image, indexed by `image_index_`, so a
+present-wait semaphore is never reused while its present is still pending (`editor --ticks 180`
+now emits 0 `pSignalSemaphores` warnings). **Next frontier:** post-v0.1 Studio work (asset
+browser, Blender live-link) or the next roadmap milestone)
 
 ## Where we are
 
