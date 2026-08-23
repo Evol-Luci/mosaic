@@ -13,11 +13,12 @@ a **toolbar play/stop/step + Console panel** — play/stop drives the `RuntimeLo
 `stop()`, resume = `start()`; a Step ticks once while paused), and the Console surfaces #33
 logging live via a capturing `Sink` + thread-safe ring buffer. Rendering 36a–36e-1 remains
 complete (`mosaic run --window` draws the same cube directly). **RenderGraph** stays deferred
-(37d chose direct two-pass submission; re-filed to the first dynamic/≥3-pass slice). **Known
-gap surfaced by 37e (follow-up filed):** the app installs no logging sink outside the editor,
-so `mosaic run`/headless runs drop all `log::` output — install a stderr `ConsoleSink` in the
-CLI entry path. **Next frontier:** post-v0.1 Studio work (asset browser, Blender live-link) or
-the next roadmap milestone)
+(37d chose direct two-pass submission; re-filed to the first dynamic/≥3-pass slice). The
+**logging-sink gap** surfaced by 37e is now **closed** — `app/main.cpp` installs a stderr
+`ConsoleSink` for every command, so `mosaic run`/headless runs emit their `log::` output and
+Vulkan validation messages surface (the JSON reporter still writes structured output to stdout,
+so stdout stays pure JSON). **Next frontier:** post-v0.1 Studio work (asset browser, Blender
+live-link) or the next roadmap milestone)
 
 ## Where we are
 
