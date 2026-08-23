@@ -6,7 +6,9 @@
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
+#include "engine/reflection/field_visitor.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "foundation/serialization/reference.hpp"
@@ -39,6 +41,15 @@ public:
             T component{};
             mosaic::foundation::serialization::from_value(value, component, resolver);
             return world.add_component<T>(e, std::move(component));
+        };
+        presence_[name] = [](World& world, EntityID e) { return world.has_component<T>(e); };
+        inspectors_[name] = [](World& world, EntityID e, FieldVisitor& visitor)
+        {
+            if (T* component = world.get_component<T>(e))
+            {
+                FieldVisitorAdapter adapter{visitor};
+                reflect(adapter, *component);
+            }
         };
         savers_[std::move(name)] =
             [](World& world, const std::string& type_name, const SaveSink& sink)
@@ -83,6 +94,31 @@ public:
         return it->second(world, e, value, resolver);
     }
 
+    // Registered component type names the entity holds, in sorted order (presence_ is a map).
+    std::vector<std::string> components_on(World& world, EntityID e) const
+    {
+        std::vector<std::string> names;
+        for (const auto& [name, present] : presence_)
+        {
+            if (present(world, e))
+            {
+                names.push_back(name);
+            }
+        }
+        return names;
+    }
+
+    // Run `visitor` over the live component `name` on entity `e` (no-op if unregistered
+    // or the entity lacks it).
+    void inspect(World& world, EntityID e, std::string_view name, FieldVisitor& visitor) const
+    {
+        auto it = inspectors_.find(std::string(name));
+        if (it != inspectors_.end())
+        {
+            it->second(world, e, visitor);
+        }
+    }
+
 private:
     using Attacher = std::function<bool(World&, EntityID, const Value&, const ReferenceResolver&)>;
     std::unordered_map<std::string, Attacher> attachers_;
@@ -91,6 +127,13 @@ private:
     // std::map (not unordered): iterating in sorted type-name order gives
     // deterministic per-entity component ordering in saved scenes.
     std::map<std::string, Saver> savers_;
+
+    using Presence = std::function<bool(World&, EntityID)>;
+    // std::map so components_on returns sorted (deterministic) names.
+    std::map<std::string, Presence> presence_;
+
+    using Inspector = std::function<void(World&, EntityID, FieldVisitor&)>;
+    std::unordered_map<std::string, Inspector> inspectors_;
 };
 
 } // namespace mosaic::engine::reflection

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/reflection/component_reflection.hpp"
 #include "engine/world/world.hpp"
 #include "studio/selection.hpp"
 #include "studio/studio_layout.hpp"
@@ -14,7 +15,8 @@ namespace mosaic::studio
 class StudioApp
 {
 public:
-    void draw_ui(const mosaic::engine::World& world);
+    void draw_ui(mosaic::engine::World& world,
+                 const mosaic::engine::reflection::ComponentReflection& reflection);
 
     StudioLayout&   layout() { return layout_; }
     SelectionModel& selection() { return selection_; }
@@ -22,7 +24,8 @@ public:
 
 private:
     void draw_hierarchy(const mosaic::engine::World& world);
-    void draw_inspector();
+    void draw_inspector(mosaic::engine::World& world,
+                        const mosaic::engine::reflection::ComponentReflection& reflection);
 
     StudioLayout   layout_;
     SelectionModel selection_;
