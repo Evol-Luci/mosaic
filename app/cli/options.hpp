@@ -10,7 +10,8 @@ namespace mosaic::app
 // Which subcommand the user invoked.
 enum class Command { Run, Editor };
 
-// Parsed `mosaic run` arguments. A plain value type: no CLI11 in this header.
+// Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value
+// type: no CLI11 in this header.
 struct Options
 {
     Command                      command = Command::Run;

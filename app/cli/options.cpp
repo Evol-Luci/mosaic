@@ -10,7 +10,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (only `run` for now)
+    app.require_subcommand(1); // exactly one subcommand (`run` or `editor`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 

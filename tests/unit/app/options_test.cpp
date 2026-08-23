@@ -99,3 +99,12 @@ TEST_CASE("editor accepts a bounded --duration", "[cli]")
     REQUIRE(pr.options.duration_s.has_value());
     REQUIRE(pr.options.duration_s.value() == 1.0);
 }
+
+TEST_CASE("editor accepts a bounded --ticks", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor", "--ticks", "42"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Editor);
+    REQUIRE(pr.options.ticks.has_value());
+    REQUIRE(pr.options.ticks.value() == std::uint64_t{42});
+}
