@@ -1,6 +1,7 @@
 add_library(mosaic_studio STATIC
   studio_layout.cpp
   studio_app.cpp
+  inspector.cpp
 )
 target_link_libraries(mosaic_studio PUBLIC mosaic_engine)
 target_link_libraries(mosaic_studio PRIVATE mosaic_imgui)

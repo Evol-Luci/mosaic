@@ -10,10 +10,15 @@
 
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
+#include "engine/reflection/builtin_components.hpp"
+#include "engine/render/camera.hpp"
+#include "engine/render/material.hpp"
+#include "engine/render/point_light.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/runtime/runtime_loop.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "studio/studio_app.hpp"
 
@@ -75,11 +80,26 @@ int run_editor(const Options& options)
 
     mosaic::studio::StudioApp studio;
 
-    engine::World world; // idle (no systems); a few entities so the hierarchy is populated
-    for (int i = 0; i < 4; ++i)
+    mosaic::foundation::reflection::TypeRegistry     registry;
+    mosaic::engine::reflection::ComponentReflection  reflection;
+    mosaic::engine::reflection::register_builtin_components(registry, reflection);
+
+    engine::World world; // idle (no systems); varied components so the inspector shows several types
     {
-        const auto e = world.create_entity();
-        world.add_component<engine::transform::Transform>(e, engine::transform::Transform{});
+        const auto e0 = world.create_entity();
+        world.add_component<engine::transform::Transform>(e0, engine::transform::Transform{});
+        world.add_component<engine::render::Camera>(e0, engine::render::Camera{});
+
+        const auto e1 = world.create_entity();
+        world.add_component<engine::transform::Transform>(e1, engine::transform::Transform{});
+        world.add_component<engine::render::Material>(e1, engine::render::Material{});
+
+        const auto e2 = world.create_entity();
+        world.add_component<engine::transform::Transform>(e2, engine::transform::Transform{});
+        world.add_component<engine::render::PointLight>(e2, engine::render::PointLight{});
+
+        const auto e3 = world.create_entity();
+        world.add_component<engine::transform::Transform>(e3, engine::transform::Transform{});
     }
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
@@ -97,12 +117,12 @@ int run_editor(const Options& options)
         return g_editor_stop.load() || studio.exit_requested()
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
-    deps.on_frame = [window, &device, &studio, &world] {
+    deps.on_frame = [window, &device, &studio, &world, &reflection] {
         glfwPollEvents();
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
         device->begin_ui_frame();
-        studio.draw_ui(world);
+        studio.draw_ui(world, reflection);
         device->end_ui_frame();
         device->end_frame();
     };

@@ -3,11 +3,13 @@
 #include <imgui.h>
 
 #include "studio/hierarchy.hpp"
+#include "studio/inspector.hpp"
 
 namespace mosaic::studio
 {
 
-void StudioApp::draw_ui(const mosaic::engine::World& world)
+void StudioApp::draw_ui(mosaic::engine::World& world,
+                        const mosaic::engine::reflection::ComponentReflection& reflection)
 {
     // Full-window dockspace host so panels can be docked/tabbed/floated.
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
@@ -39,7 +41,7 @@ void StudioApp::draw_ui(const mosaic::engine::World& world)
             }
             else if (panel.name == "Inspector")
             {
-                draw_inspector();
+                draw_inspector(world, reflection);
             }
             else
             {
@@ -61,15 +63,24 @@ void StudioApp::draw_hierarchy(const mosaic::engine::World& world)
     }
 }
 
-void StudioApp::draw_inspector()
+void StudioApp::draw_inspector(mosaic::engine::World& world,
+                               const mosaic::engine::reflection::ComponentReflection& reflection)
 {
-    if (selection_.has_selection())
-    {
-        ImGui::Text("Selected: Entity %u", selection_.selected().index());
-    }
-    else
+    if (!selection_.has_selection())
     {
         ImGui::TextUnformatted("(nothing selected)");
+        return;
+    }
+    const auto entity = selection_.selected();
+    ImGuiFieldVisitor visitor;
+    for (const std::string& name : reflection.components_on(world, entity))
+    {
+        ImGui::PushID(name.c_str());
+        if (ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            reflection.inspect(world, entity, name, visitor);
+        }
+        ImGui::PopID();
     }
 }
 
