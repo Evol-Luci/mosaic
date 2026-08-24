@@ -1,14 +1,14 @@
 #pragma once
 
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
-#include "engine/ecs/system.hpp"
+#include "engine/physics/physics_components.hpp"
+#include "engine/physics/physics_system.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
@@ -21,67 +21,42 @@
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/math/vec3.hpp"
+#include "modules/physics_box3d/box3d_backend.hpp"
 
 namespace mosaic::app
 {
-
-// Spins every entity that has a MeshRenderer (the cube), leaving the camera still.
-class SpinSystem : public mosaic::engine::ecs::System
-{
-public:
-    void update(mosaic::engine::World& world, float dt) override
-    {
-        namespace m = mosaic::foundation::math;
-        angle_ += dt * 0.9F;
-        const float   half = angle_ * 0.5F;
-        const m::Quat spin{0.0F, std::sin(half), 0.0F, std::cos(half)};
-        world.for_each<mosaic::engine::transform::Transform>(
-            [&](mosaic::foundation::EntityID e, mosaic::engine::transform::Transform& t)
-            {
-                if (!world.has_component<mosaic::engine::render::MeshRenderer>(e))
-                {
-                    return; // only spin meshes (the cube), not the camera
-                }
-                t.rotation = spin;
-            });
-    }
-
-private:
-    float angle_ = 0.0F;
-};
 
 struct DemoScene
 {
     std::shared_ptr<mosaic::engine::render::RenderSystem> render_system;
 };
 
-// Builds the standard v0.1 demo (textured spinning cube, directional + point light,
-// placed camera) into `world`, uploading the cube mesh + checkerboard texture through
-// `device`/`registry`. Adds a SpinSystem. The caller is responsible for adding a
-// TransformSystem and ticking the world.
+// Builds the physics demo: a textured box drops onto a static ground slab. Adds a
+// PhysicsSystem (Box3D backend injected) and returns a RenderSystem. The three procedural
+// textures remain (the asset browser assigns them to the box's Material).
 inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
                                   mosaic::engine::render::RenderDevice&  device,
                                   mosaic::engine::assets::AssetRegistry& registry)
 {
     namespace render    = mosaic::engine::render;
     namespace transform = mosaic::engine::transform;
+    namespace physics   = mosaic::engine::physics;
+    using mosaic::foundation::math::Mat4;
+    using mosaic::foundation::math::Quat;
     using mosaic::foundation::math::Vec3;
 
-    world.add_system<SpinSystem>();
+    world.add_system<physics::PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
 
-    std::vector<render::Vertex> cube_v;
-    std::vector<std::uint32_t>  cube_i;
-    render::make_cube_mesh(cube_v, cube_i);
-    const render::MeshHandle cube = device.create_mesh(cube_v, cube_i);
+    const render::MeshHandle cube = [&]
+    {
+        std::vector<render::Vertex> v;
+        std::vector<std::uint32_t>  i;
+        render::make_cube_mesh(v, i);
+        return device.create_mesh(v, i);
+    }();
 
-    const auto cube_entity = world.create_entity();
-    world.add_component<transform::Transform>(cube_entity, transform::Transform{});
-    world.add_component<transform::WorldTransform>(
-        cube_entity, transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
-    world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
-
-    // Three procedural textures so the Asset Browser has something to assign. Each is a
-    // 64x64 RGBA Image registered as a "texture" asset under a distinct AssetID.
+    // Three procedural textures (asset-browser targets); the box starts on the checkerboard.
     auto register_texture = [&](std::array<std::uint8_t, 16> uuid, auto&& pixel_fn)
     {
         auto image    = std::make_shared<render::Image>();
@@ -98,7 +73,6 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
             mosaic::engine::assets::AssetMetadata{id, "texture"}, image);
         return id;
     };
-
     std::array<std::uint8_t, 16> checker_uuid{};
     checker_uuid[0] = 0xC0;
     checker_uuid[1] = 0xDE;
@@ -106,52 +80,56 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
     solid_uuid[0] = 0xA1;
     std::array<std::uint8_t, 16> stripes_uuid{};
     stripes_uuid[0] = 0xB2;
-
     const auto tex_id = register_texture(checker_uuid,
         [](std::uint32_t x, std::uint32_t y, std::uint8_t* p)
-        {
-            const std::uint8_t c = (((x / 8) + (y / 8)) % 2 == 0) ? 230 : 60;
-            p[0] = c; p[1] = c; p[2] = c; p[3] = 255;
-        });
+        { const std::uint8_t c = (((x / 8) + (y / 8)) % 2 == 0) ? 230 : 60; p[0]=c;p[1]=c;p[2]=c;p[3]=255; });
     register_texture(solid_uuid,
-        [](std::uint32_t, std::uint32_t, std::uint8_t* p)
-        {
-            p[0] = 220; p[1] = 120; p[2] = 60; p[3] = 255; // warm solid tint
-        });
+        [](std::uint32_t, std::uint32_t, std::uint8_t* p) { p[0]=220;p[1]=120;p[2]=60;p[3]=255; });
     register_texture(stripes_uuid,
         [](std::uint32_t x, std::uint32_t, std::uint8_t* p)
-        {
-            const std::uint8_t c = ((x / 8) % 2 == 0) ? 200 : 40;
-            p[0] = c; p[1] = c; p[2] = c; p[3] = 255; // vertical stripes
-        });
+        { const std::uint8_t c = ((x / 8) % 2 == 0) ? 200 : 40; p[0]=c;p[1]=c;p[2]=c;p[3]=255; });
 
-    world.add_component<render::Material>(cube_entity,
-                                          render::Material{Vec3{1.0F, 1.0F, 1.0F}, tex_id});
+    // Static ground slab: cube scaled to a 10x1x10 slab (collider half-extents 5,0.5,5),
+    // top surface at y=0.5.
+    const auto ground = world.create_entity();
+    world.add_component<transform::Transform>(ground,
+        transform::Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<transform::WorldTransform>(ground,
+        transform::WorldTransform{Mat4::trs(Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10})});
+    world.add_component<render::MeshRenderer>(ground, render::MeshRenderer{cube});
+    world.add_component<render::Material>(ground, render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}});
+    world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
+    world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
 
-    const auto light_entity = world.create_entity();
-    world.add_component<render::DirectionalLight>(
-        light_entity, render::DirectionalLight{Vec3{-0.5F, -1.0F, -0.3F}, Vec3{1.0F, 1.0F, 1.0F}});
+    // Dynamic box: falls from y=4, rests at y~=1.0.
+    const auto box = world.create_entity();
+    world.add_component<transform::Transform>(box,
+        transform::Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<transform::WorldTransform>(box,
+        transform::WorldTransform{Mat4::translation(Vec3{0, 4, 0})});
+    world.add_component<render::MeshRenderer>(box, render::MeshRenderer{cube});
+    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex_id});
+    world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
+    world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
-    const auto point_light_entity = world.create_entity();
-    world.add_component<transform::Transform>(
-        point_light_entity,
-        transform::Transform{Vec3{1.5F, 1.0F, 1.5F}, mosaic::foundation::math::Quat::identity(),
-                             Vec3{1.0F, 1.0F, 1.0F}, {}});
-    world.add_component<transform::WorldTransform>(
-        point_light_entity, transform::WorldTransform{mosaic::foundation::math::Mat4::translation(
-                                Vec3{1.5F, 1.0F, 1.5F})});
-    world.add_component<render::PointLight>(point_light_entity,
-                                            render::PointLight{Vec3{1.0F, 0.85F, 0.6F}, 3.0F, 6.0F});
+    // Lights.
+    const auto light = world.create_entity();
+    world.add_component<render::DirectionalLight>(light,
+        render::DirectionalLight{Vec3{-0.5f, -1.0f, -0.3f}, Vec3{1, 1, 1}});
+    const auto point = world.create_entity();
+    world.add_component<transform::Transform>(point,
+        transform::Transform{Vec3{2, 3, 2}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<transform::WorldTransform>(point,
+        transform::WorldTransform{Mat4::translation(Vec3{2, 3, 2})});
+    world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 3.0f, 8.0f});
 
-    const auto camera_entity = world.create_entity();
-    world.add_component<transform::Transform>(
-        camera_entity,
-        transform::Transform{Vec3{0.0F, 0.0F, 4.0F}, mosaic::foundation::math::Quat::identity(),
-                             Vec3{1.0F, 1.0F, 1.0F}, {}});
-    world.add_component<transform::WorldTransform>(
-        camera_entity, transform::WorldTransform{mosaic::foundation::math::Mat4::translation(
-                           Vec3{0.0F, 0.0F, 4.0F})});
-    world.add_component<render::Camera>(camera_entity, render::Camera{});
+    // Camera: raised at (0, 2.5, 9) looking down -Z, framing the ground slab + the drop.
+    const auto camera = world.create_entity();
+    world.add_component<transform::Transform>(camera,
+        transform::Transform{Vec3{0, 2.5f, 9}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<transform::WorldTransform>(camera,
+        transform::WorldTransform{Mat4::translation(Vec3{0, 2.5f, 9})});
+    world.add_component<render::Camera>(camera, render::Camera{});
 
     return DemoScene{std::make_shared<render::RenderSystem>()};
 }
