@@ -21,7 +21,11 @@ public:
     explicit PhysicsSystem(std::unique_ptr<PhysicsBackend> backend, int substeps = 4)
         : backend_(std::move(backend)), substeps_(substeps)
     {
-        access_.reads<RigidBody>().reads<Collider>().writes<transform::Transform>();
+        access_.reads<RigidBody>()
+            .reads<Collider>()
+            .reads<SphereCollider>()
+            .reads<CapsuleCollider>()
+            .writes<transform::Transform>();
     }
 
     void update(World& world, float dt) override
@@ -34,16 +38,20 @@ public:
                 {
                     return;
                 }
-                const Collider*             col = world.get_component<Collider>(e);
                 const transform::Transform* t = world.get_component<transform::Transform>(e);
-                if (col == nullptr || t == nullptr)
+                if (t == nullptr)
+                {
+                    return;
+                }
+                Shape shape;
+                if (!shape_for(world, e, shape))
                 {
                     return;
                 }
                 BodyDef def;
                 def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
                 def.position = t->position;
-                def.shape.half_extents = col->half_extents;
+                def.shape = shape;
                 def.density = rb.density;
                 bodies_[e] = backend_->create_body(def);
             });
@@ -71,6 +79,28 @@ public:
     }
 
 private:
+    // Fills `out` from whichever collider-shape component the entity has (box, then sphere,
+    // then capsule). Returns false if the entity has no collider-shape component.
+    static bool shape_for(World& world, mosaic::foundation::EntityID e, Shape& out)
+    {
+        if (const Collider* c = world.get_component<Collider>(e))
+        {
+            out = Shape{ShapeKind::Box, c->half_extents, 0.0f, 0.0f};
+            return true;
+        }
+        if (const SphereCollider* s = world.get_component<SphereCollider>(e))
+        {
+            out = Shape{ShapeKind::Sphere, {}, s->radius, 0.0f};
+            return true;
+        }
+        if (const CapsuleCollider* c = world.get_component<CapsuleCollider>(e))
+        {
+            out = Shape{ShapeKind::Capsule, {}, c->radius, c->half_height};
+            return true;
+        }
+        return false;
+    }
+
     std::unique_ptr<PhysicsBackend>                              backend_;
     std::unordered_map<mosaic::foundation::EntityID, BodyHandle> bodies_;
     int                                                          substeps_;
