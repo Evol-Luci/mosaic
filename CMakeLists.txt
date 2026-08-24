@@ -47,6 +47,15 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
+# --- Box3D (physics backend; alpha, pinned to a commit) -----------------------
+FetchContent_Declare(
+  box3d
+  GIT_REPOSITORY https://github.com/erincatto/box3d.git
+  GIT_TAG        30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c
+)
+set(BOX3D_SAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(box3d)
+
 # --- Dear ImGui (docking branch): core + GLFW/Vulkan backends -----------------
 FetchContent_Declare(
   imgui
@@ -73,6 +82,7 @@ target_compile_features(mosaic_imgui PUBLIC cxx_std_20)
 add_subdirectory(foundation)
 add_subdirectory(engine)
 add_subdirectory(modules/render_vulkan)
+add_subdirectory(modules/physics_box3d)
 add_subdirectory(app)
 add_subdirectory(studio)
 add_subdirectory(tests)
