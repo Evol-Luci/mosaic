@@ -10,6 +10,7 @@
 #include "engine/physics/physics_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "modules/physics_box3d/box3d_backend.hpp"
 
 using Catch::Approx;
 using mosaic::engine::World;
@@ -82,4 +83,46 @@ TEST_CASE("PhysicsSystem creates bodies, steps, and writes dynamic poses back", 
     world.tick(1.0f / 60.0f);
     REQUIRE(fp->created.size() == 2);
     REQUIRE(fp->steps == 2);
+}
+
+namespace
+{
+// Build a World with a real Box3D PhysicsSystem, a dynamic box at y=4, and a static ground
+// (top at y=0.5); tick 120x; return the box entity's final Transform.position.y.
+float drop_box_in_world()
+{
+    using namespace mosaic::engine::physics;
+    World world;
+    world.add_system<PhysicsSystem>(mosaic::physics::box3d::create_box3d_backend(WorldDef{}));
+
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(ground,
+        Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    const auto box = world.create_entity();
+    world.add_component<Transform>(box,
+        Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    for (int i = 0; i < 120; ++i)
+    {
+        world.tick(1.0f / 60.0f);
+    }
+    return world.get_component<Transform>(box)->position.y;
+}
+} // namespace
+
+TEST_CASE("an ECS box entity falls and rests on a ground plane", "[physics]")
+{
+    const float y = drop_box_in_world();
+    REQUIRE(y > 0.9f); // rest center ~= ground top (0.5) + box half-extent (0.5)
+    REQUIRE(y < 1.1f);
+}
+
+TEST_CASE("ECS physics is deterministic across runs", "[physics]")
+{
+    REQUIRE(drop_box_in_world() == drop_box_in_world());
 }
