@@ -1,0 +1,48 @@
+#pragma once
+
+#include <cstdint>
+
+#include "foundation/math/quat.hpp"
+#include "foundation/math/vec3.hpp"
+
+namespace mosaic::engine::physics
+{
+using BodyHandle = std::uint32_t; // opaque; 0 == invalid
+
+enum class BodyType { Static, Dynamic };
+
+struct BoxShape
+{
+    mosaic::foundation::math::Vec3 half_extents{0.5f, 0.5f, 0.5f};
+};
+
+struct BodyDef
+{
+    BodyType                       type = BodyType::Dynamic;
+    mosaic::foundation::math::Vec3 position{};
+    BoxShape                       shape{};
+    float                          density = 1.0f; // ignored for static bodies
+};
+
+struct Pose
+{
+    mosaic::foundation::math::Vec3 position{};
+    mosaic::foundation::math::Quat rotation{}; // P1: identity for valid bodies
+};
+
+struct WorldDef
+{
+    mosaic::foundation::math::Vec3 gravity{0.0f, -9.81f, 0.0f}; // Y-up, meters, m/s^2
+};
+
+// The physics world contract; the Box3D backend implements it behind the wall. Stepping is
+// deterministic: identical construction + calls yield identical poses across runs.
+class PhysicsBackend
+{
+public:
+    virtual ~PhysicsBackend() = default;
+    virtual BodyHandle create_body(const BodyDef& def) = 0;
+    virtual void       step(float dt, int substeps) = 0;
+    virtual Pose       body_pose(BodyHandle body) const = 0;
+};
+} // namespace mosaic::engine::physics

@@ -31,11 +31,25 @@ one path), with a headless `AssetBrowserModel` and three procedural demo texture
 negative-height viewport reverses winding, so `frontFace` is now `CLOCKWISE`; pre-existing
 since 36b) and paused inspector edits not refreshing the viewport (the editor now runs
 `TransformSystem` every frame as derived state, gating only the spin behind play/stop).
-**Next frontier:** the remaining post-v0.1 Studio work (Blender live-link; asset-browser
-follow-ups: type-aware filtering, thumbnails, disk import, clear-to-nil) or the next roadmap
-milestone. Design/plan for the asset browser:
+Design/plan for the asset browser:
 [spec](../superpowers/specs/2026-08-23-studio-asset-browser-design.md) ·
-[plan](../superpowers/plans/2026-08-23-studio-asset-browser.md))
+[plan](../superpowers/plans/2026-08-23-studio-asset-browser.md).
+**Physics (Phase 2) is now underway — P1 is built.** The physics pillar was decomposed
+into five slices (P1–P5) behind a neutral `PhysicsBackend` wall, with Box3D
+([erincatto/box3d](https://github.com/erincatto/box3d), MIT, C17) as the backend. **P1**:
+`engine/physics/physics_backend.hpp` (neutral `PhysicsBackend`/`BodyDef`/`BoxShape`/`Pose`/
+`WorldDef`) + `modules/physics_box3d` (Box3D via FetchContent, pinned to `30c67b5`,
+implementing the interface; `b3*` never leaves the module), proven by a **headless
+deterministic** falling-box unit test — a box drops and rests on a ground plane at y≈0.5,
+bit-identically across runs (258 tests total). **Next is P2** — a reflected
+`RigidBody`/`Collider` + a `PhysicsSystem` stepping in `World::tick`, giving a **visible box
+drop in the editor viewport** (Play finally simulates). Then P3 (shapes + stacking), P4
+(raycasts), P5 (contact events + record/replay). Physics design/plan:
+[decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
+[P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) ·
+[P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md).
+Also still open: post-v0.1 Studio work (Blender live-link; asset-browser follow-ups —
+type-aware filtering, thumbnails, disk import, clear-to-nil))
 
 ## Where we are
 
