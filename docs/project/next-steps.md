@@ -41,13 +41,19 @@ into five slices (P1–P5) behind a neutral `PhysicsBackend` wall, with Box3D
 `WorldDef`) + `modules/physics_box3d` (Box3D via FetchContent, pinned to `30c67b5`,
 implementing the interface; `b3*` never leaves the module), proven by a **headless
 deterministic** falling-box unit test — a box drops and rests on a ground plane at y≈0.5,
-bit-identically across runs (258 tests total). **Next is P2** — a reflected
-`RigidBody`/`Collider` + a `PhysicsSystem` stepping in `World::tick`, giving a **visible box
-drop in the editor viewport** (Play finally simulates). Then P3 (shapes + stacking), P4
-(raycasts), P5 (contact events + record/replay). Physics design/plan:
+bit-identically across runs. **P2 is now built too** — reflected `RigidBody`/`Collider`
+components + a `PhysicsSystem` that owns an **injected** backend, lazily creates bodies from
+`RigidBody`+`Collider`+`Transform`, steps once per `World::tick`, and writes dynamic poses
+back to `Transform` (position + real rotation — completing P1's rotation read-back). The
+editor/`mosaic run --window` demo is now a **textured box dropping onto a ground slab** —
+**Play finally simulates**, and Pause/Step single-step the fall. Tested headlessly: a
+fake-backend sync test (one body per physics entity, dynamic write-back, static untouched) +
+a real-backend ECS integration test (box falls + rests at y≈1.0, deterministic). 264 tests,
+0 validation errors. **Next is P3** — primitive shapes (sphere/capsule/plane) + stacking;
+then P4 (raycasts), P5 (contact events + record/replay). Physics design/plan:
 [decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
-[P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) ·
-[P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md).
+[P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) · [P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md) ·
+[P2 spec](../superpowers/specs/2026-08-24-physics-p2-system-design.md) · [P2 plan](../superpowers/plans/2026-08-24-physics-p2-system.md).
 Also still open: post-v0.1 Studio work (Blender live-link; asset-browser follow-ups —
 type-aware filtering, thumbnails, disk import, clear-to-nil))
 

@@ -56,10 +56,9 @@ public:
         {
             return ep::Pose{};
         }
-        const auto p = b3Body_GetPosition(bodies_[body - 1]); // b3Pos == b3Vec3 {x,y,z}
-        // P1 reads position only; a straight-falling box does not rotate. Real rotation
-        // read-back (b3Body_GetRotation -> b3Quat{v,s}) arrives in P2.
-        return ep::Pose{Vec3{p.x, p.y, p.z}, Quat::identity()};
+        const auto   p = b3Body_GetPosition(bodies_[body - 1]); // b3Pos == b3Vec3 {x,y,z}
+        const b3Quat q = b3Body_GetRotation(bodies_[body - 1]); // b3Quat {b3Vec3 v; float s;}
+        return ep::Pose{Vec3{p.x, p.y, p.z}, Quat{q.v.x, q.v.y, q.v.z, q.s}};
     }
 
 private:

@@ -71,6 +71,8 @@ add_executable(mosaic_unit_tests
   unit/studio/asset_browser_test.cpp
   unit/physics/physics_backend_test.cpp
   unit/physics/falling_box_test.cpp
+  unit/physics/physics_components_test.cpp
+  unit/physics/physics_system_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

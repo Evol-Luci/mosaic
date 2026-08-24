@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "engine/physics/physics_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
@@ -25,6 +26,8 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::render::Material>(registry, "Material");
     types.register_component<mosaic::engine::render::DirectionalLight>(registry, "DirectionalLight");
     types.register_component<mosaic::engine::render::PointLight>(registry, "PointLight");
+    types.register_component<mosaic::engine::physics::RigidBody>(registry, "RigidBody");
+    types.register_component<mosaic::engine::physics::Collider>(registry, "Collider");
 }
 
 } // namespace mosaic::engine::reflection
