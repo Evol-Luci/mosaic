@@ -44,3 +44,36 @@ TEST_CASE("physics components are registered as builtins", "[physics]")
     REQUIRE(types.has("RigidBody"));
     REQUIRE(types.has("Collider"));
 }
+
+using mosaic::engine::physics::CapsuleCollider;
+using mosaic::engine::physics::SphereCollider;
+
+TEST_CASE("sphere/capsule collider defaults + round-trip", "[physics]")
+{
+    SphereCollider sph;
+    REQUIRE(sph.radius == Approx(0.5f));
+    CapsuleCollider cap;
+    REQUIRE(cap.radius == Approx(0.5f));
+    REQUIRE(cap.half_height == Approx(0.5f));
+
+    SphereCollider s_in{1.5f};
+    SphereCollider s_out;
+    mosaic::foundation::serialization::from_value(
+        mosaic::foundation::serialization::to_value(s_in), s_out);
+    REQUIRE(s_out.radius == Approx(1.5f));
+
+    CapsuleCollider c_in{0.3f, 1.2f};
+    CapsuleCollider c_out;
+    mosaic::foundation::serialization::from_value(
+        mosaic::foundation::serialization::to_value(c_in), c_out);
+    REQUIRE(c_out.half_height == Approx(1.2f));
+}
+
+TEST_CASE("sphere/capsule colliders are registered as builtins", "[physics]")
+{
+    mosaic::foundation::reflection::TypeRegistry    registry;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(registry, types);
+    REQUIRE(types.has("SphereCollider"));
+    REQUIRE(types.has("CapsuleCollider"));
+}

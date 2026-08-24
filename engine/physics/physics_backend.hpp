@@ -11,16 +11,21 @@ using BodyHandle = std::uint32_t; // opaque; 0 == invalid
 
 enum class BodyType { Static, Dynamic };
 
-struct BoxShape
+enum class ShapeKind { Box, Sphere, Capsule };
+
+struct Shape
 {
-    mosaic::foundation::math::Vec3 half_extents{0.5f, 0.5f, 0.5f};
+    ShapeKind                      kind = ShapeKind::Box;
+    mosaic::foundation::math::Vec3 half_extents{0.5f, 0.5f, 0.5f}; // box
+    float                          radius = 0.5f;                  // sphere / capsule
+    float                          half_height = 0.5f;             // capsule half-length (local Y)
 };
 
 struct BodyDef
 {
     BodyType                       type = BodyType::Dynamic;
     mosaic::foundation::math::Vec3 position{};
-    BoxShape                       shape{};
+    Shape                          shape{};
     float                          density = 1.0f; // ignored for static bodies
 };
 

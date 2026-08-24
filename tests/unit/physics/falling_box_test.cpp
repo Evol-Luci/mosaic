@@ -9,9 +9,39 @@
 using mosaic::engine::physics::BodyDef;
 using mosaic::engine::physics::BodyHandle;
 using mosaic::engine::physics::BodyType;
+using mosaic::engine::physics::ShapeKind;
 using mosaic::engine::physics::WorldDef;
 using mosaic::foundation::math::Vec3;
 using mosaic::physics::box3d::create_box3d_backend;
+
+TEST_CASE("a sphere body falls under gravity", "[physics]")
+{
+    auto    backend = create_box3d_backend(WorldDef{});
+    BodyDef d;
+    d.type = BodyType::Dynamic;
+    d.position = Vec3{0.0f, 4.0f, 0.0f};
+    d.shape.kind = ShapeKind::Sphere;
+    d.shape.radius = 0.5f;
+    const BodyHandle h = backend->create_body(d);
+    const float      y0 = backend->body_pose(h).position.y;
+    for (int i = 0; i < 10; ++i) { backend->step(1.0f / 60.0f, 4); }
+    REQUIRE(backend->body_pose(h).position.y < y0);
+}
+
+TEST_CASE("a capsule body falls under gravity", "[physics]")
+{
+    auto    backend = create_box3d_backend(WorldDef{});
+    BodyDef d;
+    d.type = BodyType::Dynamic;
+    d.position = Vec3{0.0f, 4.0f, 0.0f};
+    d.shape.kind = ShapeKind::Capsule;
+    d.shape.radius = 0.5f;
+    d.shape.half_height = 0.5f;
+    const BodyHandle h = backend->create_body(d);
+    const float      y0 = backend->body_pose(h).position.y;
+    for (int i = 0; i < 10; ++i) { backend->step(1.0f / 60.0f, 4); }
+    REQUIRE(backend->body_pose(h).position.y < y0);
+}
 
 TEST_CASE("a dynamic body falls under gravity", "[physics]")
 {

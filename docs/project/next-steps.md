@@ -48,12 +48,18 @@ back to `Transform` (position + real rotation — completing P1's rotation read-
 editor/`mosaic run --window` demo is now a **textured box dropping onto a ground slab** —
 **Play finally simulates**, and Pause/Step single-step the fall. Tested headlessly: a
 fake-backend sync test (one body per physics entity, dynamic write-back, static untouched) +
-a real-backend ECS integration test (box falls + rests at y≈1.0, deterministic). 264 tests,
-0 validation errors. **Next is P3** — primitive shapes (sphere/capsule/plane) + stacking;
-then P4 (raycasts), P5 (contact events + record/replay). Physics design/plan:
+a real-backend ECS integration test (box falls + rests at y≈1.0, deterministic).
+**P3 is now built too** — a tagged neutral `Shape` (box/sphere/capsule) mapped to Box3D
+shapes, reflected `SphereCollider`/`CapsuleCollider` components (P2's `Collider` stays box),
+and a `PhysicsSystem` that selects the shape per entity. The demo drops a **sphere, capsule,
+and a box stack** onto the ground; headless tests cover sphere-rest, box-stack stability, and
+capsule-settle, all deterministic (272 tests, 0 validation errors). **"Plane" = flat box**
+(Box3D has no plane primitive). **Next is P4** — raycasts / queries returning a neutral
+`RaycastResult`; then P5 (contact events + record/replay). Physics design/plan:
 [decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
 [P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) · [P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md) ·
-[P2 spec](../superpowers/specs/2026-08-24-physics-p2-system-design.md) · [P2 plan](../superpowers/plans/2026-08-24-physics-p2-system.md).
+[P2 spec](../superpowers/specs/2026-08-24-physics-p2-system-design.md) · [P2 plan](../superpowers/plans/2026-08-24-physics-p2-system.md) ·
+[P3 spec](../superpowers/specs/2026-08-24-physics-p3-shapes-design.md) · [P3 plan](../superpowers/plans/2026-08-24-physics-p3-shapes.md).
 Also still open: post-v0.1 Studio work (Blender live-link; asset-browser follow-ups —
 type-aware filtering, thumbnails, disk import, clear-to-nil))
 

@@ -38,11 +38,35 @@ public:
         bd.position.z = def.position.z;
         b3BodyId id = b3CreateBody(world_, &bd);
 
-        const Vec3 h = def.shape.half_extents;
-        b3BoxHull  hull = b3MakeBoxHull(h.x, h.y, h.z);
         b3ShapeDef sd = b3DefaultShapeDef();
         sd.density = def.density;
-        b3CreateHullShape(id, &sd, &hull.base);
+        switch (def.shape.kind)
+        {
+        case ep::ShapeKind::Box:
+        {
+            const Vec3 h = def.shape.half_extents;
+            b3BoxHull  hull = b3MakeBoxHull(h.x, h.y, h.z);
+            b3CreateHullShape(id, &sd, &hull.base);
+            break;
+        }
+        case ep::ShapeKind::Sphere:
+        {
+            b3Sphere sphere{};
+            sphere.center = b3Vec3{0.0f, 0.0f, 0.0f};
+            sphere.radius = def.shape.radius;
+            b3CreateSphereShape(id, &sd, &sphere);
+            break;
+        }
+        case ep::ShapeKind::Capsule:
+        {
+            b3Capsule capsule{};
+            capsule.center1 = b3Vec3{0.0f, -def.shape.half_height, 0.0f};
+            capsule.center2 = b3Vec3{0.0f, def.shape.half_height, 0.0f};
+            capsule.radius = def.shape.radius;
+            b3CreateCapsuleShape(id, &sd, &capsule);
+            break;
+        }
+        }
 
         bodies_.push_back(id);
         return static_cast<ep::BodyHandle>(bodies_.size()); // handle == index + 1
