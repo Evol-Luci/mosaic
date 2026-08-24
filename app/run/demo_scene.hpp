@@ -80,27 +80,51 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         cube_entity, transform::WorldTransform{mosaic::foundation::math::Mat4::identity()});
     world.add_component<render::MeshRenderer>(cube_entity, render::MeshRenderer{cube});
 
-    auto checker    = std::make_shared<render::Image>();
-    checker->width  = 64;
-    checker->height = 64;
-    checker->pixels.resize(64 * 64 * 4);
-    for (std::uint32_t y = 0; y < 64; ++y)
-        for (std::uint32_t x = 0; x < 64; ++x)
+    // Three procedural textures so the Asset Browser has something to assign. Each is a
+    // 64x64 RGBA Image registered as a "texture" asset under a distinct AssetID.
+    auto register_texture = [&](std::array<std::uint8_t, 16> uuid, auto&& pixel_fn)
+    {
+        auto image    = std::make_shared<render::Image>();
+        image->width  = 64;
+        image->height = 64;
+        image->pixels.resize(64 * 64 * 4);
+        for (std::uint32_t y = 0; y < 64; ++y)
+            for (std::uint32_t x = 0; x < 64; ++x)
+            {
+                pixel_fn(x, y, &image->pixels[(y * 64 + x) * 4]);
+            }
+        const mosaic::foundation::serialization::AssetID id{uuid};
+        registry.register_resource<render::Image>(
+            mosaic::engine::assets::AssetMetadata{id, "texture"}, image);
+        return id;
+    };
+
+    std::array<std::uint8_t, 16> checker_uuid{};
+    checker_uuid[0] = 0xC0;
+    checker_uuid[1] = 0xDE;
+    std::array<std::uint8_t, 16> solid_uuid{};
+    solid_uuid[0] = 0xA1;
+    std::array<std::uint8_t, 16> stripes_uuid{};
+    stripes_uuid[0] = 0xB2;
+
+    const auto tex_id = register_texture(checker_uuid,
+        [](std::uint32_t x, std::uint32_t y, std::uint8_t* p)
         {
-            const bool         on = ((x / 8) + (y / 8)) % 2 == 0;
-            const std::uint8_t c  = on ? 230 : 60;
-            std::uint8_t*      p  = &checker->pixels[(y * 64 + x) * 4];
-            p[0] = c;
-            p[1] = c;
-            p[2] = c;
-            p[3] = 255;
-        }
-    std::array<std::uint8_t, 16> tex_uuid{};
-    tex_uuid[0] = 0xC0;
-    tex_uuid[1] = 0xDE;
-    const mosaic::foundation::serialization::AssetID tex_id{tex_uuid};
-    registry.register_resource<render::Image>(
-        mosaic::engine::assets::AssetMetadata{tex_id, "texture"}, checker);
+            const std::uint8_t c = (((x / 8) + (y / 8)) % 2 == 0) ? 230 : 60;
+            p[0] = c; p[1] = c; p[2] = c; p[3] = 255;
+        });
+    register_texture(solid_uuid,
+        [](std::uint32_t, std::uint32_t, std::uint8_t* p)
+        {
+            p[0] = 220; p[1] = 120; p[2] = 60; p[3] = 255; // warm solid tint
+        });
+    register_texture(stripes_uuid,
+        [](std::uint32_t x, std::uint32_t, std::uint8_t* p)
+        {
+            const std::uint8_t c = ((x / 8) % 2 == 0) ? 200 : 40;
+            p[0] = c; p[1] = c; p[2] = c; p[3] = 255; // vertical stripes
+        });
+
     world.add_component<render::Material>(cube_entity,
                                           render::Material{Vec3{1.0F, 1.0F, 1.0F}, tex_id});
 
