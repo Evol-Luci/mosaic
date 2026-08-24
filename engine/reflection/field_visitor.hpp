@@ -23,6 +23,15 @@ public:
     virtual void field_readonly(std::string_view name, const std::string& display) = 0;
     virtual void begin_group(std::string_view name) = 0;
     virtual void end_group() = 0;
+
+    // A reference-to-asset field. The visitor may reassign it (e.g. from an asset
+    // browser). Default falls back to the read-only display so existing visitors keep
+    // compiling.
+    virtual void field_asset(std::string_view name,
+                             mosaic::foundation::serialization::AssetID& value)
+    {
+        field_readonly(name, value.to_string());
+    }
 };
 
 // mosaic::foundation::serialization::Handle<R> detection, kept local so this header
@@ -54,7 +63,7 @@ struct FieldVisitorAdapter
         }
         else if constexpr (std::is_same_v<U, ser::AssetID>)
         {
-            visitor.field_readonly(name, value.to_string());
+            visitor.field_asset(name, value);
         }
         else if constexpr (is_handle_v<U>)
         {

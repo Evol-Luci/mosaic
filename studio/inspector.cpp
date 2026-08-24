@@ -17,6 +17,21 @@ void ImGuiFieldVisitor::field_readonly(std::string_view name, const std::string&
     ImGui::LabelText(std::string(name).c_str(), "%s", display.c_str());
 }
 
+void ImGuiFieldVisitor::field_asset(std::string_view name,
+                                    mosaic::foundation::serialization::AssetID& value)
+{
+    const std::string label(name);
+    ImGui::PushID(label.c_str());
+    ImGui::LabelText(label.c_str(), "%s", value.to_string().c_str());
+    ImGui::BeginDisabled(!has_selection_);
+    if (ImGui::Button("Assign selected"))
+    {
+        value = selected_;
+    }
+    ImGui::EndDisabled();
+    ImGui::PopID();
+}
+
 void ImGuiFieldVisitor::begin_group(std::string_view name)
 {
     const std::string label(name);

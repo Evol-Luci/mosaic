@@ -11,7 +11,8 @@ namespace mosaic::studio
 {
 
 void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::engine::World& world,
-                        const mosaic::engine::reflection::ComponentReflection& reflection)
+                        const mosaic::engine::reflection::ComponentReflection& reflection,
+                        const mosaic::engine::assets::AssetRegistry& registry)
 {
     // Full-window dockspace host so panels can be docked/tabbed/floated.
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
@@ -62,6 +63,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             {
                 draw_inspector(world, reflection);
             }
+            else if (panel.name == "Assets")
+            {
+                draw_assets(registry);
+            }
             else if (panel.name == "Console")
             {
                 draw_console();
@@ -104,6 +109,21 @@ void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device)
     }
 }
 
+void StudioApp::draw_assets(const mosaic::engine::assets::AssetRegistry& registry)
+{
+    assets_.refresh(registry);
+    for (const AssetEntry& entry : assets_.entries())
+    {
+        const std::string label =
+            entry.type + "  " + (entry.source.empty() ? entry.id.to_string() : entry.source);
+        const bool selected = assets_.has_selection() && assets_.selected() == entry.id;
+        if (ImGui::Selectable(label.c_str(), selected))
+        {
+            assets_.select(entry.id);
+        }
+    }
+}
+
 void StudioApp::draw_console()
 {
     for (const ConsoleLine& line : console_->snapshot())
@@ -128,7 +148,7 @@ void StudioApp::draw_inspector(mosaic::engine::World& world,
         return;
     }
     const auto entity = selection_.selected();
-    ImGuiFieldVisitor visitor;
+    ImGuiFieldVisitor visitor(assets_.selected(), assets_.has_selection());
     for (const std::string& name : reflection.components_on(world, entity))
     {
         ImGui::PushID(name.c_str());

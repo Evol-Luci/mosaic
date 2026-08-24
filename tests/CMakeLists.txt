@@ -31,12 +31,14 @@ add_executable(mosaic_unit_tests
   unit/reflection/camera_reflection_test.cpp
   unit/reflection/field_visitor_test.cpp
   unit/reflection/component_inspect_test.cpp
+  unit/reflection/field_asset_test.cpp
   unit/scene/scene_save_test.cpp
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp
   unit/assets/asset_metadata_test.cpp
   unit/assets/asset_registry_test.cpp
   unit/assets/asset_resolver_test.cpp
+  unit/assets/asset_enumeration_test.cpp
   unit/math/vec2_test.cpp
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
@@ -66,6 +68,7 @@ add_executable(mosaic_unit_tests
   unit/studio/viewport_test.cpp
   unit/studio/play_state_test.cpp
   unit/studio/console_test.cpp
+  unit/studio/asset_browser_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

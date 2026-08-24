@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <cstddef>
 #include <unordered_map>
 #include <utility>
 
@@ -46,6 +47,18 @@ public:
         auto it = entries_.find(id);
         return it == entries_.end() ? nullptr : &it->second.metadata;
     }
+
+    // Invoke fn(const AssetMetadata&) for every registered asset, in unspecified order.
+    template <class F>
+    void for_each(F&& fn) const
+    {
+        for (const auto& [id, entry] : entries_)
+        {
+            fn(entry.metadata);
+        }
+    }
+
+    std::size_t size() const { return entries_.size(); }
 
     // Resolve + cache the resource. First call runs the loader and caches; later
     // calls return the cached instance. nullptr if the id is unregistered.

@@ -153,7 +153,7 @@ int run_editor(const Options& options)
 
         // Pass 2: ImGui UI (samples the offscreen target in the Viewport panel).
         device->begin_ui_frame();
-        studio.draw_ui(*device, world, reflection);
+        studio.draw_ui(*device, world, reflection, asset_registry);
         device->end_ui_frame();
         device->end_frame();
     };
