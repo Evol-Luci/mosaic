@@ -53,13 +53,19 @@ a real-backend ECS integration test (box falls + rests at y≈1.0, deterministic
 shapes, reflected `SphereCollider`/`CapsuleCollider` components (P2's `Collider` stays box),
 and a `PhysicsSystem` that selects the shape per entity. The demo drops a **sphere, capsule,
 and a box stack** onto the ground; headless tests cover sphere-rest, box-stack stability, and
-capsule-settle, all deterministic (272 tests, 0 validation errors). **"Plane" = flat box**
-(Box3D has no plane primitive). **Next is P4** — raycasts / queries returning a neutral
-`RaycastResult`; then P5 (contact events + record/replay). Physics design/plan:
+capsule-settle, all deterministic. **"Plane" = flat box** (Box3D has no plane primitive).
+**P4 is now built too** — a neutral `RaycastResult` + `PhysicsBackend::raycast` (closest-hit
+via Box3D's `b3World_CastRayClosest`, body identified through userData) and an ECS-level
+`PhysicsSystem::raycast` returning the hit `EntityID` (via a `BodyHandle → EntityID` reverse
+map). Headless deterministic hit/miss/nearest-of-two tests at both the backend and ECS levels
+(277 tests, 0 validation errors). No visuals — viewport mouse-picking is a deferred editor
+feature. **Next is P5** — contact events (via the #11 EventBus) + record/replay determinism,
+the final physics slice. Physics design/plan:
 [decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
 [P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) · [P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md) ·
 [P2 spec](../superpowers/specs/2026-08-24-physics-p2-system-design.md) · [P2 plan](../superpowers/plans/2026-08-24-physics-p2-system.md) ·
-[P3 spec](../superpowers/specs/2026-08-24-physics-p3-shapes-design.md) · [P3 plan](../superpowers/plans/2026-08-24-physics-p3-shapes.md).
+[P3 spec](../superpowers/specs/2026-08-24-physics-p3-shapes-design.md) · [P3 plan](../superpowers/plans/2026-08-24-physics-p3-shapes.md) ·
+[P4 spec](../superpowers/specs/2026-08-24-physics-p4-raycast-design.md) · [P4 plan](../superpowers/plans/2026-08-24-physics-p4-raycast.md).
 Also still open: post-v0.1 Studio work (Blender live-link; asset-browser follow-ups —
 type-aware filtering, thumbnails, disk import, clear-to-nil))
 

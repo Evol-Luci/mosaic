@@ -43,6 +43,12 @@ public:
     }
     void step(float, int) override { ++steps; }
     Pose body_pose(BodyHandle) const override { return fixed; }
+    mosaic::engine::physics::RaycastResult raycast(const mosaic::foundation::math::Vec3&,
+                                                   const mosaic::foundation::math::Vec3&,
+                                                   float) const override
+    {
+        return mosaic::engine::physics::RaycastResult{};
+    }
 };
 } // namespace
 

@@ -40,6 +40,15 @@ struct WorldDef
     mosaic::foundation::math::Vec3 gravity{0.0f, -9.81f, 0.0f}; // Y-up, meters, m/s^2
 };
 
+struct RaycastResult
+{
+    bool                           hit = false;
+    BodyHandle                     body = 0;        // valid only when hit
+    mosaic::foundation::math::Vec3 point{};          // world hit point
+    mosaic::foundation::math::Vec3 normal{};         // world surface normal at the hit
+    float                          distance = 0.0f;  // distance from origin along the ray
+};
+
 // The physics world contract; the Box3D backend implements it behind the wall. Stepping is
 // deterministic: identical construction + calls yield identical poses across runs.
 class PhysicsBackend
@@ -49,5 +58,10 @@ public:
     virtual BodyHandle create_body(const BodyDef& def) = 0;
     virtual void       step(float dt, int substeps) = 0;
     virtual Pose       body_pose(BodyHandle body) const = 0;
+
+    // Closest-hit raycast along [origin, origin + normalize(direction) * max_distance].
+    virtual RaycastResult raycast(const mosaic::foundation::math::Vec3& origin,
+                                  const mosaic::foundation::math::Vec3& direction,
+                                  float max_distance) const = 0;
 };
 } // namespace mosaic::engine::physics

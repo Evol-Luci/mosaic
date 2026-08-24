@@ -1,5 +1,6 @@
 #include "modules/physics_box3d/box3d_backend.hpp"
 
+#include <cstdint>
 #include <vector>
 
 #include <box3d/box3d.h>
@@ -69,10 +70,43 @@ public:
         }
 
         bodies_.push_back(id);
-        return static_cast<ep::BodyHandle>(bodies_.size()); // handle == index + 1
+        const auto handle = static_cast<ep::BodyHandle>(bodies_.size()); // handle == index + 1
+        b3Body_SetUserData(id, reinterpret_cast<void*>(static_cast<std::uintptr_t>(handle)));
+        return handle;
     }
 
     void step(float dt, int substeps) override { b3World_Step(world_, dt, substeps); }
+
+    ep::RaycastResult raycast(const Vec3& origin, const Vec3& direction,
+                              float max_distance) const override
+    {
+        ep::RaycastResult out;
+        if (max_distance <= 0.0f)
+        {
+            return out;
+        }
+        const Vec3 d = mosaic::foundation::math::normalize(direction);
+
+        b3Pos o{};
+        o.x = origin.x;
+        o.y = origin.y;
+        o.z = origin.z;
+        b3Vec3 translation{d.x * max_distance, d.y * max_distance, d.z * max_distance};
+
+        const b3RayResult r = b3World_CastRayClosest(world_, o, translation, b3DefaultQueryFilter());
+        if (!r.hit)
+        {
+            return out;
+        }
+        out.hit = true;
+        out.point = Vec3{r.point.x, r.point.y, r.point.z};
+        out.normal = Vec3{r.normal.x, r.normal.y, r.normal.z};
+        out.distance = r.fraction * max_distance;
+        const b3BodyId body = b3Shape_GetBody(r.shapeId);
+        out.body = static_cast<ep::BodyHandle>(
+            reinterpret_cast<std::uintptr_t>(b3Body_GetUserData(body)));
+        return out;
+    }
 
     ep::Pose body_pose(ep::BodyHandle body) const override
     {
