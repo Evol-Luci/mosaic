@@ -28,6 +28,8 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::render::PointLight>(registry, "PointLight");
     types.register_component<mosaic::engine::physics::RigidBody>(registry, "RigidBody");
     types.register_component<mosaic::engine::physics::Collider>(registry, "Collider");
+    types.register_component<mosaic::engine::physics::SphereCollider>(registry, "SphereCollider");
+    types.register_component<mosaic::engine::physics::CapsuleCollider>(registry, "CapsuleCollider");
 }
 
 } // namespace mosaic::engine::reflection
