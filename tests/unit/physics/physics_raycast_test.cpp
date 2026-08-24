@@ -66,3 +66,36 @@ TEST_CASE("backend raycast is deterministic", "[physics]")
     REQUIRE(backend->raycast(Vec3{0, 5, 0}, Vec3{0, -1, 0}, 10.0f).distance ==
             backend->raycast(Vec3{0, 5, 0}, Vec3{0, -1, 0}, 10.0f).distance);
 }
+
+#include "engine/physics/physics_components.hpp"
+#include "engine/physics/physics_system.hpp"
+#include "engine/transform/transform.hpp"
+#include "engine/world/world.hpp"
+
+using mosaic::engine::World;
+using mosaic::engine::physics::Collider;
+using mosaic::engine::physics::PhysicsSystem;
+using mosaic::engine::physics::RigidBody;
+using mosaic::engine::transform::Transform;
+using mosaic::foundation::math::Quat;
+
+TEST_CASE("PhysicsSystem::raycast returns the hit entity", "[physics]")
+{
+    World world;
+    auto& sys = world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(ground, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}}); // top y=0.5
+
+    world.tick(1.0f / 60.0f); // creates the backend body + populates the handle->entity map
+
+    const auto hit = sys.raycast(Vec3{0, 5, 0}, Vec3{0, -1, 0}, 10.0f);
+    REQUIRE(hit.hit);
+    REQUIRE(hit.entity == ground);
+    REQUIRE(hit.distance == Approx(4.5f).margin(0.05f));
+
+    const auto miss = sys.raycast(Vec3{100, 5, 0}, Vec3{0, -1, 0}, 10.0f);
+    REQUIRE_FALSE(miss.hit);
+}

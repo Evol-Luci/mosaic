@@ -12,6 +12,17 @@
 
 namespace mosaic::engine::physics
 {
+// The entity-level result of PhysicsSystem::raycast (the backend's RaycastResult mapped to
+// the hit entity).
+struct RaycastHit
+{
+    bool                           hit = false;
+    mosaic::foundation::EntityID   entity{}; // valid only when hit
+    mosaic::foundation::math::Vec3 point{};
+    mosaic::foundation::math::Vec3 normal{};
+    float                          distance = 0.0f;
+};
+
 // Steps a PhysicsBackend inside World::tick and syncs simulated poses to Transform.
 // The backend is injected (via add_system<PhysicsSystem>(backend)); this system depends
 // only on the neutral interface, never on any concrete backend module.
@@ -53,7 +64,9 @@ public:
                 def.position = t->position;
                 def.shape = shape;
                 def.density = rb.density;
-                bodies_[e] = backend_->create_body(def);
+                const BodyHandle handle = backend_->create_body(def);
+                bodies_[e] = handle;
+                handle_to_entity_[handle] = e;
             });
 
         // 2. Advance the simulation one fixed step.
@@ -76,6 +89,30 @@ public:
             t->position = pose.position;
             t->rotation = pose.rotation;
         }
+    }
+
+    // Closest-hit raycast; returns the hit entity (hit == false on a miss).
+    RaycastHit raycast(const mosaic::foundation::math::Vec3& origin,
+                       const mosaic::foundation::math::Vec3& direction,
+                       float max_distance) const
+    {
+        const RaycastResult r = backend_->raycast(origin, direction, max_distance);
+        RaycastHit          hit;
+        if (!r.hit)
+        {
+            return hit;
+        }
+        const auto it = handle_to_entity_.find(r.body);
+        if (it == handle_to_entity_.end())
+        {
+            return hit;
+        }
+        hit.hit = true;
+        hit.entity = it->second;
+        hit.point = r.point;
+        hit.normal = r.normal;
+        hit.distance = r.distance;
+        return hit;
     }
 
 private:
@@ -103,6 +140,7 @@ private:
 
     std::unique_ptr<PhysicsBackend>                              backend_;
     std::unordered_map<mosaic::foundation::EntityID, BodyHandle> bodies_;
+    std::unordered_map<BodyHandle, mosaic::foundation::EntityID> handle_to_entity_;
     int                                                          substeps_;
 };
 } // namespace mosaic::engine::physics
