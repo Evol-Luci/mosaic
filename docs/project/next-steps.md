@@ -21,8 +21,21 @@ so stdout stays pure JSON). **Validation-layer fix:** with `VK_LAYER_KHRONOS_val
 installed, a pre-existing swapchain-semaphore-reuse bug (latent since the 36a swapchain work)
 surfaced and is fixed — `render_finished_` is now per swapchain image, indexed by
 `image_index_`, so a present-wait semaphore is never reused while its present is still pending
-(`editor --ticks 180` now emits 0 `pSignalSemaphores` warnings). **Next frontier:** post-v0.1
-Studio work (asset browser, Blender live-link) or the next roadmap milestone)
+(`editor --ticks 180` now emits 0 `pSignalSemaphores` warnings). **Post-v0.1 Studio asset
+browser is built:** an **Assets** panel lists registered assets (via new `AssetRegistry`
+enumeration) and assigns a selected asset to a component's `AssetID` field live — e.g. swap
+the cube's `Material.texture` and watch the viewport update — through the reflected-property
+surface (a new mutable `FieldVisitor::field_asset`, so humans and the future agent API share
+one path), with a headless `AssetBrowserModel` and three procedural demo textures.
+**Two visual bugs from acceptance testing were fixed** (PR #61): inside-out culling (a
+negative-height viewport reverses winding, so `frontFace` is now `CLOCKWISE`; pre-existing
+since 36b) and paused inspector edits not refreshing the viewport (the editor now runs
+`TransformSystem` every frame as derived state, gating only the spin behind play/stop).
+**Next frontier:** the remaining post-v0.1 Studio work (Blender live-link; asset-browser
+follow-ups: type-aware filtering, thumbnails, disk import, clear-to-nil) or the next roadmap
+milestone. Design/plan for the asset browser:
+[spec](../superpowers/specs/2026-08-23-studio-asset-browser-design.md) ·
+[plan](../superpowers/plans/2026-08-23-studio-asset-browser.md))
 
 ## Where we are
 
