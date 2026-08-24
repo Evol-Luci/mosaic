@@ -37,6 +37,7 @@ add_executable(mosaic_unit_tests
   unit/assets/asset_metadata_test.cpp
   unit/assets/asset_registry_test.cpp
   unit/assets/asset_resolver_test.cpp
+  unit/assets/asset_enumeration_test.cpp
   unit/math/vec2_test.cpp
   unit/math/vec3_test.cpp
   unit/math/quat_test.cpp
