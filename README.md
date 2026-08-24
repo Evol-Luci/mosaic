@@ -29,11 +29,14 @@ the enforced dependency rules.
 
 ## Status
 
-Design / vision phase. This repository currently holds the specification, design
-docs, and roadmap. The first buildable milestone is the narrow **v0.1 vertical
-slice** defined in the [roadmap](docs/project/roadmap.md): create a project →
-import a Blender model → place it in a world → attach physics → write a Python
-script → press **Play** → **Build** a standalone.
+**Active development** — the **Phase 0 Foundation**, **v0.1 Headless Engine Core**, **Application Shell**, **Vulkan Windowed Rendering**, and the **Mosaic Studio v0.1 Lean Core** are operational:
+- Foundation: ECS core ([#9](https://github.com/Evol-Luci/mosaic/issues/9)), reflection ([#18](https://github.com/Evol-Luci/mosaic/issues/18)), serialization ([#10](https://github.com/Evol-Luci/mosaic/issues/10)), commands & events ([#11](https://github.com/Evol-Luci/mosaic/issues/11)), foundation math & projections ([#26](https://github.com/Evol-Luci/mosaic/issues/26), [#43](https://github.com/Evol-Luci/mosaic/issues/43), [#44](https://github.com/Evol-Luci/mosaic/issues/44)), structured logging ([#33](https://github.com/Evol-Luci/mosaic/issues/33)), job concurrency & thread pool ([#34](https://github.com/Evol-Luci/mosaic/issues/34)).
+- Engine: Runtime `World`, Scene load/save ([#19](https://github.com/Evol-Luci/mosaic/issues/19)), Asset registry ([#20](https://github.com/Evol-Luci/mosaic/issues/20)), Transform system ([#21](https://github.com/Evol-Luci/mosaic/issues/21)), fixed-timestep `RuntimeLoop` ([#22](https://github.com/Evol-Luci/mosaic/issues/22)), built-in component registration, `MeshRenderer`, `Camera`, `Material`, `DirectionalLight`, and lit `RenderSystem` scene traversal ([#43](https://github.com/Evol-Luci/mosaic/issues/43), [#44](https://github.com/Evol-Luci/mosaic/issues/44), [#45](https://github.com/Evol-Luci/mosaic/issues/45), [#46](https://github.com/Evol-Luci/mosaic/issues/46)).
+- App & Rendering: Standalone `mosaic` CLI executable, argument parsing, real-time `FramePump` with signal handling ([#35](https://github.com/Evol-Luci/mosaic/issues/35)), neutral `RenderDevice` interface and Vulkan backend (`modules/render_vulkan`) powering `mosaic run --window` with hardware clear, mesh draw, camera-driven view/projection, and offscreen rendering targets ([#42](https://github.com/Evol-Luci/mosaic/issues/42)–[#46](https://github.com/Evol-Luci/mosaic/issues/46)).
+- Studio Workbench ([#37](https://github.com/Evol-Luci/mosaic/issues/37)): `mosaic editor` launches an interactive ImGui docking workbench with a live **Hierarchy** panel, a **Reflection Inspector** with in-place component editing, a dynamic offscreen 3D **Viewport** panel, a simulation **Toolbar & Console** (Play/Pause/Step + thread-safe log sink), and an **Asset Browser** with live texture property assignment.
+- Test suite: **254 unit and integration tests**, 100% passing.
+
+The current frontier targets the post-v0.1 Studio milestones (Blender live-link, asset thumbnail caching/import) and physics integration (Box3D adapter). See the live build handoff in [docs/project/next-steps.md](docs/project/next-steps.md) and [CHANGELOG.md](CHANGELOG.md).
 
 ## Licensing
 

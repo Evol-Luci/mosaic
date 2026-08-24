@@ -10,3 +10,7 @@ build/
 
 # Dear ImGui writes its saved panel/dock layout here at runtime (mosaic editor).
 imgui.ini
+
+# Agent / IDE local configs and worktrees
+.claude/
+

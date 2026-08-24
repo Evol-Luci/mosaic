@@ -158,7 +158,21 @@
         <div class="nav-group">
             <h3>General</h3>
             <a class="nav-link" onclick="loadFile('../README.md', this)">README</a>
+            <a class="nav-link" onclick="loadFile('../CHANGELOG.md', this)">Changelog</a>
             <a class="nav-link" onclick="loadFile('vision/manifesto.md', this)">Manifesto</a>
+            <a class="nav-link" onclick="loadFile('project/next-steps.md', this)">Next Steps &amp; Handoff</a>
+            <a class="nav-link" onclick="loadFile('project/advancement-plans-and-evaluation.md', this)">Advancement &amp; Evaluation</a>
+            <a class="nav-link" onclick="loadFile('../chatgpt_plans.md', this)">ChatGPT Initial Plans</a>
+            <a class="nav-link" onclick="loadFile('../gemini_plans.md', this)">Gemini Initial Plans</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Updates &amp; Summaries</h3>
+            <a class="nav-link" onclick="loadFile('updates/2026-08-23-summary.md', this)">2026-08-23 · Studio v0.1 Core &amp; Asset Browser</a>
+            <a class="nav-link" onclick="loadFile('updates/2026-08-21-summary.md', this)">2026-08-21 · Camera &amp; View/Projection</a>
+            <a class="nav-link" onclick="loadFile('updates/2026-08-18-summary.md', this)">2026-08-18 · Vulkan Rendering &amp; Mesh Draw</a>
+            <a class="nav-link" onclick="loadFile('updates/2026-08-17-summary.md', this)">2026-08-17 · Foundation &amp; App Shell</a>
+            <a class="nav-link" onclick="loadFile('updates/2026-08-16-summary.md', this)">2026-08-16 · Engine Core</a>
         </div>
 
         <div class="nav-group">
@@ -180,10 +194,14 @@
         </div>
 
         <div class="nav-group">
-            <h3>Project</h3>
-            <a class="nav-link" onclick="loadFile('project/licensing.md', this)">Licensing</a>
+            <h3>Project &amp; Legal</h3>
             <a class="nav-link" onclick="loadFile('project/roadmap.md', this)">Roadmap</a>
+            <a class="nav-link" onclick="loadFile('project/advancement-plans-and-evaluation.md', this)">Advancement &amp; Evaluation</a>
             <a class="nav-link" onclick="loadFile('project/repo-layout.md', this)">Repo Layout</a>
+            <a class="nav-link" onclick="loadFile('project/licensing.md', this)">Licensing</a>
+            <a class="nav-link" onclick="loadFile('../LICENSE.commercial.md', this)">Commercial License</a>
+            <a class="nav-link" onclick="loadFile('legal/mosaic-icla.md', this)">Individual CLA</a>
+            <a class="nav-link" onclick="loadFile('legal/mosaic-ccla.md', this)">Corporate CLA</a>
             <a class="nav-link" onclick="loadFile('../CONTRIBUTING.md', this)">Contributing</a>
             <a class="nav-link" onclick="loadFile('../CODE_OF_CONDUCT.md', this)">Code of Conduct</a>
         </div>
@@ -192,6 +210,64 @@
             <h3>RFCs</h3>
             <a class="nav-link" onclick="loadFile('rfcs/0000-template.md', this)">RFC Template</a>
             <a class="nav-link" onclick="loadFile('rfcs/0001-core-data-model.md', this)">0001 · Core Data Model</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Design Specs</h3>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-15-mosaic-design.md', this)">Mosaic Overview</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-15-ecs-core-design.md', this)">ECS Core</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-15-serialization-reflection-design.md', this)">Serialization &amp; Reflection</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-engine-world-runtime-design.md', this)">Engine World Runtime</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-reflection-system-design.md', this)">Reflection System</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-scene-load-save-design.md', this)">Scene Load / Save</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-asset-registry-design.md', this)">Asset Registry</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-transform-system-design.md', this)">Math &amp; Transform System</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-runtime-loop-design.md', this)">Runtime Loop</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-16-logging-design.md', this)">Structured Logging</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-17-app-cli-shell-design.md', this)">App / CLI Shell</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-17-jobs-design.md', this)">Jobs &amp; Thread Pool</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-17-rendering-decomposition.md', this)">Rendering Decomposition</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-17-render-36a-clear-screen-design.md', this)">Render 36a · Clear Screen</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-18-render-36b-mesh-draw-design.md', this)">Render 36b · Mesh Draw</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-18-render-36c-camera-design.md', this)">Render 36c · Camera</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-18-render-36d1-lighting-design.md', this)">Render 36d1 · Directional Light</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-22-render-36d2-texture-design.md', this)">Render 36d2 · Textures</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-22-render-36e1-point-light-design.md', this)">Render 36e1 · Point Light</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-22-studio-decomposition.md', this)">Studio Decomposition</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-22-studio-37a-editor-shell-design.md', this)">Studio 37a · Editor Shell</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-23-studio-37b-hierarchy-design.md', this)">Studio 37b · Hierarchy</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-23-studio-37c-inspector-design.md', this)">Studio 37c · Inspector</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-23-studio-37d-viewport-design.md', this)">Studio 37d · Viewport</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-23-studio-37e-play-stop-console-design.md', this)">Studio 37e · Controls &amp; Console</a>
+            <a class="nav-link" onclick="loadFile('superpowers/specs/2026-08-23-studio-asset-browser-design.md', this)">Studio · Asset Browser</a>
+        </div>
+
+        <div class="nav-group">
+            <h3>Implementation Plans</h3>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-15-mosaic-docs-hub.md', this)">Docs Hub Setup</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-15-ecs-core.md', this)">ECS Core</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-15-serialization-reflection.md', this)">Serialization &amp; Reflection</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-engine-world-runtime.md', this)">Engine World Runtime</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-reflection-system.md', this)">Reflection System</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-scene-load-save.md', this)">Scene Load / Save</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-asset-registry.md', this)">Asset Registry</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-transform-system.md', this)">Math &amp; Transform System</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-runtime-loop.md', this)">Runtime Loop</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-16-logging.md', this)">Structured Logging</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-17-app-cli-shell.md', this)">App / CLI Shell</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-17-jobs.md', this)">Jobs &amp; Thread Pool</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-17-render-36a-clear-screen.md', this)">Render 36a · Clear Screen</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-18-render-36b-mesh-draw.md', this)">Render 36b · Mesh Draw</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-18-render-36c-camera.md', this)">Render 36c · Camera</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-18-render-36d1-lighting.md', this)">Render 36d1 · Directional Light</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-22-render-36d2-texture.md', this)">Render 36d2 · Textures</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-22-render-36e1-point-light.md', this)">Render 36e1 · Point Light</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-22-studio-37a-editor-shell.md', this)">Studio 37a · Editor Shell</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-23-studio-37b-hierarchy.md', this)">Studio 37b · Hierarchy</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-23-studio-37c-inspector.md', this)">Studio 37c · Inspector</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-23-studio-37d-viewport.md', this)">Studio 37d · Viewport</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-23-studio-37e-play-stop-console.md', this)">Studio 37e · Controls &amp; Console</a>
+            <a class="nav-link" onclick="loadFile('superpowers/plans/2026-08-23-studio-asset-browser.md', this)">Studio · Asset Browser</a>
         </div>
     </div>
 
