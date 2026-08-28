@@ -20,6 +20,7 @@
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
 #include "modules/physics_box3d/box3d_backend.hpp"
 
@@ -47,6 +48,16 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
+
+    // Log physics contacts so they show in the editor Console (#33 / 37e) and on stderr.
+    world.events().subscribe<physics::ContactEvent>(
+        [](const physics::ContactEvent& c)
+        {
+            mosaic::foundation::log::info(
+                "physics", "contact {}: entity {} <-> entity {}",
+                c.phase == physics::ContactPhase::Begin ? "begin" : "end", c.a.index(),
+                c.b.index());
+        });
 
     const render::MeshHandle cube = [&]
     {

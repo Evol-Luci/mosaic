@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 #include "foundation/math/quat.hpp"
 #include "foundation/math/vec3.hpp"
@@ -49,6 +50,15 @@ struct RaycastResult
     float                          distance = 0.0f;  // distance from origin along the ray
 };
 
+enum class ContactPhase { Begin, End };
+
+struct BodyContact
+{
+    ContactPhase phase;
+    BodyHandle   a;
+    BodyHandle   b;
+};
+
 // The physics world contract; the Box3D backend implements it behind the wall. Stepping is
 // deterministic: identical construction + calls yield identical poses across runs.
 class PhysicsBackend
@@ -64,6 +74,9 @@ public:
     virtual void set_body_transform(BodyHandle body,
                                     const mosaic::foundation::math::Vec3& position,
                                     const mosaic::foundation::math::Quat& rotation) = 0;
+
+    // Begin/end touch contacts produced by the most recent step().
+    virtual std::vector<BodyContact> contact_events() const = 0;
 
     // Closest-hit raycast along [origin, origin + normalize(direction) * max_distance].
     virtual RaycastResult raycast(const mosaic::foundation::math::Vec3& origin,

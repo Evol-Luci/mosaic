@@ -53,6 +53,10 @@ public:
     {
         return mosaic::engine::physics::RaycastResult{};
     }
+    std::vector<mosaic::engine::physics::BodyContact> contact_events() const override
+    {
+        return {};
+    }
 };
 } // namespace
 

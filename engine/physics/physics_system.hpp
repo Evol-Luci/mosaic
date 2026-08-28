@@ -12,6 +12,14 @@
 
 namespace mosaic::engine::physics
 {
+// A physics contact between two entities, emitted on the World's EventBus each tick.
+struct ContactEvent
+{
+    ContactPhase                 phase;
+    mosaic::foundation::EntityID a;
+    mosaic::foundation::EntityID b;
+};
+
 // The entity-level result of PhysicsSystem::raycast (the backend's RaycastResult mapped to
 // the hit entity).
 struct RaycastHit
@@ -109,6 +117,18 @@ public:
             t->position = pose.position;
             t->rotation = pose.rotation;
             synced_pose_[e] = pose;
+        }
+
+        // 5. Emit contact events (mapped to entities) on the world's event bus.
+        for (const BodyContact& c : backend_->contact_events())
+        {
+            const auto ia = handle_to_entity_.find(c.a);
+            const auto ib = handle_to_entity_.find(c.b);
+            if (ia == handle_to_entity_.end() || ib == handle_to_entity_.end())
+            {
+                continue;
+            }
+            world.events().emit<ContactEvent>(ContactEvent{c.phase, ia->second, ib->second});
         }
     }
 

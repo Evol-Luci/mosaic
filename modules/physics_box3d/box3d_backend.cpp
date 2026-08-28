@@ -41,6 +41,7 @@ public:
 
         b3ShapeDef sd = b3DefaultShapeDef();
         sd.density = def.density;
+        sd.enableContactEvents = true; // required: touch events are off by default
         switch (def.shape.kind)
         {
         case ep::ShapeKind::Box:
@@ -75,7 +76,32 @@ public:
         return handle;
     }
 
-    void step(float dt, int substeps) override { b3World_Step(world_, dt, substeps); }
+    void step(float dt, int substeps) override
+    {
+        b3World_Step(world_, dt, substeps);
+        last_contacts_.clear();
+        const b3ContactEvents ev = b3World_GetContactEvents(world_);
+        for (int i = 0; i < ev.beginCount; ++i)
+        {
+            last_contacts_.push_back(ep::BodyContact{
+                ep::ContactPhase::Begin, handle_of(b3Shape_GetBody(ev.beginEvents[i].shapeIdA)),
+                handle_of(b3Shape_GetBody(ev.beginEvents[i].shapeIdB))});
+        }
+        for (int i = 0; i < ev.endCount; ++i)
+        {
+            const b3ShapeId sa = ev.endEvents[i].shapeIdA;
+            const b3ShapeId sb = ev.endEvents[i].shapeIdB;
+            if (!b3Shape_IsValid(sa) || !b3Shape_IsValid(sb))
+            {
+                continue; // a shape was destroyed with its body; skip
+            }
+            last_contacts_.push_back(ep::BodyContact{
+                ep::ContactPhase::End, handle_of(b3Shape_GetBody(sa)),
+                handle_of(b3Shape_GetBody(sb))});
+        }
+    }
+
+    std::vector<ep::BodyContact> contact_events() const override { return last_contacts_; }
 
     void set_body_transform(ep::BodyHandle body, const Vec3& position,
                             const Quat& rotation) override
@@ -143,8 +169,15 @@ public:
     }
 
 private:
-    b3WorldId             world_{};
-    std::vector<b3BodyId> bodies_;
+    static ep::BodyHandle handle_of(b3BodyId id)
+    {
+        return static_cast<ep::BodyHandle>(
+            reinterpret_cast<std::uintptr_t>(b3Body_GetUserData(id)));
+    }
+
+    b3WorldId                    world_{};
+    std::vector<b3BodyId>        bodies_;
+    std::vector<ep::BodyContact> last_contacts_;
 };
 } // namespace
 
