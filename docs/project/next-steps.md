@@ -49,6 +49,11 @@ editor/`mosaic run --window` demo is now a **textured box dropping onto a ground
 **Play finally simulates**, and Pause/Step single-step the fall. Tested headlessly: a
 fake-backend sync test (one body per physics entity, dynamic write-back, static untouched) +
 a real-backend ECS integration test (box falls + rests at y≈1.0, deterministic).
+**Editor-interaction fix (found in acceptance testing):** the `PhysicsSystem` now syncs
+**both ways** — a new `PhysicsBackend::set_body_transform` (teleport + zero velocity) plus a
+per-tick divergence check push external `Transform` edits (inspector drags) into the
+simulation, so a physics object can be moved while playing and edits survive Pause→Play
+(previously the one-way body→Transform write-back clobbered edits / jumped the object back).
 **P3 is now built too** — a tagged neutral `Shape` (box/sphere/capsule) mapped to Box3D
 shapes, reflected `SphereCollider`/`CapsuleCollider` components (P2's `Collider` stays box),
 and a `PhysicsSystem` that selects the shape per entity. The demo drops a **sphere, capsule,
