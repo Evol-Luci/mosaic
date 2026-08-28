@@ -95,6 +95,9 @@ public:
         b3Body_SetTransform(id, pos, rot);
         b3Body_SetLinearVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
         b3Body_SetAngularVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
+        // Wake the body: a rested body sleeps, and a teleport must re-enter the simulation
+        // (otherwise it hangs at the new location instead of continuing to simulate).
+        b3Body_SetAwake(id, true);
     }
 
     ep::RaycastResult raycast(const Vec3& origin, const Vec3& direction,
