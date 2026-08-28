@@ -43,6 +43,10 @@ public:
     }
     void step(float, int) override { ++steps; }
     Pose body_pose(BodyHandle) const override { return fixed; }
+    void set_body_transform(BodyHandle, const mosaic::foundation::math::Vec3&,
+                            const mosaic::foundation::math::Quat&) override
+    {
+    }
     mosaic::engine::physics::RaycastResult raycast(const mosaic::foundation::math::Vec3&,
                                                    const mosaic::foundation::math::Vec3&,
                                                    float) const override
@@ -233,4 +237,38 @@ TEST_CASE("a stack of two boxes rests stably", "[physics]")
     REQUIRE(uy > 1.85f); // top box ~= 2.0
     REQUIRE(uy < 2.15f);
     REQUIRE(uy > ly);    // did not collapse/interpenetrate
+}
+
+TEST_CASE("an external Transform edit teleports the body (not clobbered by the sim)", "[physics]")
+{
+    using namespace mosaic::engine::physics;
+    World world;
+    world.add_system<PhysicsSystem>(mosaic::physics::box3d::create_box3d_backend(WorldDef{}));
+
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(ground,
+        Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    const auto box = world.create_entity();
+    world.add_component<Transform>(box, Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    for (int i = 0; i < 120; ++i) // let it fall and rest at x~=0
+    {
+        world.tick(1.0f / 60.0f);
+    }
+    REQUIRE(world.get_component<Transform>(box)->position.x == Approx(0.0f).margin(0.1f));
+
+    // Simulate an inspector edit: move the box sideways to x=3 (like dragging Transform).
+    world.get_component<Transform>(box)->position = Vec3{3.0f, 1.0f, 0.0f};
+
+    for (int i = 0; i < 5; ++i) // continue simulating (as if Play resumed)
+    {
+        world.tick(1.0f / 60.0f);
+    }
+    // The body must have followed the edit: the box stays near x=3, not clobbered back to 0.
+    REQUIRE(world.get_component<Transform>(box)->position.x == Approx(3.0f).margin(0.2f));
 }
