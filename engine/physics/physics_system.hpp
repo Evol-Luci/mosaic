@@ -67,12 +67,32 @@ public:
                 const BodyHandle handle = backend_->create_body(def);
                 bodies_[e] = handle;
                 handle_to_entity_[handle] = e;
+                synced_pose_[e] = Pose{t->position, t->rotation};
             });
 
-        // 2. Advance the simulation one fixed step.
+        // 2. Push external Transform edits (e.g. inspector drags) into the simulation:
+        // if an entity's Transform no longer matches the pose we last wrote to it, the
+        // user moved it, so teleport the body to the new Transform.
+        for (const auto& [e, handle] : bodies_)
+        {
+            const transform::Transform* t = world.get_component<transform::Transform>(e);
+            if (t == nullptr)
+            {
+                continue;
+            }
+            if (!pose_matches(*t, synced_pose_[e]))
+            {
+                backend_->set_body_transform(handle, t->position, t->rotation);
+                synced_pose_[e] = Pose{t->position, t->rotation};
+            }
+        }
+
+        // 3. Advance the simulation one fixed step.
         backend_->step(dt, substeps_);
 
-        // 3. Write dynamic-body poses back into Transform (static bodies do not move).
+        // 4. Write dynamic-body poses back into Transform (static bodies do not move).
+        // Record the written pose so the next tick's step 2 can tell a genuine external
+        // edit from our own write-back (exact compare: we assign Transform = pose here).
         for (const auto& [e, handle] : bodies_)
         {
             const RigidBody* rb = world.get_component<RigidBody>(e);
@@ -88,6 +108,7 @@ public:
             const Pose pose = backend_->body_pose(handle);
             t->position = pose.position;
             t->rotation = pose.rotation;
+            synced_pose_[e] = pose;
         }
     }
 
@@ -138,9 +159,20 @@ private:
         return false;
     }
 
+    // Exact match between an entity's Transform and the pose we last synced. The write-back
+    // assigns Transform = pose bit-exactly, so a mismatch means an external edit.
+    static bool pose_matches(const transform::Transform& t, const Pose& p)
+    {
+        return t.position.x == p.position.x && t.position.y == p.position.y &&
+               t.position.z == p.position.z && t.rotation.x == p.rotation.x &&
+               t.rotation.y == p.rotation.y && t.rotation.z == p.rotation.z &&
+               t.rotation.w == p.rotation.w;
+    }
+
     std::unique_ptr<PhysicsBackend>                              backend_;
     std::unordered_map<mosaic::foundation::EntityID, BodyHandle> bodies_;
     std::unordered_map<BodyHandle, mosaic::foundation::EntityID> handle_to_entity_;
+    std::unordered_map<mosaic::foundation::EntityID, Pose>       synced_pose_;
     int                                                          substeps_;
 };
 } // namespace mosaic::engine::physics

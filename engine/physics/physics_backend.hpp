@@ -59,6 +59,12 @@ public:
     virtual void       step(float dt, int substeps) = 0;
     virtual Pose       body_pose(BodyHandle body) const = 0;
 
+    // Teleport a body to a new pose, resetting its velocity. Used to push external
+    // (e.g. editor/inspector) Transform edits into the simulation.
+    virtual void set_body_transform(BodyHandle body,
+                                    const mosaic::foundation::math::Vec3& position,
+                                    const mosaic::foundation::math::Quat& rotation) = 0;
+
     // Closest-hit raycast along [origin, origin + normalize(direction) * max_distance].
     virtual RaycastResult raycast(const mosaic::foundation::math::Vec3& origin,
                                   const mosaic::foundation::math::Vec3& direction,

@@ -77,6 +77,26 @@ public:
 
     void step(float dt, int substeps) override { b3World_Step(world_, dt, substeps); }
 
+    void set_body_transform(ep::BodyHandle body, const Vec3& position,
+                            const Quat& rotation) override
+    {
+        if (body == 0 || body > bodies_.size())
+        {
+            return;
+        }
+        const b3BodyId id = bodies_[body - 1];
+        b3Pos          pos{};
+        pos.x = position.x;
+        pos.y = position.y;
+        pos.z = position.z;
+        b3Quat rot{};
+        rot.v = b3Vec3{rotation.x, rotation.y, rotation.z};
+        rot.s = rotation.w;
+        b3Body_SetTransform(id, pos, rot);
+        b3Body_SetLinearVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
+        b3Body_SetAngularVelocity(id, b3Vec3{0.0f, 0.0f, 0.0f});
+    }
+
     ep::RaycastResult raycast(const Vec3& origin, const Vec3& direction,
                               float max_distance) const override
     {
