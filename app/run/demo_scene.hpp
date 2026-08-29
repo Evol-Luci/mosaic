@@ -10,6 +10,7 @@
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
 #include "engine/render/camera.hpp"
+#include "engine/render/capsule.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/image.hpp"
@@ -18,6 +19,7 @@
 #include "engine/render/point_light.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
+#include "engine/render/sphere.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
@@ -64,6 +66,22 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         std::vector<render::Vertex> v;
         std::vector<std::uint32_t>  i;
         render::make_cube_mesh(v, i);
+        return device.create_mesh(v, i);
+    }();
+
+    // Sphere/capsule meshes sized to match their colliders (radius 0.5; capsule half_height 0.5).
+    const render::MeshHandle sphere_mesh = [&]
+    {
+        std::vector<render::Vertex> v;
+        std::vector<std::uint32_t>  i;
+        render::make_sphere_mesh(v, i, 0.5f, 24);
+        return device.create_mesh(v, i);
+    }();
+    const render::MeshHandle capsule_mesh = [&]
+    {
+        std::vector<render::Vertex> v;
+        std::vector<std::uint32_t>  i;
+        render::make_capsule_mesh(v, i, 0.5f, 0.5f, 24);
         return device.create_mesh(v, i);
     }();
 
@@ -123,24 +141,24 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
-    // A sphere collider dropping beside the box (cube mesh is a visual stand-in).
+    // A sphere collider dropping beside the box (sphere mesh matches the collider radius).
     const auto sphere = world.create_entity();
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(sphere,
         transform::WorldTransform{Mat4::translation(Vec3{-2, 4, 0})});
-    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{sphere_mesh});
     world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
-    // A capsule collider dropping on the other side.
+    // A capsule collider dropping on the other side (capsule mesh matches the collider).
     const auto capsule = world.create_entity();
     world.add_component<transform::Transform>(capsule,
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(capsule,
         transform::WorldTransform{Mat4::translation(Vec3{2, 4, 0})});
-    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{capsule_mesh});
     world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
