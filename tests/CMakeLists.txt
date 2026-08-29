@@ -57,6 +57,7 @@ add_executable(mosaic_unit_tests
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
   unit/app/demo_scene_test.cpp
+  unit/app/scene_io_test.cpp
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/render_system_test.cpp
