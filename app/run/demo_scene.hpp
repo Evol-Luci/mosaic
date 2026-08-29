@@ -15,7 +15,6 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/point_light.hpp"
-#include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"

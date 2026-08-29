@@ -3,9 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <thread>
 
@@ -32,14 +30,12 @@
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
-#include "engine/scene/scene.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
 #include "foundation/reflection/type_registry.hpp"
-#include "foundation/serialization/reference.hpp" // SerializationError
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 
 namespace
@@ -92,7 +88,8 @@ int main(int argc, char** argv)
 
     if (!populate_world(world, options, types))
     {
-        return 1; // populate_world already logged the reason
+        reporter->error("failed to load scene: " + options.scene.value_or(std::string{}));
+        return 1;
     }
 
     engine::runtime::RuntimeLoop loop(1.0F / static_cast<float>(options.fixed_hz),

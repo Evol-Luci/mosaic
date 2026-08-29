@@ -53,7 +53,7 @@ private:
     ViewportPanel                  viewport_;
     PlayState                      play_;
     AssetBrowserModel              assets_;
-    SceneFileModel                 scene_file_{"scene.json"};
+    SceneFileModel                 scene_file_;
     std::shared_ptr<ConsoleBuffer> console_ = std::make_shared<ConsoleBuffer>();
 };
 
