@@ -108,4 +108,29 @@ inline bool create_project(const std::string& dir,
     mosaic::foundation::log::info("project", "created project {}", dir);
     return true;
 }
+
+// The "smart positional" resolver. Returns the scene file to load, or nullopt on error:
+//   - `path` is a directory containing mosaic.toml -> parse it -> "<path>/<default_scene>"
+//   - `path` has a .json extension                 -> `path` itself (a bare scene; existence is
+//                                                     validated later by populate_world)
+//   - otherwise (missing, or a dir without a manifest) -> nullopt (the caller reports).
+inline std::optional<std::string> resolve_startup_scene(const std::string& path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (fs::is_directory(path, ec))
+    {
+        const std::optional<ProjectManifest> m = load_manifest(path);
+        if (!m)
+        {
+            return std::nullopt;
+        }
+        return (fs::path(path) / m->default_scene).string();
+    }
+    if (fs::path(path).extension() == ".json")
+    {
+        return path;
+    }
+    return std::nullopt;
+}
 } // namespace mosaic::app
