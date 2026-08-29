@@ -10,10 +10,12 @@
 
 #include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
+#include "app/run/scene_io.hpp"
 #include "app/run/scene_load.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
+#include "engine/scene/scene.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/point_light.hpp"
@@ -85,7 +87,7 @@ int run_editor(const Options& options)
     std::signal(SIGINT, on_editor_sigint);
     g_editor_stop.store(false);
 
-    mosaic::studio::StudioApp studio;
+    mosaic::studio::StudioApp studio(options.scene.value_or("scene.json"));
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(
@@ -163,6 +165,21 @@ int run_editor(const Options& options)
         studio.draw_ui(*device, world, reflection, asset_registry);
         device->end_ui_frame();
         device->end_frame();
+
+        if (studio.scene_file().consume_save_request())
+        {
+            const std::string json = mosaic::engine::scene::save_to_json(world, reflection);
+            if (mosaic::app::save_scene_file(studio.scene_file().path(), json))
+            {
+                studio.scene_file().mark_clean();
+                mosaic::foundation::log::info("scene", "saved {}", studio.scene_file().path());
+            }
+            else
+            {
+                mosaic::foundation::log::error("scene", "save failed: {}",
+                                               studio.scene_file().path());
+            }
+        }
     };
 
     FramePump pump(loop, std::move(deps), *reporter, options);

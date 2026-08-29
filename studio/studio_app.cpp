@@ -21,6 +21,11 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     {
         if (ImGui::BeginMenu("File"))
         {
+            if (ImGui::MenuItem("Save"))
+            {
+                scene_file_.request_save();
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
             {
                 layout_.request_exit();
@@ -39,6 +44,8 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             play_.request_step();
         }
         ImGui::EndDisabled();
+
+        ImGui::Text("  %s%s", scene_file_.path().c_str(), scene_file_.dirty() ? " *" : "");
 
         ImGui::EndMainMenuBar();
     }
@@ -61,7 +68,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             }
             else if (panel.name == "Inspector")
             {
-                draw_inspector(world, reflection);
+                if (draw_inspector(world, reflection))
+                {
+                    scene_file_.mark_dirty();
+                }
             }
             else if (panel.name == "Assets")
             {
@@ -139,13 +149,13 @@ void StudioApp::draw_console()
     }
 }
 
-void StudioApp::draw_inspector(mosaic::engine::World& world,
+bool StudioApp::draw_inspector(mosaic::engine::World& world,
                                const mosaic::engine::reflection::ComponentReflection& reflection)
 {
     if (!selection_.has_selection())
     {
         ImGui::TextUnformatted("(nothing selected)");
-        return;
+        return false;
     }
     const auto entity = selection_.selected();
     ImGuiFieldVisitor visitor(assets_.selected(), assets_.has_selection());
@@ -158,6 +168,7 @@ void StudioApp::draw_inspector(mosaic::engine::World& world,
         }
         ImGui::PopID();
     }
+    return visitor.changed();
 }
 
 } // namespace mosaic::studio

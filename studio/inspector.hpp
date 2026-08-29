@@ -26,9 +26,12 @@ public:
     void begin_group(std::string_view name) override;
     void end_group() override;
 
+    bool changed() const { return changed_; }
+
 private:
     mosaic::foundation::serialization::AssetID selected_{};
     bool                                       has_selection_ = false;
+    bool                                       changed_       = false;
 };
 
 } // namespace mosaic::studio
