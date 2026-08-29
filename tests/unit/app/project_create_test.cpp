@@ -1,4 +1,3 @@
-#include <cstdio>
 #include <filesystem>
 #include <string>
 
@@ -45,7 +44,7 @@ TEST_CASE("create_project scaffolds a manifest + starter scene + assets dir", "[
     auto m = load_manifest(dir);
     REQUIRE(m.has_value());
     REQUIRE(m->default_scene == "scenes/main.json");
-    REQUIRE(!m->name.empty());
+    REQUIRE(m->name == std::filesystem::path(dir).filename().string());
 
     fs::remove_all(dir);
 }

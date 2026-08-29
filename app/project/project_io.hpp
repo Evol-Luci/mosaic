@@ -55,6 +55,11 @@ inline bool create_project(const std::string& dir,
 
     std::error_code ec;
     fs::create_directories(fs::path(dir) / kScenesDir, ec);
+    if (ec)
+    {
+        mosaic::foundation::log::error("project", "could not create project dirs: {}", dir);
+        return false;
+    }
     fs::create_directories(fs::path(dir) / kAssetsDir, ec);
     if (ec)
     {
@@ -94,7 +99,11 @@ inline bool create_project(const std::string& dir,
     }
 
     // Keep the empty assets/ dir under version control.
-    save_scene_file((p / kAssetsDir / ".gitkeep").string(), "");
+    if (!save_scene_file((p / kAssetsDir / ".gitkeep").string(), ""))
+    {
+        mosaic::foundation::log::error("project", "could not write assets/.gitkeep for {}", dir);
+        return false;
+    }
 
     mosaic::foundation::log::info("project", "created project {}", dir);
     return true;
