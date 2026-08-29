@@ -110,9 +110,9 @@ int run_editor(const Options& options)
 
     // Transform propagation (Transform -> WorldTransform) is *derived state*, not
     // simulation: run it every frame regardless of play/pause so inspector edits appear
-    // in the viewport even while paused. Only gameplay systems (the SpinSystem added by
-    // build_demo_scene) are gated behind the RuntimeLoop, so pausing freezes the spin but
-    // still reflects edits. It is deliberately NOT added via world.add_system().
+    // in the viewport even while paused. Only gameplay systems (e.g. the PhysicsSystem
+    // added by setup_runtime) are gated behind the RuntimeLoop, so pausing freezes
+    // simulation but still reflects edits. It is deliberately NOT added via world.add_system().
     engine::transform::TransformSystem transform_system;
 
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
