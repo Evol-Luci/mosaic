@@ -3,9 +3,7 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
-#include <fstream>
 #include <memory>
-#include <sstream>
 #include <string>
 #include <thread>
 
@@ -14,6 +12,7 @@
 #include "app/cli/options.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
+#include "app/run/scene_load.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -31,14 +30,12 @@
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
-#include "engine/scene/scene.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
 #include "foundation/reflection/type_registry.hpp"
-#include "foundation/serialization/reference.hpp" // SerializationError
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 
 namespace
@@ -89,25 +86,10 @@ int main(int argc, char** argv)
     engine::reflection::ComponentReflection types;
     engine::reflection::register_builtin_components(registry, types);
 
-    if (options.scene)
+    if (!populate_world(world, options, types))
     {
-        std::ifstream file(*options.scene);
-        if (!file)
-        {
-            reporter->error("scene not found: " + *options.scene);
-            return 1;
-        }
-        std::stringstream buffer;
-        buffer << file.rdbuf();
-        try
-        {
-            engine::scene::load_from_json(buffer.str(), world, types);
-        }
-        catch (const mosaic::foundation::serialization::SerializationError& e)
-        {
-            reporter->error(std::string("failed to load scene: ") + e.what());
-            return 1;
-        }
+        reporter->error("failed to load scene: " + options.scene.value_or(std::string{}));
+        return 1;
     }
 
     engine::runtime::RuntimeLoop loop(1.0F / static_cast<float>(options.fixed_hz),
@@ -161,10 +143,7 @@ int main(int argc, char** argv)
         namespace transform = mosaic::engine::transform;
         using mosaic::foundation::math::Vec3;
 
-        // The textured spinning cube + lights + camera demo scene, shared with the
-        // editor viewport (build_demo_scene adds a SpinSystem and returns a RenderSystem).
-        auto render_system =
-            build_demo_scene(world, *render_device, asset_registry).render_system;
+        auto render_system = setup_runtime(world, asset_registry).render_system;
 
         auto* device = render_device.get();
         deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {

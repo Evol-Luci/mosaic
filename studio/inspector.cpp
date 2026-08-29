@@ -9,7 +9,7 @@ namespace mosaic::studio
 
 void ImGuiFieldVisitor::field_float(std::string_view name, float& value)
 {
-    ImGui::DragFloat(std::string(name).c_str(), &value, 0.05f);
+    if (ImGui::DragFloat(std::string(name).c_str(), &value, 0.05f)) { changed_ = true; }
 }
 
 void ImGuiFieldVisitor::field_readonly(std::string_view name, const std::string& display)
@@ -27,6 +27,7 @@ void ImGuiFieldVisitor::field_asset(std::string_view name,
     if (ImGui::Button("Assign selected"))
     {
         value = selected_;
+        changed_ = true;
     }
     ImGui::EndDisabled();
     ImGui::PopID();

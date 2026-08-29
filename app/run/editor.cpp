@@ -10,9 +10,12 @@
 
 #include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
+#include "app/run/scene_io.hpp"
+#include "app/run/scene_load.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
+#include "engine/scene/scene.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/point_light.hpp"
@@ -84,7 +87,7 @@ int run_editor(const Options& options)
     std::signal(SIGINT, on_editor_sigint);
     g_editor_stop.store(false);
 
-    mosaic::studio::StudioApp studio;
+    mosaic::studio::StudioApp studio(options.scene.value_or("scene.json"));
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(
@@ -94,18 +97,24 @@ int run_editor(const Options& options)
     mosaic::engine::reflection::ComponentReflection  reflection;
     mosaic::engine::reflection::register_builtin_components(registry, reflection);
 
-    // A live demo scene (shared with `mosaic run`): a textured spinning cube lit by a
-    // directional + point light, viewed through a placed camera. Rendered into the
-    // Viewport panel's offscreen target; also gives the inspector varied components.
     engine::assets::AssetRegistry asset_registry;
     engine::World                 world;
-    auto render_system = build_demo_scene(world, *device, asset_registry).render_system;
+    if (!populate_world(world, options, reflection))
+    {
+        reporter->error("failed to load scene");
+        device.reset();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        mosaic::foundation::log::clear_sinks();
+        return 1;
+    }
+    auto render_system = setup_runtime(world, asset_registry).render_system;
 
     // Transform propagation (Transform -> WorldTransform) is *derived state*, not
     // simulation: run it every frame regardless of play/pause so inspector edits appear
-    // in the viewport even while paused. Only gameplay systems (the SpinSystem added by
-    // build_demo_scene) are gated behind the RuntimeLoop, so pausing freezes the spin but
-    // still reflects edits. It is deliberately NOT added via world.add_system().
+    // in the viewport even while paused. Only gameplay systems (e.g. the PhysicsSystem
+    // added by setup_runtime) are gated behind the RuntimeLoop, so pausing freezes
+    // simulation but still reflects edits. It is deliberately NOT added via world.add_system().
     engine::transform::TransformSystem transform_system;
 
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
@@ -156,6 +165,21 @@ int run_editor(const Options& options)
         studio.draw_ui(*device, world, reflection, asset_registry);
         device->end_ui_frame();
         device->end_frame();
+
+        if (studio.scene_file().consume_save_request())
+        {
+            const std::string json = mosaic::engine::scene::save_to_json(world, reflection);
+            if (mosaic::app::save_scene_file(studio.scene_file().path(), json))
+            {
+                studio.scene_file().mark_clean();
+                mosaic::foundation::log::info("scene", "saved {}", studio.scene_file().path());
+            }
+            else
+            {
+                mosaic::foundation::log::error("scene", "save failed: {}",
+                                               studio.scene_file().path());
+            }
+        }
     };
 
     FramePump pump(loop, std::move(deps), *reporter, options);
