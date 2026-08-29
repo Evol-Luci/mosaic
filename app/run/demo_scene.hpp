@@ -9,6 +9,7 @@
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
+#include "engine/render/builtin_meshes.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
 #include "engine/render/directional_light.hpp"
@@ -49,6 +50,10 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
 
+    // The built-in cube is a registered mesh asset; every MeshRenderer references it by
+    // AssetID (kCubeMeshId) and the RenderSystem's MeshCache uploads it once on first draw.
+    render::register_builtin_meshes(registry);
+
     // Log physics contacts so they show in the editor Console (#33 / 37e) and on stderr.
     world.events().subscribe<physics::ContactEvent>(
         [](const physics::ContactEvent& c)
@@ -58,14 +63,6 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
                 c.phase == physics::ContactPhase::Begin ? "begin" : "end", c.a.index(),
                 c.b.index());
         });
-
-    const render::MeshHandle cube = [&]
-    {
-        std::vector<render::Vertex> v;
-        std::vector<std::uint32_t>  i;
-        render::make_cube_mesh(v, i);
-        return device.create_mesh(v, i);
-    }();
 
     // Three procedural textures (asset-browser targets); the box starts on the checkerboard.
     auto register_texture = [&](std::array<std::uint8_t, 16> uuid, auto&& pixel_fn)
@@ -107,7 +104,7 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         transform::Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
     world.add_component<transform::WorldTransform>(ground,
         transform::WorldTransform{Mat4::trs(Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10})});
-    world.add_component<render::MeshRenderer>(ground, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(ground, render::MeshRenderer{render::kCubeMeshId});
     world.add_component<render::Material>(ground, render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}});
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
@@ -118,7 +115,7 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         transform::Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(box,
         transform::WorldTransform{Mat4::translation(Vec3{0, 4, 0})});
-    world.add_component<render::MeshRenderer>(box, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(box, render::MeshRenderer{render::kCubeMeshId});
     world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
@@ -129,7 +126,7 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(sphere,
         transform::WorldTransform{Mat4::translation(Vec3{-2, 4, 0})});
-    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kCubeMeshId});
     world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
@@ -140,7 +137,7 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(capsule,
         transform::WorldTransform{Mat4::translation(Vec3{2, 4, 0})});
-    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCubeMeshId});
     world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
@@ -151,7 +148,7 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
         transform::Transform{Vec3{0, 6, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(box2,
         transform::WorldTransform{Mat4::translation(Vec3{0, 6, 0})});
-    world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{cube});
+    world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{render::kCubeMeshId});
     world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(box2, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box2, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
