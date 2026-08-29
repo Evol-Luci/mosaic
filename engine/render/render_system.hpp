@@ -6,6 +6,7 @@
 #include "engine/render/point_light.hpp"
 #include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
+#include "engine/render/mesh_cache.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/texture_cache.hpp"
@@ -45,7 +46,8 @@ public:
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
             {
-                if (mr.mesh == 0)
+                const MeshHandle mesh = mesh_cache_.get(mr.mesh, registry, device);
+                if (mesh == 0) // nil / unregistered / failed upload -> nothing to draw
                 {
                     return;
                 }
@@ -80,7 +82,7 @@ public:
                     point_range = point.range;
                 }
 
-                device.draw(mr.mesh, texture,
+                device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, light_obj,
                                        light.color, base_color, point_position, point_color, point_range});
             });
@@ -188,6 +190,7 @@ private:
     }
 
     float aspect_ = 16.0f / 9.0f;
+    mutable MeshCache     mesh_cache_;
     mutable TextureCache  texture_cache_;
     mutable TextureHandle default_white_ = 0;
 };
