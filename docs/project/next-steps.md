@@ -4,7 +4,22 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-23 (v0.1 foundation + rendering complete; **Studio #37 v0.1 lean
+**Last updated:** 2026-08-29 (v0.1 foundation + rendering + physics complete; **Project &
+Tools Workflow pillar UNDERWAY — T1 (meshes as assets) COMPLETE.** The pillar was decomposed
+into five slices (T1–T5); **T1** makes `MeshRenderer` reference a mesh **`AssetID`** (reflected,
+serialized) resolved to a GPU mesh through a `MeshCache` — mirroring the 36d-2 texture pattern
+(`Image`+`TextureCache`+`Material.texture`). A new `Mesh` resource + `MeshCache` (upload-once,
+`AssetID → MeshHandle`), the built-in cube registered as a mesh asset under `kCubeMeshId`
+(`register_builtin_meshes`), and `RenderSystem` resolving each entity's mesh via the cache mean
+**scenes now round-trip renderable entities** — the enabler T2–T5 need. Headless tests cover the
+cache (upload-once/nil/unregistered), the `MeshRenderer` reflection + scene round-trip, and the
+updated render-system resolution; `mosaic run --window` still renders (0 validation errors, 287
+tests green). **Next: T2** (scene load/save wired into the Studio — `mosaic editor --scene`, File
+→ Open/Save). Design/plan:
+[tools decomposition](../superpowers/specs/2026-08-29-tools-workflow-decomposition.md) ·
+[T1 spec](../superpowers/specs/2026-08-29-tools-t1-meshes-as-assets-design.md) ·
+[T1 plan](../superpowers/plans/2026-08-29-tools-t1-meshes-as-assets.md).
+Prior state: v0.1 foundation + rendering complete; **Studio #37 v0.1 lean
 core COMPLETE** — 37a–37e all built. `mosaic editor` opens an ImGui docking window with a
 scene **hierarchy** (click to select), a **reflection-driven inspector** that edits a
 selected entity's components live (the #18 payoff), a **viewport** panel showing the live 3D
@@ -70,8 +85,10 @@ emitted on the #11 `EventBus` by `PhysicsSystem` each tick; a contact-sequence d
 records the event stream over a scenario and asserts it identical across runs (the record/replay
 guarantee applied to events); and the demo **logs contacts** so `mosaic run`/the editor Console
 show `contact begin: entity … <-> entity …` as the bodies land (282 tests, 0 validation errors).
-**What remains for the v0.1 vertical slice:** **Scripting (Python)** and the **tools bookends**
-(`mosaic create`/`build`, project generator, asset compiler). **Physics follow-ups (deferred):**
+**What remains for the v0.1 vertical slice:** **Scripting (Python)** and the rest of the
+**Project & Tools Workflow pillar** — T2 (scene load/save in the Studio), T3 (`mosaic create` +
+project model), T4 (`mosaic build` standalone), T5 (asset importer/cooker); **T1 (meshes as
+assets) is done** (see the header). **Physics follow-ups (deferred):**
 sphere/capsule demo meshes (colliders currently drawn as cubes), full record/replay-to-disk,
 contact manifolds/points/impulses, and viewport mouse-picking (consumes `PhysicsSystem::raycast`).
 Physics design/plan:

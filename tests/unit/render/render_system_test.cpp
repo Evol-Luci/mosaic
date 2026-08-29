@@ -7,8 +7,10 @@
 #include <catch2/catch_approx.hpp>
 
 #include "engine/assets/asset_registry.hpp"
+#include "engine/render/builtin_meshes.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/cube.hpp"
+#include "engine/render/mesh.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/point_light.hpp"
 #include "engine/render/image.hpp"
@@ -77,6 +79,14 @@ World::EntityID add_camera(World& world, Vec3 pos)
     world.add_component<Camera>(e, Camera{});
     return e;
 }
+
+// Registers the built-in cube in `registry` and returns its AssetID, so a MeshRenderer
+// referencing it resolves to a non-zero MeshHandle through the RenderSystem's MeshCache.
+AssetID register_cube(AssetRegistry& registry)
+{
+    mosaic::engine::render::register_builtin_meshes(registry);
+    return mosaic::engine::render::kCubeMeshId;
+}
 } // namespace
 
 TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight", "[render]")
@@ -98,16 +108,17 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     // Mesh with a 90-degree-about-Y world rotation, so object-space light differs from world.
     const Mat4 mesh_world =
         Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
+    const AssetID mesh_id = register_cube(registry);
     auto mesh = world.create_entity();
     world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
-    world.add_component<MeshRenderer>(mesh, MeshRenderer{7});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
     world.add_component<Material>(mesh, Material{Vec3{0.2f, 0.4f, 0.6f}});
 
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
     const DrawParams& p = device.draws[0].params;
-    REQUIRE(device.draws[0].mesh == 7);
+    REQUIRE(device.draws[0].mesh != 0);
     // base_color from the Material:
     REQUIRE(p.base_color.x == Approx(0.2f));
     REQUIRE(p.base_color.y == Approx(0.4f));
@@ -136,9 +147,10 @@ TEST_CASE("RenderSystem uses default base color and light when none present", "[
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
+    const AssetID mesh_id = register_cube(registry);
     auto mesh = world.create_entity();
     world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(mesh, MeshRenderer{5}); // no Material
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id}); // no Material
 
     rs.render(world, device, registry);
     REQUIRE(device.draws.size() == 1);
@@ -147,7 +159,7 @@ TEST_CASE("RenderSystem uses default base color and light when none present", "[
     REQUIRE(p.light_color.x == Approx(1.0f)); // default light is white
 }
 
-TEST_CASE("RenderSystem skips mesh 0 / missing WorldTransform", "[render]")
+TEST_CASE("RenderSystem skips a nil mesh or a missing WorldTransform", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -155,12 +167,13 @@ TEST_CASE("RenderSystem skips mesh 0 / missing WorldTransform", "[render]")
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
+    const AssetID mesh_id = register_cube(registry);
     auto only_mesh = world.create_entity();
-    world.add_component<MeshRenderer>(only_mesh, MeshRenderer{3}); // no WorldTransform
+    world.add_component<MeshRenderer>(only_mesh, MeshRenderer{mesh_id}); // no WorldTransform -> skipped
 
-    auto zero = world.create_entity();
-    world.add_component<WorldTransform>(zero, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(zero, MeshRenderer{0});
+    auto nil = world.create_entity();
+    world.add_component<WorldTransform>(nil, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(nil, MeshRenderer{}); // nil mesh -> skipped by cache
 
     rs.render(world, device, registry);
     REQUIRE(device.draws.empty());
@@ -205,9 +218,10 @@ TEST_CASE("RenderSystem resolves Material texture via TextureCache", "[render]")
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
+    const AssetID mesh_id = register_cube(registry);
     auto e = world.create_entity();
     world.add_component<WorldTransform>(e, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(e, MeshRenderer{5});
+    world.add_component<MeshRenderer>(e, MeshRenderer{mesh_id});
     Material mat{Vec3{1.0f, 1.0f, 1.0f}};
     mat.texture = tex_id;
     world.add_component<Material>(e, mat);
@@ -227,9 +241,10 @@ TEST_CASE("RenderSystem uses non-zero default white texture for untextured mater
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
+    const AssetID mesh_id = register_cube(registry);
     auto e = world.create_entity();
     world.add_component<WorldTransform>(e, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(e, MeshRenderer{5});
+    world.add_component<MeshRenderer>(e, MeshRenderer{mesh_id});
     world.add_component<Material>(e, Material{Vec3{0.5f, 0.5f, 0.5f}}); // nil texture
 
     rs.render(world, device, registry);
@@ -258,9 +273,10 @@ TEST_CASE("RenderSystem transforms point light into mesh object space", "[render
     // Mesh with a 90-degree-about-Y world rotation, so object-space pos differs from world.
     const Mat4 mesh_world =
         Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
+    const AssetID mesh_id = register_cube(registry);
     auto mesh = world.create_entity();
     world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
-    world.add_component<MeshRenderer>(mesh, MeshRenderer{7});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
 
     rs.render(world, device, registry);
 
@@ -295,9 +311,10 @@ TEST_CASE("RenderSystem disables point light when none present", "[render]")
     RenderSystem rs;
     add_camera(world, Vec3{0, 0, 4});
 
+    const AssetID mesh_id = register_cube(registry);
     auto mesh = world.create_entity();
     world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
-    world.add_component<MeshRenderer>(mesh, MeshRenderer{5}); // no PointLight in the world
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id}); // no PointLight in the world
 
     rs.render(world, device, registry);
 
