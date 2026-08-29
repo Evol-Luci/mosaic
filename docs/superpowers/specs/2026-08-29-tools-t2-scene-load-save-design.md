@@ -9,9 +9,10 @@
 
 Make the Studio and `mosaic run` operate on **real scene files** instead of the hardcoded
 `build_demo_scene`. `--scene <file>` loads a scene (#19) and renders it (enabled by T1); the
-editor gains **File → Save / Reload** over a single "current scene path"; and `build_demo_scene`
+editor gains **File → Save** over a single "current scene path"; and `build_demo_scene`
 is split into serializable **scene data** and non-serializable **runtime scaffolding** so any
-scene — loaded from disk or the built-in default — is set up the same way.
+scene — loaded from disk or the built-in default — is set up the same way. (In-editor Reload is a
+deferred follow-up; see Scope.)
 
 ## The problem
 
@@ -35,12 +36,20 @@ double-populating. T2 untangles this.
 - A single `populate_world` load path (scene file **or** the default demo) shared by `run` and
   `editor`; loaded entities are made renderable (`WorldTransform` ensured).
 - `--scene` added to the `editor` subcommand; `run --window --scene` renders the loaded scene.
-- Studio **File → Save / Reload** over a "current scene path" (default `scene.json`), a headless
+- Studio **File → Save** over a "current scene path" (default `scene.json`), a headless
   `SceneFileModel`, and a thin filesystem seam (`scene_io`).
 
-**Deferred (YAGNI / later slices):** a native file picker or arbitrary Save-As (T2 uses the
-fixed current-scene path chosen in brainstorming), multi-scene projects (T3), auto-save, undo of
-a Reload, and per-field dirty precision beyond a simple indicator.
+**Deferred (YAGNI / later slices):**
+- **In-editor File → Reload** — deferred to its own small follow-up slice. Reload must rebuild a
+  *fresh* `World` (the `PhysicsSystem` holds internal Box3D bodies with no teardown path, so an
+  in-place wipe would strand stale bodies), and `FramePump::run` currently ticks a single fixed
+  `World&`. Doing Reload right means adding a world-provider indirection to the pump (which both
+  `run` and `editor` use) — a world-lifecycle change orthogonal to the rest of T2. The startup
+  `--scene` load already covers "open a scene"; Save covers "persist edits"; Reload/Revert is a
+  convenience that earns its own slice.
+- A native file picker or arbitrary Save-As (T2 uses the fixed current-scene path chosen in
+  brainstorming), multi-scene projects (T3), auto-save, and per-field dirty precision beyond a
+  simple indicator.
 
 ## Architecture
 
@@ -101,63 +110,62 @@ class SceneFileModel
 public:
     explicit SceneFileModel(std::string path); // from --scene, or default "scene.json"
     const std::string& path() const;
-    bool dirty() const;                         // unsaved edits since last save/load
+    bool dirty() const;                         // unsaved edits since last save
     void mark_dirty();
-    void mark_clean();                          // after a successful Save/Reload
+    void mark_clean();                          // after a successful Save
     bool consume_save_request();                // one-shot (like PlayState::consume_step_request)
-    bool consume_reload_request();
     void request_save();
-    void request_reload();
 private:
     std::string path_;
     bool        dirty_ = false;
     bool        save_req_ = false;
-    bool        reload_req_ = false;
 };
 ```
 
-- **File menu** (`studio_app.cpp`) gains **Save** (`request_save`) and **Reload**
-  (`request_reload`) above Exit; the menu bar shows `path` with a trailing `*` when `dirty()`.
+- **File menu** (`studio_app.cpp`) gains **Save** (`request_save`) above Exit; the menu bar shows
+  `path` with a trailing `*` when `dirty()`. (A **Reload** item is a deferred follow-up — see
+  Scope.)
 - **Dirty tracking:** the inspector already edits components live and reports when a field
   changes; the editor calls `mark_dirty()` on a reported edit. The `*` is a convenience
   indicator, not correctness-critical.
 
 ### 4. Editor loop wiring (`app/run/editor.cpp`)
 
-The loop consumes the one-shot requests each frame — the actual I/O lives here, keeping the
+The loop consumes the one-shot save request each frame — the actual I/O lives here, keeping the
 model pure:
 
 - `consume_save_request()` → `save_to_json(world, reflection)` → `save_scene_file(path, json)`
   → `mark_clean()`.
-- `consume_reload_request()` → `load_scene_file(path)` → clear the world → `load_from_json` →
-  ensure `WorldTransform` → `mark_clean()`. Systems/assets from `setup_runtime` persist across a
-  reload (only the entity graph is replaced), so physics/render keep working.
+
+(In-editor Reload is deferred; see Scope. The path is still loaded once at startup via
+`populate_world`.)
 
 ## Data flow
 
 ```
 startup:  populate_world(world, options, types)          // file (options.scene) OR build_default_scene
-          setup_runtime(world, device, registry)         // assets + PhysicsSystem + RenderSystem (windowed)
+          setup_runtime(world, registry)                 // assets + PhysicsSystem + RenderSystem
 frame:    TransformSystem (derived) -> render
 File>Save:   save_to_json(world) -> save_scene_file(path)         -> mark_clean
-File>Reload: load_scene_file(path) -> clear world -> load_from_json -> ensure WorldTransform -> mark_clean
 ```
+
+(`setup_runtime` takes no device — registering assets, adding the `PhysicsSystem`, and creating
+the `RenderSystem` need only the world + registry; texture/mesh uploads happen at render time.)
 
 ## Error handling
 
 - **`--scene` missing/unreadable at startup:** report an error and exit non-zero (matches the
   current `run` behavior). An *absent* `--scene` is not an error — it selects the default demo.
 - **Unparseable scene:** `load_from_json` throws `SerializationError`; caught, reported, exit
-  non-zero at startup. On an in-editor Reload, the error is logged to the Console and the current
-  world is left intact (no partial clobber — clear only after a successful parse).
+  non-zero at startup.
 - **Save failure** (unwritable path): logged to the Console; `dirty()` stays set.
 
 ## Testability
 
 Headless-first (only the windowed launch needs a device):
 
-- **`SceneFileModel`** (`tests/unit/studio/scene_file_test.cpp`): default path, dirty set/clear,
-  one-shot `consume_save_request`/`consume_reload_request` (mirrors `play_state_test`).
+- **`SceneFileModel`** (`tests/unit/studio/scene_file_test.cpp`): path, dirty set/clear, one-shot
+  `consume_save_request` (mirrors `play_state_test`).
 - **`scene_io`** (`tests/unit/app/scene_io_test.cpp`): write→read round-trip equal; missing file
   → `nullopt`; unwritable path → `false`.
 - **`populate_world`** (`tests/unit/app/…`): a written scene file → its entities loaded; no
@@ -189,10 +197,11 @@ Headless-first (only the windowed launch needs a device):
 - [ ] `populate_world` loads from `--scene` or the default demo; loaded entities render
       (`WorldTransform` ensured). `run --window --scene` renders the file (no double-populate).
 - [ ] `editor` accepts `--scene`.
-- [ ] `SceneFileModel` + File → Save / Reload write/read the current-scene path; menu shows the
-      path + dirty `*`.
-- [ ] A scene edited in the editor saves to disk and reloads to the same state.
+- [ ] `SceneFileModel` + File → Save write the current-scene path; menu shows the path + dirty `*`.
+- [ ] A scene edited in the editor saves to disk, and relaunching with `--scene <that file>`
+      loads the edited state.
 - [ ] All the above unit-tested headlessly; windowed launches exit 0 with 0 validation errors.
+- [ ] In-editor Reload is documented as a deferred follow-up (not in T2).
 
 ## Depends on / relates
 
