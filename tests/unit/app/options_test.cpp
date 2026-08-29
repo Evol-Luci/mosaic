@@ -150,3 +150,10 @@ TEST_CASE("a positional path together with --scene is rejected", "[cli]")
     REQUIRE(pr.exit_code.has_value());
     REQUIRE(*pr.exit_code != 0);
 }
+
+TEST_CASE("a run positional path together with --scene is rejected", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "run", "level.json", "--scene", "x.json"});
+    REQUIRE(pr.exit_code.has_value());
+    REQUIRE(*pr.exit_code != 0);
+}

@@ -15,6 +15,7 @@ int run_create(const Options& options)
         mosaic::foundation::log::error("project", "create: no project name given");
         return 1;
     }
+    // register_builtin_components fills `types` (registry is a required side-effect out-param).
     mosaic::foundation::reflection::TypeRegistry     registry;
     mosaic::engine::reflection::ComponentReflection  types;
     mosaic::engine::reflection::register_builtin_components(registry, types);

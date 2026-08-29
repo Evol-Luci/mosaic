@@ -85,6 +85,7 @@ inline bool create_project(const std::string& dir,
     if (!save_scene_file((p / kManifestName).string(), manifest_toml))
     {
         mosaic::foundation::log::error("project", "could not write manifest for {}", dir);
+        std::error_code rmec; std::filesystem::remove_all(dir, rmec);
         return false;
     }
 
@@ -95,6 +96,7 @@ inline bool create_project(const std::string& dir,
     if (!save_scene_file((p / kStarterScene).string(), scene_json))
     {
         mosaic::foundation::log::error("project", "could not write starter scene for {}", dir);
+        std::error_code rmec; std::filesystem::remove_all(dir, rmec);
         return false;
     }
 
@@ -102,6 +104,7 @@ inline bool create_project(const std::string& dir,
     if (!save_scene_file((p / kAssetsDir / ".gitkeep").string(), ""))
     {
         mosaic::foundation::log::error("project", "could not write assets/.gitkeep for {}", dir);
+        std::error_code rmec; std::filesystem::remove_all(dir, rmec);
         return false;
     }
 
