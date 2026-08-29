@@ -10,6 +10,8 @@
 #include <GLFW/glfw3.h> // windowing only; Vulkan surface creation lives in the backend
 
 #include "app/cli/options.hpp"
+#include "app/project/project_io.hpp"
+#include "app/run/create.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
 #include "app/run/scene_load.hpp"
@@ -67,6 +69,26 @@ int main(int argc, char** argv)
     // so stdout stays pure JSON while human log lines go to stderr. The editor adds
     // its own Console-panel sink on top of this.
     mosaic::foundation::log::add_sink(std::make_shared<mosaic::foundation::log::ConsoleSink>());
+
+    if (pr.options.command == Command::Create)
+    {
+        return run_create(pr.options);
+    }
+
+    // Smart positional: resolve a project dir / scene file into the scene to load, so run and
+    // editor both feed T2's populate_world through options.scene.
+    if (pr.options.open_path)
+    {
+        const std::optional<std::string> resolved =
+            resolve_startup_scene(*pr.options.open_path);
+        if (!resolved)
+        {
+            mosaic::foundation::log::error(
+                "project", "not a Mosaic project or scene file: {}", *pr.options.open_path);
+            return 1;
+        }
+        pr.options.scene = *resolved;
+    }
 
     if (pr.options.command == Command::Editor)
     {

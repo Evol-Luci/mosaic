@@ -5,9 +5,24 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-29 (v0.1 foundation + rendering + physics complete; **Project &
-Tools Workflow pillar UNDERWAY — T1 (meshes as assets) + T2 (scene load/save in the Studio)
-COMPLETE.**
-**T2** split the hardcoded `build_demo_scene` into `setup_runtime` (non-serialized scaffolding:
+Tools Workflow pillar UNDERWAY — T1 (meshes as assets) + T2 (scene load/save) + T3 (`mosaic
+create` + project model) COMPLETE.**
+**T3** introduced a **project** = a TOML `mosaic.toml` manifest (reflected `ProjectManifest{name,
+default_scene}`) + a `scenes/` folder (a starter scene) + an `assets/` folder. `mosaic create
+<name>` scaffolds one (starter scene = the T2 default demo serialized to `scenes/main.json`;
+refuses to overwrite; rolls back a partial scaffold on failure). A "smart positional" arg on
+`run`/`editor` — `resolve_startup_scene(path)` — maps a **project dir → its default scene** and a
+**`.json` → itself**, then feeds T2's `populate_world` (so opening a project reuses all of T2's
+load/render path; `editor.cpp` was untouched — resolution is centralized in `main()`). New
+`app/project/` module (`project.hpp` + `project_io.hpp`), a `create` subcommand, and `Command`/
+`Options` additions. Reading per-project `assets/` is deferred to **T5** (importer). 313 tests
+green; `mosaic create X && mosaic editor X` / `mosaic run X --window` open + render the scaffolded
+project. **Next: T4** (`mosaic build` — package a project's scene(s) + referenced assets into a
+runnable standalone bundle). T3 design/plan:
+[T3 spec](../superpowers/specs/2026-08-29-tools-t3-project-model-design.md) ·
+[T3 plan](../superpowers/plans/2026-08-29-tools-t3-project-model.md).
+
+Prior slice — **T2** split the hardcoded `build_demo_scene` into `setup_runtime` (non-serialized scaffolding:
 built-in meshes + demo textures + `PhysicsSystem` + `RenderSystem`) and `build_default_scene`
 (pure entity data), added a `scene_io` filesystem seam and a shared `populate_world` (load
 `--scene` or the default demo, then derive `WorldTransform` so a loaded scene renders), wired

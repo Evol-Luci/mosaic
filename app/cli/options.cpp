@@ -10,14 +10,18 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run` or `editor`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, or `create`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
     std::string  scene;
+    std::string  open_path;
+    std::string  create_name;
     double       duration_s = 0.0;
     std::uint64_t ticks = 0;
-    run->add_option("--scene", scene, "Scene JSON file to load before running");
+    CLI::Option* run_scene = run->add_option("--scene", scene, "Scene JSON file to load before running");
+    CLI::Option* run_path  = run->add_option("path", open_path, "Project directory or scene file to open");
+    run_path->excludes(run_scene);
     CLI::Option* duration_opt =
         run->add_option("--duration", duration_s, "Stop after N seconds");
     CLI::Option* ticks_opt =
@@ -34,7 +38,12 @@ ParseResult parse(int argc, char** argv)
     CLI::App* editor = app.add_subcommand("editor", "Open the Studio editor window");
     editor->add_option("--duration", duration_s, "Stop after N seconds");
     editor->add_option("--ticks", ticks, "Stop after N fixed ticks");
-    editor->add_option("--scene", scene, "Scene JSON file to load before editing");
+    CLI::Option* editor_scene = editor->add_option("--scene", scene, "Scene JSON file to load before editing");
+    CLI::Option* editor_path  = editor->add_option("path", open_path, "Project directory or scene file to open");
+    editor_path->excludes(editor_scene);
+
+    CLI::App* create = app.add_subcommand("create", "Scaffold a new project directory");
+    create->add_option("name", create_name, "Project directory to create")->required();
 
     try
     {
@@ -49,6 +58,18 @@ ParseResult parse(int argc, char** argv)
     if (editor->parsed())
     {
         result.options.command = Command::Editor;
+    }
+    if (create->parsed())
+    {
+        result.options.command = Command::Create;
+    }
+    if (!open_path.empty())
+    {
+        result.options.open_path = open_path;
+    }
+    if (!create_name.empty())
+    {
+        result.options.create_path = create_name;
     }
 
     if (!scene.empty())

@@ -117,3 +117,43 @@ TEST_CASE("editor accepts --scene", "[cli]")
     REQUIRE(pr.options.scene.has_value());
     REQUIRE(*pr.options.scene == "level.json");
 }
+
+TEST_CASE("create subcommand captures the project name", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "create", "mygame"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Create);
+    REQUIRE(pr.options.create_path.has_value());
+    REQUIRE(*pr.options.create_path == "mygame");
+}
+
+TEST_CASE("editor accepts a positional project/scene path", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor", "mygame"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Editor);
+    REQUIRE(pr.options.open_path.has_value());
+    REQUIRE(*pr.options.open_path == "mygame");
+}
+
+TEST_CASE("run accepts a positional path", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "run", "level.json"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.open_path.has_value());
+    REQUIRE(*pr.options.open_path == "level.json");
+}
+
+TEST_CASE("a positional path together with --scene is rejected", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor", "mygame", "--scene", "x.json"});
+    REQUIRE(pr.exit_code.has_value());
+    REQUIRE(*pr.exit_code != 0);
+}
+
+TEST_CASE("a run positional path together with --scene is rejected", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "run", "level.json", "--scene", "x.json"});
+    REQUIRE(pr.exit_code.has_value());
+    REQUIRE(*pr.exit_code != 0);
+}
