@@ -5,8 +5,25 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-29 (v0.1 foundation + rendering + physics complete; **Project &
-Tools Workflow pillar UNDERWAY — T1 (meshes as assets) COMPLETE.** The pillar was decomposed
-into five slices (T1–T5); **T1** makes `MeshRenderer` reference a mesh **`AssetID`** (reflected,
+Tools Workflow pillar UNDERWAY — T1 (meshes as assets) + T2 (scene load/save in the Studio)
+COMPLETE.**
+**T2** split the hardcoded `build_demo_scene` into `setup_runtime` (non-serialized scaffolding:
+built-in meshes + demo textures + `PhysicsSystem` + `RenderSystem`) and `build_default_scene`
+(pure entity data), added a `scene_io` filesystem seam and a shared `populate_world` (load
+`--scene` or the default demo, then derive `WorldTransform` so a loaded scene renders), wired
+both `mosaic run` and `mosaic editor` to that path (and gave `editor` a `--scene` flag, fixing
+the old `run --window --scene` double-populate), and added a headless `SceneFileModel` driving
+**editor File → Save** (writes the current scene JSON; menu shows the path + a `*` when dirty).
+The Studio now edits **real scene files**: open one via `--scene`, edit, Save, relaunch loads it.
+**In-editor File → Reload is a deferred follow-up** (it needs a fresh-`World` rebuild + a
+`FramePump` world-provider indirection — `PhysicsSystem` has no teardown and the pump ticks a
+fixed `World&`). 302 tests green; `mosaic run --window` / `mosaic editor` exit 0, 0 validation
+errors. **Next: T3** (`mosaic create` + project model — a TOML manifest + `scenes/`/`assets/`
+folders; the project's default scene opens through T2's load path). T2 design/plan:
+[T2 spec](../superpowers/specs/2026-08-29-tools-t2-scene-load-save-design.md) ·
+[T2 plan](../superpowers/plans/2026-08-29-tools-t2-scene-load-save.md).
+
+Prior slice — **T1** makes `MeshRenderer` reference a mesh **`AssetID`** (reflected,
 serialized) resolved to a GPU mesh through a `MeshCache` — mirroring the 36d-2 texture pattern
 (`Image`+`TextureCache`+`Material.texture`). A new `Mesh` resource + `MeshCache` (upload-once,
 `AssetID → MeshHandle`), the built-in cube registered as a mesh asset under `kCubeMeshId`
