@@ -10,6 +10,7 @@
 
 #include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
+#include "app/run/scene_load.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
@@ -94,12 +95,18 @@ int run_editor(const Options& options)
     mosaic::engine::reflection::ComponentReflection  reflection;
     mosaic::engine::reflection::register_builtin_components(registry, reflection);
 
-    // A live demo scene (shared with `mosaic run`): a textured spinning cube lit by a
-    // directional + point light, viewed through a placed camera. Rendered into the
-    // Viewport panel's offscreen target; also gives the inspector varied components.
     engine::assets::AssetRegistry asset_registry;
     engine::World                 world;
-    auto render_system = build_demo_scene(world, *device, asset_registry).render_system;
+    if (!populate_world(world, options, reflection))
+    {
+        reporter->error("failed to load scene");
+        device.reset();
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        mosaic::foundation::log::clear_sinks();
+        return 1;
+    }
+    auto render_system = setup_runtime(world, asset_registry).render_system;
 
     // Transform propagation (Transform -> WorldTransform) is *derived state*, not
     // simulation: run it every frame regardless of play/pause so inspector edits appear

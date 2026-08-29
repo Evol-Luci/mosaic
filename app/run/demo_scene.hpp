@@ -162,15 +162,4 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Camera>(camera, render::Camera{});
 }
 
-// Backward-compatible shim (used by main.cpp/editor.cpp until Task 4): default entities +
-// derived WorldTransform + runtime scaffolding. Device is unused (kept for the call sites).
-inline RuntimeScene build_demo_scene(mosaic::engine::World&                  world,
-                                     mosaic::engine::render::RenderDevice&   /*device*/,
-                                     mosaic::engine::assets::AssetRegistry&  registry)
-{
-    build_default_scene(world);
-    mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
-    return setup_runtime(world, registry);
-}
-
 } // namespace mosaic::app

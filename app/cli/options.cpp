@@ -34,6 +34,7 @@ ParseResult parse(int argc, char** argv)
     CLI::App* editor = app.add_subcommand("editor", "Open the Studio editor window");
     editor->add_option("--duration", duration_s, "Stop after N seconds");
     editor->add_option("--ticks", ticks, "Stop after N fixed ticks");
+    editor->add_option("--scene", scene, "Scene JSON file to load before editing");
 
     try
     {

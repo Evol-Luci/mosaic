@@ -108,3 +108,12 @@ TEST_CASE("editor accepts a bounded --ticks", "[cli]")
     REQUIRE(pr.options.ticks.has_value());
     REQUIRE(pr.options.ticks.value() == std::uint64_t{42});
 }
+
+TEST_CASE("editor accepts --scene", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "editor", "--scene", "level.json"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Editor);
+    REQUIRE(pr.options.scene.has_value());
+    REQUIRE(*pr.options.scene == "level.json");
+}
