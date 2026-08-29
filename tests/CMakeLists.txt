@@ -63,6 +63,7 @@ add_executable(mosaic_unit_tests
   unit/render/mesh_cache_test.cpp
   unit/render/builtin_meshes_test.cpp
   unit/render/mesh_renderer_reflection_test.cpp
+  unit/render/shape_meshes_test.cpp
   unit/render/render_device_hooks_test.cpp
   unit/reflection/lighting_reflection_test.cpp
   unit/studio/studio_layout_test.cpp

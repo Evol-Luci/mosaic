@@ -120,24 +120,24 @@ inline DemoScene build_demo_scene(mosaic::engine::World&                 world,
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
-    // A sphere collider dropping beside the box (cube mesh is a visual stand-in).
+    // A sphere collider dropping beside the box, drawn with the built-in sphere mesh.
     const auto sphere = world.create_entity();
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(sphere,
         transform::WorldTransform{Mat4::translation(Vec3{-2, 4, 0})});
-    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kCubeMeshId});
+    world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kSphereMeshId});
     world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
-    // A capsule collider dropping on the other side.
+    // A capsule collider dropping on the other side, drawn with the built-in capsule mesh.
     const auto capsule = world.create_entity();
     world.add_component<transform::Transform>(capsule,
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<transform::WorldTransform>(capsule,
         transform::WorldTransform{Mat4::translation(Vec3{2, 4, 0})});
-    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCubeMeshId});
+    world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCapsuleMeshId});
     world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex_id});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
