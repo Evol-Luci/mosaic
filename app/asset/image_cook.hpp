@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -25,7 +26,7 @@ inline std::optional<mosaic::engine::render::Image> read_ppm(const std::string& 
         return bytes.substr(start, pos - start);
     };
     auto to_uint = [](const std::string& s, std::uint32_t& out) -> bool {
-        if (s.empty()) { return false; }
+        if (s.empty() || s.size() > 10) { return false; }
         std::uint32_t v = 0;
         for (char c : s) { if (c < '0' || c > '9') { return false; } v = v * 10 + static_cast<std::uint32_t>(c - '0'); }
         out = v; return true;
@@ -39,6 +40,12 @@ inline std::optional<mosaic::engine::render::Image> read_ppm(const std::string& 
     if (pos >= bytes.size() || !std::isspace(static_cast<unsigned char>(bytes[pos]))) { return std::nullopt; }
     ++pos;
 
+    // Guard against overflow: w*h could wrap to 0 for huge values.
+    if (static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h) >
+        (static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / 4u))
+    {
+        return std::nullopt;
+    }
     const std::size_t need = static_cast<std::size_t>(w) * h * 3;
     if (bytes.size() - pos < need) { return std::nullopt; }
 
@@ -86,6 +93,13 @@ inline std::optional<mosaic::engine::render::Image> uncook_image(const std::stri
     };
     const std::uint32_t w = get_u32(8);
     const std::uint32_t h = get_u32(12);
+    if (w == 0 || h == 0) { return std::nullopt; }
+    // Guard against overflow: w*h could wrap to 0 for huge values.
+    if (static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h) >
+        (static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / 4u))
+    {
+        return std::nullopt;
+    }
     const std::size_t need = static_cast<std::size_t>(w) * h * 4;
     if (bytes.size() - 16 != need) { return std::nullopt; }
     mosaic::engine::render::Image img;
