@@ -54,3 +54,12 @@ TEST_CASE("a runtime error is captured with its type and message", "[script]")
     REQUIRE(r.error.find("ValueError") != std::string::npos);
     REQUIRE(r.error.find("boom") != std::string::npos);
 }
+
+TEST_CASE("captured output is returned even when the script then errors", "[script]")
+{
+    auto engine = create_python_script_engine();
+    const auto r = engine->run_string("print('before boom')\nraise RuntimeError('kaboom')");
+    REQUIRE_FALSE(r.ok);
+    REQUIRE(r.error.find("RuntimeError") != std::string::npos);
+    REQUIRE(r.output.find("before boom") != std::string::npos); // printed before the raise, captured
+}

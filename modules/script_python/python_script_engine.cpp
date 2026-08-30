@@ -56,6 +56,26 @@ public:
             sys.attr("stdout") = buffer;
             sys.attr("stderr") = buffer;
 
+            // RAII guard: restore sys.stdout/stderr on every exit path, including
+            // any unexpected C++ exception that bypasses the inner try/catch.
+            struct StreamGuard
+            {
+                py::module_& sys_;
+                py::object& old_out_;
+                py::object& old_err_;
+                ~StreamGuard() noexcept
+                {
+                    try
+                    {
+                        sys_.attr("stdout") = old_out_;
+                        sys_.attr("stderr") = old_err_;
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            } guard{sys, old_out, old_err};
+
             try
             {
                 py::exec(code, globals_);
@@ -67,8 +87,7 @@ public:
                 result.error = e.what();
             }
 
-            sys.attr("stdout") = old_out; // restore before reading; buffer still alive
-            sys.attr("stderr") = old_err;
+            // Read captured output while buffer is still alive; guard restores streams on exit.
             result.output = buffer.attr("getvalue")().cast<std::string>();
         }
         catch (const std::exception& e)
