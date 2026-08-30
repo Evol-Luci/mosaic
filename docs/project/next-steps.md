@@ -4,11 +4,28 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics complete; **Project &
-Tools Workflow pillar COMPLETE — T1 (meshes as assets) + T2 (scene load/save) + T3 (`mosaic
-create` + project model) + T4 (`mosaic build` standalone bundle) + T5 (asset importer/cooker)
-ALL COMPLETE. The remaining v0.1 pillar is Scripting (Python).**
-**T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
+**Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics + Project & Tools Workflow
+(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding) COMPLETE.**
+The final v0.1 pillar was decomposed into five slices
+([scripting decomposition](../superpowers/specs/2026-08-30-scripting-decomposition.md)):
+**S1** embed → **S2** reflection→Python property bindings → **S3** world/commands → **S4**
+`ScriptComponent` (attach a script, press Play) → **S5** Studio script console.
+**S1** embeds **real CPython** behind a neutral, Python-free `ScriptEngine` interface
+(`engine/script/script_engine.hpp`); the CPython + **pybind11** implementation is walled off in
+`modules/script_python` (injected via `create_python_script_engine()`, exactly like the Box3D /
+Vulkan backends). `run_string` runs a script in an isolated per-engine namespace, captures stdout
++ errors into a `ScriptResult` (never throws). **This slice adds the pillar's two build deps** —
+a Python dev install (`find_package(Python3 Development)`) and pybind11 (FetchContent v2.13.6,
+`PYBIND11_FINDPYTHON ON` to reconcile a machine's multiple Pythons); both are contained behind the
+module wall. 335 tests green (5 script tests: run+capture, compute, namespace isolation, syntax +
+runtime error capture, output-on-error). Runtime feasibility was confirmed by a throwaway spike
+before committing. **Build requirement note:** building now needs an *embeddable* Python (headers
++ a shared `libpython`, e.g. distro `python3-dev`). **Next: S2** (expose reflected component
+properties to Python via the #18 bridge). S1 design/plan:
+[S1 spec](../superpowers/specs/2026-08-30-scripting-s1-embedding-design.md) ·
+[S1 plan](../superpowers/plans/2026-08-30-scripting-s1-embedding.md).
+
+Prior pillar — **T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
 `import_asset` (in `app/asset/asset_io.hpp`) accepts a PPM image, cooks it into a compact binary
 blob (`.image`), writes `AssetMetadata` as a `.toml` sidecar (uuid, type, version, source), and
 places both under `<project>/assets/`. `build_bundle` now copies the project's `assets/` tree
