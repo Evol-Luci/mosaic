@@ -11,6 +11,7 @@
 
 #include "app/cli/options.hpp"
 #include "app/project/project_io.hpp"
+#include "app/run/build.hpp"
 #include "app/run/create.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
@@ -73,6 +74,11 @@ int main(int argc, char** argv)
     if (pr.options.command == Command::Create)
     {
         return run_create(pr.options);
+    }
+
+    if (pr.options.command == Command::Build)
+    {
+        return run_build(pr.options);
     }
 
     // Smart positional: resolve a project dir / scene file into the scene to load, so run and
