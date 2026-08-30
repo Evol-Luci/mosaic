@@ -71,3 +71,16 @@ TEST_CASE("set_value adds the component when absent, and rejects unknown/bad inp
                                   Value{static_cast<std::int64_t>(42)}));
     REQUIRE(world.get_component<Transform>(e)->position.x == 4.0f); // component unchanged after bad input
 }
+
+TEST_CASE("remove_value removes a component; false when absent or unregistered", "[reflection]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    World world;
+    auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{});
+
+    REQUIRE(types.remove_value(world, e, "Transform"));
+    REQUIRE_FALSE(world.has_component<Transform>(e));
+    REQUIRE_FALSE(types.remove_value(world, e, "Transform")); // already gone
+    REQUIRE_FALSE(types.remove_value(world, e, "Nope"));      // unregistered
+}

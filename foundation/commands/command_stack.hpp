@@ -26,6 +26,14 @@ public:
         applied_.push_back(std::move(command));
     }
 
+    // Record an already-executed command WITHOUT calling execute() again. Clears redo history,
+    // exactly like execute(). redo() re-runs execute(); undo() inverts it.
+    void push_executed(std::unique_ptr<Command> command)
+    {
+        undone_.clear();
+        applied_.push_back(std::move(command));
+    }
+
     bool can_undo() const noexcept { return !applied_.empty(); }
     bool can_redo() const noexcept { return !undone_.empty(); }
 
