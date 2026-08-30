@@ -160,7 +160,8 @@ public:
         globals_["is_valid"] = py::cpp_function(
             [this](std::uint64_t eid) -> bool
             { return world_->is_valid(mosaic::foundation::EntityID(eid)); });
-        // Default no-op stubs for undo/redo/undo_depth (overwritten by bind_commands if called).
+        // Guarded undo/redo/undo_depth: functional even before bind_commands — they return
+        // false/0 while stack_ is null, and route to the stack once bind_commands sets it.
         globals_["undo"] =
             py::cpp_function([this]() -> bool { return stack_ != nullptr && stack_->undo(); });
         globals_["redo"] =
@@ -178,14 +179,9 @@ public:
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
     {
+        // undo/redo/undo_depth are installed in bind_world and read stack_ at call time, so
+        // binding the stack here activates them for all subsequent script calls.
         stack_ = &stack;
-        globals_["undo"] =
-            py::cpp_function([this]() -> bool { return stack_ != nullptr && stack_->undo(); });
-        globals_["redo"] =
-            py::cpp_function([this]() -> bool { return stack_ != nullptr && stack_->redo(); });
-        globals_["undo_depth"] = py::cpp_function(
-            [this]() -> std::uint64_t
-            { return stack_ != nullptr ? static_cast<std::uint64_t>(stack_->undo_depth()) : 0; });
     }
 
 private:

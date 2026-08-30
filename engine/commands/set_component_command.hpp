@@ -49,7 +49,7 @@ public:
     Value parameters() const override
     {
         mosaic::foundation::serialization::Table t;
-        t["entity"] = Value{static_cast<std::int64_t>(e_.value())};
+        t["entity"] = Value{static_cast<std::uint64_t>(e_.value())};
         t["component"] = Value{name_};
         t["value"] = next_;
         return Value{std::move(t)};

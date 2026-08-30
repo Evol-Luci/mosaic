@@ -176,8 +176,10 @@ run_string(
   `execute` (via `set_value`) is a no-op returning `false`; **it is not recorded** on the stack (so
   `undo_depth` doesn't grow for a failed set). Matches S2's None/False contract.
 - `undo`/`redo` with nothing to undo/redo, or with no stack bound → `false`.
-- Entity/command builtins called before `bind_world`/`bind_commands` → the functions aren't
-  installed → `NameError`, captured by S1's `run_string` (never a crash).
+- Entity builtins and `undo`/`redo`/`undo_depth` are installed at `bind_world`; calling any of them
+  (or `get_component`/`set_component`) before `bind_world` → the function isn't installed →
+  `NameError`, captured by S1's `run_string` (never a crash). After `bind_world` but with no stack
+  bound, `undo`/`redo` return `False` and `undo_depth` returns `0` (not a `NameError`).
 
 ## Testability
 
