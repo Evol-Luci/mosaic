@@ -3,6 +3,7 @@ add_library(mosaic_app STATIC
   run/status_reporter.cpp
   run/editor.cpp
   run/create.cpp
+  run/build.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine

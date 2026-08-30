@@ -157,3 +157,23 @@ TEST_CASE("a run positional path together with --scene is rejected", "[cli]")
     REQUIRE(pr.exit_code.has_value());
     REQUIRE(*pr.exit_code != 0);
 }
+
+TEST_CASE("build subcommand captures project and output", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "build", "mygame", "-o", "dist"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Build);
+    REQUIRE(pr.options.build_project.has_value());
+    REQUIRE(*pr.options.build_project == "mygame");
+    REQUIRE(pr.options.build_out.has_value());
+    REQUIRE(*pr.options.build_out == "dist");
+}
+
+TEST_CASE("build without -o leaves the output unset", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "build", "mygame"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Build);
+    REQUIRE(*pr.options.build_project == "mygame");
+    REQUIRE_FALSE(pr.options.build_out.has_value());
+}
