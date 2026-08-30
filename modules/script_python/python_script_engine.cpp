@@ -67,9 +67,9 @@ public:
                 result.error = e.what();
             }
 
-            result.output = buffer.attr("getvalue")().cast<std::string>();
-            sys.attr("stdout") = old_out; // restore even on error
+            sys.attr("stdout") = old_out; // restore before reading; buffer still alive
             sys.attr("stderr") = old_err;
+            result.output = buffer.attr("getvalue")().cast<std::string>();
         }
         catch (const std::exception& e)
         {
