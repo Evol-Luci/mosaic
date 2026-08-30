@@ -8,6 +8,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include "app/asset/asset_io.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/scene_io.hpp"
@@ -109,6 +110,12 @@ int run_editor(const Options& options)
         return 1;
     }
     auto render_system = setup_runtime(world, asset_registry).render_system;
+
+    if (options.assets_dir)
+    {
+        const int n = load_project_assets(asset_registry, *options.assets_dir);
+        if (n > 0) { mosaic::foundation::log::info("import", "loaded {} project asset(s)", n); }
+    }
 
     // Transform propagation (Transform -> WorldTransform) is *derived state*, not
     // simulation: run it every frame regardless of play/pause so inspector edits appear
