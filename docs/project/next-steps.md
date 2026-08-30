@@ -6,8 +6,25 @@ done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-29 (v0.1 foundation + rendering + physics complete; **Project &
 Tools Workflow pillar UNDERWAY — T1 (meshes as assets) + T2 (scene load/save) + T3 (`mosaic
-create` + project model) COMPLETE.**
-**T3** introduced a **project** = a TOML `mosaic.toml` manifest (reflected `ProjectManifest{name,
+create` + project model) + T4 (`mosaic build` standalone bundle) COMPLETE.**
+**T4** added `mosaic build <project> [-o <out>]`: it packages a project into a **self-contained,
+project-format bundle** — a copy of the running `mosaic` binary + the default scene + the manifest
++ an executable `run.sh` — in `app/project/bundle.hpp` (`build_bundle`, runtime-binary path
+injected for headless tests; runtime resolved via `/proc/self/exe`). Because the bundle is
+project-format, the copied binary runs it through **T3's existing** `mosaic run <dir>` path — so
+T4 only added the *build* side; running is free. Overwrite-safe: a dir is treated as a regenerable
+prior bundle only if it carries the build artifacts (`mosaic` + `run.sh`), a plain project or
+arbitrary `-o <path>` is refused untouched, and a self-build (`-o <project>`) is refused — so no
+user data is clobbered; write failures roll back the bundle. Copying real per-project `assets/`
+files is deferred to **T5**. 319 tests green; functionally, `mosaic build P -o B && B/mosaic run B
+--window` runs the scene **via the bundle's own copied binary** with no source tree (0 validation
+errors), and `B/run.sh` launches it. **Next: T5** (asset importer/cooker — turn an external asset
+file into a registry-native resource + `AssetMetadata` under a project's `assets/`, which
+`build_bundle` will then copy into the bundle — the seam this slice leaves open). T4 design/plan:
+[T4 spec](../superpowers/specs/2026-08-29-tools-t4-build-design.md) ·
+[T4 plan](../superpowers/plans/2026-08-29-tools-t4-build.md).
+
+Prior slice — **T3** introduced a **project** = a TOML `mosaic.toml` manifest (reflected `ProjectManifest{name,
 default_scene}`) + a `scenes/` folder (a starter scene) + an `assets/` folder. `mosaic create
 <name>` scaffolds one (starter scene = the T2 default demo serialized to `scenes/main.json`;
 refuses to overwrite; rolls back a partial scaffold on failure). A "smart positional" arg on

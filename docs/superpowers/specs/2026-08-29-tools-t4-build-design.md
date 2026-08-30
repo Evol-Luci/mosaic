@@ -95,11 +95,19 @@ Returns 0/1.
 
 ### 5. Overwrite semantics (safe + rebuildable)
 
+A directory is treated as a regenerable **prior bundle** only when it carries the distinctive
+*build artifacts* — the copied `mosaic` binary **and** `run.sh` (`looks_like_bundle`). A `mosaic.toml`
+alone does **not** qualify, because every *project* has one; keying on the manifest would let
+`-o <a-project>` delete the user's project. The rule:
+
+- **Self-build guard (first):** if `<out>` resolves to the same path as `<project>`
+  (`weakly_canonical` compare), **refuse** — you cannot build a project into itself.
 - `<out>` absent or **empty** → create + write.
-- `<out>` exists and **is a prior bundle** (contains a `mosaic.toml`) → `remove_all` it, then
+- `<out>` exists and **is a prior bundle** (has `mosaic` + `run.sh`) → `remove_all` it, then
   regenerate (a clean rebuild). The default `<project>/dist` hits this path on repeat builds.
-- `<out>` exists, non-empty, and **not** a bundle → **refuse** (error + non-zero exit, leaving it
-  untouched). Protects an arbitrary `-o <path>` from being clobbered.
+- `<out>` exists, non-empty, and **not** a bundle (including a plain project directory) →
+  **refuse** (error + non-zero exit, leaving it untouched). Protects an arbitrary `-o <path>`
+  — a project, `~/Documents`, anything — from being clobbered.
 
 ### 6. Entry (`app/main.cpp`)
 
