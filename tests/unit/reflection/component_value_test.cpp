@@ -65,4 +65,9 @@ TEST_CASE("set_value adds the component when absent, and rejects unknown/bad inp
     REQUIRE(world.get_component<Transform>(e)->position.x == 4.0f);
 
     REQUIRE_FALSE(types.set_value(world, e, "NotAType", to_value(desired))); // unregistered -> false
+
+    // bad value shape -> from_value throws SerializationError -> caught -> false, never throws
+    REQUIRE_FALSE(types.set_value(world, e, "Transform",
+                                  Value{static_cast<std::int64_t>(42)}));
+    REQUIRE(world.get_component<Transform>(e)->position.x == 4.0f); // component unchanged after bad input
 }
