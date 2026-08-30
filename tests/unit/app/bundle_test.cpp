@@ -124,6 +124,7 @@ TEST_CASE("build_bundle fails on a non-project or a missing scene, rolling back"
     const std::string out1 = tmp("out3");
     fs::remove_all(out1);
     REQUIRE_FALSE(build_bundle(notproj, out1, bin, types));
+    REQUIRE_FALSE(fs::exists(out1));
 
     // Project whose default scene was deleted -> copy fails -> out rolled back.
     const std::string proj = tmp("proj3");

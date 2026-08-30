@@ -46,6 +46,11 @@ inline bool build_bundle(const std::string& project_dir, const std::string& out_
         if (looks_like_bundle(out))
         {
             fs::remove_all(out, ec);
+            if (ec)
+            {
+                mosaic::foundation::log::error("build", "could not clear prior bundle: {}", out_dir);
+                return false;
+            }
         }
         else
         {
