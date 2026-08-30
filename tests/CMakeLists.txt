@@ -65,6 +65,7 @@ add_executable(mosaic_unit_tests
   unit/app/project_resolve_test.cpp
   unit/app/bundle_test.cpp
   unit/app/image_cook_test.cpp
+  unit/app/asset_import_test.cpp
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/render_system_test.cpp
