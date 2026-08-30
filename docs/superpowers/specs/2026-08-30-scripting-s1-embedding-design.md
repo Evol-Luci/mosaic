@@ -114,9 +114,11 @@ engine->run_string("bad !!!")
 
 - **Syntax / runtime errors** → captured into `ScriptResult{ ok=false, error }`; never thrown to
   C++, never crash the host.
-- **Interpreter init failure** (e.g., a broken Python) → `create_python_script_engine` surfaces it
-  as a failed engine (the factory logs + the first `run_string` returns ok=false); the app degrades
-  gracefully rather than aborting.
+- **Interpreter init failure** is treated as a hard build/environment error, not a runtime path:
+  Python is `REQUIRED` at configure and linked at build time, so a missing/broken interpreter fails
+  the build (loudly, the correct failure mode), not the running app. `create_python_script_engine`
+  therefore assumes a working interpreter; graceful *runtime* degradation on a broken Python is out
+  of scope for v0.1 (there is no supported way to reach that state past a successful build).
 - Captured stdout is returned even on error (a script may print before failing).
 
 ## Testability
