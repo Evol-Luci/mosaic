@@ -24,6 +24,7 @@ add_executable(mosaic_unit_tests
   unit/events/event_bus_test.cpp
   unit/commands/command_stack_test.cpp
   unit/commands/command_event_integration_test.cpp
+  unit/commands/set_component_command_test.cpp
   unit/reflection/type_id_test.cpp
   unit/reflection/type_registry_test.cpp
   unit/reflection/component_reflection_test.cpp
