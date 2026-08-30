@@ -95,6 +95,8 @@ add_executable(mosaic_unit_tests
   unit/script/script_engine_test.cpp
   unit/script/script_world_test.cpp
   unit/script/value_marshal_test.cpp
+  unit/script/script_entities_test.cpp
+  unit/script/script_commands_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
