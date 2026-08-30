@@ -5,6 +5,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "app/asset/asset_io.hpp"
 #include "app/cli/options.hpp"
 #include "app/project/bundle.hpp"
 #include "app/project/project_io.hpp"
@@ -165,4 +166,32 @@ TEST_CASE("build_bundle fails on a non-project or a missing scene, rolling back"
     REQUIRE_FALSE(fs::exists(out2)); // rolled back
 
     fs::remove_all(notproj); fs::remove_all(proj); fs::remove(bin);
+}
+
+TEST_CASE("build_bundle copies the project's assets into the bundle", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("aproj");
+    const std::string out  = tmp("aout");
+    const std::string bin  = tmp("abin") + ".exe";
+    fs::remove_all(proj); fs::remove_all(out);
+    REQUIRE(create_project(proj, types));
+    make_dummy_binary(bin);
+
+    // Import a tiny PPM so the project has an asset.
+    const std::string ppm = tmp("appm") + ".ppm";
+    {
+        std::string s = "P6\n2 1\n255\n";
+        const unsigned char px[] = {255, 0, 0, 0, 255, 0};
+        s.append(reinterpret_cast<const char*>(px), sizeof(px));
+        REQUIRE(mosaic::app::save_scene_file(ppm, s));
+    }
+    REQUIRE(mosaic::app::import_asset(proj, ppm).has_value());
+
+    REQUIRE(build_bundle(proj, out, bin, types));
+    const std::string stem = fs::path(ppm).stem().string();
+    REQUIRE(fs::exists(fs::path(out) / "assets" / (stem + ".image")));
+    REQUIRE(fs::exists(fs::path(out) / "assets" / (stem + ".toml")));
+
+    fs::remove_all(proj); fs::remove_all(out); fs::remove(bin); fs::remove(ppm);
 }

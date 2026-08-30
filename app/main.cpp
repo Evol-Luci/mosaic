@@ -3,15 +3,18 @@
 #include <chrono>
 #include <cmath>
 #include <csignal>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <thread>
 
 #include <GLFW/glfw3.h> // windowing only; Vulkan surface creation lives in the backend
 
+#include "app/asset/asset_io.hpp"
 #include "app/cli/options.hpp"
 #include "app/project/project_io.hpp"
 #include "app/run/build.hpp"
+#include "app/run/import.hpp"
 #include "app/run/create.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
@@ -81,6 +84,11 @@ int main(int argc, char** argv)
         return run_build(pr.options);
     }
 
+    if (pr.options.command == Command::Import)
+    {
+        return run_import(pr.options);
+    }
+
     // Smart positional: resolve a project dir / scene file into the scene to load, so run and
     // editor both feed T2's populate_world through options.scene.
     if (pr.options.open_path)
@@ -94,6 +102,12 @@ int main(int argc, char** argv)
             return 1;
         }
         pr.options.scene = *resolved;
+        std::error_code aec;
+        if (std::filesystem::is_directory(*pr.options.open_path, aec))
+        {
+            pr.options.assets_dir =
+                (std::filesystem::path(*pr.options.open_path) / "assets").string();
+        }
     }
 
     if (pr.options.command == Command::Editor)
@@ -172,6 +186,12 @@ int main(int argc, char** argv)
         using mosaic::foundation::math::Vec3;
 
         auto render_system = setup_runtime(world, asset_registry).render_system;
+
+        if (options.assets_dir)
+        {
+            const int n = load_project_assets(asset_registry, *options.assets_dir);
+            if (n > 0) { mosaic::foundation::log::info("import", "loaded {} project asset(s)", n); }
+        }
 
         auto* device = render_device.get();
         deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {

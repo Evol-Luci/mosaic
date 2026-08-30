@@ -4,23 +4,35 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-29 (v0.1 foundation + rendering + physics complete; **Project &
-Tools Workflow pillar UNDERWAY — T1 (meshes as assets) + T2 (scene load/save) + T3 (`mosaic
-create` + project model) + T4 (`mosaic build` standalone bundle) COMPLETE.**
-**T4** added `mosaic build <project> [-o <out>]`: it packages a project into a **self-contained,
-project-format bundle** — a copy of the running `mosaic` binary + the default scene + the manifest
-+ an executable `run.sh` — in `app/project/bundle.hpp` (`build_bundle`, runtime-binary path
-injected for headless tests; runtime resolved via `/proc/self/exe`). Because the bundle is
-project-format, the copied binary runs it through **T3's existing** `mosaic run <dir>` path — so
-T4 only added the *build* side; running is free. Overwrite-safe: a dir is treated as a regenerable
-prior bundle only if it carries the build artifacts (`mosaic` + `run.sh`), a plain project or
-arbitrary `-o <path>` is refused untouched, and a self-build (`-o <project>`) is refused — so no
-user data is clobbered; write failures roll back the bundle. Copying real per-project `assets/`
-files is deferred to **T5**. 319 tests green; functionally, `mosaic build P -o B && B/mosaic run B
---window` runs the scene **via the bundle's own copied binary** with no source tree (0 validation
-errors), and `B/run.sh` launches it. **Next: T5** (asset importer/cooker — turn an external asset
-file into a registry-native resource + `AssetMetadata` under a project's `assets/`, which
-`build_bundle` will then copy into the bundle — the seam this slice leaves open). T4 design/plan:
+**Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics complete; **Project &
+Tools Workflow pillar COMPLETE — T1 (meshes as assets) + T2 (scene load/save) + T3 (`mosaic
+create` + project model) + T4 (`mosaic build` standalone bundle) + T5 (asset importer/cooker)
+ALL COMPLETE. The remaining v0.1 pillar is Scripting (Python).**
+**T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
+`import_asset` (in `app/asset/asset_io.hpp`) accepts a PPM image, cooks it into a compact binary
+blob (`.image`), writes `AssetMetadata` as a `.toml` sidecar (uuid, type, version, source), and
+places both under `<project>/assets/`. `build_bundle` now copies the project's `assets/` tree
+into the bundle (step 4.5, after manifest write, before binary copy) via `fs::copy` recursive;
+`load_project_assets` scans bundle `assets/*.toml` at startup and registers each cooked image
+into the `AssetRegistry` under its metadata uuid, so the bundle runs with its own assets from its
+own copied binary — no source tree needed. 329 tests green; functionally, `mosaic create P &&
+mosaic import P t5.ppm && mosaic build P -o B && B/mosaic run B --window --ticks 3` exits 0 with
+no validation errors, and `B/assets/` contains the cooked `t5.image` + `t5.toml`. T5 design/plan:
+[T5 spec](../superpowers/specs/2026-08-29-tools-t5-asset-importer-design.md) ·
+[T5 plan](../superpowers/plans/2026-08-29-tools-t5-asset-importer.md).
+**The Project & Tools Workflow pillar (T1–T5) is COMPLETE.**
+**Next pillar: Scripting (Python)** — expose the ECS/world API to Python scripts.
+
+Prior slice — **T4** added `mosaic build <project> [-o <out>]`: it packages a project into a
+**self-contained, project-format bundle** — a copy of the running `mosaic` binary + the default
+scene + the manifest + an executable `run.sh` — in `app/project/bundle.hpp` (`build_bundle`,
+runtime-binary path injected for headless tests; runtime resolved via `/proc/self/exe`). Because
+the bundle is project-format, the copied binary runs it through **T3's existing** `mosaic run
+<dir>` path — so T4 only added the *build* side; running is free. Overwrite-safe: a dir is treated
+as a regenerable prior bundle only if it carries the build artifacts (`mosaic` + `run.sh`), a
+plain project or arbitrary `-o <path>` is refused untouched, and a self-build (`-o <project>`) is
+refused — so no user data is clobbered; write failures roll back the bundle. Copying real
+per-project `assets/` files was deferred to T5 (done). 319 tests green at the time. T4 design/plan:
 [T4 spec](../superpowers/specs/2026-08-29-tools-t4-build-design.md) ·
 [T4 plan](../superpowers/plans/2026-08-29-tools-t4-build.md).
 
@@ -134,10 +146,10 @@ emitted on the #11 `EventBus` by `PhysicsSystem` each tick; a contact-sequence d
 records the event stream over a scenario and asserts it identical across runs (the record/replay
 guarantee applied to events); and the demo **logs contacts** so `mosaic run`/the editor Console
 show `contact begin: entity … <-> entity …` as the bodies land (282 tests, 0 validation errors).
-**What remains for the v0.1 vertical slice:** **Scripting (Python)** and the rest of the
-**Project & Tools Workflow pillar** — T2 (scene load/save in the Studio), T3 (`mosaic create` +
-project model), T4 (`mosaic build` standalone), T5 (asset importer/cooker); **T1 (meshes as
-assets) is done** (see the header). **Physics follow-ups (deferred):**
+**What remains for the v0.1 vertical slice:** **Scripting (Python)**. The **Project & Tools
+Workflow pillar (T1–T5) is now COMPLETE** — T1 (meshes as assets), T2 (scene load/save), T3
+(`mosaic create` + project model), T4 (`mosaic build` standalone bundle), T5 (asset
+importer/cooker + `build_bundle` copies assets) are all done. **Physics follow-ups (deferred):**
 sphere/capsule demo meshes (colliders currently drawn as cubes), full record/replay-to-disk,
 contact manifolds/points/impulses, and viewport mouse-picking (consumes `PhysicsSystem::raycast`).
 Physics design/plan:

@@ -4,6 +4,7 @@ add_library(mosaic_app STATIC
   run/editor.cpp
   run/create.cpp
   run/build.cpp
+  run/import.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine
