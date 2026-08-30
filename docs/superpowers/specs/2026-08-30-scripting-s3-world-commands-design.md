@@ -129,10 +129,14 @@ virtual void bind_commands(mosaic::foundation::commands::CommandStack& stack) = 
 ### 5. Python backend (`modules/script_python`)
 
 At `bind_world` time (world available), install the **entity builtins**, closing over `world_`:
-- `create_entity() -> int` → `world_->create_entity().value()`.
-- `destroy_entity(eid) -> bool` → if `world_->is_valid(EntityID(eid))` then `destroy_entity`, return
-  `true`; else `false`.
-- `entity_count() -> int` → `world_->entity_count()`.
+- `create_entity() -> int` → `world_->create_entity().value()` (immediate).
+- `destroy_entity(eid) -> bool` → if `world_->is_valid(EntityID(eid))` then `world_->destroy_entity`,
+  return `true`; else `false`. **`World::destroy_entity` is deferred** — it queues the entity and the
+  slot is reclaimed at the next `World::tick`, so `entity_count()`/`is_valid()` still report the
+  entity as alive until a tick runs. The script builtin mirrors this exactly (it must not bypass
+  deferred destruction); `true` means "queued," not "gone."
+- `entity_count() -> int` → `world_->entity_count()` (alive count; excludes queued-but-not-committed
+  destructions).
 - `entities() -> list[int]` → `for_each_entity` collecting `.value()` into a `py::list`.
 - `is_valid(eid) -> bool` → `world_->is_valid(EntityID(eid))`.
 
@@ -165,7 +169,9 @@ run_string(
 ## Error handling
 
 - `destroy_entity`/`is_valid` on an unknown or stale id → `false` (never throws; World guards with
-  `is_valid`).
+  `is_valid`). `destroy_entity` on a valid id → `true` (queued); the entity is actually removed at
+  the next `World::tick` (deferred), so a script that destroys then immediately reads
+  `entity_count()` still counts it — matching the C++ API.
 - `set_component` through a bound stack with an unknown component/bad value → the command's
   `execute` (via `set_value`) is a no-op returning `false`; **it is not recorded** on the stack (so
   `undo_depth` doesn't grow for a failed set). Matches S2's None/False contract.
@@ -188,8 +194,10 @@ Headless (`tests/unit/`):
   `valid()` false for an unregistered name / invalid entity (execute is a no-op); the
   add-then-undo path removes the component (exact, via `remove_value`).
 - **Script entity lifecycle** (`tests/unit/script/script_entities_test.cpp`): a script
-  `create_entity()`s N, C++ sees `entity_count()==N`; `entities()` lists them; `destroy_entity` drops
-  the count; `is_valid` tracks liveness; `destroy_entity(bad)` → `False`.
+  `create_entity()`s N (immediate: C++ sees `entity_count()`/`entities()` grow); `is_valid` tracks
+  liveness; `destroy_entity(valid)` → `True` but is **deferred** (count unchanged until a tick);
+  `destroy_entity(bad)` → `False`; after `world.tick(0)` in C++, the count drops and the victim is
+  invalid.
 - **Script commands / undo** (`tests/unit/script/script_commands_test.cpp`): with a bound
   `CommandStack`, a script `set_component`s a `Transform`, C++ observes the change **and**
   `undo_depth()==1`; `undo()` reverts the value in C++; `redo()` re-applies; a failed set doesn't
