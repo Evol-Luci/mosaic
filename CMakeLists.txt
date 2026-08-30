@@ -79,10 +79,23 @@ target_include_directories(mosaic_imgui PUBLIC
 target_link_libraries(mosaic_imgui PUBLIC glfw Vulkan::Vulkan)
 target_compile_features(mosaic_imgui PUBLIC cxx_std_20)
 
+# --- Python scripting (CPython embedded via pybind11) -------------------------
+find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+FetchContent_Declare(
+  pybind11
+  GIT_REPOSITORY https://github.com/pybind/pybind11.git
+  GIT_TAG        v2.13.6
+)
+# Force pybind11 to reuse the Python3 already found above (avoids a second
+# Python detection via FindPythonLibsNew which can pick a different version).
+set(PYBIND11_FINDPYTHON ON)
+FetchContent_MakeAvailable(pybind11)
+
 add_subdirectory(foundation)
 add_subdirectory(engine)
 add_subdirectory(modules/render_vulkan)
 add_subdirectory(modules/physics_box3d)
+add_subdirectory(modules/script_python)
 add_subdirectory(app)
 add_subdirectory(studio)
 add_subdirectory(tests)

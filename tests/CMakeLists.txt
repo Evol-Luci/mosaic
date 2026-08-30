@@ -90,6 +90,7 @@ add_executable(mosaic_unit_tests
   unit/physics/physics_system_test.cpp
   unit/physics/physics_raycast_test.cpp
   unit/physics/physics_contacts_test.cpp
+  unit/script/script_engine_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -99,6 +100,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_jobs
   mosaic_render_vulkan
   mosaic_physics_box3d
+  mosaic_script_python
   mosaic_studio
   Vulkan::Vulkan
   Catch2::Catch2WithMain
