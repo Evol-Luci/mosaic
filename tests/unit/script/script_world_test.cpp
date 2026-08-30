@@ -29,7 +29,7 @@ TEST_CASE("a script mutates a component property and C++ observes it", "[script]
 
     auto engine = create_python_script_engine();
     engine->bind_world(world, types);
-    engine->set_global("eid", Value(static_cast<std::int64_t>(e.value())));
+    engine->set_global("eid", Value(static_cast<std::uint64_t>(e.value())));
 
     const auto r = engine->run_string(
         "t = get_component(eid, 'Transform')\n"
@@ -50,7 +50,7 @@ TEST_CASE("get_component reads the current C++ values into the script", "[script
 
     auto engine = create_python_script_engine();
     engine->bind_world(world, types);
-    engine->set_global("eid", Value(static_cast<std::int64_t>(e.value())));
+    engine->set_global("eid", Value(static_cast<std::uint64_t>(e.value())));
     const auto r = engine->run_string("print(get_component(eid, 'Transform')['position']['x'])");
     REQUIRE(r.ok);
     REQUIRE(r.output.find("5.0") != std::string::npos);
@@ -64,7 +64,7 @@ TEST_CASE("script property errors return None/False, not a crash", "[script]")
     world.add_component<Transform>(e, Transform{});
     auto engine = create_python_script_engine();
     engine->bind_world(world, types);
-    engine->set_global("eid", Value(static_cast<std::int64_t>(e.value())));
+    engine->set_global("eid", Value(static_cast<std::uint64_t>(e.value())));
 
     REQUIRE(engine->run_string("assert get_component(eid, 'Nope') is None").ok);      // unknown -> None
     REQUIRE(engine->run_string("assert set_component(eid, 'Nope', {}) == False").ok); // unknown -> False

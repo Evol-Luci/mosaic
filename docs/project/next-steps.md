@@ -5,7 +5,7 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics + Project & Tools Workflow
-(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding) COMPLETE.**
+(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding) AND S2 (reflection→Python property bindings) COMPLETE.**
 The final v0.1 pillar was decomposed into five slices
 ([scripting decomposition](../superpowers/specs/2026-08-30-scripting-decomposition.md)):
 **S1** embed → **S2** reflection→Python property bindings → **S3** world/commands → **S4**
@@ -20,10 +20,22 @@ a Python dev install (`find_package(Python3 Development)`) and pybind11 (FetchCo
 module wall. 335 tests green (5 script tests: run+capture, compute, namespace isolation, syntax +
 runtime error capture, output-on-error). Runtime feasibility was confirmed by a throwaway spike
 before committing. **Build requirement note:** building now needs an *embeddable* Python (headers
-+ a shared `libpython`, e.g. distro `python3-dev`). **Next: S2** (expose reflected component
-properties to Python via the #18 bridge). S1 design/plan:
++ a shared `libpython`, e.g. distro `python3-dev`). S1 design/plan:
 [S1 spec](../superpowers/specs/2026-08-30-scripting-s1-embedding-design.md) ·
 [S1 plan](../superpowers/plans/2026-08-30-scripting-s1-embedding.md).
+**S2** wires reflected component properties into the Python side via a `Value` DOM bridge
+(`value_to_py`/`py_to_value` in `modules/script_python/value_marshal.hpp`). The engine's #18
+`ComponentReflection` serializes a component to a `Value` tree; the bridge marshals it into a
+Python dict; the script mutates it; the bridge converts back; and `ComponentReflection` applies the
+updated `Value` tree. Two `cpp_function` globals (`get_component`/`set_component`) are injected
+into each engine namespace by `bind_world`, keyed on entity `uint64` ID and reflected component
+name. Unknown component names return `None`/`False` (never throw). 342 tests green (4 new script
+property tests: mutate-and-observe, read-current-values, error-return, set_global marshal;
+2 new marshal tests: round-trip every DOM scalar/container, uint64→Python int). **Next: S3**
+(world/commands from a script — expose `create_entity`, `destroy_entity`, and `CommandStack`
+dispatch to Python). S2 design/plan:
+[S2 spec](../superpowers/specs/2026-08-30-scripting-s2-properties-design.md) ·
+[S2 plan](../superpowers/plans/2026-08-30-scripting-s2-properties.md).
 
 Prior pillar — **T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
 `import_asset` (in `app/asset/asset_io.hpp`) accepts a PPM image, cooks it into a compact binary

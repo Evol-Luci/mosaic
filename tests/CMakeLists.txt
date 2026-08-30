@@ -93,6 +93,7 @@ add_executable(mosaic_unit_tests
   unit/physics/physics_contacts_test.cpp
   unit/script/script_engine_test.cpp
   unit/script/script_world_test.cpp
+  unit/script/value_marshal_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -103,6 +104,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_render_vulkan
   mosaic_physics_box3d
   mosaic_script_python
+  pybind11::embed
   mosaic_studio
   Vulkan::Vulkan
   Catch2::Catch2WithMain

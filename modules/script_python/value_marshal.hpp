@@ -34,7 +34,7 @@ inline py::object value_to_py(const mosaic::foundation::serialization::Value& v)
         for (const auto& [key, val] : v.as<ser::Table>()) { dict[py::str(key)] = value_to_py(val); }
         return dict;
     }
-    return py::none();
+    throw std::runtime_error("unhandled Value variant in value_to_py");
 }
 
 // Python object -> #10 Value DOM. Throws std::runtime_error on an unsupported type (surfaces to
