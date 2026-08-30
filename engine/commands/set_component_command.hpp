@@ -33,14 +33,15 @@ public:
 
     std::string id() const override { return "world.set_component"; }
 
-    // True once execute() has applied successfully. A command whose set is rejected (bad
-    // entity/name/value) is invalid and should not be recorded.
+    // Concrete-type accessor (not a Command override): true once execute() applied successfully.
+    // The caller checks this before recording the command, so a rejected set is never stored.
     bool valid() const { return applies_; }
 
     void execute() override { applies_ = types_.set_value(world_, e_, name_, next_); }
 
     void undo() override
     {
+        if (!applies_) { return; } // nothing was applied (never executed, or the set was rejected)
         if (had_component_) { types_.set_value(world_, e_, name_, *prior_); }
         else { types_.remove_value(world_, e_, name_); }
     }

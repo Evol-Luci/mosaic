@@ -59,3 +59,14 @@ TEST_CASE("SetComponentCommand is invalid for an unregistered component", "[comm
     cmd.execute();
     REQUIRE_FALSE(cmd.valid()); // set_value on an unregistered name -> false
 }
+
+TEST_CASE("SetComponentCommand undo before execute is a safe no-op", "[commands]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    auto e = world.create_entity(); // no Transform
+
+    SetComponentCommand cmd(world, types, e, "Transform", to_value(Transform{}));
+    cmd.undo(); // never executed -> must not touch the world
+    REQUIRE_FALSE(world.has_component<Transform>(e));
+}
