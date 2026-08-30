@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -50,6 +51,33 @@ public:
                 FieldVisitorAdapter adapter{visitor};
                 reflect(adapter, *component);
             }
+        };
+        valuers_[name] = [](World& world, EntityID e) -> std::optional<Value>
+        {
+            if (T* c = world.get_component<T>(e))
+            {
+                return mosaic::foundation::serialization::to_value(*c);
+            }
+            return std::nullopt;
+        };
+        setters_[name] = [](World& world, EntityID e, const Value& value,
+                            const ReferenceResolver& resolver) -> bool
+        {
+            T c{};
+            try
+            {
+                mosaic::foundation::serialization::from_value(value, c, resolver);
+            }
+            catch (const mosaic::foundation::serialization::SerializationError&)
+            {
+                return false;
+            }
+            if (T* existing = world.get_component<T>(e))
+            {
+                *existing = std::move(c);
+                return true;
+            }
+            return world.add_component<T>(e, std::move(c));
         };
         savers_[std::move(name)] =
             [](World& world, const std::string& type_name, const SaveSink& sink)
@@ -108,6 +136,23 @@ public:
         return names;
     }
 
+    // Live component `name` on `e` as a Value (to_value), or nullopt if unregistered/absent.
+    std::optional<Value> component_value(World& world, EntityID e, std::string_view name) const
+    {
+        auto it = valuers_.find(std::string(name));
+        return it == valuers_.end() ? std::nullopt : it->second(world, e);
+    }
+
+    // Deserialize `value` and apply to `e`'s component `name` (update in place if present, else
+    // add). False if unregistered, invalid entity, or deserialization fails. Never throws.
+    bool set_value(World& world, EntityID e, std::string_view name, const Value& value,
+                   const ReferenceResolver& resolver =
+                       mosaic::foundation::serialization::default_resolver()) const
+    {
+        auto it = setters_.find(std::string(name));
+        return it == setters_.end() ? false : it->second(world, e, value, resolver);
+    }
+
     // Run `visitor` over the live component `name` on entity `e` (no-op if unregistered
     // or the entity lacks it).
     void inspect(World& world, EntityID e, std::string_view name, FieldVisitor& visitor) const
@@ -134,6 +179,11 @@ private:
 
     using Inspector = std::function<void(World&, EntityID, FieldVisitor&)>;
     std::unordered_map<std::string, Inspector> inspectors_;
+
+    using Valuer = std::function<std::optional<Value>(World&, EntityID)>;
+    std::unordered_map<std::string, Valuer> valuers_;
+    using Setter = std::function<bool(World&, EntityID, const Value&, const ReferenceResolver&)>;
+    std::unordered_map<std::string, Setter> setters_;
 };
 
 } // namespace mosaic::engine::reflection

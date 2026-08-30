@@ -76,6 +76,7 @@ add_executable(mosaic_unit_tests
   unit/render/shape_meshes_test.cpp
   unit/render/render_device_hooks_test.cpp
   unit/reflection/lighting_reflection_test.cpp
+  unit/reflection/component_value_test.cpp
   unit/studio/studio_layout_test.cpp
   unit/studio/selection_test.cpp
   unit/studio/hierarchy_test.cpp
