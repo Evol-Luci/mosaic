@@ -92,6 +92,7 @@ add_executable(mosaic_unit_tests
   unit/physics/physics_raycast_test.cpp
   unit/physics/physics_contacts_test.cpp
   unit/script/script_engine_test.cpp
+  unit/script/script_world_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
