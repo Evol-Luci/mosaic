@@ -29,7 +29,7 @@ before committing. **Build requirement note:** building now needs an *embeddable
 Python dict; the script mutates it; the bridge converts back; and `ComponentReflection` applies the
 updated `Value` tree. Two `cpp_function` globals (`get_component`/`set_component`) are injected
 into each engine namespace by `bind_world`, keyed on entity `uint64` ID and reflected component
-name. Unknown component names return `None`/`False` (never throw). 342 tests green (4 new script
+name. Unknown component names return `None`/`False` (never throw). 344 tests green (4 new script
 property tests: mutate-and-observe, read-current-values, error-return, set_global marshal;
 2 new marshal tests: round-trip every DOM scalar/container, uint64→Python int). **Next: S3**
 (world/commands from a script — expose `create_entity`, `destroy_entity`, and `CommandStack`
