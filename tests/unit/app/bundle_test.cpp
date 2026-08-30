@@ -112,6 +112,34 @@ TEST_CASE("build_bundle regenerates a prior bundle but refuses a non-bundle dir"
     fs::remove_all(proj); fs::remove_all(out); fs::remove(bin); fs::remove_all(junk);
 }
 
+TEST_CASE("build_bundle refuses self-build and refuses a project dir as output", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string bin = tmp("bin4") + ".exe";
+    make_dummy_binary(bin);
+
+    // --- self-build: output == project dir ---
+    const std::string proj = tmp("proj4");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+
+    REQUIRE_FALSE(build_bundle(proj, proj, bin, types));
+    // Project must be intact.
+    REQUIRE(fs::exists(fs::path(proj) / "mosaic.toml"));
+    REQUIRE(fs::exists(fs::path(proj) / "scenes" / "main.json"));
+
+    // --- project used as -o: refused as non-bundle, left untouched ---
+    const std::string proj2 = tmp("proj4b");
+    fs::remove_all(proj2);
+    REQUIRE(create_project(proj2, types));
+
+    REQUIRE_FALSE(build_bundle(proj, proj2, bin, types));
+    // proj2's manifest must still be present.
+    REQUIRE(fs::exists(fs::path(proj2) / "mosaic.toml"));
+
+    fs::remove_all(proj); fs::remove_all(proj2); fs::remove(bin);
+}
+
 TEST_CASE("build_bundle fails on a non-project or a missing scene, rolling back", "[app]")
 {
     TypeRegistry reg; ComponentReflection types = make_types(reg);

@@ -14,11 +14,14 @@
 
 namespace mosaic::app
 {
-// A directory that already holds a mosaic.toml is a prior bundle / project — safe to regenerate.
+// A directory is treated as a prior (regenerable) bundle only when it contains the distinctive
+// build outputs: the copied mosaic binary AND run.sh.  A plain project directory (which has only
+// mosaic.toml) is intentionally NOT a bundle, so `-o <project>` is refused rather than deleted.
 inline bool looks_like_bundle(const std::filesystem::path& dir)
 {
     std::error_code ec;
-    return std::filesystem::exists(dir / kManifestName, ec);
+    return std::filesystem::exists(dir / "mosaic", ec)
+        && std::filesystem::exists(dir / "run.sh", ec);
 }
 
 // Package `project_dir` into a self-contained bundle at `out_dir`, copying `runtime_binary` (the
@@ -38,7 +41,18 @@ inline bool build_bundle(const std::string& project_dir, const std::string& out_
         return false;
     }
 
-    // 2. Overwrite rule: regenerate a prior bundle; refuse a non-bundle non-empty dir.
+    // 2a. Refuse a self-build (output == project).
+    {
+        std::error_code eqec;
+        if (std::filesystem::weakly_canonical(std::filesystem::path(out_dir), eqec) ==
+            std::filesystem::weakly_canonical(std::filesystem::path(project_dir), eqec))
+        {
+            mosaic::foundation::log::error("build", "output directory is the project itself: {}", out_dir);
+            return false;
+        }
+    }
+
+    // 2b. Overwrite rule: regenerate a prior bundle; refuse a non-bundle non-empty dir.
     const fs::path out(out_dir);
     std::error_code ec;
     if (fs::exists(out, ec) && !fs::is_empty(out, ec))

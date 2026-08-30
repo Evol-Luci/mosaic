@@ -16,7 +16,7 @@ int run_build(const Options& options)
 {
     if (!options.build_project)
     {
-        mosaic::foundation::log::error("build", "build: no project given");
+        mosaic::foundation::log::error("build", "no project given");
         return 1;
     }
     const std::string project = *options.build_project;
