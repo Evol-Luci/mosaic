@@ -177,3 +177,14 @@ TEST_CASE("build without -o leaves the output unset", "[cli]")
     REQUIRE(*pr.options.build_project == "mygame");
     REQUIRE_FALSE(pr.options.build_out.has_value());
 }
+
+TEST_CASE("import subcommand captures project and file", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "import", "mygame", "tex.ppm"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Import);
+    REQUIRE(pr.options.import_project.has_value());
+    REQUIRE(*pr.options.import_project == "mygame");
+    REQUIRE(pr.options.import_file.has_value());
+    REQUIRE(*pr.options.import_file == "tex.ppm");
+}

@@ -10,7 +10,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, or `build`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, or `import`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
@@ -19,6 +19,8 @@ ParseResult parse(int argc, char** argv)
     std::string  create_name;
     std::string  build_project_name;
     std::string  build_out_dir;
+    std::string  import_project_name;
+    std::string  import_file_name;
     double       duration_s = 0.0;
     std::uint64_t ticks = 0;
     CLI::Option* run_scene = run->add_option("--scene", scene, "Scene JSON file to load before running");
@@ -51,6 +53,10 @@ ParseResult parse(int argc, char** argv)
     build->add_option("project", build_project_name, "Project directory to package")->required();
     build->add_option("-o,--output", build_out_dir, "Output bundle directory (default <project>/dist)");
 
+    CLI::App* import = app.add_subcommand("import", "Import an asset file into a project");
+    import->add_option("project", import_project_name, "Project directory")->required();
+    import->add_option("file", import_file_name, "Source asset file (PPM image)")->required();
+
     try
     {
         app.parse(argc, argv);
@@ -80,6 +86,18 @@ ParseResult parse(int argc, char** argv)
     if (!build_out_dir.empty())
     {
         result.options.build_out = build_out_dir;
+    }
+    if (import->parsed())
+    {
+        result.options.command = Command::Import;
+    }
+    if (!import_project_name.empty())
+    {
+        result.options.import_project = import_project_name;
+    }
+    if (!import_file_name.empty())
+    {
+        result.options.import_file = import_file_name;
     }
     if (!open_path.empty())
     {
