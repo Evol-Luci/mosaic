@@ -98,6 +98,15 @@ inline bool build_bundle(const std::string& project_dir, const std::string& out_
         return fail("could not write bundle manifest: " + out_dir);
     }
 
+    // 4.5 Copy the project's assets/ tree (imported/cooked assets) if present.
+    const fs::path assets_src = fs::path(project_dir) / "assets";
+    if (fs::exists(assets_src, ec))
+    {
+        fs::copy(assets_src, out / "assets",
+                 fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+        if (ec) { return fail("could not copy assets/: " + assets_src.string()); }
+    }
+
     // 5. Copy the runtime binary + set the executable bit.
     fs::copy_file(runtime_binary, out / "mosaic", fs::copy_options::overwrite_existing, ec);
     if (ec) { return fail("could not copy runtime binary: " + runtime_binary); }
