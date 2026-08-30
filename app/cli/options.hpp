@@ -8,7 +8,7 @@ namespace mosaic::app
 {
 
 // Which subcommand the user invoked.
-enum class Command { Run, Editor, Create };
+enum class Command { Run, Editor, Create, Build };
 
 // Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value
 // type: no CLI11 in this header.
@@ -18,6 +18,8 @@ struct Options
     std::optional<std::string>   scene;        // --scene <file>
     std::optional<std::string>   open_path;    // positional: project dir or scene file (run/editor)
     std::optional<std::string>   create_path;  // positional: project dir to create (create)
+    std::optional<std::string>   build_project; // positional: project dir to package (build)
+    std::optional<std::string>   build_out;     // -o/--output: bundle output dir (build)
     std::optional<double>        duration_s;   // --duration <seconds>
     std::optional<std::uint64_t> ticks;        // --ticks <n>
     bool                         json = false;   // --json

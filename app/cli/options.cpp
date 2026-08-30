@@ -10,13 +10,15 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, or `create`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, or `build`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
     std::string  scene;
     std::string  open_path;
     std::string  create_name;
+    std::string  build_project_name;
+    std::string  build_out_dir;
     double       duration_s = 0.0;
     std::uint64_t ticks = 0;
     CLI::Option* run_scene = run->add_option("--scene", scene, "Scene JSON file to load before running");
@@ -45,6 +47,10 @@ ParseResult parse(int argc, char** argv)
     CLI::App* create = app.add_subcommand("create", "Scaffold a new project directory");
     create->add_option("name", create_name, "Project directory to create")->required();
 
+    CLI::App* build = app.add_subcommand("build", "Package a project into a standalone bundle");
+    build->add_option("project", build_project_name, "Project directory to package")->required();
+    build->add_option("-o,--output", build_out_dir, "Output bundle directory (default <project>/dist)");
+
     try
     {
         app.parse(argc, argv);
@@ -62,6 +68,18 @@ ParseResult parse(int argc, char** argv)
     if (create->parsed())
     {
         result.options.command = Command::Create;
+    }
+    if (build->parsed())
+    {
+        result.options.command = Command::Build;
+    }
+    if (!build_project_name.empty())
+    {
+        result.options.build_project = build_project_name;
+    }
+    if (!build_out_dir.empty())
+    {
+        result.options.build_out = build_out_dir;
     }
     if (!open_path.empty())
     {
