@@ -19,10 +19,12 @@ one persistent engine per session, so `x = 5` in one run is visible in the next.
 
 **In:**
 - **`ScriptConsoleModel`** (`studio/script_console.hpp`) — pure logic (no ImGui, testable headlessly):
-  an injected engine factory, a lazily-created persistent `ScriptEngine`, the current `input` string,
-  and a `history` of entries (input echo / output / error). `run(World&, const ComponentReflection&,
-  CommandStack&)` binds the engine (once) to the world + reflection + command stack and executes the
-  input, appending results. Mirrors the Studio model/draw split (`PlayState`, `SceneFileModel`).
+  an injected engine factory, a lazily-created persistent `ScriptEngine`, and a `history` of entries
+  (input echo / output / error). `run(const std::string& code, World&, const ComponentReflection&,
+  CommandStack&)` binds the engine (once) to the world + reflection + command stack and executes
+  `code`, appending results. The input *buffer* is a draw concern (a `char[]` in the ImGui glue), so
+  the model stays purely execution + history — mirroring the Studio model/draw split (`PlayState`,
+  `SceneFileModel`).
 - **Enabling change:** the neutral `ScriptEngine::bind_world` takes `const ComponentReflection&`
   (its `component_value`/`set_value` are already `const`), so the editor's `const` reflection binds
   without a cast. Backward-compatible (non-const callers bind to `const&`).
@@ -73,48 +75,47 @@ public:
 
     explicit ScriptConsoleModel(EngineFactory factory = {}) : factory_(std::move(factory)) {}
 
-    std::string&       input() { return input_; }              // bound to the ImGui input box
-    const std::string& input() const { return input_; }
     const std::vector<ConsoleEntry>& history() const { return history_; }
     void clear_history() { history_.clear(); }
 
-    // Execute the current input against `world` (reflection + command stack bound). Lazily creates
-    // the engine on first run (persistent REPL). Appends an Input echo + Output/Error entries; then
-    // clears the input. A null factory (scripting unavailable) appends one Error entry and no-ops.
-    void run(mosaic::engine::World& world,
+    // Execute `code` against `world` (reflection + command stack bound). Lazily creates the engine
+    // on first run (persistent REPL). Appends an Input echo + Output/Error entries. Empty code is a
+    // no-op. A null factory (scripting unavailable) appends one Error entry and no-ops thereafter.
+    void run(const std::string& code, mosaic::engine::World& world,
              const mosaic::engine::reflection::ComponentReflection& reflection,
              mosaic::foundation::commands::CommandStack& commands);
 
 private:
     EngineFactory factory_;
     std::unique_ptr<mosaic::engine::script::ScriptEngine> engine_; // lazily created, persistent
-    std::string input_;
     std::vector<ConsoleEntry> history_;
 };
 }
 ```
 
-`run` logic: trim-empty input → no-op. If `!engine_`: if `!factory_` → push one `Error`
+`run` logic: empty `code` → no-op. If `!engine_`: if `!factory_` → push one `Error`
 ("scripting is not available in this build") and return; else `engine_ = factory_();`,
 `engine_->bind_world(world, reflection);`, `engine_->bind_commands(commands);`. Push
-`Input{input_}`; `const auto r = engine_->run_string(input_);`; if `!r.output.empty()` push
-`Output{r.output}`; if `!r.ok` push `Error{r.error}`; `input_.clear();`. Never throws (S1
-guarantees `run_string`). The engine is bound once to the (stable) editor world; subsequent runs
-reuse it → REPL state persists.
+`Input{code}`; `const auto r = engine_->run_string(code);`; if `!r.output.empty()` push
+`Output{r.output}`; if `!r.ok` push `Error{r.error}`. Never throws (S1 guarantees `run_string`).
+The engine is bound once to the (stable) editor world; subsequent runs reuse it → REPL state
+persists.
 
 ### 3. StudioApp integration (`studio/studio_app.{hpp,cpp}`)
 
 - Ctor gains an injected factory: `explicit StudioApp(std::string scene_path = "scene.json",
   ScriptConsoleModel::EngineFactory script_factory = {})`, storing
   `script_console_(std::move(script_factory))`.
-- New members: `mosaic::foundation::commands::CommandStack commands_;` and
-  `ScriptConsoleModel script_console_;`.
+- New members: `mosaic::foundation::commands::CommandStack commands_;`, `ScriptConsoleModel
+  script_console_;`, and a draw-owned input buffer `char script_input_[8192] = {};` (no `imgui_stdlib`
+  is vendored, so a fixed char buffer feeds `InputTextMultiline`).
 - `draw_ui` already receives `world` + reflection; with §1 it can pass reflection (const) to the
-  console. A `draw_script_console()` renders `ImGui::InputTextMultiline` bound to
-  `script_console_.input()`, a **Run** button (and Ctrl+Enter) that calls
-  `script_console_.run(world, reflection, commands_)`, a **Clear** button, and the `history()` (color
-  by kind: error red, output default, input dim). Add a "Script Console" panel to `StudioLayout`'s
-  defaults and dispatch it in the panel loop (beside `draw_console()`).
+  console. A `draw_script_console(world, reflection)` renders `ImGui::InputTextMultiline("##script",
+  script_input_, sizeof(script_input_), ...)`, a **Run** button that calls
+  `script_console_.run(script_input_, world, reflection, commands_)` then clears the buffer, a
+  **Clear** button (`script_console_.clear_history()`), and the `history()` (color by kind: error
+  red, output default, input dim). Add a "Script Console" panel to `StudioLayout`'s defaults and
+  dispatch it in the panel loop (beside `draw_console()`).
 - `draw_ui` gains access to `world`+reflection for the console (it already has them as params).
 
 ### 4. App wiring (`app/run/editor.cpp`, `app/CMakeLists.txt`)
@@ -155,13 +156,16 @@ next frame: hierarchy/viewport reflect the new entity (editor re-renders the Wor
 
 - **`ScriptConsoleModel` unit** (`tests/unit/studio/script_console_test.cpp`; the unit-test exe
   already links `mosaic_studio` + `mosaic_script_python`):
-  - `run` `"print(6*7)"` → `history` has an `Output` entry containing `"42"`; input cleared.
-  - `run` `"e = create_entity()"` → `world.entity_count()` grew; history records it.
-  - **REPL persistence:** `run "x = 5"` then `run "print(x)"` → `Output` `"5"` (one engine reused).
-  - **Error:** `run "raise ValueError('boom')"` → an `Error` entry containing `"boom"`, `ok`-safe (no
-    throw); the model is still usable afterward.
-  - **Commands:** `run` a `set_component` then `run "undo()"` → the component reverts (stack bound).
-  - **No factory:** `ScriptConsoleModel{}` (empty) `.run(...)` → one `Error` entry, no crash.
+  - `run("print(6*7)", ...)` → `history` has an `Output` entry containing `"42"` (+ an `Input` echo).
+  - `run("e = create_entity()", ...)` → `world.entity_count()` grew; history records it.
+  - **REPL persistence:** `run("x = 5", ...)` then `run("print(x)", ...)` → `Output` `"5"` (one
+    engine reused across runs).
+  - **Error:** `run("raise ValueError('boom')", ...)` → an `Error` entry containing `"boom"`,
+    `ok`-safe (no throw); the model is still usable afterward.
+  - **Commands:** `run` a `set_component` then `run("undo()", ...)` → the component reverts (stack
+    bound).
+  - **No factory:** `ScriptConsoleModel{}` (empty) `.run("print(1)", ...)` → one `Error` entry, no
+    crash.
 - **StudioApp** constructs with a factory (compile + link proves the wiring/tier boundary). The ImGui
   `draw_script_console` glue is thin and verified by the build + the standing functional-launch check
   (`mosaic run --window` → exit 0, silent stderr, confirming the render/UI path is intact) plus the
