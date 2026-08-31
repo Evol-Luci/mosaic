@@ -6,7 +6,7 @@ done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics + Project & Tools Workflow
 (T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding), S2 (reflection→Python
-property bindings), AND S3 (world/commands) COMPLETE.**
+property bindings), S3 (world/commands), AND S4 (ScriptComponent) COMPLETE.**
 The final v0.1 pillar was decomposed into five slices
 ([scripting decomposition](../superpowers/specs/2026-08-30-scripting-decomposition.md)):
 **S1** embed → **S2** reflection→Python property bindings → **S3** world/commands → **S4**
@@ -46,8 +46,24 @@ wall) installs `undo()`/`redo()`/`undo_depth()` and routes `set_component` throu
 a rejected set is not recorded. Without a bound stack, `set_component` falls through to the S2
 direct path (S2 tests unaffected). 355 tests green (4 new script tests: entity lifecycle
 deferred-destroy, undoable set + undo + redo, failed-set not recorded, no-stack backward compat).
-**Next: S4** (`ScriptComponent` — attach a `.py` script file to an entity, auto-called `on_update`
-each tick from a `ScriptSystem`; the script's file path is reflected so scenes round-trip it).
+**S4** delivers the core payoff — "attach a Python script, press Play." A reflected
+`ScriptComponent { std::string source; }` (`engine/script/script_component.hpp`, Python-free,
+registered as `"ScriptComponent"`) holds a Python script defining `on_update(dt)`; a
+`ScriptSystem` (`engine/script/script_system.hpp`) runs each scripted entity's `on_update(dt)` once
+per `World::tick`. `ScriptSystem` is an `ecs::System` that drives the neutral `ScriptEngine` via an
+injected factory (`std::function<unique_ptr<ScriptEngine>()>`), so the engine tier stays
+Python-free; it caches one engine per scripted entity (compile source once, recompile on change,
+prune the unseen), sets the `entity` global once and `dt` each tick, and ignores per-tick errors
+(non-fatal — a throwing script skips its mutation without crashing the tick). Per-tick mutations use
+the S2 direct path (no undo spam). v0.1 inlines the source in the component; a `.py`-asset reference
+is a post-v0.1 refinement. 360 tests green (5 new: ScriptComponent reflection round-trip; ScriptSystem
+determinism/bit-identical, per-entity state persistence, recompile-on-source-change, throwing-on_update
+non-fatal). S4 design/plan:
+[S4 spec](../superpowers/specs/2026-08-30-scripting-s4-scriptcomponent-design.md) ·
+[S4 plan](../superpowers/plans/2026-08-30-scripting-s4-scriptcomponent.md).
+**Next: S5** (Studio script console — a panel/menu that runs a script string against the live editor
+`World` + binds a `CommandStack`/`PlayState`, so you can script the running scene and watch the
+viewport update; the visible cap of the pillar).
 S3 design/plan:
 [S3 spec](../superpowers/specs/2026-08-30-scripting-s3-world-commands-design.md) ·
 [S3 plan](../superpowers/plans/2026-08-30-scripting-s3-world-commands.md).

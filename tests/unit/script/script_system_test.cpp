@@ -16,7 +16,6 @@ using mosaic::engine::reflection::register_builtin_components;
 using mosaic::engine::script::ScriptComponent;
 using mosaic::engine::script::ScriptSystem;
 using mosaic::engine::transform::Transform;
-using mosaic::foundation::math::Vec3;
 using mosaic::foundation::reflection::TypeRegistry;
 using mosaic::script::python::create_python_script_engine;
 
@@ -107,4 +106,18 @@ TEST_CASE("a throwing on_update is non-fatal; other scripted entities still upda
 
     world.tick(0.5f); // must not throw
     REQUIRE(world.get_component<Transform>(good)->position.x == 0.5f);
+}
+
+TEST_CASE("a ScriptComponent with a syntax error is non-fatal", "[script]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{});
+    world.add_component<ScriptComponent>(e, ScriptComponent{"this is not valid python !!\n"});
+    world.add_system<ScriptSystem>(types, [] { return create_python_script_engine(); });
+
+    world.tick(0.25f); // compile fails; on_update undefined -> captured, non-fatal
+    world.tick(0.25f); // must not crash on subsequent ticks either
+    REQUIRE(world.get_component<Transform>(e)->position.x == 0.0f); // unchanged
 }

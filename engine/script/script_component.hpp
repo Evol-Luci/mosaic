@@ -17,4 +17,5 @@ void reflect(V& visitor, ScriptComponent& c)
 {
     visitor.member("source", c.source);
 }
+
 } // namespace mosaic::engine::script
