@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine/reflection/builtin_components.hpp"
+#include "engine/script/script_component.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/reflection/type_registry.hpp"
@@ -83,4 +84,20 @@ TEST_CASE("remove_value removes a component; false when absent or unregistered",
     REQUIRE_FALSE(world.has_component<Transform>(e));
     REQUIRE_FALSE(types.remove_value(world, e, "Transform")); // already gone
     REQUIRE_FALSE(types.remove_value(world, e, "Nope"));      // unregistered
+}
+
+TEST_CASE("ScriptComponent round-trips its source through reflection", "[reflection]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    World world;
+    auto e = world.create_entity();
+    mosaic::engine::script::ScriptComponent sc{"def on_update(dt):\n    pass\n"};
+    world.add_component<mosaic::engine::script::ScriptComponent>(e, sc);
+
+    auto v = types.component_value(world, e, "ScriptComponent");
+    REQUIRE(v.has_value());
+    // Round-trip the Value back through set_value and confirm the source survives.
+    auto e2 = world.create_entity();
+    REQUIRE(types.set_value(world, e2, "ScriptComponent", *v));
+    REQUIRE(world.get_component<mosaic::engine::script::ScriptComponent>(e2)->source == sc.source);
 }
