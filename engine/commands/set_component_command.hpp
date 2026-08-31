@@ -24,7 +24,7 @@ public:
     using EntityID = mosaic::foundation::EntityID;
     using ComponentReflection = mosaic::engine::reflection::ComponentReflection;
 
-    SetComponentCommand(World& world, ComponentReflection& types, EntityID e, std::string name,
+    SetComponentCommand(World& world, const ComponentReflection& types, EntityID e, std::string name,
                         Value next)
         : world_(world), types_(types), e_(e), name_(std::move(name)), next_(std::move(next)),
           prior_(types_.component_value(world_, e_, name_)), had_component_(prior_.has_value())
@@ -57,7 +57,7 @@ public:
 
 private:
     World& world_;
-    ComponentReflection& types_;
+    const ComponentReflection& types_;
     EntityID e_;
     std::string name_;
     Value next_;

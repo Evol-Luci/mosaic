@@ -30,7 +30,7 @@ public:
     // Make get_component/set_component available to scripts, bound to this world + component set.
     // The engine holds non-owning pointers; the caller keeps them alive across run_string calls.
     virtual void bind_world(mosaic::engine::World& world,
-                            mosaic::engine::reflection::ComponentReflection& types) = 0;
+                            const mosaic::engine::reflection::ComponentReflection& types) = 0;
 
     // Inject a value into the script's global namespace (e.g. an entity handle), marshaled from
     // the #10 Value DOM.

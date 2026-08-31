@@ -111,7 +111,7 @@ public:
     }
 
     void bind_world(mosaic::engine::World& world,
-                    mosaic::engine::reflection::ComponentReflection& types) override
+                    const mosaic::engine::reflection::ComponentReflection& types) override
     {
         world_ = &world;
         types_ = &types;
@@ -187,7 +187,7 @@ public:
 private:
     py::dict globals_; // this engine's isolated namespace (interpreter outlives it)
     mosaic::engine::World* world_ = nullptr;
-    mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
+    const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;
 };
 } // namespace
