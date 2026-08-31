@@ -7,6 +7,8 @@
 #include "studio/asset_browser.hpp"
 #include "studio/console.hpp"
 #include "studio/play_state.hpp"
+#include "foundation/commands/command_stack.hpp"
+#include "studio/script_console.hpp"
 #include "studio/scene_file.hpp"
 #include "studio/selection.hpp"
 #include "studio/studio_layout.hpp"
@@ -22,8 +24,9 @@ namespace mosaic::studio
 class StudioApp
 {
 public:
-    explicit StudioApp(std::string scene_path = "scene.json")
-        : scene_file_(std::move(scene_path))
+    explicit StudioApp(std::string scene_path = "scene.json",
+                       ScriptConsoleModel::EngineFactory script_factory = {})
+        : scene_file_(std::move(scene_path)), script_console_(std::move(script_factory))
     {
     }
 
@@ -47,6 +50,8 @@ private:
     void draw_viewport(mosaic::engine::render::RenderDevice& device);
     void draw_assets(const mosaic::engine::assets::AssetRegistry& registry);
     void draw_console();
+    void draw_script_console(mosaic::engine::World& world,
+                             const mosaic::engine::reflection::ComponentReflection& reflection);
 
     StudioLayout                   layout_;
     SelectionModel                 selection_;
@@ -55,6 +60,9 @@ private:
     AssetBrowserModel              assets_;
     SceneFileModel                 scene_file_;
     std::shared_ptr<ConsoleBuffer> console_ = std::make_shared<ConsoleBuffer>();
+    mosaic::foundation::commands::CommandStack commands_;
+    ScriptConsoleModel                         script_console_;
+    char                                       script_input_[8192] = {};
 };
 
 } // namespace mosaic::studio

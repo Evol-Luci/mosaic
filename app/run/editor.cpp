@@ -28,6 +28,7 @@
 #include "foundation/logging/log.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
+#include "modules/script_python/python_script_engine.hpp"
 #include "studio/console.hpp"
 #include "studio/studio_app.hpp"
 #include "studio/viewport.hpp"
@@ -88,7 +89,9 @@ int run_editor(const Options& options)
     std::signal(SIGINT, on_editor_sigint);
     g_editor_stop.store(false);
 
-    mosaic::studio::StudioApp studio(options.scene.value_or("scene.json"));
+    mosaic::studio::StudioApp studio(
+        options.scene.value_or("scene.json"),
+        [] { return mosaic::script::python::create_python_script_engine(); });
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(

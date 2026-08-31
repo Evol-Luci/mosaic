@@ -4,15 +4,16 @@
 
 using mosaic::studio::StudioLayout;
 
-TEST_CASE("StudioLayout default has the five panels, all open", "[studio]")
+TEST_CASE("StudioLayout default has the six panels, all open", "[studio]")
 {
     StudioLayout layout;
-    REQUIRE(layout.panels().size() == 5);
+    REQUIRE(layout.panels().size() == 6);
     REQUIRE(layout.is_open("Hierarchy"));
     REQUIRE(layout.is_open("Viewport"));
     REQUIRE(layout.is_open("Inspector"));
     REQUIRE(layout.is_open("Assets"));
     REQUIRE(layout.is_open("Console"));
+    REQUIRE(layout.is_open("Script Console"));
 }
 
 TEST_CASE("StudioLayout toggle flips a panel's open state", "[studio]")
