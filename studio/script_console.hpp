@@ -35,6 +35,10 @@ public:
     const std::vector<ConsoleEntry>& history() const { return history_; }
     void clear_history() { history_.clear(); }
 
+    // Execute `code` against `world` (reflection + command stack bound). Lazily creates the engine
+    // on first run (persistent REPL). Appends an Input echo + Output/Error entries. Empty code is a
+    // no-op. A null factory (scripting unavailable) makes every run() append one 'not available'
+    // Error entry and do nothing else (no engine is created).
     void run(const std::string& code, mosaic::engine::World& world,
              const mosaic::engine::reflection::ComponentReflection& reflection,
              mosaic::foundation::commands::CommandStack& commands)

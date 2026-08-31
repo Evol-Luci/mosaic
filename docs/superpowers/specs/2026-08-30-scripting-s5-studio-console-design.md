@@ -80,7 +80,8 @@ public:
 
     // Execute `code` against `world` (reflection + command stack bound). Lazily creates the engine
     // on first run (persistent REPL). Appends an Input echo + Output/Error entries. Empty code is a
-    // no-op. A null factory (scripting unavailable) appends one Error entry and no-ops thereafter.
+    // no-op. A null factory (scripting unavailable) appends a 'not available' Error entry on each
+    // run (no engine is created).
     void run(const std::string& code, mosaic::engine::World& world,
              const mosaic::engine::reflection::ComponentReflection& reflection,
              mosaic::foundation::commands::CommandStack& commands);

@@ -183,6 +183,11 @@ void StudioApp::draw_script_console(
         ImGui::TextUnformatted(entry.text.c_str());
         ImGui::PopStyleColor();
     }
+    // Auto-scroll to the newest line when the view is already pinned to the bottom.
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+    {
+        ImGui::SetScrollHereY(1.0f);
+    }
     ImGui::EndChild();
 }
 
