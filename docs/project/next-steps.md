@@ -56,9 +56,9 @@ Python-free; it caches one engine per scripted entity (compile source once, reco
 prune the unseen), sets the `entity` global once and `dt` each tick, and ignores per-tick errors
 (non-fatal — a throwing script skips its mutation without crashing the tick). Per-tick mutations use
 the S2 direct path (no undo spam). v0.1 inlines the source in the component; a `.py`-asset reference
-is a post-v0.1 refinement. 360 tests green (5 new: ScriptComponent reflection round-trip; ScriptSystem
+is a post-v0.1 refinement. 361 tests green (6 new: ScriptComponent reflection round-trip; ScriptSystem
 determinism/bit-identical, per-entity state persistence, recompile-on-source-change, throwing-on_update
-non-fatal). S4 design/plan:
+non-fatal, syntax-error-in-source non-fatal). S4 design/plan:
 [S4 spec](../superpowers/specs/2026-08-30-scripting-s4-scriptcomponent-design.md) ·
 [S4 plan](../superpowers/plans/2026-08-30-scripting-s4-scriptcomponent.md).
 **Next: S5** (Studio script console — a panel/menu that runs a script string against the live editor
