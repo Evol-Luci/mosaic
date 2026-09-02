@@ -13,6 +13,10 @@
 #include "studio/selection.hpp"
 #include "studio/studio_layout.hpp"
 #include "studio/viewport.hpp"
+#include <optional>
+#include <string>
+#include "foundation/core/entity_id.hpp"
+#include "studio/demo_physics.hpp"
 
 namespace mosaic::studio
 {
@@ -63,6 +67,9 @@ private:
     mosaic::foundation::commands::CommandStack commands_;
     ScriptConsoleModel                         script_console_;
     char                                       script_input_[8192] = {};
+    std::optional<mosaic::foundation::EntityID> demo_entity_; // the scripted demo object, cached
+    std::string                                 demo_script_; // its source (to restore on toggle-off)
+    bool                                        demo_physics_ = false;
 };
 
 } // namespace mosaic::studio

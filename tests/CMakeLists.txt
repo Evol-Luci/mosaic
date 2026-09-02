@@ -58,6 +58,7 @@ add_executable(mosaic_unit_tests
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
   unit/app/demo_scene_test.cpp
+  unit/app/script_runtime_test.cpp
   unit/app/scene_io_test.cpp
   unit/app/populate_world_test.cpp
   unit/app/scene_save_roundtrip_test.cpp
@@ -86,6 +87,7 @@ add_executable(mosaic_unit_tests
   unit/studio/scene_file_test.cpp
   unit/studio/console_test.cpp
   unit/studio/script_console_test.cpp
+  unit/studio/demo_physics_test.cpp
   unit/studio/asset_browser_test.cpp
   unit/physics/physics_backend_test.cpp
   unit/physics/falling_box_test.cpp

@@ -3,12 +3,16 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
+#include "engine/reflection/component_reflection.hpp"
 #include "engine/render/builtin_meshes.hpp"
+#include "engine/script/script_component.hpp"
+#include "engine/script/script_system.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/image.hpp"
@@ -47,11 +51,18 @@ struct RuntimeScene
 // textures, add the PhysicsSystem (Box3D), subscribe contact logging, and create the
 // RenderSystem. Needs no device (GPU uploads happen at render time). Always called after the
 // world is populated.
-inline RuntimeScene setup_runtime(mosaic::engine::World&                 world,
-                                  mosaic::engine::assets::AssetRegistry& registry)
+inline RuntimeScene setup_runtime(
+    mosaic::engine::World&                                  world,
+    mosaic::engine::assets::AssetRegistry&                  registry,
+    const mosaic::engine::reflection::ComponentReflection&  reflection,
+    mosaic::engine::script::ScriptSystem::EngineFactory     script_factory)
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
+
+    // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
+    // by physics, and a physics object's write-back wins over any script that also touches it.
+    world.add_system<mosaic::engine::script::ScriptSystem>(reflection, std::move(script_factory));
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
@@ -92,6 +103,21 @@ inline RuntimeScene setup_runtime(mosaic::engine::World&                 world,
 
     return RuntimeScene{std::make_shared<render::RenderSystem>()};
 }
+
+// The demo's scripted object orbits a radius-3 circle at y=2. Deterministic (cos/sin of a fixed-dt
+// accumulator). Reflected ScriptComponent, so it serializes with the scene and survives build/run.
+inline constexpr const char* kOrbitScript = R"py(
+import math
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    tr = get_component(entity, 'Transform')
+    tr['position']['x'] = 3.0 * math.cos(_t)
+    tr['position']['z'] = 3.0 * math.sin(_t)
+    tr['position']['y'] = 2.0
+    set_component(entity, 'Transform', tr)
+)py";
 
 // Pure scene DATA: the demo entities/components. No device, no registry — this is what
 // save_to_json serializes and what a loaded scene replaces. WorldTransform is derived (added by
@@ -159,6 +185,15 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(camera,
         transform::Transform{Vec3{0, 2.5f, 9}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::Camera>(camera, render::Camera{});
+
+    // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
+    const auto orbiter = world.create_entity();
+    world.add_component<transform::Transform>(orbiter,
+        transform::Transform{Vec3{3, 2, 0}, Quat::identity(), Vec3{0.5f, 0.5f, 0.5f}, {}});
+    world.add_component<render::MeshRenderer>(orbiter, render::MeshRenderer{render::kCubeMeshId});
+    world.add_component<render::Material>(orbiter, render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}});
+    world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
+        mosaic::engine::script::ScriptComponent{kOrbitScript});
 }
 
 } // namespace mosaic::app
