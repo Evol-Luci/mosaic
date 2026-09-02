@@ -6,6 +6,7 @@
 
 #include "studio/hierarchy.hpp"
 #include "studio/inspector.hpp"
+#include "engine/script/script_component.hpp"
 
 namespace mosaic::studio
 {
@@ -16,6 +17,15 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
 {
     // Full-window dockspace host so panels can be docked/tabbed/floated.
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
+
+    if (!demo_entity_)
+    {
+        world.for_each<mosaic::engine::script::ScriptComponent>(
+            [&](mosaic::engine::World::EntityID e, mosaic::engine::script::ScriptComponent& sc)
+            {
+                if (!demo_entity_) { demo_entity_ = e; demo_script_ = sc.source; }
+            });
+    }
 
     if (ImGui::BeginMainMenuBar())
     {
@@ -44,6 +54,17 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             play_.request_step();
         }
         ImGui::EndDisabled();
+
+        ImGui::BeginDisabled(!demo_entity_.has_value());
+        if (ImGui::Checkbox("Demo: physics", &demo_physics_))
+        {
+            set_demo_physics(world, *demo_entity_, demo_script_, demo_physics_);
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered() && !demo_entity_.has_value())
+        {
+            ImGui::SetTooltip("no scripted demo object in this scene");
+        }
 
         ImGui::Text("  %s%s", scene_file_.path().c_str(), scene_file_.dirty() ? " *" : "");
 
