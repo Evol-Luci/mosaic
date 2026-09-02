@@ -79,6 +79,10 @@ public:
             }
             return world.add_component<T>(e, std::move(c));
         };
+        removers_[name] = [](World& world, EntityID e) -> bool
+        {
+            return world.remove_component<T>(e);
+        };
         savers_[std::move(name)] =
             [](World& world, const std::string& type_name, const SaveSink& sink)
         {
@@ -153,6 +157,13 @@ public:
         return it == setters_.end() ? false : it->second(world, e, value, resolver);
     }
 
+    // Remove component `name` from `e`. False if unregistered or the entity had no such component.
+    bool remove_value(World& world, EntityID e, std::string_view name) const
+    {
+        auto it = removers_.find(std::string(name));
+        return it == removers_.end() ? false : it->second(world, e);
+    }
+
     // Run `visitor` over the live component `name` on entity `e` (no-op if unregistered
     // or the entity lacks it).
     void inspect(World& world, EntityID e, std::string_view name, FieldVisitor& visitor) const
@@ -184,6 +195,8 @@ private:
     std::unordered_map<std::string, Valuer> valuers_;
     using Setter = std::function<bool(World&, EntityID, const Value&, const ReferenceResolver&)>;
     std::unordered_map<std::string, Setter> setters_;
+    using Remover = std::function<bool(World&, EntityID)>;
+    std::unordered_map<std::string, Remover> removers_;
 };
 
 } // namespace mosaic::engine::reflection

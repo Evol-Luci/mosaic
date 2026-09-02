@@ -144,3 +144,35 @@ TEST_CASE("serialize projects id, parameters, and required permissions", "[comma
     REQUIRE(perms->as<ser::Array>().size() == 1);
     REQUIRE(perms->as<ser::Array>()[0].as<std::string>() == "scene.write");
 }
+
+TEST_CASE("push_executed records an already-applied command without executing", "[commands]")
+{
+    std::vector<std::string> trace;
+    CommandStack stack;
+
+    trace.push_back("x"); // the effect was already applied externally
+    stack.push_executed(std::make_unique<AppendCommand>(trace, "x"));
+
+    REQUIRE(trace == std::vector<std::string>{"x"}); // execute() was NOT called again
+    REQUIRE(stack.undo_depth() == 1);
+    REQUIRE(stack.redo_depth() == 0);
+
+    REQUIRE(stack.undo());            // undo() inverts (pop_back)
+    REQUIRE(trace.empty());
+    REQUIRE(stack.redo());            // redo() re-runs execute() (re-append)
+    REQUIRE(trace == std::vector<std::string>{"x"});
+}
+
+TEST_CASE("push_executed clears the redo stack", "[commands]")
+{
+    std::vector<std::string> trace;
+    CommandStack stack;
+
+    stack.execute(std::make_unique<AppendCommand>(trace, "a"));
+    stack.undo();
+    REQUIRE(stack.can_redo());
+
+    trace.push_back("b");
+    stack.push_executed(std::make_unique<AppendCommand>(trace, "b"));
+    REQUIRE_FALSE(stack.can_redo());
+}

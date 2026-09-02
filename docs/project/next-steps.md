@@ -5,7 +5,8 @@ next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
 **Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics + Project & Tools Workflow
-(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding) AND S2 (reflection→Python property bindings) COMPLETE.**
+(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding), S2 (reflection→Python
+property bindings), AND S3 (world/commands) COMPLETE.**
 The final v0.1 pillar was decomposed into five slices
 ([scripting decomposition](../superpowers/specs/2026-08-30-scripting-decomposition.md)):
 **S1** embed → **S2** reflection→Python property bindings → **S3** world/commands → **S4**
@@ -31,11 +32,25 @@ updated `Value` tree. Two `cpp_function` globals (`get_component`/`set_component
 into each engine namespace by `bind_world`, keyed on entity `uint64` ID and reflected component
 name. Unknown component names return `None`/`False` (never throw). 344 tests green (4 new script
 property tests: mutate-and-observe, read-current-values, error-return, set_global marshal;
-2 new marshal tests: round-trip every DOM scalar/container, uint64→Python int). **Next: S3**
-(world/commands from a script — expose `create_entity`, `destroy_entity`, and `CommandStack`
-dispatch to Python). S2 design/plan:
+2 new marshal tests: round-trip every DOM scalar/container, uint64→Python int). S2 design/plan:
 [S2 spec](../superpowers/specs/2026-08-30-scripting-s2-properties-design.md) ·
 [S2 plan](../superpowers/plans/2026-08-30-scripting-s2-properties.md).
+**S3** exposes entity lifecycle and undoable commands to Python. `bind_world` now installs six
+entity builtins: `create_entity()` (immediate, returns uint64 id), `destroy_entity(eid)` (deferred
+to `world.tick()`, returns bool), `entity_count()`, `entities()` (list of ids), `is_valid(eid)`,
+and replaces the S2 direct `set_component` with a stack-aware version. A new neutral
+`ScriptEngine::bind_commands(CommandStack&)` (pure-virtual, `engine/script/script_engine.hpp`;
+only adds `#include "foundation/commands/command_stack.hpp"` — still no pybind11 above the module
+wall) installs `undo()`/`redo()`/`undo_depth()` and routes `set_component` through a
+`SetComponentCommand` when a stack is bound: `execute()` + `valid()` check + `push_executed` —
+a rejected set is not recorded. Without a bound stack, `set_component` falls through to the S2
+direct path (S2 tests unaffected). 355 tests green (4 new script tests: entity lifecycle
+deferred-destroy, undoable set + undo + redo, failed-set not recorded, no-stack backward compat).
+**Next: S4** (`ScriptComponent` — attach a `.py` script file to an entity, auto-called `on_update`
+each tick from a `ScriptSystem`; the script's file path is reflected so scenes round-trip it).
+S3 design/plan:
+[S3 spec](../superpowers/specs/2026-08-30-scripting-s3-world-commands-design.md) ·
+[S3 plan](../superpowers/plans/2026-08-30-scripting-s3-world-commands.md).
 
 Prior pillar — **T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
 `import_asset` (in `app/asset/asset_io.hpp`) accepts a PPM image, cooks it into a compact binary

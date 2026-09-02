@@ -4,6 +4,7 @@
 
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/commands/command_stack.hpp"
 #include "foundation/serialization/value.hpp"
 
 namespace mosaic::engine::script
@@ -35,5 +36,10 @@ public:
     // the #10 Value DOM.
     virtual void set_global(const std::string& name,
                             const mosaic::foundation::serialization::Value& value) = 0;
+
+    // Bind an undoable command stack. Once bound, script set_component runs through a
+    // SetComponentCommand (undoable via undo()/redo()); entity lifecycle stays direct. Non-owning;
+    // the caller keeps the stack alive across run_string calls. Optional (S2 behavior without it).
+    virtual void bind_commands(mosaic::foundation::commands::CommandStack& stack) = 0;
 };
 } // namespace mosaic::engine::script
