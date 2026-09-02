@@ -43,6 +43,7 @@
 #include "foundation/math/vec3.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
+#include "modules/script_python/python_script_engine.hpp"
 
 namespace
 {
@@ -185,7 +186,10 @@ int main(int argc, char** argv)
         namespace transform = mosaic::engine::transform;
         using mosaic::foundation::math::Vec3;
 
-        auto render_system = setup_runtime(world, asset_registry).render_system;
+        auto render_system =
+            setup_runtime(world, asset_registry, types,
+                          [] { return mosaic::script::python::create_python_script_engine(); })
+                .render_system;
 
         if (options.assets_dir)
         {

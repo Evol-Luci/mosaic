@@ -117,7 +117,10 @@ int run_editor(const Options& options)
         mosaic::foundation::log::clear_sinks();
         return 1;
     }
-    auto render_system = setup_runtime(world, asset_registry).render_system;
+    auto render_system =
+        setup_runtime(world, asset_registry, reflection,
+                      [] { return mosaic::script::python::create_python_script_engine(); })
+            .render_system;
 
     if (options.assets_dir)
     {

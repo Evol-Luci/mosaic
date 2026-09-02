@@ -3,12 +3,16 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <utility>
 
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
+#include "engine/reflection/component_reflection.hpp"
 #include "engine/render/builtin_meshes.hpp"
+#include "engine/script/script_component.hpp"
+#include "engine/script/script_system.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/image.hpp"
@@ -47,11 +51,19 @@ struct RuntimeScene
 // textures, add the PhysicsSystem (Box3D), subscribe contact logging, and create the
 // RenderSystem. Needs no device (GPU uploads happen at render time). Always called after the
 // world is populated.
-inline RuntimeScene setup_runtime(mosaic::engine::World&                 world,
-                                  mosaic::engine::assets::AssetRegistry& registry)
+inline RuntimeScene setup_runtime(
+    mosaic::engine::World&                                  world,
+    mosaic::engine::assets::AssetRegistry&                  registry,
+    const mosaic::engine::reflection::ComponentReflection&  reflection,
+    mosaic::engine::script::ScriptSystem::EngineFactory     script_factory)
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
+
+    // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
+    // by physics, and a physics object's write-back wins over any script that also touches it.
+    world.add_system<mosaic::engine::script::ScriptSystem>(
+        const_cast<mosaic::engine::reflection::ComponentReflection&>(reflection), std::move(script_factory));
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));

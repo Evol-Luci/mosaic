@@ -2,9 +2,12 @@
 
 #include "app/run/demo_scene.hpp"
 #include "engine/assets/asset_registry.hpp"
+#include "engine/reflection/builtin_components.hpp"
 #include "engine/render/builtin_meshes.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/reflection/type_registry.hpp"
+#include "modules/script_python/python_script_engine.hpp"
 
 using mosaic::app::build_default_scene;
 using mosaic::app::kCheckerTextureId;
@@ -30,7 +33,12 @@ TEST_CASE("setup_runtime registers built-in meshes + demo textures and returns a
 {
     World world;
     AssetRegistry registry;
-    auto runtime = setup_runtime(world, registry);
+    mosaic::foundation::reflection::TypeRegistry     reg;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+    auto runtime = setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); });
 
     REQUIRE(runtime.render_system != nullptr);
     REQUIRE(registry.contains(mosaic::engine::render::kCubeMeshId));
