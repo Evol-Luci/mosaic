@@ -4,9 +4,10 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-30 (v0.1 foundation + rendering + physics + Project & Tools Workflow
-(T1–T5) complete; **Scripting (Python) pillar UNDERWAY — S1 (Python embedding), S2 (reflection→Python
-property bindings), S3 (world/commands), AND S4 (ScriptComponent) COMPLETE.**
+**Last updated:** 2026-08-31 (v0.1 foundation + rendering + physics + Project & Tools Workflow
+(T1–T5) complete; **Scripting (Python) pillar COMPLETE — S1 (Python embedding), S2 (reflection→Python
+property bindings), S3 (world/commands), S4 (ScriptComponent), AND S5 (Studio script console) ALL COMPLETE.
+The v0.1 vertical slice is COMPLETE.**
 The final v0.1 pillar was decomposed into five slices
 ([scripting decomposition](../superpowers/specs/2026-08-30-scripting-decomposition.md)):
 **S1** embed → **S2** reflection→Python property bindings → **S3** world/commands → **S4**
@@ -61,9 +62,16 @@ determinism/bit-identical, per-entity state persistence, recompile-on-source-cha
 non-fatal, syntax-error-in-source non-fatal). S4 design/plan:
 [S4 spec](../superpowers/specs/2026-08-30-scripting-s4-scriptcomponent-design.md) ·
 [S4 plan](../superpowers/plans/2026-08-30-scripting-s4-scriptcomponent.md).
-**Next: S5** (Studio script console — a panel/menu that runs a script string against the live editor
-`World` + binds a `CommandStack`/`PlayState`, so you can script the running scene and watch the
-viewport update; the visible cap of the pillar).
+**S5** (Studio script console) is now **COMPLETE**. A "Script Console" panel in `mosaic editor`
+hosts a multiline input area + Run/Clear buttons wired to `ScriptConsoleModel` (Task 2). The model
+drives the persistent CPython REPL against the live editor `World` and a `CommandStack`; history is
+colour-coded (input/output/error). The CPython backend (`mosaic_script_python`) is injected at the
+app tier (`app/run/editor.cpp`) — `studio/` remains Python-free. 367 tests green (no new tests —
+this task is GUI glue; the console logic is covered by S5 Task 2's headless tests).
+**Deferred:** "Play-from-script" (running a script against the `PlayState` / `RuntimeLoop` from the
+console) needs a neutral host-callback design; not part of v0.1. S5 design/plan:
+[S5 spec](../superpowers/specs/2026-08-30-scripting-s5-studio-console/spec.md) ·
+[S5 plan](../superpowers/plans/2026-08-30-scripting-s5-studio-console.md).
 S3 design/plan:
 [S3 spec](../superpowers/specs/2026-08-30-scripting-s3-world-commands-design.md) ·
 [S3 plan](../superpowers/plans/2026-08-30-scripting-s3-world-commands.md).

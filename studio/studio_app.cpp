@@ -81,6 +81,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             {
                 draw_console();
             }
+            else if (panel.name == "Script Console")
+            {
+                draw_script_console(world, reflection);
+            }
             else
             {
                 ImGui::TextUnformatted("(empty)");
@@ -147,6 +151,44 @@ void StudioApp::draw_console()
     {
         ImGui::SetScrollHereY(1.0f);
     }
+}
+
+void StudioApp::draw_script_console(
+    mosaic::engine::World& world,
+    const mosaic::engine::reflection::ComponentReflection& reflection)
+{
+    ImGui::InputTextMultiline("##script_input", script_input_, sizeof(script_input_),
+                              ImVec2(-1.0f, 120.0f));
+    if (ImGui::Button("Run"))
+    {
+        script_console_.run(script_input_, world, reflection, commands_);
+        script_input_[0] = '\0';
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear")) { script_console_.clear_history(); }
+    ImGui::Separator();
+    ImGui::BeginChild("##script_history");
+    for (const mosaic::studio::ConsoleEntry& entry : script_console_.history())
+    {
+        ImVec4 color(0.9f, 0.9f, 0.9f, 1.0f); // Output default
+        if (entry.kind == mosaic::studio::ConsoleEntry::Kind::Input)
+        {
+            color = ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
+        }
+        else if (entry.kind == mosaic::studio::ConsoleEntry::Kind::Error)
+        {
+            color = ImVec4(0.95f, 0.4f, 0.4f, 1.0f);
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, color);
+        ImGui::TextUnformatted(entry.text.c_str());
+        ImGui::PopStyleColor();
+    }
+    // Auto-scroll to the newest line when the view is already pinned to the bottom.
+    if (ImGui::GetScrollY() >= ImGui::GetScrollMaxY())
+    {
+        ImGui::SetScrollHereY(1.0f);
+    }
+    ImGui::EndChild();
 }
 
 bool StudioApp::draw_inspector(mosaic::engine::World& world,
