@@ -29,7 +29,7 @@ class ScriptSystem : public ecs::System
 public:
     using EngineFactory = std::function<std::unique_ptr<ScriptEngine>()>;
 
-    ScriptSystem(reflection::ComponentReflection& types, EngineFactory factory)
+    ScriptSystem(const reflection::ComponentReflection& types, EngineFactory factory)
         : types_(types), factory_(std::move(factory))
     {
     }
@@ -72,7 +72,7 @@ private:
         std::string source;
     };
 
-    reflection::ComponentReflection& types_;
+    const reflection::ComponentReflection& types_;
     EngineFactory factory_;
     std::unordered_map<std::uint64_t, Entry> engines_;
 };
