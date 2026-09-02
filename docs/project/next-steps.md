@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-08-31 (v0.1 foundation + rendering + physics + Project & Tools Workflow
+**Last updated:** 2026-09-02 (v0.1 foundation + rendering + physics + Project & Tools Workflow
 (T1–T5) complete; **Scripting (Python) pillar COMPLETE — S1 (Python embedding), S2 (reflection→Python
 property bindings), S3 (world/commands), S4 (ScriptComponent), AND S5 (Studio script console) ALL COMPLETE.
 The v0.1 vertical slice is COMPLETE.**
@@ -72,6 +72,21 @@ this task is GUI glue; the console logic is covered by S5 Task 2's headless test
 console) needs a neutral host-callback design; not part of v0.1. S5 design/plan:
 [S5 spec](../superpowers/specs/2026-08-30-scripting-s5-studio-console/spec.md) ·
 [S5 plan](../superpowers/plans/2026-08-30-scripting-s5-studio-console.md).
+**Runtime integration (post-S5):** `ScriptSystem` is now wired into `setup_runtime` (before
+`PhysicsSystem`) — the scaffolding both `mosaic editor` and the windowed `mosaic run` (a built
+bundle's entry point) call — so a `ScriptComponent` **ticks on Play in the editor AND in a built
+standalone**, closing the v0.1 "attach a script → Play → Build a standalone that plays" loop. The
+default scene ships an orbiting scripted green cube (`ScriptComponent`, no RigidBody) that serializes
+and survives `save → mosaic build → mosaic run`. An editor "Demo: physics" toolbar checkbox swaps
+that object between script-driven (orbits) and physics-driven (falls) via a pure `set_demo_physics()`
+(a script and a dynamic RigidBody can't both drive one Transform, so it swaps rather than layers).
+371 tests green (2 new: the `setup_runtime` wiring tick-test + the toggle swap). `demo_scene.hpp` /
+`studio/` stay Python-free (the CPython factory is injected at the app tier). **Deferred (roadmap):**
+a dedicated slider / color-picker / Euler-rotation **controls panel** (editor-UX beyond v0.1's
+"inspector" scope — the Inspector already edits position/rotation/scale/color as drag-fields);
+scripting in the **headless** `mosaic run` (no `--window`, which doesn't call `setup_runtime`).
+Design/plan: [spec](../superpowers/specs/2026-09-02-scripting-runtime-integration-design.md) ·
+[plan](../superpowers/plans/2026-09-02-scripting-runtime-integration.md).
 S3 design/plan:
 [S3 spec](../superpowers/specs/2026-08-30-scripting-s3-world-commands-design.md) ·
 [S3 plan](../superpowers/plans/2026-08-30-scripting-s3-world-commands.md).
