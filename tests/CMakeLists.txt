@@ -76,6 +76,7 @@ add_executable(mosaic_unit_tests
   unit/render/shape_meshes_test.cpp
   unit/render/render_device_hooks_test.cpp
   unit/reflection/lighting_reflection_test.cpp
+  unit/reflection/component_value_test.cpp
   unit/studio/studio_layout_test.cpp
   unit/studio/selection_test.cpp
   unit/studio/hierarchy_test.cpp
@@ -91,6 +92,8 @@ add_executable(mosaic_unit_tests
   unit/physics/physics_raycast_test.cpp
   unit/physics/physics_contacts_test.cpp
   unit/script/script_engine_test.cpp
+  unit/script/script_world_test.cpp
+  unit/script/value_marshal_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -101,6 +104,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_render_vulkan
   mosaic_physics_box3d
   mosaic_script_python
+  pybind11::embed
   mosaic_studio
   Vulkan::Vulkan
   Catch2::Catch2WithMain
