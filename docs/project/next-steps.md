@@ -84,7 +84,13 @@ that object between script-driven (orbits) and physics-driven (falls) via a pure
 `studio/` stay Python-free (the CPython factory is injected at the app tier). **Deferred (roadmap):**
 a dedicated slider / color-picker / Euler-rotation **controls panel** (editor-UX beyond v0.1's
 "inspector" scope — the Inspector already edits position/rotation/scale/color as drag-fields);
-scripting in the **headless** `mosaic run` (no `--window`, which doesn't call `setup_runtime`).
+**generic add/remove-component editing in the Inspector** for the selected entity — structural
+composition (attach/detach whole components on the current selection, e.g. a `RigidBody` or a
+`ScriptComponent`), of which the demo-physics toolbar toggle is a hardcoded, single-object precursor.
+(Deliberately distinct from the controls-panel item above: that one is nicer *widgets for existing
+field values*; this one is *adding and removing components*, which the Inspector cannot do at all
+today.) Scripting in the **headless** `mosaic run` (no `--window`, which doesn't call
+`setup_runtime`).
 Design/plan: [spec](../superpowers/specs/2026-09-02-scripting-runtime-integration-design.md) ·
 [plan](../superpowers/plans/2026-09-02-scripting-runtime-integration.md).
 S3 design/plan:
