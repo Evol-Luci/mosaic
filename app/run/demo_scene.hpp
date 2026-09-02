@@ -104,6 +104,21 @@ inline RuntimeScene setup_runtime(
     return RuntimeScene{std::make_shared<render::RenderSystem>()};
 }
 
+// The demo's scripted object orbits a radius-3 circle at y=2. Deterministic (cos/sin of a fixed-dt
+// accumulator). Reflected ScriptComponent, so it serializes with the scene and survives build/run.
+inline constexpr const char* kOrbitScript = R"py(
+import math
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    tr = get_component(entity, 'Transform')
+    tr['position']['x'] = 3.0 * math.cos(_t)
+    tr['position']['z'] = 3.0 * math.sin(_t)
+    tr['position']['y'] = 2.0
+    set_component(entity, 'Transform', tr)
+)py";
+
 // Pure scene DATA: the demo entities/components. No device, no registry — this is what
 // save_to_json serializes and what a loaded scene replaces. WorldTransform is derived (added by
 // TransformSystem), so it is intentionally not set here.
@@ -170,6 +185,15 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(camera,
         transform::Transform{Vec3{0, 2.5f, 9}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::Camera>(camera, render::Camera{});
+
+    // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
+    const auto orbiter = world.create_entity();
+    world.add_component<transform::Transform>(orbiter,
+        transform::Transform{Vec3{3, 2, 0}, Quat::identity(), Vec3{0.5f, 0.5f, 0.5f}, {}});
+    world.add_component<render::MeshRenderer>(orbiter, render::MeshRenderer{render::kCubeMeshId});
+    world.add_component<render::Material>(orbiter, render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}});
+    world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
+        mosaic::engine::script::ScriptComponent{kOrbitScript});
 }
 
 } // namespace mosaic::app

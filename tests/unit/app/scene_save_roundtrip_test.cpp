@@ -37,6 +37,7 @@ TEST_CASE("a default scene saved to disk reloads to the same entity set", "[app]
     src.for_each<Transform>([&](World::EntityID, Transform&) { ++a; });
     dst.for_each<Transform>([&](World::EntityID, Transform&) { ++b; });
     REQUIRE(a == b);
-    REQUIRE(b == 7);
+    REQUIRE(b == 8);
     std::remove(path.c_str());
 }
+
