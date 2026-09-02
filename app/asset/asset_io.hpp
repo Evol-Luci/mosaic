@@ -32,8 +32,9 @@ inline mosaic::foundation::serialization::AssetID random_asset_id()
 
 // Import an external PPM image into <project_dir>/assets/: cook it and write
 // <assets>/<stem>.image + <assets>/<stem>.toml (AssetMetadata). Returns the new AssetID, or
-// nullopt (and logs) on failure. Never leaves a half-written asset (removes the blob if the
-// metadata write fails).
+// nullopt (and logs) on failure. Refuses (nullopt) rather than overwriting when an asset with
+// the same stem already exists, so a re-import or a stem collision never orphans a prior
+// AssetID. Never leaves a half-written asset (removes the blob if the metadata write fails).
 inline std::optional<mosaic::foundation::serialization::AssetID>
 import_asset(const std::string& project_dir, const std::string& source_file)
 {
@@ -65,6 +66,13 @@ import_asset(const std::string& project_dir, const std::string& source_file)
 
     const fs::path blob_path = assets / (stem + ".image");
     const fs::path meta_path = assets / (stem + ".toml");
+    if (fs::exists(blob_path) || fs::exists(meta_path))
+    {
+        mosaic::foundation::log::error(
+            "import", "asset '{}' already exists in {} (would overwrite); rename the source or remove the existing asset",
+            stem, assets.string());
+        return std::nullopt;
+    }
     if (!save_scene_file(blob_path.string(), cook_image(*img)))
     {
         mosaic::foundation::log::error("import", "could not write cooked image: {}", blob_path.string());

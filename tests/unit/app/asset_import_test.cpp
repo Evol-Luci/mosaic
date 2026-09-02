@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <optional>
 #include <string>
 
 #include <unistd.h> // ::getpid
@@ -102,6 +103,39 @@ TEST_CASE("load_project_assets: empty/missing dir is a no-op; a bad asset is ski
     REQUIRE(load_project_assets(registry, dir) == 0); // orphan skipped
 
     fs::remove_all(dir);
+}
+
+TEST_CASE("import_asset refuses to overwrite an asset on a stem collision", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("proj_collide");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+
+    // Two source files that share a stem ("tex") in different directories.
+    const fs::path dir_a = fs::path(tmp("cola"));
+    const fs::path dir_b = fs::path(tmp("colb"));
+    fs::remove_all(dir_a); fs::remove_all(dir_b);
+    fs::create_directories(dir_a); fs::create_directories(dir_b);
+    const std::string src_a = (dir_a / "tex.ppm").string();
+    const std::string src_b = (dir_b / "tex.ppm").string();
+    write_ppm(src_a); write_ppm(src_b);
+
+    auto first = import_asset(proj, src_a);
+    REQUIRE(first.has_value());
+    const fs::path meta = fs::path(proj) / "assets" / "tex.toml";
+    const std::optional<std::string> before = mosaic::app::load_scene_file(meta.string());
+    REQUIRE(before.has_value());
+
+    // The colliding second import must refuse and leave the first asset untouched
+    // (no silently orphaned AssetID).
+    auto second = import_asset(proj, src_b);
+    REQUIRE_FALSE(second.has_value());
+    const std::optional<std::string> after = mosaic::app::load_scene_file(meta.string());
+    REQUIRE(after.has_value());
+    REQUIRE(*after == *before);
+
+    fs::remove_all(proj); fs::remove_all(dir_a); fs::remove_all(dir_b);
 }
 
 TEST_CASE("import_asset fails on a non-project or a bad source", "[app]")
