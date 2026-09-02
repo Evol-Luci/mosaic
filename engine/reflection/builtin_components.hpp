@@ -9,6 +9,7 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/point_light.hpp"
+#include "engine/script/script_component.hpp"
 #include "engine/transform/transform.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
@@ -32,6 +33,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::physics::Collider>(registry, "Collider");
     types.register_component<mosaic::engine::physics::SphereCollider>(registry, "SphereCollider");
     types.register_component<mosaic::engine::physics::CapsuleCollider>(registry, "CapsuleCollider");
+    types.register_component<mosaic::engine::script::ScriptComponent>(registry, "ScriptComponent");
 }
 
 } // namespace mosaic::engine::reflection
