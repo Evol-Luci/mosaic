@@ -7,6 +7,7 @@
 
 #include "studio/hierarchy.hpp"
 #include "studio/inspector.hpp"
+#include "studio/pick.hpp"
 #include "engine/script/script_component.hpp"
 
 namespace mosaic::studio
@@ -86,7 +87,7 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             }
             else if (panel.name == "Viewport")
             {
-                draw_viewport(device);
+                draw_viewport(device, world);
             }
             else if (panel.name == "Inspector")
             {
@@ -131,7 +132,8 @@ void StudioApp::draw_hierarchy(const mosaic::engine::World& world)
     }
 }
 
-void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device)
+void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device,
+                              mosaic::engine::World& world)
 {
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     viewport_.set_measured_size(avail.x, avail.y);
@@ -142,6 +144,18 @@ void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device)
         const ViewportSize s = viewport_.size();
         ImGui::Image(static_cast<ImTextureID>(tex),
                      ImVec2(static_cast<float>(s.width), static_cast<float>(s.height)));
+        if (ImGui::IsItemClicked())
+        {
+            const ImVec2 mn = ImGui::GetItemRectMin();
+            const ImVec2 mp = ImGui::GetMousePos();
+            const float  w  = static_cast<float>(s.width);
+            const float  h  = static_cast<float>(s.height);
+            const float  ndc_x = 2.0f * (mp.x - mn.x) / w - 1.0f;
+            const float  ndc_y = 1.0f - 2.0f * (mp.y - mn.y) / h; // screen y-down -> ndc y-up
+            const mosaic::engine::physics::RaycastHit hit = pick_entity(world, w / h, ndc_x, ndc_y);
+            if (hit.hit) { selection_.select(hit.entity); }
+            else         { selection_.clear(); }
+        }
     }
     else
     {
