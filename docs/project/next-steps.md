@@ -100,6 +100,20 @@ S3 design/plan:
 stem collision** — returns `nullopt` + logs instead of silently clobbering an existing asset and
 orphaning its `AssetID` (`app/asset/asset_io.hpp`; a T5 follow-up, PR #83, salvaged from an orphaned
 worktree). **372 tests green; `main` is clean, zero open PRs.**
+**Phase 3 (Programming) — first hot-reload slice: the Studio Script Editor.** A new **Script Editor**
+panel in `mosaic editor` edits the *selected* entity's `ScriptComponent` source: **Apply**
+test-compiles the edit in a throwaway `ScriptEngine` (bound to the live world, exactly as
+`ScriptSystem` compiles) and shows green "compiled OK" / a red error; on success it writes the source
+into the component, so `ScriptSystem` **recompiles it live** — edit a script, watch the behavior
+change on Play without a restart. A pure `ScriptEditorModel` (`studio/script_editor.hpp`) holds the
+validate+apply logic (unit-tested); the ImGui panel is thin glue; `studio/` stays Python-free (the
+CPython factory is injected at the app tier). 376 tests green (4 new: valid-apply-writes,
+syntax-error-rejected-and-unchanged, no-`ScriptComponent`, null-factory). **Deferred (documented):**
+external `.py`-file editing (edit in your own editor, reload on disk change — the same recompile
+seam) and attaching a script to an unscripted entity (rides on the deferred generic add/remove-
+component in the Inspector). Design/plan:
+[spec](../superpowers/specs/2026-09-02-studio-script-editor-design.md) ·
+[plan](../superpowers/plans/2026-09-02-studio-script-editor.md).
 
 ## Moving forward — the v0.1 vertical slice is DONE
 
@@ -112,7 +126,8 @@ The next worker **picks the direction** — this is a menu, not a mandate. Each 
 brainstorm → spec → plan → TDD cycle.
 
 **A. Next roadmap phase** (see [roadmap.md](roadmap.md)):
-- **Phase 3 — Programming** (deepen the layer just built): script **hot-reload**, a Python
+- **Phase 3 — Programming** (deepen the layer just built): script **hot-reload** (first slice done —
+  the in-editor Script Editor, above; next: **external `.py`-file** reload on disk change), a Python
   debugger/profiler, a broader C++ API.
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
 
