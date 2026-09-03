@@ -122,8 +122,10 @@ objects → add physics → attach/write a Python script → **Play** → **Buil
 its own**. Foundation, rendering (#36), physics (P1–P5), tools (T1–T5), scripting (S1–S5), and the
 runtime integration are all merged and verified (372 tests, functional + visual acceptance passed).
 
-The next worker **picks the direction** — this is a menu, not a mandate. Each item still gets its own
-brainstorm → spec → plan → TDD cycle.
+**Priority order (set by the maintainer, 2026-09-03):** **Editor UX → Scripting thread → More Phase 3
+→ Physics / engine (fully headless)** — work the buckets below in that order (the Editor-UX
+add/remove-component item, now done, was first because it unblocks attach-script-to-any-entity).
+Each item still gets its own brainstorm → spec → plan → TDD cycle.
 
 **A. Next roadmap phase** (see [roadmap.md](roadmap.md)):
 - **Phase 3 — Programming** (deepen the layer just built): script **hot-reload** (first slice done —
@@ -132,9 +134,13 @@ brainstorm → spec → plan → TDD cycle.
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
-- **Editor UX:** a slider / color-picker / Euler-rotation **controls panel**; **generic add/remove-
-  component editing in the Inspector** (the demo-physics toggle generalized); viewport
-  **mouse-picking** (consumes `PhysicsSystem::raycast`); in-editor **File → Reload**.
+- **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +
+  a per-component Remove button, generic over reflection via `registered_names()`/`add_default()`;
+  unblocks attaching a `ScriptComponent` to any entity; design/plan:
+  [spec](../superpowers/specs/2026-09-03-inspector-add-remove-component-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-inspector-add-remove-component.md)). Still open: a slider /
+  color-picker / Euler-rotation **controls panel**; viewport **mouse-picking** (consumes
+  `PhysicsSystem::raycast`); in-editor **File → Reload**; undoable add/remove via a `CommandStack`.
 - **Scripting:** **external `.py`-file hot-reload — DONE** (a `ScriptComponent.path` loads its script
   from a file and `ScriptSystem` reloads/recompiles it live on an on-disk edit, via mtime-polling;
   design/plan: [spec](../superpowers/specs/2026-09-03-script-file-hotreload-design.md) ·
