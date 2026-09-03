@@ -305,8 +305,11 @@ Workflow pillar (T1–T5) is now COMPLETE** — T1 (meshes as assets), T2 (scene
 (`mosaic create` + project model), T4 (`mosaic build` standalone bundle), T5 (asset
 importer/cooker + `build_bundle` copies assets) are all done. **Physics follow-ups:**
 sphere/capsule demo meshes (done), **contact manifolds — DONE** (point/normal/separation/impulse on
-Begin `ContactEvent`s), and still-deferred: full record/replay-to-disk, hit-event contacts +
-multi-point/friction impulses, and viewport mouse-picking (consumes `PhysicsSystem::raycast`).
+Begin `ContactEvent`s); **viewport mouse-picking — DONE** (click an object in the viewport to select
+it, via `PhysicsSystem::raycast` + a camera unproject; spec/plan:
+[spec](../superpowers/specs/2026-09-03-viewport-mouse-picking-design.md) ·
+[plan](../superpowers/plans/2026-09-03-viewport-mouse-picking.md)). Still-deferred: full
+record/replay-to-disk, hit-event contacts + multi-point/friction impulses, collider-less picking + gizmos.
 Physics design/plan:
 [decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
 [P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) · [P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md) ·

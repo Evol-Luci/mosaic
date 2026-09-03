@@ -88,6 +88,7 @@ add_executable(mosaic_unit_tests
   unit/studio/console_test.cpp
   unit/studio/script_console_test.cpp
   unit/studio/script_editor_test.cpp
+  unit/studio/pick_test.cpp
   unit/studio/demo_physics_test.cpp
   unit/studio/asset_browser_test.cpp
   unit/physics/physics_backend_test.cpp

@@ -54,7 +54,7 @@ private:
     void draw_hierarchy(const mosaic::engine::World& world);
     bool draw_inspector(mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection);
-    void draw_viewport(mosaic::engine::render::RenderDevice& device);
+    void draw_viewport(mosaic::engine::render::RenderDevice& device, mosaic::engine::World& world);
     void draw_assets(const mosaic::engine::assets::AssetRegistry& registry);
     void draw_console();
     void draw_script_console(mosaic::engine::World& world,
