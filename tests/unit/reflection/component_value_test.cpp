@@ -1,6 +1,8 @@
 #include <optional>
+#include <algorithm>
 
 #include <catch2/catch_test_macros.hpp>
+#include "engine/physics/physics_components.hpp"
 
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/script/script_component.hpp"
@@ -101,4 +103,29 @@ TEST_CASE("ScriptComponent round-trips its source through reflection", "[reflect
     REQUIRE(types.set_value(world, e2, "ScriptComponent", *v));
     REQUIRE(world.get_component<mosaic::engine::script::ScriptComponent>(e2)->source == sc.source);
     REQUIRE(world.get_component<mosaic::engine::script::ScriptComponent>(e2)->path == sc.path);
+}
+
+TEST_CASE("registered_names lists the builtin component types, sorted", "[reflection]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const auto names = types.registered_names();
+    REQUIRE(std::is_sorted(names.begin(), names.end()));
+    REQUIRE(std::find(names.begin(), names.end(), "Transform") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "RigidBody") != names.end());
+    REQUIRE(std::find(names.begin(), names.end(), "ScriptComponent") != names.end());
+}
+
+TEST_CASE("add_default attaches a default component by name, never replacing", "[reflection]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    World world;
+    auto e = world.create_entity();
+
+    REQUIRE(types.add_default(world, e, "RigidBody"));
+    REQUIRE(world.has_component<mosaic::engine::physics::RigidBody>(e));
+    REQUIRE_FALSE(types.add_default(world, e, "RigidBody")); // already present
+    REQUIRE_FALSE(types.add_default(world, e, "Nope"));      // unregistered
+
+    REQUIRE(types.remove_value(world, e, "RigidBody"));
+    REQUIRE_FALSE(world.has_component<mosaic::engine::physics::RigidBody>(e));
 }

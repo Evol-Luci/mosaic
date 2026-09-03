@@ -83,6 +83,11 @@ public:
         {
             return world.remove_component<T>(e);
         };
+        adders_[name] = [](World& world, EntityID e) -> bool
+        {
+            if (world.has_component<T>(e)) { return false; } // never replace
+            return world.add_component<T>(e, T{});           // default-constructed
+        };
         savers_[std::move(name)] =
             [](World& world, const std::string& type_name, const SaveSink& sink)
         {
@@ -164,6 +169,22 @@ public:
         return it == removers_.end() ? false : it->second(world, e);
     }
 
+    // All registered component type names, sorted (for an "Add Component" menu).
+    std::vector<std::string> registered_names() const
+    {
+        std::vector<std::string> names;
+        names.reserve(presence_.size());
+        for (const auto& entry : presence_) { names.push_back(entry.first); }
+        return names;
+    }
+
+    // Attach a default-constructed component `name` to `e`. False if unregistered or already present.
+    bool add_default(World& world, EntityID e, std::string_view name) const
+    {
+        auto it = adders_.find(std::string(name));
+        return it == adders_.end() ? false : it->second(world, e);
+    }
+
     // Run `visitor` over the live component `name` on entity `e` (no-op if unregistered
     // or the entity lacks it).
     void inspect(World& world, EntityID e, std::string_view name, FieldVisitor& visitor) const
@@ -197,6 +218,8 @@ private:
     std::unordered_map<std::string, Setter> setters_;
     using Remover = std::function<bool(World&, EntityID)>;
     std::unordered_map<std::string, Remover> removers_;
+    using Adder = std::function<bool(World&, EntityID)>;
+    std::unordered_map<std::string, Adder> adders_;
 };
 
 } // namespace mosaic::engine::reflection
