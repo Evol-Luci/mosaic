@@ -1,5 +1,6 @@
 #include "studio/studio_app.hpp"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 
@@ -270,17 +271,43 @@ bool StudioApp::draw_inspector(mosaic::engine::World& world,
         return false;
     }
     const auto entity = selection_.selected();
-    ImGuiFieldVisitor visitor(assets_.selected(), assets_.has_selection());
-    for (const std::string& name : reflection.components_on(world, entity))
+    bool        changed = false;
+    std::string to_remove;
+
+    ImGuiFieldVisitor               visitor(assets_.selected(), assets_.has_selection());
+    const std::vector<std::string>  present = reflection.components_on(world, entity);
+    for (const std::string& name : present)
     {
         ImGui::PushID(name.c_str());
         if (ImGui::CollapsingHeader(name.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
         {
             reflection.inspect(world, entity, name, visitor);
+            if (ImGui::SmallButton("Remove")) { to_remove = name; }
         }
         ImGui::PopID();
     }
-    return visitor.changed();
+    if (!to_remove.empty())
+    {
+        reflection.remove_value(world, entity, to_remove); // applied after the loop (no mid-render mutate)
+        changed = true;
+    }
+
+    ImGui::Separator();
+    if (ImGui::BeginCombo("+ Add Component", "..."))
+    {
+        for (const std::string& name : reflection.registered_names())
+        {
+            if (std::find(present.begin(), present.end(), name) != present.end()) { continue; }
+            if (ImGui::Selectable(name.c_str()))
+            {
+                reflection.add_default(world, entity, name);
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    return visitor.changed() || changed;
 }
 
 } // namespace mosaic::studio
