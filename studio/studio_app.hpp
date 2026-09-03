@@ -9,6 +9,7 @@
 #include "studio/play_state.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "studio/script_console.hpp"
+#include "studio/script_editor.hpp"
 #include "studio/scene_file.hpp"
 #include "studio/selection.hpp"
 #include "studio/studio_layout.hpp"
@@ -30,7 +31,9 @@ class StudioApp
 public:
     explicit StudioApp(std::string scene_path = "scene.json",
                        ScriptConsoleModel::EngineFactory script_factory = {})
-        : scene_file_(std::move(scene_path)), script_console_(std::move(script_factory))
+        : scene_file_(std::move(scene_path)),
+          script_console_(script_factory),
+          script_editor_(script_factory)
     {
     }
 
@@ -56,6 +59,8 @@ private:
     void draw_console();
     void draw_script_console(mosaic::engine::World& world,
                              const mosaic::engine::reflection::ComponentReflection& reflection);
+    void draw_script_editor(mosaic::engine::World& world,
+                            const mosaic::engine::reflection::ComponentReflection& reflection);
 
     StudioLayout                   layout_;
     SelectionModel                 selection_;
@@ -70,6 +75,10 @@ private:
     std::optional<mosaic::foundation::EntityID> demo_entity_; // the scripted demo object, cached
     std::string                                 demo_script_; // its source (to restore on toggle-off)
     bool                                        demo_physics_ = false;
+    ScriptEditorModel                           script_editor_;
+    char                                        script_edit_buf_[8192] = {};
+    std::optional<mosaic::foundation::EntityID> script_edit_entity_;
+    ScriptApplyResult                           script_apply_result_;
 };
 
 } // namespace mosaic::studio
