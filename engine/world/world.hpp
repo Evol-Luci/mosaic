@@ -67,6 +67,18 @@ public:
         return ref;
     }
 
+    // The first registered system that is a T (dynamic_cast), or nullptr. Systems are polymorphic
+    // (virtual update), so this is a safe cross-cast. O(#systems); the set is tiny.
+    template <typename S>
+    S* get_system()
+    {
+        for (std::unique_ptr<ecs::System>& sys : systems_)
+        {
+            if (S* s = dynamic_cast<S*>(sys.get())) { return s; }
+        }
+        return nullptr;
+    }
+
     void tick(float dt);
 
 private:
