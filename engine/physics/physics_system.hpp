@@ -18,6 +18,10 @@ struct ContactEvent
     ContactPhase                 phase;
     mosaic::foundation::EntityID a;
     mosaic::foundation::EntityID b;
+    mosaic::foundation::math::Vec3 point{};   // world contact point (Begin only; zero for End)
+    mosaic::foundation::math::Vec3 normal{};  // world contact normal
+    float                          separation = 0.0f;
+    float                          normal_impulse = 0.0f;
 };
 
 // The entity-level result of PhysicsSystem::raycast (the backend's RaycastResult mapped to
@@ -128,7 +132,8 @@ public:
             {
                 continue;
             }
-            world.events().emit<ContactEvent>(ContactEvent{c.phase, ia->second, ib->second});
+            world.events().emit<ContactEvent>(ContactEvent{c.phase, ia->second, ib->second, c.point,
+                                                           c.normal, c.separation, c.normal_impulse});
         }
     }
 

@@ -116,14 +116,18 @@ TEST_CASE("PhysicsSystem emits a ContactEvent when a box lands on the ground", "
     }
 
     bool begin_seen = false;
+    ContactEvent begin_evt{};
     for (const auto& c : events)
     {
         if (c.phase == ContactPhase::Begin && is_entity_pair(c, box, ground))
         {
             begin_seen = true;
+            begin_evt = c;
         }
     }
     REQUIRE(begin_seen);
+    // The manifold normal propagated to the entity-level event (vertical for a box on the ground).
+    REQUIRE(std::abs(begin_evt.normal.y) > 0.9f);
 
     // Move the box far away -> it separates from the ground -> an End contact fires.
     events.clear();
