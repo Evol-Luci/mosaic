@@ -96,6 +96,41 @@ Design/plan: [spec](../superpowers/specs/2026-09-02-scripting-runtime-integratio
 S3 design/plan:
 [S3 spec](../superpowers/specs/2026-08-30-scripting-s3-world-commands-design.md) ·
 [S3 plan](../superpowers/plans/2026-08-30-scripting-s3-world-commands.md).
+**Post-integration fix (current tip of `main`):** `import_asset` now **refuses to overwrite on a
+stem collision** — returns `nullopt` + logs instead of silently clobbering an existing asset and
+orphaning its `AssetID` (`app/asset/asset_io.hpp`; a T5 follow-up, PR #83, salvaged from an orphaned
+worktree). **372 tests green; `main` is clean, zero open PRs.**
+
+## Moving forward — the v0.1 vertical slice is DONE
+
+v0.1 is **complete and shippable**: `mosaic create` → import an asset → open the Studio → move
+objects → add physics → attach/write a Python script → **Play** → **Build a standalone that plays on
+its own**. Foundation, rendering (#36), physics (P1–P5), tools (T1–T5), scripting (S1–S5), and the
+runtime integration are all merged and verified (372 tests, functional + visual acceptance passed).
+
+The next worker **picks the direction** — this is a menu, not a mandate. Each item still gets its own
+brainstorm → spec → plan → TDD cycle.
+
+**A. Next roadmap phase** (see [roadmap.md](roadmap.md)):
+- **Phase 3 — Programming** (deepen the layer just built): script **hot-reload**, a Python
+  debugger/profiler, a broader C++ API.
+- **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
+
+**B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
+- **Editor UX:** a slider / color-picker / Euler-rotation **controls panel**; **generic add/remove-
+  component editing in the Inspector** (the demo-physics toggle generalized); viewport
+  **mouse-picking** (consumes `PhysicsSystem::raycast`); in-editor **File → Reload**.
+- **Scripting:** **Play-from-script** (a neutral host-callback for `PlayState`/`RuntimeLoop`);
+  scripting in **headless `mosaic run`** (no `--window` doesn't call `setup_runtime`); **`.py`-asset**
+  `ScriptComponent` references.
+- **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
+  thumbnails, disk import, clear-to-nil).
+- **Physics:** record/replay-to-disk; contact manifolds/points/impulses.
+- **Engine:** wire the **job pool into `World::tick`** for parallel systems (honoring each system's
+  `ComponentAccess`); a dense component id space ([#25](https://github.com/Evol-Luci/mosaic/issues/25)).
+
+When the next slice is chosen, brainstorm it and update this file to point at it. The sections below
+are the historical build record (most-recent-first).
 
 Prior pillar — **T5** added `mosaic import <project> <file>` and the full asset-copy step in `build_bundle`.
 `import_asset` (in `app/asset/asset_io.hpp`) accepts a PPM image, cooks it into a compact binary
