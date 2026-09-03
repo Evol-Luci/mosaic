@@ -91,7 +91,7 @@ TEST_CASE("ScriptComponent round-trips its source through reflection", "[reflect
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     World world;
     auto e = world.create_entity();
-    mosaic::engine::script::ScriptComponent sc{"def on_update(dt):\n    pass\n"};
+    mosaic::engine::script::ScriptComponent sc{"def on_update(dt):\n    pass\n", "behaviors/mover.py"};
     world.add_component<mosaic::engine::script::ScriptComponent>(e, sc);
 
     auto v = types.component_value(world, e, "ScriptComponent");
@@ -100,4 +100,5 @@ TEST_CASE("ScriptComponent round-trips its source through reflection", "[reflect
     auto e2 = world.create_entity();
     REQUIRE(types.set_value(world, e2, "ScriptComponent", *v));
     REQUIRE(world.get_component<mosaic::engine::script::ScriptComponent>(e2)->source == sc.source);
+    REQUIRE(world.get_component<mosaic::engine::script::ScriptComponent>(e2)->path == sc.path);
 }

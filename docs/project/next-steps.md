@@ -120,9 +120,13 @@ brainstorm → spec → plan → TDD cycle.
 - **Editor UX:** a slider / color-picker / Euler-rotation **controls panel**; **generic add/remove-
   component editing in the Inspector** (the demo-physics toggle generalized); viewport
   **mouse-picking** (consumes `PhysicsSystem::raycast`); in-editor **File → Reload**.
-- **Scripting:** **Play-from-script** (a neutral host-callback for `PlayState`/`RuntimeLoop`);
-  scripting in **headless `mosaic run`** (no `--window` doesn't call `setup_runtime`); **`.py`-asset**
-  `ScriptComponent` references.
+- **Scripting:** **external `.py`-file hot-reload — DONE** (a `ScriptComponent.path` loads its script
+  from a file and `ScriptSystem` reloads/recompiles it live on an on-disk edit, via mtime-polling;
+  design/plan: [spec](../superpowers/specs/2026-09-03-script-file-hotreload-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-script-file-hotreload.md)). Still open: **Play-from-script**
+  (a neutral host-callback for `PlayState`/`RuntimeLoop`); scripting in **headless `mosaic run`** (no
+  `--window` doesn't call `setup_runtime`); an OS file-watcher + **`.py`-as-asset** (import/bundle a
+  `.py` by `AssetID`, project-relative paths).
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
 - **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`

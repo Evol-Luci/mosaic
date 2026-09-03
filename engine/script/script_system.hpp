@@ -9,6 +9,10 @@
 #include <unordered_set>
 #include <utility>
 
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
 #include "engine/ecs/system.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_component.hpp"
@@ -42,16 +46,46 @@ public:
             {
                 seen.insert(e.value());
                 Entry& entry = engines_[e.value()];
-                if (!entry.engine || entry.source != sc.source)
+
+                // Resolve the effective source: from the .py file if `path` is set (reloading on an
+                // on-disk mtime change), else the inline `source`.
+                std::string desired;
+                if (sc.path.empty())
+                {
+                    entry.path.clear();
+                    desired = sc.source;
+                }
+                else
+                {
+                    std::error_code ec;
+                    const auto mtime = std::filesystem::last_write_time(sc.path, ec);
+                    const bool reload =
+                        !ec && (!entry.engine || entry.path != sc.path || mtime != entry.mtime);
+                    if (reload)
+                    {
+                        std::ifstream f(sc.path, std::ios::binary);
+                        if (f)
+                        {
+                            desired = std::string(std::istreambuf_iterator<char>(f),
+                                                  std::istreambuf_iterator<char>());
+                            entry.path  = sc.path;
+                            entry.mtime = mtime;
+                        }
+                        else { desired = entry.source; } // open failed -> keep last-good
+                    }
+                    else { desired = entry.source; }     // no change / missing file -> keep what we have
+                }
+
+                if (!entry.engine || entry.source != desired)
                 {
                     entry.engine = factory_();
-                    entry.source = sc.source;
+                    entry.source = desired;
                     entry.engine->bind_world(world, types_);
                     entry.engine->set_global(
                         "entity",
                         mosaic::foundation::serialization::Value(
                             static_cast<std::uint64_t>(e.value())));
-                    entry.engine->run_string(sc.source); // define on_update + top-level setup
+                    entry.engine->run_string(desired); // (re)compile: define on_update + top-level
                 }
                 entry.engine->set_global(
                     "dt", mosaic::foundation::serialization::Value(static_cast<double>(dt)));
@@ -68,8 +102,10 @@ public:
 private:
     struct Entry
     {
-        std::unique_ptr<ScriptEngine> engine;
-        std::string source;
+        std::unique_ptr<ScriptEngine>   engine;
+        std::string                     source;  // last-compiled source
+        std::string                     path;    // last-seen path (detect a path change / switch to inline)
+        std::filesystem::file_time_type mtime{}; // last-seen file mtime (detect an on-disk edit)
     };
 
     const reflection::ComponentReflection& types_;
