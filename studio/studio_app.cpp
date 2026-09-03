@@ -1,5 +1,6 @@
 #include "studio/studio_app.hpp"
 
+#include <cstdio>
 #include <string>
 
 #include <imgui.h>
@@ -106,6 +107,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             {
                 draw_script_console(world, reflection);
             }
+            else if (panel.name == "Script Editor")
+            {
+                draw_script_editor(world, reflection);
+            }
             else
             {
                 ImGui::TextUnformatted("(empty)");
@@ -210,6 +215,50 @@ void StudioApp::draw_script_console(
         ImGui::SetScrollHereY(1.0f);
     }
     ImGui::EndChild();
+}
+
+void StudioApp::draw_script_editor(
+    mosaic::engine::World& world,
+    const mosaic::engine::reflection::ComponentReflection& reflection)
+{
+    if (!selection_.has_selection())
+    {
+        ImGui::TextUnformatted("Select a scripted entity to edit its script.");
+        return;
+    }
+    const mosaic::foundation::EntityID e = selection_.selected();
+    mosaic::engine::script::ScriptComponent* sc =
+        world.get_component<mosaic::engine::script::ScriptComponent>(e);
+    if (sc == nullptr)
+    {
+        ImGui::TextUnformatted("Selected entity has no ScriptComponent.");
+        return;
+    }
+    // Load the source into the edit buffer when the selected scripted entity changes.
+    if (script_edit_entity_ != e)
+    {
+        script_edit_entity_ = e;
+        std::snprintf(script_edit_buf_, sizeof(script_edit_buf_), "%s", sc->source.c_str());
+        script_apply_result_ = ScriptApplyResult{};
+    }
+    ImGui::InputTextMultiline("##script_edit", script_edit_buf_, sizeof(script_edit_buf_),
+                              ImVec2(-1.0f, 200.0f));
+    if (ImGui::Button("Apply"))
+    {
+        script_apply_result_ = script_editor_.apply(script_edit_buf_, world, reflection, e);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(applies live on Play)");
+    if (script_apply_result_.kind == ScriptApplyResult::Kind::Ok)
+    {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "compiled OK");
+    }
+    else if (script_apply_result_.kind == ScriptApplyResult::Kind::Error)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.4f, 0.4f, 1.0f));
+        ImGui::TextWrapped("%s", script_apply_result_.message.c_str());
+        ImGui::PopStyleColor();
+    }
 }
 
 bool StudioApp::draw_inspector(mosaic::engine::World& world,
