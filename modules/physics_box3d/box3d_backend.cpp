@@ -83,9 +83,26 @@ public:
         const b3ContactEvents ev = b3World_GetContactEvents(world_);
         for (int i = 0; i < ev.beginCount; ++i)
         {
-            last_contacts_.push_back(ep::BodyContact{
-                ep::ContactPhase::Begin, handle_of(b3Shape_GetBody(ev.beginEvents[i].shapeIdA)),
-                handle_of(b3Shape_GetBody(ev.beginEvents[i].shapeIdB))});
+            const b3ContactBeginTouchEvent& be = ev.beginEvents[i];
+            ep::BodyContact c{ep::ContactPhase::Begin, handle_of(b3Shape_GetBody(be.shapeIdA)),
+                              handle_of(b3Shape_GetBody(be.shapeIdB))};
+            if (b3Contact_IsValid(be.contactId))
+            {
+                const b3ContactData cd = b3Contact_GetData(be.contactId);
+                if (cd.manifoldCount > 0 && cd.manifolds[0].pointCount > 0)
+                {
+                    const b3Manifold&      m = cd.manifolds[0];
+                    const b3ManifoldPoint& p = m.points[0];
+                    const b3Pos            ca = b3Body_GetWorldCenter(b3Shape_GetBody(be.shapeIdA));
+                    c.point  = Vec3{static_cast<float>(ca.x) + p.anchorA.x,
+                                    static_cast<float>(ca.y) + p.anchorA.y,
+                                    static_cast<float>(ca.z) + p.anchorA.z};
+                    c.normal = Vec3{m.normal.x, m.normal.y, m.normal.z};
+                    c.separation     = p.separation;
+                    c.normal_impulse = p.normalImpulse;
+                }
+            }
+            last_contacts_.push_back(c);
         }
         for (int i = 0; i < ev.endCount; ++i)
         {

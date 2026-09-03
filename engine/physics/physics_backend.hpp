@@ -57,6 +57,11 @@ struct BodyContact
     ContactPhase phase;
     BodyHandle   a;
     BodyHandle   b;
+    // Manifold detail — populated for Begin contacts; zero for End (no manifold).
+    mosaic::foundation::math::Vec3 point{};   // world contact point (primary manifold point)
+    mosaic::foundation::math::Vec3 normal{};  // world contact normal (from a's shape toward b's)
+    float                          separation = 0.0f;      // <0 = penetrating
+    float                          normal_impulse = 0.0f;  // impulse along the normal (final sub-step)
 };
 
 // The physics world contract; the Box3D backend implements it behind the wall. Stepping is

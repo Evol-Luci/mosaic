@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 
 #include "engine/physics/physics_backend.hpp"
 #include "modules/physics_box3d/box3d_backend.hpp"
@@ -36,6 +37,7 @@ TEST_CASE("backend reports a begin-touch contact when a box lands on the ground"
     const BodyHandle bh = backend->create_body(box);
 
     bool begin_seen = false;
+    mosaic::engine::physics::BodyContact hit{};
     for (int i = 0; i < 180; ++i)
     {
         backend->step(1.0f / 60.0f, 4);
@@ -44,10 +46,24 @@ TEST_CASE("backend reports a begin-touch contact when a box lands on the ground"
             if (c.phase == ContactPhase::Begin && is_pair(c.a, c.b, gh, bh))
             {
                 begin_seen = true;
+                hit = c;
             }
         }
     }
     REQUIRE(begin_seen);
+
+    // Manifold detail: a box landing flat on the ground has a vertical, unit-length normal, is
+    // barely separated, and a finite contact point. (The A/B ordering — hence the normal's sign —
+    // is a Box3D internal, so we assert |normal.y|, not its sign.)
+    const float nlen = std::sqrt(hit.normal.x * hit.normal.x + hit.normal.y * hit.normal.y +
+                                 hit.normal.z * hit.normal.z);
+    REQUIRE(nlen > 0.99f);
+    REQUIRE(nlen < 1.01f);
+    REQUIRE(std::abs(hit.normal.y) > 0.9f);
+    REQUIRE(std::abs(hit.separation) < 0.5f);
+    REQUIRE(std::isfinite(hit.point.x));
+    REQUIRE(std::isfinite(hit.point.y));
+    REQUIRE(std::isfinite(hit.point.z));
 }
 
 #include <algorithm>
