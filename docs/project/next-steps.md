@@ -125,7 +125,12 @@ brainstorm → spec → plan → TDD cycle.
   `ScriptComponent` references.
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
-- **Physics:** record/replay-to-disk; contact manifolds/points/impulses.
+- **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`
+  / `separation` / `normal_impulse` from the Box3D manifold via `b3Contact_GetData`, tier-wall-clean;
+  design/plan: [spec](../superpowers/specs/2026-09-03-physics-contact-manifolds-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-physics-contact-manifolds.md)). Still open:
+  record/replay-to-disk; the **hit-event** channel (above-threshold point/normal/approach-speed) +
+  multi-point / friction impulses.
 - **Engine:** wire the **job pool into `World::tick`** for parallel systems (honoring each system's
   `ComponentAccess`); a dense component id space ([#25](https://github.com/Evol-Luci/mosaic/issues/25)).
 
@@ -273,9 +278,10 @@ show `contact begin: entity … <-> entity …` as the bodies land (282 tests, 0
 **What remains for the v0.1 vertical slice:** **Scripting (Python)**. The **Project & Tools
 Workflow pillar (T1–T5) is now COMPLETE** — T1 (meshes as assets), T2 (scene load/save), T3
 (`mosaic create` + project model), T4 (`mosaic build` standalone bundle), T5 (asset
-importer/cooker + `build_bundle` copies assets) are all done. **Physics follow-ups (deferred):**
-sphere/capsule demo meshes (colliders currently drawn as cubes), full record/replay-to-disk,
-contact manifolds/points/impulses, and viewport mouse-picking (consumes `PhysicsSystem::raycast`).
+importer/cooker + `build_bundle` copies assets) are all done. **Physics follow-ups:**
+sphere/capsule demo meshes (done), **contact manifolds — DONE** (point/normal/separation/impulse on
+Begin `ContactEvent`s), and still-deferred: full record/replay-to-disk, hit-event contacts +
+multi-point/friction impulses, and viewport mouse-picking (consumes `PhysicsSystem::raycast`).
 Physics design/plan:
 [decomposition](../superpowers/specs/2026-08-24-physics-decomposition.md) ·
 [P1 spec](../superpowers/specs/2026-08-24-physics-p1-backend-falling-box-design.md) · [P1 plan](../superpowers/plans/2026-08-24-physics-p1-backend-falling-box.md) ·
