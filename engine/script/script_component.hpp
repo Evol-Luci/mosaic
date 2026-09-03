@@ -9,13 +9,15 @@ namespace mosaic::engine::script
 // with the scene and appears in the inspector (a read-only string for v0.1). No Python types here.
 struct ScriptComponent
 {
-    std::string source;
+    std::string source; // inline Python (used when `path` is empty)
+    std::string path;   // optional .py file; when set, the script loads from it and hot-reloads
 };
 
 template <class V>
 void reflect(V& visitor, ScriptComponent& c)
 {
     visitor.member("source", c.source);
+    visitor.member("path", c.path);
 }
 
 } // namespace mosaic::engine::script
