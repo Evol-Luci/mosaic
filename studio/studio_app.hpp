@@ -18,6 +18,9 @@
 #include <string>
 #include "foundation/core/entity_id.hpp"
 #include "studio/demo_physics.hpp"
+#include "studio/transform_controls.hpp"
+#include "engine/transform/transform.hpp"
+#include "engine/render/material.hpp"
 
 namespace mosaic::studio
 {
@@ -54,6 +57,7 @@ private:
     void draw_hierarchy(const mosaic::engine::World& world);
     bool draw_inspector(mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection);
+    bool draw_controls(mosaic::engine::World& world);
     void draw_viewport(mosaic::engine::render::RenderDevice& device, mosaic::engine::World& world);
     void draw_assets(const mosaic::engine::assets::AssetRegistry& registry);
     void draw_console();
@@ -64,6 +68,7 @@ private:
 
     StudioLayout                   layout_;
     SelectionModel                 selection_;
+    TransformControlsModel         controls_;
     ViewportPanel                  viewport_;
     PlayState                      play_;
     AssetBrowserModel              assets_;

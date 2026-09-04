@@ -4,13 +4,14 @@
 
 using mosaic::studio::StudioLayout;
 
-TEST_CASE("StudioLayout default has the seven panels, all open", "[studio]")
+TEST_CASE("StudioLayout default has the eight panels, all open", "[studio]")
 {
     StudioLayout layout;
-    REQUIRE(layout.panels().size() == 7);
+    REQUIRE(layout.panels().size() == 8);
     REQUIRE(layout.is_open("Hierarchy"));
     REQUIRE(layout.is_open("Viewport"));
     REQUIRE(layout.is_open("Inspector"));
+    REQUIRE(layout.is_open("Controls"));
     REQUIRE(layout.is_open("Assets"));
     REQUIRE(layout.is_open("Console"));
     REQUIRE(layout.is_open("Script Console"));

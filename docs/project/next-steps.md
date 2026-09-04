@@ -138,9 +138,13 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   a per-component Remove button, generic over reflection via `registered_names()`/`add_default()`;
   unblocks attaching a `ScriptComponent` to any entity; design/plan:
   [spec](../superpowers/specs/2026-09-03-inspector-add-remove-component-design.md) ·
-  [plan](../superpowers/plans/2026-09-03-inspector-add-remove-component.md)). Still open: a slider /
-  color-picker / Euler-rotation **controls panel**; viewport **mouse-picking** (consumes
-  `PhysicsSystem::raycast`); in-editor **File → Reload**; undoable add/remove via a `CommandStack`.
+  [plan](../superpowers/plans/2026-09-03-inspector-add-remove-component.md)). **Viewport mouse-picking
+  — DONE** (click an object to select it, consumes `PhysicsSystem::raycast`). **Controls panel — DONE**
+  (a dedicated panel with position/scale drags, Euler-angle rotation **sliders in degrees**, and a
+  base-color **picker** for the selected entity's `Transform`/`Material`; design/plan:
+  [spec](../superpowers/specs/2026-09-03-transform-controls-panel-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-transform-controls-panel.md)). Still open: in-editor
+  **File → Reload**; undoable add/remove & controls edits via a `CommandStack`.
 - **Scripting:** **external `.py`-file hot-reload — DONE** (a `ScriptComponent.path` loads its script
   from a file and `ScriptSystem` reloads/recompiles it live on an on-disk edit, via mtime-polling;
   design/plan: [spec](../superpowers/specs/2026-09-03-script-file-hotreload-design.md) ·

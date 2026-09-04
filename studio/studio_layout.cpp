@@ -4,8 +4,8 @@ namespace mosaic::studio
 {
 
 StudioLayout::StudioLayout()
-    : panels_{{"Hierarchy", true}, {"Viewport", true}, {"Inspector", true}, {"Assets", true},
-              {"Console", true}, {"Script Console", true}, {"Script Editor", true}}
+    : panels_{{"Hierarchy", true}, {"Viewport", true}, {"Inspector", true}, {"Controls", true},
+              {"Assets", true}, {"Console", true}, {"Script Console", true}, {"Script Editor", true}}
 {
 }
 

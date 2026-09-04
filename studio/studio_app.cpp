@@ -97,6 +97,13 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
                     scene_file_.mark_dirty();
                 }
             }
+            else if (panel.name == "Controls")
+            {
+                if (draw_controls(world))
+                {
+                    scene_file_.mark_dirty();
+                }
+            }
             else if (panel.name == "Assets")
             {
                 draw_assets(registry);
@@ -322,6 +329,50 @@ bool StudioApp::draw_inspector(mosaic::engine::World& world,
     }
 
     return visitor.changed() || changed;
+}
+
+bool StudioApp::draw_controls(mosaic::engine::World& world)
+{
+    using mosaic::engine::render::Material;
+    using mosaic::engine::transform::Transform;
+
+    if (!selection_.has_selection())
+    {
+        ImGui::TextUnformatted("(no selection)");
+        return false;
+    }
+    const mosaic::foundation::EntityID e = selection_.selected();
+    if (!world.has_component<Transform>(e))
+    {
+        ImGui::TextUnformatted("(selection has no Transform)");
+        return false;
+    }
+
+    bool       changed = false;
+    Transform& t       = *world.get_component<Transform>(e);
+    controls_.sync(e, t.rotation);
+
+    if (ImGui::DragFloat3("Position", &t.position.x, 0.05f)) { changed = true; }
+
+    bool rot = false;
+    rot |= ImGui::SliderAngle("Pitch (X)", &controls_.euler.pitch);
+    rot |= ImGui::SliderAngle("Yaw (Y)", &controls_.euler.yaw);
+    rot |= ImGui::SliderAngle("Roll (Z)", &controls_.euler.roll);
+    if (rot)
+    {
+        t.rotation = euler_to_quat(controls_.euler);
+        changed    = true;
+    }
+
+    if (ImGui::DragFloat3("Scale", &t.scale.x, 0.05f)) { changed = true; }
+
+    if (world.has_component<Material>(e))
+    {
+        Material& m = *world.get_component<Material>(e);
+        if (ImGui::ColorEdit3("Base Color", &m.base_color.x)) { changed = true; }
+    }
+
+    return changed;
 }
 
 } // namespace mosaic::studio
