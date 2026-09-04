@@ -188,3 +188,10 @@ TEST_CASE("import subcommand captures project and file", "[cli]")
     REQUIRE(pr.options.import_file.has_value());
     REQUIRE(*pr.options.import_file == "tex.ppm");
 }
+
+TEST_CASE("script-thread opts into the threaded script worker", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--script-thread"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.script_thread == true);
+}

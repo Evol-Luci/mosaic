@@ -11,6 +11,7 @@
 #include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_host.hpp"
+#include "engine/script/script_context.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -196,12 +197,30 @@ public:
             [this] { if (host_.request_stop) { host_.request_stop(); } });
     }
 
+    void bind_context(mosaic::engine::script::ScriptContext& context) override
+    {
+        context_ = &context;
+        globals_["get_component"] = py::cpp_function(
+            [this](std::uint64_t eid, const std::string& name) -> py::object
+            {
+                auto v = context_->get(mosaic::foundation::EntityID(eid), name);
+                return v ? value_to_py(*v) : py::none();
+            });
+        globals_["set_component"] = py::cpp_function(
+            [this](std::uint64_t eid, const std::string& name, py::handle value) -> bool
+            {
+                return context_->set(mosaic::foundation::EntityID(eid), name,
+                                     py_to_value(value));
+            });
+    }
+
 private:
     py::dict globals_; // this engine's isolated namespace (interpreter outlives it)
     mosaic::engine::World* world_ = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;
     mosaic::engine::script::ScriptHost host_;
+    mosaic::engine::script::ScriptContext* context_ = nullptr;
 };
 } // namespace
 

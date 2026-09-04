@@ -187,3 +187,30 @@ TEST_CASE("ScriptSystem resolves a script asset by AssetID and runs it", "[scrip
     world.tick(0.5f);
     REQUIRE(world.get_component<mosaic::engine::transform::Transform>(e)->position.x == 0.5f);
 }
+
+TEST_CASE("threaded ScriptSystem applies script writes one tick later", "[script]")
+{
+    mosaic::foundation::reflection::TypeRegistry reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    mosaic::engine::World world;
+    // threaded = true (4th/5th ctor arg per the implemented signature)
+    world.add_system<mosaic::engine::script::ScriptSystem>(
+        types, [] { return mosaic::script::python::create_python_script_engine(); },
+        mosaic::engine::script::ScriptHost{}, nullptr, /*threaded=*/true);
+
+    const auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    world.add_component<mosaic::engine::script::ScriptComponent>(
+        e, mosaic::engine::script::ScriptComponent{
+               "def on_update(dt):\n"
+               "    t = get_component(entity, 'Transform')\n"
+               "    t['position']['x'] += dt\n"
+               "    set_component(entity, 'Transform', t)\n"});
+
+    // One-tick pipeline: after N ticks, x == (N-1)*dt.
+    for (int i = 0; i < 4; ++i) { world.tick(0.25f); }
+    REQUIRE(world.get_component<mosaic::engine::transform::Transform>(e)->position.x == 0.75f);
+}

@@ -163,10 +163,19 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   `load_project_assets` registers it as a `ScriptSource`; `ScriptComponent.script` references it by
   `AssetID` and `ScriptSystem` resolves it via the registry (precedence asset-id → path → inline);
   design/plan: [spec](../superpowers/specs/2026-09-03-py-as-asset-design.md) ·
-  [plan](../superpowers/plans/2026-09-03-py-as-asset.md)). Still open: a thin **editor
-  `PlayState`-from-script** wiring (map the host to `studio.play_state()` in `editor.cpp`); an OS
-  **file-watcher** for live re-import (replacing the `.py` mtime-poll); a script **worker thread**
-  (run script execution off the main loop).
+  [plan](../superpowers/plans/2026-09-03-py-as-asset.md)). **Script worker thread — DONE** (opt-in
+  `mosaic run --script-thread`: a dedicated Python-owning worker thread runs `on_update`s against an
+  immutable snapshot and emits a write batch the main thread applies one tick later, so a heavy
+  script never stalls the frame; the `ScriptContext`/`SnapshotContext` sandbox seam + `bind_context`
+  keep it race-free, inline stays the default; design/plan:
+  [spec](../superpowers/specs/2026-09-03-script-worker-thread-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-script-worker-thread.md)). **Honest caveats:** CPython's
+  single GIL means no *parallelism* across scripts (the win is decoupling, not speed); uniform
+  ~1-frame result latency in threaded mode; entity-lifecycle (`create_entity`/`destroy_entity`) is
+  unsupported in threaded mode (would race `World`). **This completes the scripting bucket** — future
+  scripting work: per-interpreter GILs (PEP 684) for real parallelism, dirty/partial snapshots, an OS
+  **file-watcher** for live re-import (replacing the `.py` mtime-poll), and a thin **editor
+  `PlayState`-from-script** wiring (map the host to `studio.play_state()` in `editor.cpp`).
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
 - **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`
