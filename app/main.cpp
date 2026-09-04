@@ -155,6 +155,21 @@ int main(int argc, char** argv)
     // reference and resolves textures from it every frame. (Populated inside the window block.)
     mosaic::engine::assets::AssetRegistry                  asset_registry;
 
+    namespace render = mosaic::engine::render;
+    namespace transform = mosaic::engine::transform;
+    using mosaic::foundation::math::Vec3;
+
+    auto render_system =
+        setup_runtime(world, asset_registry, types,
+                      [] { return mosaic::script::python::create_python_script_engine(); })
+            .render_system;
+
+    if (options.assets_dir)
+    {
+        const int n = load_project_assets(asset_registry, *options.assets_dir);
+        if (n > 0) { mosaic::foundation::log::info("import", "loaded {} project asset(s)", n); }
+    }
+
     if (options.window)
     {
         if (glfwInit() != GLFW_TRUE)
@@ -180,21 +195,6 @@ int main(int argc, char** argv)
             glfwDestroyWindow(glfw_window);
             glfwTerminate();
             return 1;
-        }
-
-        namespace render = mosaic::engine::render;
-        namespace transform = mosaic::engine::transform;
-        using mosaic::foundation::math::Vec3;
-
-        auto render_system =
-            setup_runtime(world, asset_registry, types,
-                          [] { return mosaic::script::python::create_python_script_engine(); })
-                .render_system;
-
-        if (options.assets_dir)
-        {
-            const int n = load_project_assets(asset_registry, *options.assets_dir);
-            if (n > 0) { mosaic::foundation::log::info("import", "loaded {} project asset(s)", n); }
         }
 
         auto* device = render_device.get();

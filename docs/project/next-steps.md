@@ -148,10 +148,15 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
 - **Scripting:** **external `.py`-file hot-reload — DONE** (a `ScriptComponent.path` loads its script
   from a file and `ScriptSystem` reloads/recompiles it live on an on-disk edit, via mtime-polling;
   design/plan: [spec](../superpowers/specs/2026-09-03-script-file-hotreload-design.md) ·
-  [plan](../superpowers/plans/2026-09-03-script-file-hotreload.md)). Still open: **Play-from-script**
-  (a neutral host-callback for `PlayState`/`RuntimeLoop`); scripting in **headless `mosaic run`** (no
-  `--window` doesn't call `setup_runtime`); an OS file-watcher + **`.py`-as-asset** (import/bundle a
-  `.py` by `AssetID`, project-relative paths).
+  [plan](../superpowers/plans/2026-09-03-script-file-hotreload.md)). **Headless `mosaic run` scripting
+  — DONE** (`setup_runtime` is hoisted out of the window block, so a windowless `mosaic run` ticks
+  `ScriptSystem` + `PhysicsSystem`; verified by a headless frame-pump integration test and a live
+  `--ticks` run emitting physics contacts; design/plan:
+  [spec](../superpowers/specs/2026-09-03-headless-run-scripting-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-headless-run-scripting.md)). Still open: **Play-from-script**
+  (a neutral host-callback for `PlayState`/`RuntimeLoop`); an OS file-watcher + **`.py`-as-asset**
+  (import/bundle a `.py` by `AssetID`, project-relative paths); a script **worker thread** (run
+  script execution off the main loop).
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
 - **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`
