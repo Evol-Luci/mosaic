@@ -128,9 +128,15 @@ add/remove-component item, now done, was first because it unblocks attach-script
 Each item still gets its own brainstorm → spec → plan → TDD cycle.
 
 **A. Next roadmap phase** (see [roadmap.md](roadmap.md)):
-- **Phase 3 — Programming** (deepen the layer just built): script **hot-reload** (first slice done —
-  the in-editor Script Editor, above; next: **external `.py`-file** reload on disk change), a Python
-  debugger/profiler, a broader C++ API.
+- **Phase 3 — Programming** (deepen the layer just built): script **hot-reload — done** (Script
+  Editor, external `.py` reload, `.py`-as-asset); **broader scripting API — first slice done**
+  (`add_component`/`remove_component`/`has_component`/`component_names`/`entities_with` — scripts can
+  now furnish `create_entity()` results and query composition by name; design:
+  [spec](../superpowers/specs/2026-09-04-broader-script-api-design.md)). **Still open in the broader-API
+  bucket:** `raycast()` + event emit/subscribe (need `get_system<PhysicsSystem>()` / the event bus — a
+  scripting↔physics/events coupling call), and richer math/input/time helpers. Then a Python
+  **profiler** (per-`on_update` timing) and a Python **debugger** (breakpoints/stepping via
+  `sys.settrace`, wired to the Script Editor).
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
