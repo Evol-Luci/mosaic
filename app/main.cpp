@@ -167,7 +167,7 @@ int main(int argc, char** argv)
     auto render_system =
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
-                      script_host)
+                      script_host, options.script_thread)
             .render_system;
 
     if (options.assets_dir)

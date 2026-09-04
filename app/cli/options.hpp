@@ -27,6 +27,7 @@ struct Options
     std::optional<std::uint64_t> ticks;        // --ticks <n>
     bool                         json = false;   // --json
     bool                         window = false; // --window : open a render window (else headless)
+    bool                         script_thread = false; // --script-thread
     double                       fps = 60.0;      // --fps  (pump wake target)
     double                       fixed_hz = 60.0; // --fixed-hz (sim timestep)
 };
