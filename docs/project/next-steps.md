@@ -136,10 +136,14 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   (scripts call `raycast(origin, dir, max)` → `{hit, entity, distance, point, normal}`, wired through
   a neutral `ScriptHost.raycast` seam so the script backend stays physics-agnostic; the runtime injects
   a `PhysicsSystem`-backed callback via `make_physics_raycast`; design:
-  [spec](../superpowers/specs/2026-09-04-script-raycast-design.md)). **Still open in the broader-API
-  bucket:** **event emit/subscribe** (own slice — needs a dynamic script-event type + subscribe
-  routing), and richer math/input/time helpers. Then a Python **profiler** (per-`on_update` timing)
-  and a Python **debugger** (breakpoints/stepping via `sys.settrace`, wired to the Script Editor).
+  [spec](../superpowers/specs/2026-09-04-script-raycast-design.md)). **Events — done** (scripts
+  `emit(name, payload)` and receive via an `on_event(name, payload)` hook; a neutral `ScriptEvent`
+  rides the deferred bus, so `ScriptSystem` delivers it one tick later, FIFO; inline mode; design:
+  [spec](../superpowers/specs/2026-09-04-script-events-design.md)). **Broader-API bucket essentially
+  complete.** Fast follow-up: bridge physics **`ContactEvent` → a `'contact'` script event** (collision
+  callbacks — the gameplay payoff, small now that the hook exists); plus richer math/input/time
+  helpers, and events in threaded mode. Then a Python **profiler** (per-`on_update` timing) and a
+  Python **debugger** (breakpoints/stepping via `sys.settrace`, wired to the Script Editor).
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):

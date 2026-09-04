@@ -11,6 +11,7 @@
 
 #include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/script/script_event.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/script/script_context.hpp"
 #include "engine/world/world.hpp"
@@ -224,6 +225,15 @@ public:
                     });
                 return out;
             });
+        // emit(name, payload=None): publish a dynamic ScriptEvent on the world bus. Deferred
+        // subscribers (ScriptSystem) deliver it to on_event(name, payload) one tick later.
+        globals_["emit"] = py::cpp_function(
+            [this](const std::string& name, py::object payload)
+            {
+                world_->events().emit(
+                    mosaic::engine::script::ScriptEvent{name, py_to_value(payload)});
+            },
+            py::arg("name"), py::arg("payload") = py::none());
         // Guarded undo/redo/undo_depth: functional even before bind_commands — they return
         // false/0 while stack_ is null, and route to the stack once bind_commands sets it.
         globals_["undo"] =
