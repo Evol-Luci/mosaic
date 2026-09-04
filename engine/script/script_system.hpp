@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -8,6 +10,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <filesystem>
 #include <fstream>
@@ -33,6 +36,15 @@ namespace mosaic::engine::script
 // Python-free. Caches one engine per scripted entity: the engine (with its own namespace) is created
 // and the ScriptComponent's source compiled once, then `on_update(dt)` runs each tick. The cache is
 // runtime-derived (rebuilt on demand); the authoritative source lives in the component.
+// One row of per-entity on_update timing (see ScriptSystem::profile()).
+struct ScriptProfileEntry
+{
+    std::uint64_t entity;
+    std::uint64_t calls;
+    double        total_ms;
+    double        max_ms;
+};
+
 class ScriptSystem : public ecs::System
 {
 public:
@@ -134,7 +146,14 @@ public:
                 }
                 entry.engine->set_global(
                     "dt", mosaic::foundation::serialization::Value(static_cast<double>(dt)));
+                const auto t0 = std::chrono::steady_clock::now();
                 entry.engine->run_string("on_update(dt)"); // non-fatal on error (result ignored)
+                const double ms =
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0)
+                        .count();
+                entry.calls += 1;
+                entry.total_ms += ms;
+                entry.max_ms = std::max(entry.max_ms, ms);
             });
 
         // Prune engines for entities no longer scripted/alive (not visited this tick).
@@ -190,6 +209,21 @@ public:
         return sc.source;
     }
 
+    // Per-entity on_update timing accumulated so far (inline mode). One row per scripted
+    // entity that has run at least once; unordered.
+    std::vector<ScriptProfileEntry> profile() const
+    {
+        std::vector<ScriptProfileEntry> out;
+        for (const auto& [id, entry] : engines_)
+        {
+            if (entry.calls > 0)
+            {
+                out.push_back(ScriptProfileEntry{id, entry.calls, entry.total_ms, entry.max_ms});
+            }
+        }
+        return out;
+    }
+
 private:
     struct Entry
     {
@@ -197,6 +231,9 @@ private:
         std::string                     source;  // last-compiled source
         std::string                     path;    // last-seen path (detect a path change / switch to inline)
         std::filesystem::file_time_type mtime{}; // last-seen file mtime (detect an on-disk edit)
+        std::uint64_t                   calls    = 0;   // on_update calls (profiler; persists across recompiles)
+        double                          total_ms = 0.0; // cumulative on_update wall-time
+        double                          max_ms   = 0.0; // slowest single on_update
     };
 
     const reflection::ComponentReflection& types_;

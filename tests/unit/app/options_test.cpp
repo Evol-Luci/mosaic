@@ -195,3 +195,11 @@ TEST_CASE("script-thread opts into the threaded script worker", "[cli]")
     REQUIRE_FALSE(result.exit_code.has_value());
     REQUIRE(result.options.script_thread == true);
 }
+
+TEST_CASE("script-profile flag toggles on_update timing output", "[cli]")
+{
+    REQUIRE(parse_args({"mosaic", "run"}).options.script_profile == false);
+    auto result = parse_args({"mosaic", "run", "--script-profile"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.script_profile == true);
+}
