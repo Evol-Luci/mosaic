@@ -153,10 +153,15 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   `ScriptSystem` + `PhysicsSystem`; verified by a headless frame-pump integration test and a live
   `--ticks` run emitting physics contacts; design/plan:
   [spec](../superpowers/specs/2026-09-03-headless-run-scripting-design.md) ·
-  [plan](../superpowers/plans/2026-09-03-headless-run-scripting.md)). Still open: **Play-from-script**
-  (a neutral host-callback for `PlayState`/`RuntimeLoop`); an OS file-watcher + **`.py`-as-asset**
-  (import/bundle a `.py` by `AssetID`, project-relative paths); a script **worker thread** (run
-  script execution off the main loop).
+  [plan](../superpowers/plans/2026-09-03-headless-run-scripting.md)). **Play-from-script — DONE** (a
+  neutral `ScriptHost` host-callback bound into every engine; scripts call `stop()`/`pause()`/`play()`,
+  wired in `main.cpp` so a headless script can end the run — verified by backend, system, and
+  frame-pump integration tests; design/plan:
+  [spec](../superpowers/specs/2026-09-03-play-from-script-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-play-from-script.md)). Still open: a thin **editor
+  `PlayState`-from-script** wiring (map the host to `studio.play_state()` in `editor.cpp`); an OS
+  file-watcher + **`.py`-as-asset** (import/bundle a `.py` by `AssetID`, project-relative paths); a
+  script **worker thread** (run script execution off the main loop).
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
 - **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`
