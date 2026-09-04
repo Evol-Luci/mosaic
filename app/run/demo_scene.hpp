@@ -63,7 +63,8 @@ inline RuntimeScene setup_runtime(
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
-    world.add_system<mosaic::engine::script::ScriptSystem>(reflection, std::move(script_factory), std::move(host));
+    world.add_system<mosaic::engine::script::ScriptSystem>(
+        reflection, std::move(script_factory), std::move(host), &registry);
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));

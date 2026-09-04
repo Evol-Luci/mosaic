@@ -11,6 +11,10 @@
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/script_python/python_script_engine.hpp"
 
+#include "engine/assets/asset_registry.hpp"
+#include "engine/assets/asset_metadata.hpp"
+#include "engine/script/script_source.hpp"
+
 using mosaic::engine::World;
 using mosaic::engine::reflection::ComponentReflection;
 using mosaic::engine::reflection::register_builtin_components;
@@ -146,4 +150,40 @@ TEST_CASE("ScriptSystem binds the host so a script can call stop()", "[script]")
 
     world.tick(0.016f);
     REQUIRE(stopped);
+}
+
+TEST_CASE("ScriptSystem resolves a script asset by AssetID and runs it", "[script]")
+{
+    using mosaic::engine::assets::AssetMetadata;
+    using mosaic::engine::assets::AssetRegistry;
+    using mosaic::engine::script::ScriptSource;
+    using mosaic::foundation::serialization::AssetID;
+
+    mosaic::foundation::reflection::TypeRegistry reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    AssetRegistry registry;
+    const AssetID id = AssetID::from_string("00000000-0000-0000-0000-0000000000bb");
+    AssetMetadata meta; meta.uuid = id; meta.type = "script"; meta.version = 1;
+    registry.register_resource<ScriptSource>(
+        meta, std::make_shared<ScriptSource>(ScriptSource{
+            "def on_update(dt):\n"
+            "    t = get_component(entity, 'Transform')\n"
+            "    t['position']['x'] += dt\n"
+            "    set_component(entity, 'Transform', t)\n"}));
+
+    mosaic::engine::World world;
+    world.add_system<mosaic::engine::script::ScriptSystem>(
+        types, [] { return mosaic::script::python::create_python_script_engine(); },
+        mosaic::engine::script::ScriptHost{}, &registry);
+
+    const auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    mosaic::engine::script::ScriptComponent sc; sc.script = id; // no inline/path
+    world.add_component<mosaic::engine::script::ScriptComponent>(e, sc);
+
+    world.tick(0.5f);
+    REQUIRE(world.get_component<mosaic::engine::transform::Transform>(e)->position.x == 0.5f);
 }

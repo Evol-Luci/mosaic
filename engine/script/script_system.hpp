@@ -21,6 +21,8 @@
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
+#include "engine/assets/asset_registry.hpp"
+#include "engine/script/script_source.hpp"
 
 namespace mosaic::engine::script
 {
@@ -35,8 +37,8 @@ public:
     using EngineFactory = std::function<std::unique_ptr<ScriptEngine>()>;
 
     ScriptSystem(const reflection::ComponentReflection& types, EngineFactory factory,
-                 ScriptHost host = {})
-        : types_(types), factory_(std::move(factory)), host_(std::move(host))
+                 ScriptHost host = {}, mosaic::engine::assets::AssetRegistry* registry = nullptr)
+        : types_(types), factory_(std::move(factory)), host_(std::move(host)), registry_(registry)
     {
     }
 
@@ -52,7 +54,13 @@ public:
                 // Resolve the effective source: from the .py file if `path` is set (reloading on an
                 // on-disk mtime change), else the inline `source`.
                 std::string desired;
-                if (sc.path.empty())
+                if (!sc.script.is_nil() && registry_ != nullptr)
+                {
+                    entry.path.clear();
+                    const auto res = registry_->load<ScriptSource>(sc.script);
+                    desired = res ? res->text : entry.source; // missing asset -> keep last-good
+                }
+                else if (sc.path.empty())
                 {
                     entry.path.clear();
                     desired = sc.source;
@@ -114,6 +122,7 @@ private:
     const reflection::ComponentReflection& types_;
     EngineFactory factory_;
     ScriptHost host_;
+    mosaic::engine::assets::AssetRegistry* registry_ = nullptr;
     std::unordered_map<std::uint64_t, Entry> engines_;
 };
 } // namespace mosaic::engine::script

@@ -108,6 +108,7 @@ add_executable(mosaic_unit_tests
   unit/script/script_system_test.cpp
   unit/script/script_hotreload_test.cpp
   unit/script/script_host_test.cpp
+  unit/script/script_asset_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

@@ -14,6 +14,8 @@
 #include "engine/render/image.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
+#include "engine/script/script_source.hpp"
+
 using mosaic::app::create_project;
 using mosaic::app::import_asset;
 using mosaic::app::load_project_assets;
@@ -40,6 +42,11 @@ void write_ppm(const std::string& path)
     const unsigned char px[] = {255, 0, 0, 0, 255, 0};
     s.append(reinterpret_cast<const char*>(px), sizeof(px));
     REQUIRE(save_scene_file(path, s));
+}
+
+void write_py(const std::string& path)
+{
+    REQUIRE(save_scene_file(path, "def on_update(dt):\n    pass\n"));
 }
 } // namespace
 
@@ -150,4 +157,46 @@ TEST_CASE("import_asset fails on a non-project or a bad source", "[app]")
     REQUIRE_FALSE(import_asset(proj, "/no/such/file.ppm").has_value()); // missing source
 
     fs::remove_all(notproj); fs::remove_all(proj);
+}
+
+TEST_CASE("import_asset cooks a .py into a script asset + metadata", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("sproj");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+    const std::string src = tmp("ssrc") + ".py";
+    write_py(src);
+
+    auto id = import_asset(proj, src);
+    REQUIRE(id.has_value());
+    REQUIRE_FALSE(id->is_nil());
+    const std::string stem = fs::path(src).stem().string();
+    REQUIRE(fs::exists(fs::path(proj) / "assets" / (stem + ".script")));
+    REQUIRE(fs::exists(fs::path(proj) / "assets" / (stem + ".toml")));
+
+    fs::remove_all(proj); fs::remove(src);
+}
+
+TEST_CASE("load_project_assets registers a script asset as ScriptSource", "[app]")
+{
+    using mosaic::engine::script::ScriptSource;
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("sproj2");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+    const std::string src = tmp("ssrc2") + ".py";
+    write_py(src);
+    auto id = import_asset(proj, src);
+    REQUIRE(id.has_value());
+
+    AssetRegistry registry;
+    const int n = load_project_assets(registry, (fs::path(proj) / "assets").string());
+    REQUIRE(n == 1);
+    REQUIRE(registry.contains(*id));
+    auto res = registry.load<ScriptSource>(*id);
+    REQUIRE(res != nullptr);
+    REQUIRE(res->text == "def on_update(dt):\n    pass\n");
+
+    fs::remove_all(proj); fs::remove(src);
 }

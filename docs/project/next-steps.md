@@ -158,10 +158,15 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   wired in `main.cpp` so a headless script can end the run — verified by backend, system, and
   frame-pump integration tests; design/plan:
   [spec](../superpowers/specs/2026-09-03-play-from-script-design.md) ·
-  [plan](../superpowers/plans/2026-09-03-play-from-script.md)). Still open: a thin **editor
+  [plan](../superpowers/plans/2026-09-03-play-from-script.md)). **`.py`-as-asset — DONE**
+  (`mosaic import <proj> foo.py` cooks a `type="script"` asset (`.script` blob + `.toml`);
+  `load_project_assets` registers it as a `ScriptSource`; `ScriptComponent.script` references it by
+  `AssetID` and `ScriptSystem` resolves it via the registry (precedence asset-id → path → inline);
+  design/plan: [spec](../superpowers/specs/2026-09-03-py-as-asset-design.md) ·
+  [plan](../superpowers/plans/2026-09-03-py-as-asset.md)). Still open: a thin **editor
   `PlayState`-from-script** wiring (map the host to `studio.play_state()` in `editor.cpp`); an OS
-  file-watcher + **`.py`-as-asset** (import/bundle a `.py` by `AssetID`, project-relative paths); a
-  script **worker thread** (run script execution off the main loop).
+  **file-watcher** for live re-import (replacing the `.py` mtime-poll); a script **worker thread**
+  (run script execution off the main loop).
 - **Studio (post-v0.1):** **Blender live-link** preview; asset-browser follow-ups (type filtering,
   thumbnails, disk import, clear-to-nil).
 - **Physics:** **contact manifolds — DONE** (Begin `ContactEvent`s now carry world `point` / `normal`
