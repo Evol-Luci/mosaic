@@ -55,14 +55,15 @@ inline RuntimeScene setup_runtime(
     mosaic::engine::World&                                  world,
     mosaic::engine::assets::AssetRegistry&                  registry,
     const mosaic::engine::reflection::ComponentReflection&  reflection,
-    mosaic::engine::script::ScriptSystem::EngineFactory     script_factory)
+    mosaic::engine::script::ScriptSystem::EngineFactory     script_factory,
+    mosaic::engine::script::ScriptHost                      host = {})
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
-    world.add_system<mosaic::engine::script::ScriptSystem>(reflection, std::move(script_factory));
+    world.add_system<mosaic::engine::script::ScriptSystem>(reflection, std::move(script_factory), std::move(host));
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));

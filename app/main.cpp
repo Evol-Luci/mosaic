@@ -36,6 +36,7 @@
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
@@ -159,9 +160,14 @@ int main(int argc, char** argv)
     namespace transform = mosaic::engine::transform;
     using mosaic::foundation::math::Vec3;
 
+    mosaic::engine::script::ScriptHost script_host;
+    script_host.request_stop = [] { g_stop.store(true); };
+    script_host.set_playing  = [](bool playing) { if (!playing) { g_stop.store(true); } };
+
     auto render_system =
         setup_runtime(world, asset_registry, types,
-                      [] { return mosaic::script::python::create_python_script_engine(); })
+                      [] { return mosaic::script::python::create_python_script_engine(); },
+                      script_host)
             .render_system;
 
     if (options.assets_dir)

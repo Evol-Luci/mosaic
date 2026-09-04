@@ -10,6 +10,7 @@
 
 #include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -184,11 +185,23 @@ public:
         stack_ = &stack;
     }
 
+    void bind_host(const mosaic::engine::script::ScriptHost& host) override
+    {
+        host_ = host;
+        globals_["play"] = py::cpp_function(
+            [this] { if (host_.set_playing) { host_.set_playing(true); } });
+        globals_["pause"] = py::cpp_function(
+            [this] { if (host_.set_playing) { host_.set_playing(false); } });
+        globals_["stop"] = py::cpp_function(
+            [this] { if (host_.request_stop) { host_.request_stop(); } });
+    }
+
 private:
     py::dict globals_; // this engine's isolated namespace (interpreter outlives it)
     mosaic::engine::World* world_ = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;
+    mosaic::engine::script::ScriptHost host_;
 };
 } // namespace
 
