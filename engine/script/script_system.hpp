@@ -18,6 +18,7 @@
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_engine.hpp"
 #include "engine/script/script_host.hpp"
+#include "engine/script/script_worker.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
@@ -37,12 +38,23 @@ public:
     using EngineFactory = std::function<std::unique_ptr<ScriptEngine>()>;
 
     ScriptSystem(const reflection::ComponentReflection& types, EngineFactory factory,
-                 ScriptHost host = {}, mosaic::engine::assets::AssetRegistry* registry = nullptr)
+                 ScriptHost host = {}, mosaic::engine::assets::AssetRegistry* registry = nullptr,
+                 bool threaded = false)
         : types_(types), factory_(std::move(factory)), host_(std::move(host)), registry_(registry)
     {
+        if (threaded)
+        {
+            worker_ = std::make_unique<ScriptWorker>(factory_, host_);
+        }
     }
 
     void update(World& world, float dt) override
+    {
+        if (worker_) { update_threaded(world, dt); return; }
+        update_inline(world, dt);
+    }
+
+    void update_inline(World& world, float dt)
     {
         std::unordered_set<std::uint64_t> seen;
         world.for_each<ScriptComponent>(
@@ -110,6 +122,52 @@ public:
         }
     }
 
+    void update_threaded(World& world, float dt)
+    {
+        // 1. Apply the previous job's writes (main thread).
+        for (const SnapshotContext::Write& w : worker_->collect())
+        {
+            types_.set_value(world, mosaic::foundation::EntityID(w.entity), w.comp, w.value);
+        }
+        // 2. Snapshot every scripted entity's components + resolve its source.
+        ScriptWorker::Job job;
+        job.dt = dt;
+        world.for_each<ScriptComponent>(
+            [&](mosaic::foundation::EntityID e, ScriptComponent& sc)
+            {
+                const std::string source = resolve_source(sc); // asset id -> path -> inline
+                if (source.empty()) { return; }
+                std::unordered_map<std::string, mosaic::foundation::serialization::Value> comps;
+                for (const std::string& name : types_.components_on(world, e))
+                {
+                    if (auto v = types_.component_value(world, e, name)) { comps[name] = *v; }
+                }
+                job.snapshot[e.value()] = std::move(comps);
+                job.scripts.push_back(ScriptWorker::ScriptRef{e.value(), source});
+            });
+        // 3. Dispatch (non-blocking).
+        worker_->dispatch(std::move(job));
+    }
+
+    std::string resolve_source(const ScriptComponent& sc)
+    {
+        if (!sc.script.is_nil() && registry_ != nullptr)
+        {
+            const auto res = registry_->load<ScriptSource>(sc.script);
+            return res ? res->text : sc.source;
+        }
+        if (!sc.path.empty())
+        {
+            std::ifstream f(sc.path, std::ios::binary);
+            if (f)
+            {
+                return std::string(std::istreambuf_iterator<char>(f),
+                                   std::istreambuf_iterator<char>());
+            }
+        }
+        return sc.source;
+    }
+
 private:
     struct Entry
     {
@@ -124,5 +182,6 @@ private:
     ScriptHost host_;
     mosaic::engine::assets::AssetRegistry* registry_ = nullptr;
     std::unordered_map<std::uint64_t, Entry> engines_;
+    std::unique_ptr<ScriptWorker> worker_;
 };
 } // namespace mosaic::engine::script
