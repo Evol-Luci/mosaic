@@ -162,6 +162,49 @@ public:
         globals_["is_valid"] = py::cpp_function(
             [this](std::uint64_t eid) -> bool
             { return world_->is_valid(mosaic::foundation::EntityID(eid)); });
+        // Component authoring + queries (reflection-driven; inline mode only). These let a
+        // script furnish a freshly created entity and inspect/query composition by name.
+        globals_["add_component"] = py::cpp_function(
+            [this](std::uint64_t eid, const std::string& name) -> bool
+            { return types_->add_default(*world_, mosaic::foundation::EntityID(eid), name); });
+        globals_["remove_component"] = py::cpp_function(
+            [this](std::uint64_t eid, const std::string& name) -> bool
+            { return types_->remove_value(*world_, mosaic::foundation::EntityID(eid), name); });
+        globals_["has_component"] = py::cpp_function(
+            [this](std::uint64_t eid, const std::string& name) -> bool
+            {
+                const auto e = mosaic::foundation::EntityID(eid);
+                for (const std::string& n : types_->components_on(*world_, e))
+                {
+                    if (n == name) { return true; }
+                }
+                return false;
+            });
+        globals_["component_names"] = py::cpp_function(
+            [this](std::uint64_t eid) -> py::list
+            {
+                py::list out;
+                for (const std::string& n :
+                     types_->components_on(*world_, mosaic::foundation::EntityID(eid)))
+                {
+                    out.append(py::str(n));
+                }
+                return out;
+            });
+        globals_["entities_with"] = py::cpp_function(
+            [this](const std::string& name) -> py::list
+            {
+                py::list out;
+                world_->for_each_entity(
+                    [&](mosaic::foundation::EntityID e)
+                    {
+                        for (const std::string& n : types_->components_on(*world_, e))
+                        {
+                            if (n == name) { out.append(py::int_(e.value())); break; }
+                        }
+                    });
+                return out;
+            });
         // Guarded undo/redo/undo_depth: functional even before bind_commands — they return
         // false/0 while stack_ is null, and route to the stack once bind_commands sets it.
         globals_["undo"] =
