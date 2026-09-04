@@ -3,6 +3,7 @@
 #include <string>
 
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/serialization/value.hpp"
@@ -41,5 +42,9 @@ public:
     // SetComponentCommand (undoable via undo()/redo()); entity lifecycle stays direct. Non-owning;
     // the caller keeps the stack alive across run_string calls. Optional (S2 behavior without it).
     virtual void bind_commands(mosaic::foundation::commands::CommandStack& stack) = 0;
+
+    // Bind host run-state callbacks (play/pause/stop). Optional; default no-op so
+    // engines that do not support it (or are built before a host exists) still work.
+    virtual void bind_host(const ScriptHost& host) { (void)host; }
 };
 } // namespace mosaic::engine::script
