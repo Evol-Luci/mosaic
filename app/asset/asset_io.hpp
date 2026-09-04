@@ -14,6 +14,7 @@
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/render/image.hpp"
+#include "engine/script/script_source.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/serialization/reference.hpp"     // AssetID, SerializationError
 #include "foundation/serialization/reflect_value.hpp" // to_value / from_value
@@ -51,11 +52,27 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         mosaic::foundation::log::error("import", "source not found: {}", source_file);
         return std::nullopt;
     }
-    const std::optional<mosaic::engine::render::Image> img = read_ppm(*src);
-    if (!img)
+    const std::string ext = fs::path(source_file).extension().string();
+    std::string blob_bytes;
+    std::string blob_ext;
+    std::string asset_type;
+    if (ext == ".py")
     {
-        mosaic::foundation::log::error("import", "not a valid PPM (P6, maxval 255): {}", source_file);
-        return std::nullopt;
+        blob_bytes = *src;       // script blob is the source text verbatim
+        blob_ext   = ".script";
+        asset_type = "script";
+    }
+    else
+    {
+        const std::optional<mosaic::engine::render::Image> img = read_ppm(*src);
+        if (!img)
+        {
+            mosaic::foundation::log::error("import", "not a valid PPM (P6, maxval 255): {}", source_file);
+            return std::nullopt;
+        }
+        blob_bytes = cook_image(*img);
+        blob_ext   = ".image";
+        asset_type = "texture";
     }
 
     const std::string stem = fs::path(source_file).stem().string();
@@ -64,7 +81,7 @@ import_asset(const std::string& project_dir, const std::string& source_file)
     fs::create_directories(assets, ec);
     if (ec) { mosaic::foundation::log::error("import", "could not create assets/ in {}", project_dir); return std::nullopt; }
 
-    const fs::path blob_path = assets / (stem + ".image");
+    const fs::path blob_path = assets / (stem + blob_ext);
     const fs::path meta_path = assets / (stem + ".toml");
     if (fs::exists(blob_path) || fs::exists(meta_path))
     {
@@ -73,16 +90,16 @@ import_asset(const std::string& project_dir, const std::string& source_file)
             stem, assets.string());
         return std::nullopt;
     }
-    if (!save_scene_file(blob_path.string(), cook_image(*img)))
+    if (!save_scene_file(blob_path.string(), blob_bytes))
     {
-        mosaic::foundation::log::error("import", "could not write cooked image: {}", blob_path.string());
+        mosaic::foundation::log::error("import", "could not write cooked asset: {}", blob_path.string());
         return std::nullopt;
     }
 
     const mosaic::foundation::serialization::AssetID id = random_asset_id();
     mosaic::engine::assets::AssetMetadata meta;
     meta.uuid = id;
-    meta.type = "texture";
+    meta.type = asset_type;
     meta.version = 1;
     meta.source = source_file;
     const std::string meta_toml = mosaic::foundation::serialization::to_toml(
@@ -125,6 +142,18 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
         {
             mosaic::foundation::log::warn("import", "skipping bad asset metadata {}: {}",
                                           entry.path().string(), e.what());
+            continue;
+        }
+
+        if (meta.type == "script")
+        {
+            const fs::path script_path = entry.path().parent_path() / (entry.path().stem().string() + ".script");
+            const std::optional<std::string> text = load_scene_file(script_path.string());
+            if (!text) { mosaic::foundation::log::warn("import", "missing script blob {}", script_path.string()); continue; }
+            registry.register_resource<mosaic::engine::script::ScriptSource>(
+                meta, std::make_shared<mosaic::engine::script::ScriptSource>(
+                          mosaic::engine::script::ScriptSource{*text}));
+            ++count;
             continue;
         }
 
