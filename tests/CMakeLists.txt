@@ -60,6 +60,7 @@ add_executable(mosaic_unit_tests
   unit/app/demo_scene_test.cpp
   unit/app/script_runtime_test.cpp
   unit/app/headless_run_test.cpp
+  unit/app/play_from_script_test.cpp
   unit/app/scene_io_test.cpp
   unit/app/populate_world_test.cpp
   unit/app/scene_save_roundtrip_test.cpp
