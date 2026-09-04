@@ -1,5 +1,6 @@
 #include "modules/script_python/python_script_engine.hpp"
 
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -29,7 +30,25 @@ namespace
 void ensure_interpreter()
 {
     static std::once_flag flag;
-    std::call_once(flag, [] { py::initialize_interpreter(); });
+    std::call_once(flag, [] {
+#ifdef MOSAIC_PYTHON_HOME
+        // Point CPython at its standard library: PyConfig.home defaults to the linked
+        // Python's install prefix (baked in by CMake), overridable at runtime via the
+        // PYTHONHOME env var. Without this, embedded CPython can't locate its stdlib
+        // relative to the host binary — it warns and pure-Python imports fail.
+        PyConfig config;
+        PyConfig_InitPythonConfig(&config);
+        const char* const env_home = std::getenv("PYTHONHOME");
+        const std::string home =
+            (env_home != nullptr && env_home[0] != '\0') ? env_home : MOSAIC_PYTHON_HOME;
+        const PyStatus status = PyConfig_SetBytesString(&config, &config.home, home.c_str());
+        if (PyStatus_Exception(status) == 0) { py::initialize_interpreter(&config); }
+        else { py::initialize_interpreter(); } // bad home -> fall back to default init
+        PyConfig_Clear(&config);
+#else
+        py::initialize_interpreter();
+#endif
+    });
 }
 
 // Helper base class: initializes CPython before any pybind11 member objects are
