@@ -214,3 +214,34 @@ TEST_CASE("threaded ScriptSystem applies script writes one tick later", "[script
     for (int i = 0; i < 4; ++i) { world.tick(0.25f); }
     REQUIRE(world.get_component<mosaic::engine::transform::Transform>(e)->position.x == 0.75f);
 }
+
+TEST_CASE("scripts communicate via emit + on_event, one tick later", "[script]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    world.add_system<ScriptSystem>(types, [] { return create_python_script_engine(); });
+
+    // Emitter: fires 'ping' with a payload every tick.
+    const auto a = world.create_entity();
+    world.add_component<ScriptComponent>(a, ScriptComponent{
+        "def on_update(dt):\n"
+        "    emit('ping', {'v': 1.0})\n"});
+
+    // Receiver: on 'ping', writes payload['v'] into its own Transform.x.
+    const auto b = world.create_entity();
+    world.add_component<Transform>(b, Transform{});
+    world.add_component<ScriptComponent>(b, ScriptComponent{
+        "def on_update(dt):\n"
+        "    pass\n"
+        "def on_event(name, payload):\n"
+        "    if name == 'ping':\n"
+        "        t = get_component(entity, 'Transform')\n"
+        "        t['position']['x'] = payload['v']\n"
+        "        set_component(entity, 'Transform', t)\n"});
+
+    world.tick(0.016f); // A emits 'ping' (deferred); not delivered this tick
+    REQUIRE(world.get_component<Transform>(b)->position.x == 0.0f);
+
+    world.tick(0.016f); // drain delivers 'ping' -> B.on_event
+    REQUIRE(world.get_component<Transform>(b)->position.x == 1.0f);
+}

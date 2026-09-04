@@ -17,6 +17,7 @@
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_engine.hpp"
+#include "engine/script/script_event.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/script/script_worker.hpp"
 #include "engine/world/world.hpp"
@@ -56,6 +57,17 @@ public:
 
     void update_inline(World& world, float dt)
     {
+        // Subscribe once (deferred = one-tick, FIFO). The handler queues events delivered at each
+        // tick's drain (before systems run); we deliver them below, before on_update.
+        if (!subscribed_)
+        {
+            world.events().subscribe_deferred<ScriptEvent>(
+                [this](const ScriptEvent& e) { pending_events_.push_back(e); });
+            subscribed_ = true;
+        }
+        std::vector<ScriptEvent> events = std::move(pending_events_);
+        pending_events_.clear();
+
         std::unordered_set<std::uint64_t> seen;
         world.for_each<ScriptComponent>(
             [&](mosaic::foundation::EntityID e, ScriptComponent& sc)
@@ -109,6 +121,16 @@ public:
                         mosaic::foundation::serialization::Value(
                             static_cast<std::uint64_t>(e.value())));
                     entry.engine->run_string(desired); // (re)compile: define on_update + top-level
+                }
+                // Deliver queued events (from the previous tick's emits) to on_event, if the
+                // script defines it. Broadcast: every scripted entity sees every event.
+                for (const ScriptEvent& ev : events)
+                {
+                    entry.engine->set_global(
+                        "__evt_name", mosaic::foundation::serialization::Value(ev.name));
+                    entry.engine->set_global("__evt_payload", ev.payload);
+                    entry.engine->run_string(
+                        "if 'on_event' in globals(): on_event(__evt_name, __evt_payload)\n");
                 }
                 entry.engine->set_global(
                     "dt", mosaic::foundation::serialization::Value(static_cast<double>(dt)));
@@ -183,5 +205,7 @@ private:
     mosaic::engine::assets::AssetRegistry* registry_ = nullptr;
     std::unordered_map<std::uint64_t, Entry> engines_;
     std::unique_ptr<ScriptWorker> worker_;
+    std::vector<ScriptEvent>      pending_events_; // queued by the deferred bus handler
+    bool                          subscribed_ = false;
 };
 } // namespace mosaic::engine::script
