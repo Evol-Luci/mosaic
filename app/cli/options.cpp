@@ -33,6 +33,7 @@ ParseResult parse(int argc, char** argv)
     run->add_flag("--json", result.options.json, "Emit machine-readable status");
     run->add_flag("--window", result.options.window, "Open a render window (Vulkan)");
     run->add_flag("--script-thread", result.options.script_thread, "Run scripts on a background thread (1-frame deferred)");
+    run->add_flag("--script-profile", result.options.script_profile, "Print per-entity on_update timing at exit");
     run->add_option("--fps", result.options.fps, "Target wake frame rate")
         ->capture_default_str()
         ->check(CLI::PositiveNumber);

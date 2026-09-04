@@ -142,9 +142,12 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   [spec](../superpowers/specs/2026-09-04-script-events-design.md)). **Physics contact callbacks — done**
   (`setup_runtime` bridges each `ContactEvent` to a `'contact'` script event with
   `{phase, a, b, point, normal, separation, normal_impulse}`, delivered to `on_event` — scripts react
-  to collisions/landings). **Broader-API bucket complete.** Remaining Phase-3 items: richer
-  math/input/time script helpers and events in threaded mode; a Python **profiler** (per-`on_update`
-  timing); a Python **debugger** (breakpoints/stepping via `sys.settrace`, wired to the Script Editor).
+  to collisions/landings). **Broader-API bucket complete.** **Profiler — done** (`ScriptSystem` times
+  each entity's `on_update`, exposes `profile()`; `mosaic run --script-profile` dumps the timing table
+  sorted by cost; design: [spec](../superpowers/specs/2026-09-04-script-profiler-design.md)).
+  Remaining Phase-3 items: richer math/input/time script helpers, events + profiling in threaded mode,
+  per-script-source profile aggregation; and a Python **debugger** (breakpoints/stepping via
+  `sys.settrace`, wired to the Script Editor).
   *(Watch: the threaded `ScriptWorker` unit test flaked once under heavy parallel `ctest` load —
   passed on rerun; likely contention, revisit if it recurs.)*
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.

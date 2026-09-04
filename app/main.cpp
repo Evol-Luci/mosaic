@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -37,6 +38,7 @@
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
 #include "engine/script/script_host.hpp"
+#include "engine/script/script_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/world/world.hpp"
@@ -229,6 +231,24 @@ int main(int argc, char** argv)
     FramePump pump(loop, std::move(deps), *reporter, options);
     RunSummary summary = pump.run(world);
     reporter->summary(summary);
+
+    if (options.script_profile)
+    {
+        if (auto* scripts = world.get_system<engine::script::ScriptSystem>())
+        {
+            auto rows = scripts->profile();
+            std::sort(rows.begin(), rows.end(),
+                      [](const auto& a, const auto& b) { return a.total_ms > b.total_ms; });
+            mosaic::foundation::log::info("profile", "script on_update timing ({} entities):",
+                                          rows.size());
+            for (const auto& r : rows)
+            {
+                mosaic::foundation::log::info(
+                    "profile", "  entity {}: {} calls, total {:.3f} ms, max {:.3f} ms", r.entity,
+                    r.calls, r.total_ms, r.max_ms);
+            }
+        }
+    }
 
     if (options.window)
     {

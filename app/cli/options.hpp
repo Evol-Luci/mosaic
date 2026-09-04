@@ -28,6 +28,7 @@ struct Options
     bool                         json = false;   // --json
     bool                         window = false; // --window : open a render window (else headless)
     bool                         script_thread = false; // --script-thread
+    bool                         script_profile = false; // --script-profile : dump on_update timing at exit
     double                       fps = 60.0;      // --fps  (pump wake target)
     double                       fixed_hz = 60.0; // --fixed-hz (sim timestep)
 };
