@@ -3,6 +3,7 @@
 #include <string>
 
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/script/script_context.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
@@ -46,5 +47,9 @@ public:
     // Bind host run-state callbacks (play/pause/stop). Optional; default no-op so
     // engines that do not support it (or are built before a host exists) still work.
     virtual void bind_host(const ScriptHost& host) { (void)host; }
+
+    // Route get_component/set_component through a sandbox context (worker mode).
+    // Optional; default no-op. Entity-lifecycle globals are NOT installed here.
+    virtual void bind_context(ScriptContext& context) { (void)context; }
 };
 } // namespace mosaic::engine::script
