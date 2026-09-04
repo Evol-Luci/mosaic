@@ -13,6 +13,7 @@
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/builtin_meshes.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_event.hpp"
 #include "engine/script/script_system.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
@@ -103,6 +104,35 @@ inline RuntimeScene setup_runtime(
                 "physics", "contact {}: entity {} <-> entity {}",
                 c.phase == physics::ContactPhase::Begin ? "begin" : "end", c.a.index(),
                 c.b.index());
+        });
+
+    // Bridge physics contacts to scripts: each ContactEvent becomes a 'contact' ScriptEvent,
+    // delivered to on_event(name, payload) one tick later. payload = {phase, a, b, point:{x,y,z},
+    // normal:{x,y,z}, separation, normal_impulse}. Emitting on the deferred bus from this sync
+    // handler is safe (it appends to the deferred queue, not the handler list being iterated).
+    world.events().subscribe<physics::ContactEvent>(
+        [&world](const physics::ContactEvent& c)
+        {
+            namespace ser = mosaic::foundation::serialization;
+            auto vec = [](const mosaic::foundation::math::Vec3& v)
+            {
+                ser::Table t;
+                t["x"] = ser::Value(static_cast<double>(v.x));
+                t["y"] = ser::Value(static_cast<double>(v.y));
+                t["z"] = ser::Value(static_cast<double>(v.z));
+                return ser::Value(std::move(t));
+            };
+            ser::Table p;
+            p["phase"] = ser::Value(std::string(
+                c.phase == physics::ContactPhase::Begin ? "begin" : "end"));
+            p["a"] = ser::Value(static_cast<std::uint64_t>(c.a.value()));
+            p["b"] = ser::Value(static_cast<std::uint64_t>(c.b.value()));
+            p["point"] = vec(c.point);
+            p["normal"] = vec(c.normal);
+            p["separation"] = ser::Value(static_cast<double>(c.separation));
+            p["normal_impulse"] = ser::Value(static_cast<double>(c.normal_impulse));
+            world.events().emit(
+                mosaic::engine::script::ScriptEvent{"contact", ser::Value(std::move(p))});
         });
 
     auto register_texture = [&](mosaic::foundation::serialization::AssetID id, auto&& pixel_fn)
