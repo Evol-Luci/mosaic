@@ -111,6 +111,7 @@ add_executable(mosaic_unit_tests
   unit/script/script_asset_test.cpp
   unit/script/script_context_test.cpp
   unit/script/script_context_engine_test.cpp
+  unit/script/script_worker_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
