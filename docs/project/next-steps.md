@@ -139,11 +139,14 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   [spec](../superpowers/specs/2026-09-04-script-raycast-design.md)). **Events — done** (scripts
   `emit(name, payload)` and receive via an `on_event(name, payload)` hook; a neutral `ScriptEvent`
   rides the deferred bus, so `ScriptSystem` delivers it one tick later, FIFO; inline mode; design:
-  [spec](../superpowers/specs/2026-09-04-script-events-design.md)). **Broader-API bucket essentially
-  complete.** Fast follow-up: bridge physics **`ContactEvent` → a `'contact'` script event** (collision
-  callbacks — the gameplay payoff, small now that the hook exists); plus richer math/input/time
-  helpers, and events in threaded mode. Then a Python **profiler** (per-`on_update` timing) and a
-  Python **debugger** (breakpoints/stepping via `sys.settrace`, wired to the Script Editor).
+  [spec](../superpowers/specs/2026-09-04-script-events-design.md)). **Physics contact callbacks — done**
+  (`setup_runtime` bridges each `ContactEvent` to a `'contact'` script event with
+  `{phase, a, b, point, normal, separation, normal_impulse}`, delivered to `on_event` — scripts react
+  to collisions/landings). **Broader-API bucket complete.** Remaining Phase-3 items: richer
+  math/input/time script helpers and events in threaded mode; a Python **profiler** (per-`on_update`
+  timing); a Python **debugger** (breakpoints/stepping via `sys.settrace`, wired to the Script Editor).
+  *(Watch: the threaded `ScriptWorker` unit test flaked once under heavy parallel `ctest` load —
+  passed on rerun; likely contention, revisit if it recurs.)*
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):

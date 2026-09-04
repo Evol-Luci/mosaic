@@ -138,3 +138,45 @@ TEST_CASE("a script can raycast the physics world via setup_runtime", "[app]")
     for (int i = 0; i < 3; ++i) { world.tick(1.0f / 60.0f); }
     REQUIRE(world.get_component<Transform>(probe)->position.x == Catch::Approx(4.5f).margin(0.05f));
 }
+
+TEST_CASE("physics contacts are bridged to scripts as 'contact' events", "[app]")
+{
+    using mosaic::engine::physics::Collider;
+    using mosaic::engine::physics::RigidBody;
+    using mosaic::foundation::math::Quat;
+    using mosaic::foundation::math::Vec3;
+
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    AssetRegistry registry;
+
+    // A static ground and a dynamic box that falls onto it (a begin-touch contact).
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(
+        ground, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    const auto box = world.create_entity();
+    world.add_component<Transform>(box, Transform{Vec3{0, 3, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    // A script-only probe (no physics) that counts begin-contacts via the on_event hook.
+    const auto probe = world.create_entity();
+    world.add_component<Transform>(probe, Transform{});
+    world.add_component<ScriptComponent>(probe, ScriptComponent{
+        "def on_update(dt):\n"
+        "    pass\n"
+        "def on_event(name, payload):\n"
+        "    if name == 'contact' and payload['phase'] == 'begin':\n"
+        "        t = get_component(entity, 'Transform')\n"
+        "        t['position']['x'] += 1.0\n"
+        "        set_component(entity, 'Transform', t)\n"});
+
+    setup_runtime(world, registry, types, [] { return create_python_script_engine(); });
+
+    for (int i = 0; i < 180; ++i) { world.tick(1.0f / 60.0f); }
+    // The box landing produced at least one begin-contact, bridged to the probe's on_event.
+    REQUIRE(world.get_component<Transform>(probe)->position.x >= 1.0f);
+}
