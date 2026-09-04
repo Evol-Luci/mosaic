@@ -257,6 +257,33 @@ public:
             [this] { if (host_.set_playing) { host_.set_playing(false); } });
         globals_["stop"] = py::cpp_function(
             [this] { if (host_.request_stop) { host_.request_stop(); } });
+        // raycast(origin, direction, max_distance) -> dict. origin/direction are 3-element
+        // sequences; result is {hit, entity, distance, point:{x,y,z}, normal:{x,y,z}}.
+        globals_["raycast"] = py::cpp_function(
+            [this](py::sequence origin, py::sequence direction, float max_distance) -> py::dict
+            {
+                using mosaic::foundation::math::Vec3;
+                mosaic::engine::script::ScriptRayHit h;
+                if (host_.raycast)
+                {
+                    const Vec3 o{origin[0].cast<float>(), origin[1].cast<float>(),
+                                 origin[2].cast<float>()};
+                    const Vec3 d{direction[0].cast<float>(), direction[1].cast<float>(),
+                                 direction[2].cast<float>()};
+                    h = host_.raycast(o, d, max_distance);
+                }
+                py::dict point;
+                point["x"] = h.point.x; point["y"] = h.point.y; point["z"] = h.point.z;
+                py::dict normal;
+                normal["x"] = h.normal.x; normal["y"] = h.normal.y; normal["z"] = h.normal.z;
+                py::dict out;
+                out["hit"] = h.hit;
+                out["entity"] = h.entity;
+                out["distance"] = h.distance;
+                out["point"] = point;
+                out["normal"] = normal;
+                return out;
+            });
     }
 
     void bind_context(mosaic::engine::script::ScriptContext& context) override
