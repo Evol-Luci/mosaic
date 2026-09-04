@@ -17,6 +17,7 @@
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_engine.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
@@ -33,8 +34,9 @@ class ScriptSystem : public ecs::System
 public:
     using EngineFactory = std::function<std::unique_ptr<ScriptEngine>()>;
 
-    ScriptSystem(const reflection::ComponentReflection& types, EngineFactory factory)
-        : types_(types), factory_(std::move(factory))
+    ScriptSystem(const reflection::ComponentReflection& types, EngineFactory factory,
+                 ScriptHost host = {})
+        : types_(types), factory_(std::move(factory)), host_(std::move(host))
     {
     }
 
@@ -81,6 +83,7 @@ public:
                     entry.engine = factory_();
                     entry.source = desired;
                     entry.engine->bind_world(world, types_);
+                    entry.engine->bind_host(host_);
                     entry.engine->set_global(
                         "entity",
                         mosaic::foundation::serialization::Value(
@@ -110,6 +113,7 @@ private:
 
     const reflection::ComponentReflection& types_;
     EngineFactory factory_;
+    ScriptHost host_;
     std::unordered_map<std::uint64_t, Entry> engines_;
 };
 } // namespace mosaic::engine::script

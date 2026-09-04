@@ -4,6 +4,7 @@
 
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/script/script_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
@@ -120,4 +121,29 @@ TEST_CASE("a ScriptComponent with a syntax error is non-fatal", "[script]")
     world.tick(0.25f); // compile fails; on_update undefined -> captured, non-fatal
     world.tick(0.25f); // must not crash on subsequent ticks either
     REQUIRE(world.get_component<Transform>(e)->position.x == 0.0f); // unchanged
+}
+
+TEST_CASE("ScriptSystem binds the host so a script can call stop()", "[script]")
+{
+    using mosaic::engine::script::ScriptHost;
+    mosaic::foundation::reflection::TypeRegistry reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    bool stopped = false;
+    ScriptHost host;
+    host.request_stop = [&] { stopped = true; };
+
+    mosaic::engine::World world;
+    world.add_system<mosaic::engine::script::ScriptSystem>(
+        types, [] { return mosaic::script::python::create_python_script_engine(); }, host);
+
+    const auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    world.add_component<mosaic::engine::script::ScriptComponent>(
+        e, mosaic::engine::script::ScriptComponent{"def on_update(dt):\n    stop()\n"});
+
+    world.tick(0.016f);
+    REQUIRE(stopped);
 }
