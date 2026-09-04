@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <utility>
 
@@ -47,6 +48,26 @@ struct RuntimeScene
     std::shared_ptr<mosaic::engine::render::RenderSystem> render_system;
 };
 
+// A neutral raycast callback backed by the world's PhysicsSystem (looked up lazily at call
+// time, so system-add order doesn't matter). Injected into the ScriptHost by setup_runtime so
+// scripts get raycast() while the script backend stays physics-agnostic. Capturing &world is
+// safe: the world owns the systems that own the ScriptHost copies.
+inline std::function<mosaic::engine::script::ScriptRayHit(
+    mosaic::foundation::math::Vec3, mosaic::foundation::math::Vec3, float)>
+make_physics_raycast(mosaic::engine::World& world)
+{
+    return [&world](mosaic::foundation::math::Vec3 origin,
+                    mosaic::foundation::math::Vec3 direction,
+                    float max_distance) -> mosaic::engine::script::ScriptRayHit
+    {
+        auto* phys = world.get_system<mosaic::engine::physics::PhysicsSystem>();
+        if (phys == nullptr) { return {}; }
+        const auto h = phys->raycast(origin, direction, max_distance);
+        return mosaic::engine::script::ScriptRayHit{
+            h.hit, h.entity.value(), h.point, h.normal, h.distance};
+    };
+}
+
 // Non-serializable runtime scaffolding for ANY scene: register built-in meshes + the demo
 // textures, add the PhysicsSystem (Box3D), subscribe contact logging, and create the
 // RenderSystem. Needs no device (GPU uploads happen at render time). Always called after the
@@ -61,6 +82,9 @@ inline RuntimeScene setup_runtime(
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
+
+    // Give scripts a raycast() backed by this world's physics (unless the caller already wired one).
+    if (!host.raycast) { host.raycast = make_physics_raycast(world); }
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
