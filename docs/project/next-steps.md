@@ -182,10 +182,8 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   maintains transient per-emitter particle pools keyed by entity and pruned on destroy, exposes a
   `particles_for(EntityID)` query seam, and spawns at the entity's `Transform` origin; wired into
   `setup_runtime`; headless & bit-identical deterministic; design:
-  [spec](../superpowers/specs/2026-09-06-particles-design.md)). Particles follow-ups: rendering
-  (instanced billboards/points — the first `particles_for` consumer), color/size-over-life curves,
-  sub-frame spawn interpolation, triggered/re-armed bursts, script-driven emission, and a
-  `setup_runtime` demo emitter. **Remaining Phase-4 subsystems: audio, VFX, UI, networking.**
+  [spec](../superpowers/specs/2026-09-06-particles-design.md)). **Particle rendering — DONE** (instanced camera-facing billboards via the neutral `draw_particles` seam, alpha-fade over life, per-emitter color/size, a Vulkan alpha-blended pipeline for swapchain + offscreen viewport, and a demo fountain in the default scene; design/plan: [spec](../superpowers/specs/2026-09-06-particle-rendering-design.md) · [plan](../superpowers/plans/2026-09-06-particle-rendering.md)). Particles follow-ups: color/size-over-life curves,
+  sub-frame spawn interpolation, triggered/re-armed bursts, script-driven emission. **Remaining Phase-4 subsystems: audio, VFX, UI, networking.**
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +

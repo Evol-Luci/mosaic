@@ -8,6 +8,7 @@
 
 #include "engine/animation/animation_system.hpp"
 #include "engine/particles/particle_system.hpp"
+#include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
@@ -264,6 +265,22 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Material>(orbiter, render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
+
+    // A fountain of orange particles rising and falling under gravity. No MeshRenderer:
+    // the emitter itself is invisible; only its particles draw (RenderSystem particle pass).
+    const auto fountain = world.create_entity();
+    world.add_component<transform::Transform>(fountain,
+        transform::Transform{Vec3{-3, 0.5f, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    mosaic::engine::particles::ParticleEmitter emitter;
+    emitter.emitting         = true;
+    emitter.rate             = 60.0f;
+    emitter.lifetime         = 2.0f;
+    emitter.initial_velocity = Vec3{0.0f, 4.0f, 0.0f};
+    emitter.spread           = 1.0f;
+    emitter.acceleration     = Vec3{0.0f, -9.81f, 0.0f};
+    emitter.color            = Vec3{1.0f, 0.5f, 0.1f};
+    emitter.size             = 0.15f;
+    world.add_component<mosaic::engine::particles::ParticleEmitter>(fountain, emitter);
 }
 
 } // namespace mosaic::app
