@@ -10,6 +10,8 @@
 #include "studio/inspector.hpp"
 #include "studio/pick.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_debugger.hpp"
+#include "foundation/serialization/json_backend.hpp"
 
 namespace mosaic::studio
 {
@@ -280,6 +282,56 @@ void StudioApp::draw_script_editor(
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.4f, 0.4f, 1.0f));
         ImGui::TextWrapped("%s", script_apply_result_.message.c_str());
         ImGui::PopStyleColor();
+    }
+
+    // --- Debugger (tracepoint inspection) ---------------------------------------------------
+    ImGui::Separator();
+    ImGui::TextUnformatted("Debugger");
+    ImGui::SetNextItemWidth(80.0f);
+    ImGui::InputInt("line", &script_bp_line_);
+    if (script_bp_line_ < 1) { script_bp_line_ = 1; }
+    ImGui::SameLine();
+    if (ImGui::Button("Add BP")) { script_debugger_.set_breakpoint(script_bp_line_); }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear BP")) { script_debugger_.clear_breakpoint(script_bp_line_); }
+    ImGui::SameLine();
+    if (ImGui::Button("Clear All")) { script_debugger_.clear_breakpoints(); }
+
+    {
+        std::string bps;
+        for (int line : script_debugger_.breakpoints())
+        {
+            if (!bps.empty()) { bps += ", "; }
+            bps += std::to_string(line);
+        }
+        ImGui::TextDisabled("breakpoints: %s", bps.empty() ? "(none)" : bps.c_str());
+    }
+
+    if (ImGui::Button("Debug run"))
+    {
+        script_debug_result_ = script_editor_.debug(script_edit_buf_, world, reflection, e,
+                                                     script_debugger_);
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(runs top-level + on_update once)");
+    if (script_debug_result_.kind == ScriptApplyResult::Kind::Error)
+    {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.4f, 0.4f, 1.0f));
+        ImGui::TextWrapped("%s", script_debug_result_.message.c_str());
+        ImGui::PopStyleColor();
+    }
+    for (const mosaic::engine::script::BreakpointHit& hit : script_debugger_.hits())
+    {
+        if (ImGui::TreeNode(reinterpret_cast<const void*>(&hit), "line %d — %zu locals", hit.line,
+                            hit.locals.size()))
+        {
+            for (const auto& [name, value] : hit.locals)
+            {
+                ImGui::BulletText("%s = %s", name.c_str(),
+                                  mosaic::foundation::serialization::to_json(value).c_str());
+            }
+            ImGui::TreePop();
+        }
     }
 }
 
