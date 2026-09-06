@@ -155,6 +155,15 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   *(Watch: the threaded `ScriptWorker` unit test flaked once under heavy parallel `ctest` load —
   passed on rerun; likely contention, revisit if it recurs.)*
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.
+  **Animation — first slice done** (property-path keyframes: a neutral `AnimationClip`/`Track`/`Keyframe`
+  model + `sample()` (linear/step, clamped); an `AnimationPlayer` component (reflected, serializes with
+  the scene); a generic `AnimationSystem` that writes any reflected scalar by property path
+  (`"Transform.position.x"`) via `component_value`/`set_value`; wired into `setup_runtime` after scripts,
+  before physics; design: [spec](../superpowers/specs/2026-09-05-animation-system-design.md)).
+  Animation follow-ups: clip-as-asset (`AssetID` import), cubic/bezier easing, per-component track
+  grouping (perf), skeletal/blend trees, animation events, and the **sequencer** (a timeline driving
+  clips — the natural next slice). Remaining Phase-4 subsystems: audio, particles, VFX, UI, navigation,
+  networking, sequencer.
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +
