@@ -161,9 +161,13 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   (`"Transform.position.x"`) via `component_value`/`set_value`; wired into `setup_runtime` after scripts,
   before physics; design: [spec](../superpowers/specs/2026-09-05-animation-system-design.md)).
   Animation follow-ups: clip-as-asset (`AssetID` import), cubic/bezier easing, per-component track
-  grouping (perf), skeletal/blend trees, animation events, and the **sequencer** (a timeline driving
-  clips — the natural next slice). Remaining Phase-4 subsystems: audio, particles, VFX, UI, navigation,
-  networking, sequencer.
+  grouping (perf), skeletal/blend trees, animation events. **Sequencer — done** (a director timeline:
+  a `Sequence` component owns clip-tracks bound to target entities + start offsets, and event markers;
+  `SequenceSystem` advances a master clock, samples active clips onto their targets via the shared
+  `apply_clip_at`, and fires markers as `emit(name)` script events → scripts react through `on_event`;
+  design: [spec](../superpowers/specs/2026-09-05-sequencer-design.md)). Sequencer follow-ups: auto-stop/
+  clamp a non-looping sequence, marker payloads, clip blending, a timeline editor panel. **Remaining
+  Phase-4 subsystems: audio, particles, VFX, UI, navigation, networking.**
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +

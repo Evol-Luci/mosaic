@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "engine/animation/animation_system.hpp"
+#include "engine/sequencer/sequence_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -96,6 +97,9 @@ inline RuntimeScene setup_runtime(
     // Animation runs after scripts, before physics: keyframed properties feed transforms; a
     // physics body's write-back still wins on a shared Transform.
     world.add_system<mosaic::engine::animation::AnimationSystem>(reflection);
+
+    // The sequencer conducts clips + event markers on a master timeline (after animation).
+    world.add_system<mosaic::engine::sequencer::SequenceSystem>(reflection);
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
