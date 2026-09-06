@@ -106,6 +106,8 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     e.acceleration     = Vec3{0.0f, -3.0f, 0.0f};
     e.seed             = 12345ULL;
     e.max_particles    = 64;
+    e.color            = Vec3{0.2f, 0.4f, 0.6f};
+    e.size             = 0.35f;
 
     const auto value = mosaic::foundation::serialization::to_value(e);
     ParticleEmitter back;
@@ -120,4 +122,8 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     REQUIRE(back.acceleration.y == Approx(-3.0f));
     REQUIRE(back.seed == 12345ULL);
     REQUIRE(back.max_particles == 64);
+    REQUIRE(back.color.x == Approx(0.2f));
+    REQUIRE(back.color.y == Approx(0.4f));
+    REQUIRE(back.color.z == Approx(0.6f));
+    REQUIRE(back.size == Approx(0.35f));
 }
