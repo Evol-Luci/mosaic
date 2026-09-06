@@ -52,6 +52,27 @@ inline bool set_scalar_at(mosaic::foundation::serialization::Value& root,
     return true;
 }
 
+// Sample every track of `clip` at `time` and write the result into entity `e`'s components via
+// reflection (any scalar reachable by a property path). Shared by AnimationSystem and the sequencer.
+inline void apply_clip_at(const reflection::ComponentReflection& types, World& world,
+                          mosaic::foundation::EntityID e, const AnimationClip& clip, float time)
+{
+    for (const Track& track : clip.tracks)
+    {
+        const std::string::size_type dot = track.target.find('.');
+        if (dot == std::string::npos) { continue; } // needs Component.<path>
+        const std::string component = track.target.substr(0, dot);
+        const std::vector<std::string> path = split_path(track.target.substr(dot + 1), '.');
+
+        auto value = types.component_value(world, e, component);
+        if (!value) { continue; }
+        if (set_scalar_at(*value, path, sample(track, time)))
+        {
+            types.set_value(world, e, component, *value);
+        }
+    }
+}
+
 // Advances AnimationPlayers and writes sampled track values into their target components via
 // reflection. Generic: any reflected scalar reachable by a property path can be animated.
 class AnimationSystem : public ecs::System
@@ -71,22 +92,7 @@ public:
                     player.time = std::fmod(player.time, player.clip.duration);
                     if (player.time < 0.0f) { player.time += player.clip.duration; }
                 }
-
-                for (const Track& track : player.clip.tracks)
-                {
-                    const std::string::size_type dot = track.target.find('.');
-                    if (dot == std::string::npos) { continue; } // needs Component.<path>
-                    const std::string component = track.target.substr(0, dot);
-                    const std::vector<std::string> path =
-                        split_path(track.target.substr(dot + 1), '.');
-
-                    auto value = types_.component_value(world, e, component);
-                    if (!value) { continue; }
-                    if (set_scalar_at(*value, path, sample(track, player.time)))
-                    {
-                        types_.set_value(world, e, component, *value);
-                    }
-                }
+                apply_clip_at(types_, world, e, player.clip, player.time);
             });
     }
 

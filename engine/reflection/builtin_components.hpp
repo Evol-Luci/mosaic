@@ -4,6 +4,7 @@
 
 #include "engine/animation/animation_player.hpp"
 #include "engine/physics/physics_components.hpp"
+#include "engine/sequencer/sequence.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
@@ -36,6 +37,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::physics::CapsuleCollider>(registry, "CapsuleCollider");
     types.register_component<mosaic::engine::script::ScriptComponent>(registry, "ScriptComponent");
     types.register_component<mosaic::engine::animation::AnimationPlayer>(registry, "AnimationPlayer");
+    types.register_component<mosaic::engine::sequencer::Sequence>(registry, "Sequence");
 }
 
 } // namespace mosaic::engine::reflection
