@@ -280,6 +280,10 @@ inline void build_default_scene(mosaic::engine::World& world)
     emitter.acceleration     = Vec3{0.0f, -9.81f, 0.0f};
     emitter.color            = Vec3{1.0f, 0.5f, 0.1f};
     emitter.size             = 0.15f;
+    emitter.end_color        = Vec3{0.7f, 0.1f, 0.4f};   // orange -> magenta over life
+    emitter.end_size         = 0.03f;                    // shrink as it fades
+    emitter.alpha            = 1.0f;                      // opaque at birth
+    emitter.end_alpha        = 0.0f;                      // fade fully out at death
     world.add_component<mosaic::engine::particles::ParticleEmitter>(fountain, emitter);
 }
 
