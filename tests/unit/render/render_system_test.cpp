@@ -360,6 +360,8 @@ TEST_CASE("RenderSystem emits one batched draw_particles with per-particle insta
     em.acceleration = Vec3{0, 0, 0};
     em.color = Vec3{0.9f, 0.5f, 0.1f};
     em.size = 0.25f;
+    em.end_color = em.color; // constant color/size for this exact-value check
+    em.end_size = em.size;
     world.add_component<ParticleEmitter>(e, em);
 
     world.tick(0.1f); // spawns ~10 particles at (1,2,3)
@@ -512,4 +514,42 @@ TEST_CASE("RenderSystem derives an orthonormal camera basis for billboards", "[r
                       params.camera_right.y * params.camera_up.y +
                       params.camera_right.z * params.camera_up.z;
     REQUIRE(dot == Approx(0.0f).margin(1e-4));
+}
+
+TEST_CASE("RenderSystem interpolates particle color/size/alpha over life", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+    world.add_system<ParticleSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    ParticleEmitter em;
+    em.emitting = true;
+    em.rate = 10.0f;                 // rate*dt = 1.0 -> exactly one spawn this tick
+    em.lifetime = 1.0f;
+    em.initial_velocity = Vec3{0, 0, 0};
+    em.acceleration = Vec3{0, 0, 0};
+    em.color = Vec3{0.0f, 0.0f, 0.0f};
+    em.end_color = Vec3{1.0f, 1.0f, 1.0f};
+    em.size = 0.0f;
+    em.end_size = 1.0f;
+    em.alpha = 1.0f;
+    em.end_alpha = 0.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f); // one particle, aged 0.1 -> t = 0.1
+    rs.render(world, device, registry);
+
+    REQUIRE(device.particle_draws.size() == 1);
+    const auto& call = device.particle_draws[0];
+    REQUIRE(call.instances.size() == 1);
+    REQUIRE(call.instances[0].color.x == Approx(0.1f));
+    REQUIRE(call.instances[0].size == Approx(0.1f));
+    REQUIRE(call.instances[0].alpha == Approx(0.9f));
 }

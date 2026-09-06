@@ -108,6 +108,10 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     e.max_particles    = 64;
     e.color            = Vec3{0.2f, 0.4f, 0.6f};
     e.size             = 0.35f;
+    e.end_color        = Vec3{0.9f, 0.1f, 0.2f};
+    e.end_size         = 0.05f;
+    e.alpha            = 0.8f;
+    e.end_alpha        = 0.25f;
 
     const auto value = mosaic::foundation::serialization::to_value(e);
     ParticleEmitter back;
@@ -126,4 +130,78 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     REQUIRE(back.color.y == Approx(0.4f));
     REQUIRE(back.color.z == Approx(0.6f));
     REQUIRE(back.size == Approx(0.35f));
+    REQUIRE(back.end_color.x == Approx(0.9f));
+    REQUIRE(back.end_color.y == Approx(0.1f));
+    REQUIRE(back.end_color.z == Approx(0.2f));
+    REQUIRE(back.end_size == Approx(0.05f));
+    REQUIRE(back.alpha == Approx(0.8f));
+    REQUIRE(back.end_alpha == Approx(0.25f));
+}
+
+using mosaic::engine::particles::alpha_at;
+using mosaic::engine::particles::color_at;
+using mosaic::engine::particles::size_at;
+
+TEST_CASE("over-life helpers return start at t=0 and end at t=1", "[particles]")
+{
+    ParticleEmitter e;
+    e.color = Vec3{0.2f, 0.4f, 0.6f};
+    e.end_color = Vec3{0.8f, 0.1f, 0.0f};
+    e.size = 0.25f;
+    e.end_size = 1.0f;
+    e.alpha = 1.0f;
+    e.end_alpha = 0.0f;
+
+    REQUIRE(color_at(e, 0.0f).x == Approx(0.2f));
+    REQUIRE(color_at(e, 1.0f).x == Approx(0.8f));
+    REQUIRE(size_at(e, 0.0f) == Approx(0.25f));
+    REQUIRE(size_at(e, 1.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 0.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 1.0f) == Approx(0.0f));
+}
+
+TEST_CASE("over-life helpers interpolate linearly at the midpoint", "[particles]")
+{
+    ParticleEmitter e;
+    e.color = Vec3{0.0f, 0.0f, 0.0f};
+    e.end_color = Vec3{1.0f, 1.0f, 1.0f};
+    e.size = 0.0f;
+    e.end_size = 2.0f;
+    e.alpha = 1.0f;
+    e.end_alpha = 0.0f;
+
+    REQUIRE(color_at(e, 0.5f).y == Approx(0.5f));
+    REQUIRE(size_at(e, 0.5f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 0.5f) == Approx(0.5f));
+}
+
+TEST_CASE("over-life helpers clamp t to [0,1] (no extrapolation)", "[particles]")
+{
+    ParticleEmitter e;
+    e.color = Vec3{0.2f, 0.2f, 0.2f};
+    e.end_color = Vec3{0.8f, 0.8f, 0.8f};
+    e.size = 0.25f;
+    e.end_size = 1.0f;
+    e.alpha = 1.0f;
+    e.end_alpha = 0.0f;
+
+    REQUIRE(color_at(e, -1.0f).x == Approx(0.2f)); // clamps to start
+    REQUIRE(color_at(e, 2.0f).x == Approx(0.8f));  // clamps to end
+    REQUIRE(size_at(e, -1.0f) == Approx(0.25f));
+    REQUIRE(size_at(e, 2.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 5.0f) == Approx(0.0f));
+}
+
+TEST_CASE("default emitter reproduces the previous constant/fade behavior", "[particles]")
+{
+    ParticleEmitter e; // all defaults
+    // Constant color and size across life:
+    REQUIRE(color_at(e, 0.0f).x == Approx(1.0f));
+    REQUIRE(color_at(e, 1.0f).x == Approx(1.0f));
+    REQUIRE(size_at(e, 0.0f) == Approx(0.1f));
+    REQUIRE(size_at(e, 1.0f) == Approx(0.1f));
+    // Alpha fades 1 -> 0 linearly (the old hardcoded renderer fade):
+    REQUIRE(alpha_at(e, 0.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 0.25f) == Approx(0.75f));
+    REQUIRE(alpha_at(e, 1.0f) == Approx(0.0f));
 }

@@ -113,10 +113,12 @@ public:
                     }
                     for (const auto& p : *pool)
                     {
-                        const float alpha = (p.lifetime > 0.0f)
-                            ? std::clamp(1.0f - p.age / p.lifetime, 0.0f, 1.0f)
-                            : 1.0f;
-                        instances.push_back(ParticleInstance{p.position, em.size, em.color, alpha});
+                        const float t = (p.lifetime > 0.0f) ? p.age / p.lifetime : 0.0f;
+                        instances.push_back(ParticleInstance{
+                            p.position,
+                            mosaic::engine::particles::size_at(em, t),
+                            mosaic::engine::particles::color_at(em, t),
+                            mosaic::engine::particles::alpha_at(em, t)});
                     }
                 });
 
