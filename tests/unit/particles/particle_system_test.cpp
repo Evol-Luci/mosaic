@@ -162,3 +162,14 @@ TEST_CASE("ParticleSystem is bit-identical across two runs of the same schedule"
         REQUIRE(a[i].age == b[i].age);
     }
 }
+
+#include "engine/reflection/builtin_components.hpp"
+#include "foundation/reflection/type_registry.hpp"
+
+TEST_CASE("ParticleEmitter is a registered built-in component", "[particles]")
+{
+    mosaic::foundation::reflection::TypeRegistry     registry;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(registry, types);
+    REQUIRE(types.has("ParticleEmitter"));
+}

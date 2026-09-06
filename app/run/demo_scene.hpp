@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "engine/animation/animation_system.hpp"
+#include "engine/particles/particle_system.hpp"
 #include "engine/sequencer/sequence_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
@@ -100,6 +101,9 @@ inline RuntimeScene setup_runtime(
 
     // The sequencer conducts clips + event markers on a master timeline (after animation).
     world.add_system<mosaic::engine::sequencer::SequenceSystem>(reflection);
+
+    // Particles: spawn/age transient particles per emitter (reads Transform, writes nothing back).
+    world.add_system<mosaic::engine::particles::ParticleSystem>();
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
