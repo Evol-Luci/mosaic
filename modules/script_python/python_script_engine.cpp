@@ -11,6 +11,7 @@
 
 #include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
+#include "engine/script/script_debugger.hpp"
 #include "engine/script/script_event.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/script/script_context.hpp"
@@ -87,25 +88,30 @@ public:
             sys.attr("stdout") = buffer;
             sys.attr("stderr") = buffer;
 
-            // RAII guard: restore sys.stdout/stderr on every exit path, including
-            // any unexpected C++ exception that bypasses the inner try/catch.
+            // Install the non-blocking debugger trace hook while a debugger is attached.
+            const bool traced = install_trace(sys);
+
+            // RAII guard: restore sys.stdout/stderr (and uninstall the trace hook) on every exit
+            // path, including any unexpected C++ exception that bypasses the inner try/catch.
             struct StreamGuard
             {
                 py::module_& sys_;
                 py::object& old_out_;
                 py::object& old_err_;
+                bool        traced_;
                 ~StreamGuard() noexcept
                 {
                     try
                     {
                         sys_.attr("stdout") = old_out_;
                         sys_.attr("stderr") = old_err_;
+                        if (traced_) { sys_.attr("settrace")(py::none()); }
                     }
                     catch (...)
                     {
                     }
                 }
-            } guard{sys, old_out, old_err};
+            } guard{sys, old_out, old_err, traced};
 
             try
             {
@@ -313,13 +319,62 @@ public:
             });
     }
 
+    void bind_debugger(mosaic::engine::script::ScriptDebugger* debugger) override
+    {
+        debugger_ = debugger;
+    }
+
 private:
+    // Install a non-blocking sys.settrace hook that records breakpoint hits into debugger_.
+    // Returns true if a hook was installed (i.e. a debugger is attached); the caller uninstalls
+    // it (settrace(None)) on exit. The trace fn returns itself so it traces every frame's lines.
+    bool install_trace(py::module_& sys)
+    {
+        if (debugger_ == nullptr) { return false; }
+        if (!trace_fn_)
+        {
+            trace_fn_ = py::cpp_function(
+                [this](py::object frame, py::object event, py::object /*arg*/) -> py::object
+                {
+                    if (debugger_ != nullptr && event.cast<std::string>() == "line")
+                    {
+                        const int line = frame.attr("f_lineno").cast<int>();
+                        if (debugger_->has_breakpoint(line))
+                        {
+                            mosaic::engine::script::BreakpointHit hit;
+                            hit.line = line;
+                            py::dict locals = frame.attr("f_locals").cast<py::dict>();
+                            for (const auto& item : locals)
+                            {
+                                std::string key = py::str(item.first).cast<std::string>();
+                                try
+                                {
+                                    hit.locals.emplace_back(key, py_to_value(item.second));
+                                }
+                                catch (...)
+                                {
+                                    hit.locals.emplace_back(
+                                        key, mosaic::foundation::serialization::Value{});
+                                }
+                            }
+                            debugger_->record_hit(std::move(hit));
+                        }
+                    }
+                    return trace_fn_;
+                });
+        }
+        sys.attr("settrace")(trace_fn_);
+        return true;
+    }
+
     py::dict globals_; // this engine's isolated namespace (interpreter outlives it)
     mosaic::engine::World* world_ = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;
     mosaic::engine::script::ScriptHost host_;
     mosaic::engine::script::ScriptContext* context_ = nullptr;
+    mosaic::engine::script::ScriptDebugger* debugger_ = nullptr;
+    py::object trace_fn_;
 };
 } // namespace
 

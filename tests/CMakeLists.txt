@@ -117,6 +117,8 @@ add_executable(mosaic_unit_tests
   unit/script/script_raycast_test.cpp
   unit/script/script_events_test.cpp
   unit/script/script_profiler_test.cpp
+  unit/script/script_debugger_test.cpp
+  unit/script/script_debug_engine_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

@@ -84,6 +84,9 @@ private:
     char                                        script_edit_buf_[8192] = {};
     std::optional<mosaic::foundation::EntityID> script_edit_entity_;
     ScriptApplyResult                           script_apply_result_;
+    mosaic::engine::script::ScriptDebugger      script_debugger_;      // breakpoints persist across frames
+    int                                         script_bp_line_ = 1;   // breakpoint line input
+    ScriptApplyResult                           script_debug_result_;  // outcome of the last Debug run
 };
 
 } // namespace mosaic::studio

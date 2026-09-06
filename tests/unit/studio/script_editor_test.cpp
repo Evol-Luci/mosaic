@@ -4,6 +4,7 @@
 
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_debugger.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/script_python/python_script_engine.hpp"
@@ -77,4 +78,27 @@ TEST_CASE("script editor with no factory reports unavailable", "[studio]")
     const ScriptApplyResult r = editor.apply("def on_update(dt):\n    pass\n", world, types, e);
     REQUIRE(r.kind == ScriptApplyResult::Kind::Error);
     REQUIRE(r.message.find("not available") != std::string::npos);
+}
+
+TEST_CASE("script editor debug() records a breakpoint hit inside on_update", "[studio]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    auto e = world.create_entity();
+    world.add_component<ScriptComponent>(e, ScriptComponent{"def on_update(dt):\n    pass\n"});
+
+    ScriptEditorModel editor(py_factory());
+    mosaic::engine::script::ScriptDebugger dbg;
+    dbg.set_breakpoint(2); // 'q = 7' inside on_update
+
+    const std::string src =
+        "def on_update(dt):\n" // line 1
+        "    q = 7\n"          // line 2  <-- breakpoint
+        "    r = q + 1\n";     // line 3
+    const ScriptApplyResult res = editor.debug(src, world, types, e, dbg);
+    REQUIRE(res.kind == ScriptApplyResult::Kind::Ok);
+
+    bool found = false;
+    for (const auto& h : dbg.hits()) { if (h.line == 2) { found = true; } }
+    REQUIRE(found); // on_update was exercised under the debugger and the breakpoint fired
 }

@@ -4,6 +4,7 @@
 
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_context.hpp"
+#include "engine/script/script_debugger.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
@@ -51,5 +52,9 @@ public:
     // Route get_component/set_component through a sandbox context (worker mode).
     // Optional; default no-op. Entity-lifecycle globals are NOT installed here.
     virtual void bind_context(ScriptContext& context) { (void)context; }
+
+    // Attach a tracepoint debugger: while bound, run_string installs a non-blocking
+    // sys.settrace hook that records breakpoint hits. nullptr detaches. Default no-op.
+    virtual void bind_debugger(ScriptDebugger* debugger) { (void)debugger; }
 };
 } // namespace mosaic::engine::script

@@ -145,9 +145,13 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   to collisions/landings). **Broader-API bucket complete.** **Profiler — done** (`ScriptSystem` times
   each entity's `on_update`, exposes `profile()`; `mosaic run --script-profile` dumps the timing table
   sorted by cost; design: [spec](../superpowers/specs/2026-09-04-script-profiler-design.md)).
-  Remaining Phase-3 items: richer math/input/time script helpers, events + profiling in threaded mode,
-  per-script-source profile aggregation; and a Python **debugger** (breakpoints/stepping via
-  `sys.settrace`, wired to the Script Editor).
+  **Debugger — done** (tracepoint inspection: a neutral `ScriptDebugger` holds breakpoints; the Python
+  backend installs a non-blocking `sys.settrace` hook that records hits + local-variable snapshots; the
+  Script Editor's `debug()` runs source + `on_update` once and shows hits/locals — no pause, so no
+  UI-thread deadlock; design: [spec](../superpowers/specs/2026-09-05-script-debugger-design.md)).
+  **✅ Phase 3 — Programming is complete.** Deferred Phase-3 niceties (own slices later): true
+  **pause/step** debugging on the worker thread (the foundation is in place), richer math/input/time
+  script helpers, events + profiling in threaded mode, and per-script-source profile aggregation.
   *(Watch: the threaded `ScriptWorker` unit test flaked once under heavy parallel `ctest` load —
   passed on rerun; likely contention, revisit if it recurs.)*
 - **Phase 4 — Production:** animation, audio, particles, VFX, UI, navigation, networking, sequencer.

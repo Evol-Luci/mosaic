@@ -8,6 +8,7 @@
 
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_debugger.hpp"
 #include "engine/script/script_engine.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -62,6 +63,39 @@ public:
             return {ScriptApplyResult::Kind::Error, "selected entity has no ScriptComponent"};
         }
         sc->source = source;
+        return {ScriptApplyResult::Kind::Ok, r.output};
+    }
+
+    // Run `source` once with the debugger attached: compile it (defines on_update), then call
+    // on_update(0) so breakpoints inside on_update fire. Fills `debugger.hits()`. Does NOT write
+    // the component (this is a debug run, not an apply). Returns the compile result. Never throws.
+    ScriptApplyResult debug(const std::string& source, mosaic::engine::World& world,
+                            const mosaic::engine::reflection::ComponentReflection& reflection,
+                            mosaic::foundation::EntityID e,
+                            mosaic::engine::script::ScriptDebugger& debugger)
+    {
+        if (!factory_)
+        {
+            return {ScriptApplyResult::Kind::Error, "scripting is not available in this build"};
+        }
+        std::unique_ptr<mosaic::engine::script::ScriptEngine> engine = factory_();
+        engine->bind_world(world, reflection);
+        engine->set_global(
+            "entity",
+            mosaic::foundation::serialization::Value(static_cast<std::uint64_t>(e.value())));
+        engine->bind_debugger(&debugger);
+        debugger.clear_hits();
+
+        const mosaic::engine::script::ScriptResult r = engine->run_string(source);
+        if (!r.ok)
+        {
+            engine->bind_debugger(nullptr);
+            return {ScriptApplyResult::Kind::Error, r.error};
+        }
+        // Exercise on_update once so breakpoints inside it fire (guarded: no-op if undefined).
+        engine->set_global("dt", mosaic::foundation::serialization::Value(0.0));
+        engine->run_string("if 'on_update' in globals(): on_update(dt)\n");
+        engine->bind_debugger(nullptr);
         return {ScriptApplyResult::Kind::Ok, r.output};
     }
 
