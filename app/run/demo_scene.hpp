@@ -6,6 +6,7 @@
 #include <memory>
 #include <utility>
 
+#include "engine/animation/animation_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -91,6 +92,10 @@ inline RuntimeScene setup_runtime(
     // by physics, and a physics object's write-back wins over any script that also touches it.
     world.add_system<mosaic::engine::script::ScriptSystem>(
         reflection, std::move(script_factory), std::move(host), &registry, script_thread);
+
+    // Animation runs after scripts, before physics: keyframed properties feed transforms; a
+    // physics body's write-back still wins on a shared Transform.
+    world.add_system<mosaic::engine::animation::AnimationSystem>(reflection);
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));

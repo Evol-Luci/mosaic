@@ -2,6 +2,7 @@
 
 #include <string>
 
+#include "engine/animation/animation_player.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
@@ -34,6 +35,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::physics::SphereCollider>(registry, "SphereCollider");
     types.register_component<mosaic::engine::physics::CapsuleCollider>(registry, "CapsuleCollider");
     types.register_component<mosaic::engine::script::ScriptComponent>(registry, "ScriptComponent");
+    types.register_component<mosaic::engine::animation::AnimationPlayer>(registry, "AnimationPlayer");
 }
 
 } // namespace mosaic::engine::reflection
