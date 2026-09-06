@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-09-02 (v0.1 foundation + rendering + physics + Project & Tools Workflow
+**Last updated:** 2026-09-06 (**particles** Phase-4 subsystem done; v0.1 foundation + rendering + physics + Project & Tools Workflow
 (T1–T5) complete; **Scripting (Python) pillar COMPLETE — S1 (Python embedding), S2 (reflection→Python
 property bindings), S3 (world/commands), S4 (ScriptComponent), AND S5 (Studio script console) ALL COMPLETE.
 The v0.1 vertical slice is COMPLETE.**
@@ -173,8 +173,19 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   so A\* only recomputes at cell centers (avoids re-rounding onto a blocked cell mid-move); grid injected
   into the system; design: [spec](../superpowers/specs/2026-09-05-navigation-design.md)). Navigation
   follow-ups: script `find_path()` seam, baking a grid from scene colliders, navmesh / 3D, dynamic
-  obstacles, path smoothing, and `setup_runtime` wiring (a game supplies the grid). **Remaining
-  Phase-4 subsystems: audio, particles, VFX, UI, networking.**
+  obstacles, path smoothing, and `setup_runtime` wiring (a game supplies the grid). **Particles —
+  done** (a neutral `Particle`/`Rng` (seeded splitmix64)/`integrate` model; a reflected
+  `ParticleEmitter` component (emitting/rate/burst/lifetime/initial_velocity/spread/acceleration/
+  seed/max_particles); a generic `ParticleSystem` that fires a burst on activation and runs
+  rate-based continuous emission via a carried accumulator, seeds per-emitter deterministic velocity
+  spread, applies constant acceleration, ages out expired particles, caps pools to `max_particles`,
+  maintains transient per-emitter particle pools keyed by entity and pruned on destroy, exposes a
+  `particles_for(EntityID)` query seam, and spawns at the entity's `Transform` origin; wired into
+  `setup_runtime`; headless & bit-identical deterministic; design:
+  [spec](../superpowers/specs/2026-09-06-particles-design.md)). Particles follow-ups: rendering
+  (instanced billboards/points — the first `particles_for` consumer), color/size-over-life curves,
+  sub-frame spawn interpolation, triggered/re-armed bursts, script-driven emission, and a
+  `setup_runtime` demo emitter. **Remaining Phase-4 subsystems: audio, VFX, UI, networking.**
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +
