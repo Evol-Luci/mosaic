@@ -48,7 +48,7 @@ TEST_CASE("populate_world uses the default demo when no scene is given", "[app]"
     int transforms = 0;
     world.for_each<mosaic::engine::transform::Transform>(
         [&](World::EntityID, mosaic::engine::transform::Transform&) { ++transforms; });
-    REQUIRE(transforms == 8);                       // the default demo
+    REQUIRE(transforms == 9);                       // the default demo (+ fountain emitter)
     REQUIRE(count_worldtransforms(world) == transforms); // every Transform got a WorldTransform
 }
 

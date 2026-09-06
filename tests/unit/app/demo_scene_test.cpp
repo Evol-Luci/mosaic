@@ -27,7 +27,7 @@ TEST_CASE("build_default_scene creates the demo entities with Transforms", "[app
         [&](World::EntityID, mosaic::engine::transform::Transform&) { ++transforms; });
     // ground, box, sphere, capsule, box2, point-light, camera, orbiter carry a Transform (8);
     // the directional light has none.
-    REQUIRE(transforms == 8);
+    REQUIRE(transforms == 9); // + the fountain particle emitter
 }
 
 TEST_CASE("build_default_scene includes one scripted (ScriptComponent) demo object", "[app]")

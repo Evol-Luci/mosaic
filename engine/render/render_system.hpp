@@ -12,8 +12,11 @@
 #include "engine/render/texture_cache.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "engine/particles/particle_system.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
+#include <algorithm>
+#include <vector>
 
 namespace mosaic::engine::render
 {
@@ -86,6 +89,42 @@ public:
                             DrawParams{projection * view * wt->matrix, light_obj,
                                        light.color, base_color, point_position, point_color, point_range});
             });
+
+        // Particle pass: gather every emitter's live particles into one instanced,
+        // camera-facing billboard draw. Runs last in the pass (the device binds the
+        // particle pipeline; no mesh draw may follow in the same pass).
+        auto* particles = world.get_system<mosaic::engine::particles::ParticleSystem>();
+        if (particles != nullptr)
+        {
+            const Mat4 cam_world = Mat4::inverse_affine(view);
+            const Vec3 cam_right = mosaic::foundation::math::normalize(
+                Vec3{cam_world.m[0], cam_world.m[1], cam_world.m[2]});
+            const Vec3 cam_up = mosaic::foundation::math::normalize(
+                Vec3{cam_world.m[4], cam_world.m[5], cam_world.m[6]});
+
+            std::vector<ParticleInstance> instances;
+            world.for_each<mosaic::engine::particles::ParticleEmitter>(
+                [&](mosaic::foundation::EntityID e, mosaic::engine::particles::ParticleEmitter& em)
+                {
+                    const auto* pool = particles->particles_for(e);
+                    if (pool == nullptr)
+                    {
+                        return;
+                    }
+                    for (const auto& p : *pool)
+                    {
+                        const float alpha = (p.lifetime > 0.0f)
+                            ? std::clamp(1.0f - p.age / p.lifetime, 0.0f, 1.0f)
+                            : 1.0f;
+                        instances.push_back(ParticleInstance{p.position, em.size, em.color, alpha});
+                    }
+                });
+
+            if (!instances.empty())
+            {
+                device.draw_particles(instances, ParticleDrawParams{projection * view, cam_right, cam_up});
+            }
+        }
     }
 
 private:

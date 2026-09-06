@@ -49,6 +49,14 @@ struct PushConstants
 };
 static_assert(sizeof(PushConstants) == 144, "push constant layout must match the shader");
 
+struct ParticlePush
+{
+    float view_proj[16];
+    float camera_right[4]; // vec3 + pad
+    float camera_up[4];    // vec3 + pad
+};
+static_assert(sizeof(ParticlePush) == 96, "particle push constant layout must match the shader");
+
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
 void vk_check(VkResult r, const char* what)
@@ -158,6 +166,7 @@ public:
         create_framebuffers();
         create_descriptor_infrastructure();
         create_pipeline();
+        create_particle_pipeline();
         create_command_pool_and_buffers();
         create_sync_objects();
 
@@ -234,6 +243,15 @@ public:
             if (pipeline_layout_ != VK_NULL_HANDLE)
             {
                 vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+            }
+
+            if (vp_particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_particle_pipeline_, nullptr); }
+            if (particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, particle_pipeline_, nullptr); }
+            if (particle_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, particle_pipeline_layout_, nullptr); }
+            for (auto& ib : particle_instances_)
+            {
+                if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
+                if (ib.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, ib.mem, nullptr); }
             }
 
             for (VkSemaphore s : render_finished_)
@@ -543,6 +561,54 @@ public:
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
         vkCmdDrawIndexed(cmd_[frame_], mb.index_count, 1, 0, 0, 0);
+    }
+
+    void draw_particles(const std::vector<mosaic::engine::render::ParticleInstance>& instances,
+                        const mosaic::engine::render::ParticleDrawParams& params) override
+    {
+        if (!viewport_pass_open_)
+        {
+            ensure_swapchain_pass();
+        }
+        if (frame_skipped_ || instances.empty())
+        {
+            return;
+        }
+
+        // Grow this frame's instance buffer if needed, then upload.
+        const VkDeviceSize bytes = instances.size() * sizeof(instances[0]);
+        InstanceBuffer& ib = particle_instances_[frame_];
+        if (ib.capacity < bytes)
+        {
+            if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
+            if (ib.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, ib.mem, nullptr); }
+            create_buffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          ib.buf, ib.mem);
+            ib.capacity = bytes;
+        }
+        void* mapped = nullptr;
+        vkMapMemory(device_, ib.mem, 0, bytes, 0, &mapped);
+        std::memcpy(mapped, instances.data(), static_cast<size_t>(bytes));
+        vkUnmapMemory(device_, ib.mem);
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          viewport_pass_open_ ? vp_particle_pipeline_ : particle_pipeline_);
+
+        ParticlePush pc{};
+        std::memcpy(pc.view_proj, params.view_proj.m.data(), sizeof(pc.view_proj));
+        pc.camera_right[0] = params.camera_right.x;
+        pc.camera_right[1] = params.camera_right.y;
+        pc.camera_right[2] = params.camera_right.z;
+        pc.camera_up[0] = params.camera_up.x;
+        pc.camera_up[1] = params.camera_up.y;
+        pc.camera_up[2] = params.camera_up.z;
+        vkCmdPushConstants(cmd_[frame_], particle_pipeline_layout_,
+                           VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &ib.buf, &offset);
+        vkCmdDraw(cmd_[frame_], 6, static_cast<uint32_t>(instances.size()), 0, 0);
     }
 
     void begin_frame() override
@@ -1635,6 +1701,118 @@ private:
         vkDestroyShaderModule(device_, vert, nullptr);
     }
 
+    void create_particle_pipeline()
+    {
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/particle.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/particle.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        // Instance-rate binding: one ParticleInstance per billboard.
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = sizeof(mosaic::engine::render::ParticleInstance);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+        std::array<VkVertexInputAttributeDescription, 4> attrs{};
+        attrs[0].location = 0; attrs[0].binding = 0; attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[0].offset = offsetof(mosaic::engine::render::ParticleInstance, world_position);
+        attrs[1].location = 1; attrs[1].binding = 0; attrs[1].format = VK_FORMAT_R32_SFLOAT;
+        attrs[1].offset = offsetof(mosaic::engine::render::ParticleInstance, size);
+        attrs[2].location = 2; attrs[2].binding = 0; attrs[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[2].offset = offsetof(mosaic::engine::render::ParticleInstance, color);
+        attrs[3].location = 3; attrs[3].binding = 0; attrs[3].format = VK_FORMAT_R32_SFLOAT;
+        attrs[3].offset = offsetof(mosaic::engine::render::ParticleInstance, alpha);
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vin.vertexBindingDescriptionCount = 1;
+        vin.pVertexBindingDescriptions = &binding;
+        vin.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs.size());
+        vin.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE; // billboards face the camera; winding irrelevant
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_TRUE;
+        depth.depthWriteEnable = VK_FALSE; // transparent: respect scene depth, don't occlude peers
+        depth.depthCompareOp = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        push.offset = 0; push.size = sizeof(ParticlePush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 0; // particles are untextured; no descriptor sets
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &particle_pipeline_layout_),
+                 "vkCreatePipelineLayout(particle)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = particle_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &particle_pipeline_),
+                 "vkCreateGraphicsPipelines(particle)");
+
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_particle_pipeline_),
+                 "vkCreateGraphicsPipelines(particle offscreen)");
+
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
     // --- buffers / one-time transfers -------------------------------------
 
     void create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -1940,6 +2118,13 @@ private:
     VkExtent2D      vp_extent_ = {0, 0};
     VkRenderPass    vp_render_pass_ = VK_NULL_HANDLE; // format-stable; color = swapchain_format_
     VkPipeline      vp_pipeline_ = VK_NULL_HANDLE;    // scene pipeline built against vp_render_pass_
+
+    VkPipeline       particle_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline       vp_particle_pipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout particle_pipeline_layout_ = VK_NULL_HANDLE;
+
+    struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
+    std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
     VkImage         vp_color_ = VK_NULL_HANDLE;
     VkDeviceMemory  vp_color_mem_ = VK_NULL_HANDLE;
     VkImageView     vp_color_view_ = VK_NULL_HANDLE;

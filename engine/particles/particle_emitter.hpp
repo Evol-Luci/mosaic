@@ -20,6 +20,8 @@ struct ParticleEmitter
     Vec3          acceleration     = Vec3{0.0f, -9.81f, 0.0f};   // constant per-particle accel
     std::uint64_t seed             = 1;                          // PRNG seed (determinism knob)
     int           max_particles    = 1000;                       // pool cap (safety)
+    Vec3          color            = Vec3{1.0f, 1.0f, 1.0f};     // base particle color
+    float         size             = 0.1f;                       // world-space billboard edge length
 };
 
 template <class V>
@@ -34,6 +36,8 @@ void reflect(V& visitor, ParticleEmitter& e)
     visitor.member("acceleration", e.acceleration);
     visitor.member("seed", e.seed);
     visitor.member("max_particles", e.max_particles);
+    visitor.member("color", e.color);
+    visitor.member("size", e.size);
 }
 
 // Create one particle at `origin` with a seeded per-axis velocity jitter.
