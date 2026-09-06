@@ -3,6 +3,7 @@
 #include <string>
 
 #include "engine/animation/animation_player.hpp"
+#include "engine/navigation/nav_agent.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/sequencer/sequence.hpp"
 #include "engine/reflection/component_reflection.hpp"
@@ -38,6 +39,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::script::ScriptComponent>(registry, "ScriptComponent");
     types.register_component<mosaic::engine::animation::AnimationPlayer>(registry, "AnimationPlayer");
     types.register_component<mosaic::engine::sequencer::Sequence>(registry, "Sequence");
+    types.register_component<mosaic::engine::navigation::NavAgent>(registry, "NavAgent");
 }
 
 } // namespace mosaic::engine::reflection

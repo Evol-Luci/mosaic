@@ -166,8 +166,15 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   `SequenceSystem` advances a master clock, samples active clips onto their targets via the shared
   `apply_clip_at`, and fires markers as `emit(name)` script events → scripts react through `on_event`;
   design: [spec](../superpowers/specs/2026-09-05-sequencer-design.md)). Sequencer follow-ups: auto-stop/
-  clamp a non-looping sequence, marker payloads, clip blending, a timeline editor panel. **Remaining
-  Phase-4 subsystems: audio, particles, VFX, UI, navigation, networking.**
+  clamp a non-looping sequence, marker payloads, clip blending, a timeline editor panel. **Navigation —
+  done** (A\* pathfinding: a neutral `NavGrid` (2D, blocked cells) + `find_path` (8-connected, octile
+  heuristic, no corner-cutting); a `NavAgent` component (goal cell/speed/active); a `NavigationSystem`
+  that steers an agent's Transform toward its goal along the path, with a per-agent cached step-target
+  so A\* only recomputes at cell centers (avoids re-rounding onto a blocked cell mid-move); grid injected
+  into the system; design: [spec](../superpowers/specs/2026-09-05-navigation-design.md)). Navigation
+  follow-ups: script `find_path()` seam, baking a grid from scene colliders, navmesh / 3D, dynamic
+  obstacles, path smoothing, and `setup_runtime` wiring (a game supplies the grid). **Remaining
+  Phase-4 subsystems: audio, particles, VFX, UI, networking.**
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +
