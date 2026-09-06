@@ -124,6 +124,8 @@ add_executable(mosaic_unit_tests
   unit/animation/animation_system_test.cpp
   unit/sequencer/sequence_test.cpp
   unit/sequencer/sequence_system_test.cpp
+  unit/navigation/nav_grid_test.cpp
+  unit/navigation/navigation_system_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
