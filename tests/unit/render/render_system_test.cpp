@@ -20,6 +20,8 @@
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "engine/particles/particle_emitter.hpp"
+#include "engine/particles/particle_system.hpp"
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
@@ -42,6 +44,10 @@ using mosaic::engine::transform::WorldTransform;
 using mosaic::foundation::math::Mat4;
 using mosaic::foundation::math::Vec3;
 using mosaic::foundation::serialization::AssetID;
+using mosaic::engine::render::ParticleInstance;
+using mosaic::engine::render::ParticleDrawParams;
+using mosaic::engine::particles::ParticleEmitter;
+using mosaic::engine::particles::ParticleSystem;
 using Catch::Approx;
 
 namespace
@@ -69,6 +75,14 @@ public:
     void draw(MeshHandle m, TextureHandle t, const DrawParams& p) override
     {
         draws.push_back({m, t, p});
+    }
+
+    struct ParticleDrawCall { std::vector<ParticleInstance> instances; ParticleDrawParams params; };
+    std::vector<ParticleDrawCall> particle_draws;
+    void draw_particles(const std::vector<ParticleInstance>& instances,
+                        const ParticleDrawParams& params) override
+    {
+        particle_draws.push_back({instances, params});
     }
 };
 
@@ -321,4 +335,181 @@ TEST_CASE("RenderSystem disables point light when none present", "[render]")
     REQUIRE(device.draws.size() == 1);
     // range 0 == contribution disabled in the shader.
     REQUIRE(device.draws[0].params.point_range == Approx(0.0f));
+}
+
+TEST_CASE("RenderSystem emits one batched draw_particles with per-particle instances", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    world.add_system<ParticleSystem>();
+    auto* psys = world.get_system<ParticleSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{Vec3{1, 2, 3}, {}, Vec3{1, 1, 1}, {}});
+    ParticleEmitter em;
+    em.emitting = true;
+    em.rate = 100.0f;
+    em.lifetime = 10.0f;
+    em.initial_velocity = Vec3{0, 0, 0};
+    em.acceleration = Vec3{0, 0, 0};
+    em.color = Vec3{0.9f, 0.5f, 0.1f};
+    em.size = 0.25f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f); // spawns ~10 particles at (1,2,3)
+    const auto* pool = psys->particles_for(e);
+    REQUIRE(pool != nullptr);
+    REQUIRE(!pool->empty());
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.particle_draws.size() == 1);
+    const auto& call = device.particle_draws[0];
+    REQUIRE(call.instances.size() == pool->size());
+    REQUIRE(call.instances[0].color.x == Approx(0.9f));
+    REQUIRE(call.instances[0].size == Approx(0.25f));
+    REQUIRE(call.instances[0].world_position.x == Approx(1.0f));
+    REQUIRE(call.instances[0].world_position.y == Approx(2.0f));
+}
+
+TEST_CASE("RenderSystem particle alpha fades with age", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+    world.add_system<ParticleSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    ParticleEmitter em;
+    em.emitting = true;
+    em.rate = 1000.0f;   // spawn many so ages differ across the pool
+    em.lifetime = 1.0f;
+    em.acceleration = Vec3{0, 0, 0};
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.5f); // pool now holds a spread of ages, all < lifetime
+    rs.render(world, device, registry);
+
+    REQUIRE(device.particle_draws.size() == 1);
+    for (const auto& inst : device.particle_draws[0].instances)
+    {
+        REQUIRE(inst.alpha >= 0.0f);
+        REQUIRE(inst.alpha <= 1.0f);
+    }
+}
+
+TEST_CASE("RenderSystem batches two emitters with distinct colors", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+    world.add_system<ParticleSystem>();
+
+    auto make = [&](Vec3 color)
+    {
+        auto e = world.create_entity();
+        world.add_component<mosaic::engine::transform::Transform>(
+            e, mosaic::engine::transform::Transform{});
+        ParticleEmitter em;
+        em.emitting = true; em.rate = 50.0f; em.lifetime = 10.0f;
+        em.acceleration = Vec3{0, 0, 0}; em.color = color;
+        world.add_component<ParticleEmitter>(e, em);
+    };
+    make(Vec3{1, 0, 0});
+    make(Vec3{0, 0, 1});
+
+    world.tick(0.1f);
+    rs.render(world, device, registry);
+
+    REQUIRE(device.particle_draws.size() == 1);
+    bool saw_red = false, saw_blue = false;
+    for (const auto& inst : device.particle_draws[0].instances)
+    {
+        if (inst.color.x > 0.5f) saw_red = true;
+        if (inst.color.z > 0.5f) saw_blue = true;
+    }
+    REQUIRE(saw_red);
+    REQUIRE(saw_blue);
+}
+
+TEST_CASE("RenderSystem skips particle pass when no ParticleSystem present", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    world.add_component<ParticleEmitter>(e, ParticleEmitter{}); // emitter but no system
+
+    rs.render(world, device, registry); // must not crash
+    REQUIRE(device.particle_draws.empty());
+}
+
+TEST_CASE("RenderSystem emits no particle draw when there are no live particles", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+    world.add_system<ParticleSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    ParticleEmitter em;
+    em.emitting = false; em.burst = 0; // never spawns
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    rs.render(world, device, registry);
+    REQUIRE(device.particle_draws.empty());
+}
+
+TEST_CASE("RenderSystem derives an orthonormal camera basis for billboards", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4}); // identity-rotation camera looking down -Z
+    world.add_system<ParticleSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    ParticleEmitter em;
+    em.emitting = true; em.rate = 50.0f; em.lifetime = 10.0f; em.acceleration = Vec3{0, 0, 0};
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    rs.render(world, device, registry);
+
+    REQUIRE(device.particle_draws.size() == 1);
+    const auto& params = device.particle_draws[0].params;
+    // A camera at +Z looking at the origin (no roll) has world right = +X, up = +Y.
+    REQUIRE(params.camera_right.x == Approx(1.0f).margin(1e-4));
+    REQUIRE(params.camera_right.y == Approx(0.0f).margin(1e-4));
+    REQUIRE(params.camera_up.y == Approx(1.0f).margin(1e-4));
+    // Right and up are perpendicular.
+    const float dot = params.camera_right.x * params.camera_up.x +
+                      params.camera_right.y * params.camera_up.y +
+                      params.camera_right.z * params.camera_up.z;
+    REQUIRE(dot == Approx(0.0f).margin(1e-4));
 }

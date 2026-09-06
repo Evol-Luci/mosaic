@@ -40,6 +40,26 @@ struct DrawParams
     float                          point_range = 0.0f; // 0 == no point light (disabled)
 };
 
+// One billboarded particle. world_position/size are world-space; alpha is the derived
+// fade (1 at spawn -> 0 at end of life), computed by the RenderSystem, not stored.
+struct ParticleInstance
+{
+    mosaic::foundation::math::Vec3 world_position;
+    float                          size = 0.0f;
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
+// Camera data for billboarding. view_proj = projection * view (no model matrix; each
+// instance is positioned in the vertex shader). camera_right/up are the world-space
+// camera basis vectors the billboard quad is spanned along.
+struct ParticleDrawParams
+{
+    mosaic::foundation::math::Mat4 view_proj;
+    mosaic::foundation::math::Vec3 camera_right;
+    mosaic::foundation::math::Vec3 camera_up;
+};
+
 class RenderDevice
 {
 public:
@@ -59,6 +79,12 @@ public:
     virtual void init_ui() {}
     virtual void begin_ui_frame() {}
     virtual void end_ui_frame() {}
+
+    // Draw camera-facing, alpha-blended billboards, one per instance. Default no-op so
+    // headless devices and test fakes need not implement it (like the UI/viewport hooks).
+    // Must be called after mesh draws in the same pass (see RenderSystem ordering contract).
+    virtual void draw_particles(const std::vector<ParticleInstance>& /*instances*/,
+                                const ParticleDrawParams& /*params*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
