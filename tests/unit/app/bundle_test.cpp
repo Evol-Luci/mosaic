@@ -76,9 +76,9 @@ TEST_CASE("build_bundle produces a runnable self-contained bundle", "[app]")
     auto m = load_manifest(out);
     REQUIRE(m.has_value());
     REQUIRE(m->default_scene == "scenes/main.json");
-    // Scene copied + loads to the 8-entity demo.
+    // Scene copied + loads to the 9-entity demo (8 + the fountain particle emitter).
     REQUIRE(fs::exists(fs::path(out) / "scenes" / "main.json"));
-    REQUIRE(transform_count((fs::path(out) / "scenes" / "main.json").string(), types) == 8);
+    REQUIRE(transform_count((fs::path(out) / "scenes" / "main.json").string(), types) == 9);
     // Runtime binary copied verbatim + executable.
     REQUIRE(fs::exists(fs::path(out) / "mosaic"));
     REQUIRE(mosaic::app::load_scene_file((fs::path(out) / "mosaic").string()).value() == bin_bytes);

@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-09-06 (**particles** Phase-4 subsystem done; v0.1 foundation + rendering + physics + Project & Tools Workflow
+**Last updated:** 2026-09-06 (**particle rendering** — instanced billboards — done; **particles** Phase-4 subsystem done; v0.1 foundation + rendering + physics + Project & Tools Workflow
 (T1–T5) complete; **Scripting (Python) pillar COMPLETE — S1 (Python embedding), S2 (reflection→Python
 property bindings), S3 (world/commands), S4 (ScriptComponent), AND S5 (Studio script console) ALL COMPLETE.
 The v0.1 vertical slice is COMPLETE.**
