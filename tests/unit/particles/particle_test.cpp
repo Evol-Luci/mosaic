@@ -51,3 +51,73 @@ TEST_CASE("integrate advances velocity, position, and age under constant accel",
     REQUIRE(p.position.y == Approx(-7.5f));
     REQUIRE(p.age == Approx(1.0f));
 }
+
+#include "engine/particles/particle_emitter.hpp"
+#include "foundation/serialization/reflect_value.hpp"
+
+using mosaic::engine::particles::ParticleEmitter;
+using mosaic::engine::particles::spawn_particle;
+
+TEST_CASE("spawn_particle with zero spread uses the base velocity exactly", "[particles]")
+{
+    ParticleEmitter e;
+    e.initial_velocity = Vec3{0.0f, 2.0f, 0.0f};
+    e.spread           = 0.0f;
+    e.lifetime         = 3.0f;
+    Rng rng{1};
+
+    const Particle p = spawn_particle(e, Vec3{5.0f, 0.0f, -1.0f}, rng);
+    REQUIRE(p.position.x == Approx(5.0f));
+    REQUIRE(p.position.z == Approx(-1.0f));
+    REQUIRE(p.velocity.x == Approx(0.0f));
+    REQUIRE(p.velocity.y == Approx(2.0f));
+    REQUIRE(p.age == Approx(0.0f));
+    REQUIRE(p.lifetime == Approx(3.0f));
+}
+
+TEST_CASE("spawn_particle keeps each velocity axis within +/- spread", "[particles]")
+{
+    ParticleEmitter e;
+    e.initial_velocity = Vec3{0.0f, 0.0f, 0.0f};
+    e.spread           = 2.0f;
+    Rng rng{99};
+
+    for (int i = 0; i < 500; ++i)
+    {
+        const Particle p = spawn_particle(e, Vec3{}, rng);
+        REQUIRE(p.velocity.x >= -2.0f);
+        REQUIRE(p.velocity.x <= 2.0f);
+        REQUIRE(p.velocity.y >= -2.0f);
+        REQUIRE(p.velocity.y <= 2.0f);
+        REQUIRE(p.velocity.z >= -2.0f);
+        REQUIRE(p.velocity.z <= 2.0f);
+    }
+}
+
+TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
+{
+    ParticleEmitter e;
+    e.emitting         = false;
+    e.rate             = 25.0f;
+    e.burst            = 8;
+    e.lifetime         = 4.5f;
+    e.initial_velocity = Vec3{1.0f, 2.0f, 3.0f};
+    e.spread           = 0.75f;
+    e.acceleration     = Vec3{0.0f, -3.0f, 0.0f};
+    e.seed             = 12345ULL;
+    e.max_particles    = 64;
+
+    const auto value = mosaic::foundation::serialization::to_value(e);
+    ParticleEmitter back;
+    mosaic::foundation::serialization::from_value(value, back);
+
+    REQUIRE(back.emitting == false);
+    REQUIRE(back.rate == Approx(25.0f));
+    REQUIRE(back.burst == 8);
+    REQUIRE(back.lifetime == Approx(4.5f));
+    REQUIRE(back.initial_velocity.y == Approx(2.0f));
+    REQUIRE(back.spread == Approx(0.75f));
+    REQUIRE(back.acceleration.y == Approx(-3.0f));
+    REQUIRE(back.seed == 12345ULL);
+    REQUIRE(back.max_particles == 64);
+}
