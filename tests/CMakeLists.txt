@@ -127,6 +127,7 @@ add_executable(mosaic_unit_tests
   unit/navigation/nav_grid_test.cpp
   unit/navigation/navigation_system_test.cpp
   unit/particles/particle_test.cpp
+  unit/particles/particle_system_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
