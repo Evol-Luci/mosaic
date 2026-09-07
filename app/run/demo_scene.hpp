@@ -284,6 +284,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     emitter.end_size         = 0.03f;                    // shrink as it fades
     emitter.alpha            = 1.0f;                      // opaque at birth
     emitter.end_alpha        = 0.0f;                      // fade fully out at death
+    emitter.alpha_easing     = mosaic::engine::particles::EaseOut; // hold opacity, then fade fast
     world.add_component<mosaic::engine::particles::ParticleEmitter>(fountain, emitter);
 }
 

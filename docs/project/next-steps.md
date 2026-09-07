@@ -4,7 +4,7 @@ This is the live "you are here" for a worker picking up Mosaic. It points at the
 next buildable work and the decisions that constrain it. When the work below is
 done, update this file to point at what comes next.
 
-**Last updated:** 2026-09-06 (**particle over-life curves** — color/size/alpha interpolate start→end over each particle's life — done; **particle rendering** — instanced billboards — done; **particles** Phase-4 subsystem done; v0.1 foundation + rendering + physics + Project & Tools Workflow
+**Last updated:** 2026-09-06 (**particle over-life easing** — per-property Linear/EaseIn/EaseOut/EaseInOut curves behind the over-life seam — done; **particle over-life curves** — color/size/alpha interpolate start→end over each particle's life — done; **particle rendering** — instanced billboards — done; **particles** Phase-4 subsystem done; v0.1 foundation + rendering + physics + Project & Tools Workflow
 (T1–T5) complete; **Scripting (Python) pillar COMPLETE — S1 (Python embedding), S2 (reflection→Python
 property bindings), S3 (world/commands), S4 (ScriptComponent), AND S5 (Studio script console) ALL COMPLETE.
 The v0.1 vertical slice is COMPLETE.**
@@ -184,8 +184,10 @@ Each item still gets its own brainstorm → spec → plan → TDD cycle.
   `setup_runtime`; headless & bit-identical deterministic; design:
   [spec](../superpowers/specs/2026-09-06-particles-design.md)). **Particle rendering — DONE** (instanced camera-facing billboards via the neutral `draw_particles` seam, alpha-fade over life, per-emitter color/size, a Vulkan alpha-blended pipeline for swapchain + offscreen viewport, and a demo fountain in the default scene; design/plan: [spec](../superpowers/specs/2026-09-06-particle-rendering-design.md) · [plan](../superpowers/plans/2026-09-06-particle-rendering.md)). **Color/size/alpha over-life curves — DONE**
   (`ParticleEmitter`'s `color`/`size` are now the *start* values; added `end_color`/`end_size` plus an authored `alpha`/`end_alpha` pair, interpolated linearly by `t = age/lifetime` through a pure `color_at`/`size_at`/`alpha_at` seam the renderer consumes — defaults reproduce the previous constant-color, constant-size, 1→0 alpha fade; the demo fountain fades orange→magenta and shrinks. Easing is the documented next step behind the same seam; design/plan:
-  [spec](../superpowers/specs/2026-09-06-particle-overlife-curves-design.md) · [plan](../superpowers/plans/2026-09-06-particle-overlife-curves.md)). Particles follow-ups:
-  easing curves for over-life interpolation, sub-frame spawn interpolation, triggered/re-armed bursts, script-driven emission. **Remaining Phase-4 subsystems: audio, VFX, UI, networking.**
+  [spec](../superpowers/specs/2026-09-06-particle-overlife-curves-design.md) · [plan](../superpowers/plans/2026-09-06-particle-overlife-curves.md)). **Per-property over-life easing — DONE**
+  (added `color_easing`/`size_easing`/`alpha_easing` int fields (`enum Easing`: Linear/EaseIn/EaseOut/EaseInOut) and a pure `apply_easing(mode, t)` remap applied to `t` inside `color_at`/`size_at`/`alpha_at` before the lerp — every curve maps 0→0 and 1→1 so over-life endpoints stay exact, unknown modes fall back to linear; defaults (0=Linear) reproduce the prior linear interpolation, renderer unchanged; the demo fountain now holds opacity then fades fast (`alpha_easing = EaseOut`); design/plan:
+  [spec](../superpowers/specs/2026-09-06-particle-easing-design.md) · [plan](../superpowers/plans/2026-09-06-particle-easing.md)). Particles follow-ups:
+  more easing curves (cubic/elastic/bounce), sub-frame spawn interpolation, triggered/re-armed bursts, script-driven emission. **Remaining Phase-4 subsystems: audio, VFX, UI, networking.**
 
 **B. Accumulated v0.1 follow-ups** (smaller, well-scoped):
 - **Editor UX:** **generic add/remove-component in the Inspector — DONE** (a `+ Add Component` combo +
