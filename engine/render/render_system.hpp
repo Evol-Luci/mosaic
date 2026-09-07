@@ -13,6 +13,8 @@
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_system.hpp"
+#include "engine/vfx/trail_renderer.hpp"
+#include "engine/vfx/trail_system.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 #include <algorithm>
@@ -90,11 +92,11 @@ public:
                                        light.color, base_color, point_position, point_color, point_range});
             });
 
-        // Particle pass: gather every emitter's live particles into one instanced,
-        // camera-facing billboard draw. Runs last in the pass (the device binds the
-        // particle pipeline; no mesh draw may follow in the same pass).
+        // Billboard pass: particles + trails share one instanced, camera-facing draw. Runs
+        // last in the pass (the device binds the particle pipeline; no mesh draw may follow).
         auto* particles = world.get_system<mosaic::engine::particles::ParticleSystem>();
-        if (particles != nullptr)
+        auto* trails    = world.get_system<mosaic::engine::vfx::TrailSystem>();
+        if (particles != nullptr || trails != nullptr)
         {
             const Mat4 cam_world = Mat4::inverse_affine(view);
             const Vec3 cam_right = mosaic::foundation::math::normalize(
@@ -103,28 +105,47 @@ public:
                 Vec3{cam_world.m[4], cam_world.m[5], cam_world.m[6]});
 
             std::vector<ParticleInstance> instances;
-            world.for_each<mosaic::engine::particles::ParticleEmitter>(
-                [&](mosaic::foundation::EntityID e, mosaic::engine::particles::ParticleEmitter& em)
-                {
-                    const auto* pool = particles->particles_for(e);
-                    if (pool == nullptr)
+
+            if (particles != nullptr)
+            {
+                world.for_each<mosaic::engine::particles::ParticleEmitter>(
+                    [&](mosaic::foundation::EntityID e, mosaic::engine::particles::ParticleEmitter& em)
                     {
-                        return;
-                    }
-                    for (const auto& p : *pool)
+                        const auto* pool = particles->particles_for(e);
+                        if (pool == nullptr) { return; }
+                        for (const auto& p : *pool)
+                        {
+                            const float t = (p.lifetime > 0.0f) ? p.age / p.lifetime : 0.0f;
+                            instances.push_back(ParticleInstance{
+                                p.position,
+                                mosaic::engine::particles::size_at(em, t),
+                                mosaic::engine::particles::color_at(em, t),
+                                mosaic::engine::particles::alpha_at(em, t)});
+                        }
+                    });
+            }
+
+            if (trails != nullptr)
+            {
+                world.for_each<mosaic::engine::vfx::TrailRenderer>(
+                    [&](mosaic::foundation::EntityID e, mosaic::engine::vfx::TrailRenderer& tr)
                     {
-                        const float t = (p.lifetime > 0.0f) ? p.age / p.lifetime : 0.0f;
-                        instances.push_back(ParticleInstance{
-                            p.position,
-                            mosaic::engine::particles::size_at(em, t),
-                            mosaic::engine::particles::color_at(em, t),
-                            mosaic::engine::particles::alpha_at(em, t)});
-                    }
-                });
+                        const auto* pts = trails->points_for(e);
+                        if (pts == nullptr || pts->empty()) { return; }
+                        const int n = static_cast<int>(pts->size());
+                        for (int i = 0; i < n; ++i)
+                        {
+                            const float frac = static_cast<float>(i + 1) / static_cast<float>(n);
+                            instances.push_back(
+                                ParticleInstance{(*pts)[i], tr.size * frac, tr.color, frac});
+                        }
+                    });
+            }
 
             if (!instances.empty())
             {
-                device.draw_particles(instances, ParticleDrawParams{projection * view, cam_right, cam_up});
+                device.draw_particles(instances,
+                                      ParticleDrawParams{projection * view, cam_right, cam_up});
             }
         }
     }
