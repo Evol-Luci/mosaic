@@ -74,6 +74,15 @@ struct RibbonDrawParams
     mosaic::foundation::math::Mat4 view_proj;
 };
 
+// One decal quad: mvp = projection * view * world (composed by the RenderSystem).
+struct DecalInstance
+{
+    mosaic::foundation::math::Mat4 mvp;
+    TextureHandle                  texture = 0; // 0 / out-of-range -> default white
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
 class RenderDevice
 {
 public:
@@ -104,6 +113,9 @@ public:
     // headless devices and test fakes need not implement it (like draw_particles).
     virtual void draw_ribbons(const std::vector<RibbonVertex>& /*vertices*/,
                               const RibbonDrawParams& /*params*/) {}
+
+    // Draw alpha-blended textured quads (decals). Default no-op (like draw_particles).
+    virtual void draw_decals(const std::vector<DecalInstance>& /*decals*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
