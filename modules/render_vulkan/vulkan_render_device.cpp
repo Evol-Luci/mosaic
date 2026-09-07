@@ -57,6 +57,12 @@ struct ParticlePush
 };
 static_assert(sizeof(ParticlePush) == 96, "particle push constant layout must match the shader");
 
+struct RibbonPush
+{
+    float view_proj[16];
+};
+static_assert(sizeof(RibbonPush) == 64, "ribbon push constant layout must match the shader");
+
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
 void vk_check(VkResult r, const char* what)
@@ -167,6 +173,7 @@ public:
         create_descriptor_infrastructure();
         create_pipeline();
         create_particle_pipeline();
+        create_ribbon_pipeline();
         create_command_pool_and_buffers();
         create_sync_objects();
 
@@ -248,10 +255,18 @@ public:
             if (vp_particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_particle_pipeline_, nullptr); }
             if (particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, particle_pipeline_, nullptr); }
             if (particle_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, particle_pipeline_layout_, nullptr); }
+            if (vp_ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ribbon_pipeline_, nullptr); }
+            if (ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, ribbon_pipeline_, nullptr); }
+            if (ribbon_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, ribbon_pipeline_layout_, nullptr); }
             for (auto& ib : particle_instances_)
             {
                 if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
                 if (ib.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, ib.mem, nullptr); }
+            }
+            for (auto& vb : ribbon_vertices_)
+            {
+                if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
+                if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
             }
 
             for (VkSemaphore s : render_finished_)
@@ -609,6 +624,41 @@ public:
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &ib.buf, &offset);
         vkCmdDraw(cmd_[frame_], 6, static_cast<uint32_t>(instances.size()), 0, 0);
+    }
+
+    void draw_ribbons(const std::vector<mosaic::engine::render::RibbonVertex>& vertices,
+                      const mosaic::engine::render::RibbonDrawParams& params) override
+    {
+        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        if (frame_skipped_ || vertices.empty()) { return; }
+
+        const VkDeviceSize bytes = vertices.size() * sizeof(vertices[0]);
+        InstanceBuffer& vb = ribbon_vertices_[frame_];
+        if (vb.capacity < bytes)
+        {
+            if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
+            if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
+            create_buffer(bytes, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          vb.buf, vb.mem);
+            vb.capacity = bytes;
+        }
+        void* mapped = nullptr;
+        vkMapMemory(device_, vb.mem, 0, bytes, 0, &mapped);
+        std::memcpy(mapped, vertices.data(), static_cast<size_t>(bytes));
+        vkUnmapMemory(device_, vb.mem);
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          viewport_pass_open_ ? vp_ribbon_pipeline_ : ribbon_pipeline_);
+
+        RibbonPush pc{};
+        std::memcpy(pc.view_proj, params.view_proj.m.data(), sizeof(pc.view_proj));
+        vkCmdPushConstants(cmd_[frame_], ribbon_pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0,
+                           sizeof(pc), &pc);
+
+        VkDeviceSize offset = 0;
+        vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &vb.buf, &offset);
+        vkCmdDraw(cmd_[frame_], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
     }
 
     void begin_frame() override
@@ -1813,6 +1863,116 @@ private:
         vkDestroyShaderModule(device_, vert, nullptr);
     }
 
+    void create_ribbon_pipeline()
+    {
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/ribbon.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/ribbon.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        // Per-vertex binding: pre-expanded world-space ribbon triangles.
+        VkVertexInputBindingDescription binding{};
+        binding.binding = 0;
+        binding.stride = sizeof(mosaic::engine::render::RibbonVertex);
+        binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
+        attrs[0].location = 0; attrs[0].binding = 0; attrs[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[0].offset = offsetof(mosaic::engine::render::RibbonVertex, position);
+        attrs[1].location = 1; attrs[1].binding = 0; attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
+        attrs[1].offset = offsetof(mosaic::engine::render::RibbonVertex, color);
+        attrs[2].location = 2; attrs[2].binding = 0; attrs[2].format = VK_FORMAT_R32_SFLOAT;
+        attrs[2].offset = offsetof(mosaic::engine::render::RibbonVertex, alpha);
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vin.vertexBindingDescriptionCount = 1;
+        vin.pVertexBindingDescriptions = &binding;
+        vin.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrs.size());
+        vin.pVertexAttributeDescriptions = attrs.data();
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE; // camera-facing ribbon; winding irrelevant
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_TRUE;
+        depth.depthWriteEnable = VK_FALSE; // transparent: respect scene depth, don't occlude peers
+        depth.depthCompareOp = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+        push.offset = 0; push.size = sizeof(RibbonPush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 0;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &ribbon_pipeline_layout_),
+                 "vkCreatePipelineLayout(ribbon)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = ribbon_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &ribbon_pipeline_),
+                 "vkCreateGraphicsPipelines(ribbon)");
+
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_ribbon_pipeline_),
+                 "vkCreateGraphicsPipelines(ribbon offscreen)");
+
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
     // --- buffers / one-time transfers -------------------------------------
 
     void create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -2122,9 +2282,13 @@ private:
     VkPipeline       particle_pipeline_ = VK_NULL_HANDLE;
     VkPipeline       vp_particle_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout particle_pipeline_layout_ = VK_NULL_HANDLE;
+    VkPipeline       ribbon_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline       vp_ribbon_pipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout ribbon_pipeline_layout_ = VK_NULL_HANDLE;
 
     struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
     std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
+    std::array<InstanceBuffer, kFramesInFlight> ribbon_vertices_{};
     VkImage         vp_color_ = VK_NULL_HANDLE;
     VkDeviceMemory  vp_color_mem_ = VK_NULL_HANDLE;
     VkImageView     vp_color_view_ = VK_NULL_HANDLE;
