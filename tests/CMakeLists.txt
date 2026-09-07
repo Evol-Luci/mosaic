@@ -130,6 +130,7 @@ add_executable(mosaic_unit_tests
   unit/particles/particle_system_test.cpp
   unit/audio/audio_components_test.cpp
   unit/audio/audio_system_test.cpp
+  unit/audio/miniaudio_backend_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
@@ -140,6 +141,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_render_vulkan
   mosaic_physics_box3d
   mosaic_script_python
+  mosaic_audio_miniaudio
   pybind11::embed
   mosaic_studio
   Vulkan::Vulkan

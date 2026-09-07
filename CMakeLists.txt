@@ -56,6 +56,14 @@ FetchContent_Declare(
 set(BOX3D_SAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(box3d)
 
+# --- miniaudio (audio backend; single header, pinned) -------------------------
+FetchContent_Declare(
+  miniaudio
+  GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+  GIT_TAG        0.11.21
+)
+FetchContent_MakeAvailable(miniaudio)
+
 # --- Dear ImGui (docking branch): core + GLFW/Vulkan backends -----------------
 FetchContent_Declare(
   imgui
@@ -96,6 +104,7 @@ add_subdirectory(engine)
 add_subdirectory(modules/render_vulkan)
 add_subdirectory(modules/physics_box3d)
 add_subdirectory(modules/script_python)
+add_subdirectory(modules/audio_miniaudio)
 add_subdirectory(app)
 add_subdirectory(studio)
 add_subdirectory(tests)
