@@ -37,7 +37,7 @@ TEST_CASE("a default scene saved to disk reloads to the same entity set", "[app]
     src.for_each<Transform>([&](World::EntityID, Transform&) { ++a; });
     dst.for_each<Transform>([&](World::EntityID, Transform&) { ++b; });
     REQUIRE(a == b);
-    REQUIRE(b == 9); // 8 demo entities + the fountain particle emitter
+    REQUIRE(b == 10); // 8 demo entities + the fountain emitter + the scripted puffer
     std::remove(path.c_str());
 }
 

@@ -190,6 +190,21 @@ def on_update(dt):
     set_component(entity, 'Transform', tr)
 )py";
 
+// Script-driven emission: bump the emitter's burst_trigger every ~1.2s so the
+// ParticleSystem re-arms a burst (a script is the trigger stimulus). Reflected
+// ScriptComponent, so it serializes with the scene and survives build/run.
+inline constexpr const char* kBurstScript = R"py(
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    if _t >= 1.2:
+        _t -= 1.2
+        c = get_component(entity, 'ParticleEmitter')
+        c['burst_trigger'] += 1
+        set_component(entity, 'ParticleEmitter', c)
+)py";
+
 // Pure scene DATA: the demo entities/components. No device, no registry — this is what
 // save_to_json serializes and what a loaded scene replaces. WorldTransform is derived (added by
 // TransformSystem), so it is intentionally not set here.
@@ -286,6 +301,30 @@ inline void build_default_scene(mosaic::engine::World& world)
     emitter.end_alpha        = 0.0f;                      // fade fully out at death
     emitter.alpha_easing     = mosaic::engine::particles::EaseOut; // hold opacity, then fade fast
     world.add_component<mosaic::engine::particles::ParticleEmitter>(fountain, emitter);
+
+    // A scripted "puffer": kBurstScript bumps burst_trigger every ~1.2s, so this
+    // burst-only emitter fires periodic cyan puffs — script-driven emission end to
+    // end. No MeshRenderer; only its particles draw.
+    const auto puffer = world.create_entity();
+    world.add_component<transform::Transform>(puffer,
+        transform::Transform{Vec3{3, 0.5f, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    mosaic::engine::particles::ParticleEmitter puff;
+    puff.emitting         = false;                       // burst-only; the script triggers it
+    puff.burst            = 40;
+    puff.lifetime         = 1.2f;
+    puff.initial_velocity = Vec3{0.0f, 5.0f, 0.0f};
+    puff.spread           = 2.0f;
+    puff.acceleration     = Vec3{0.0f, -9.81f, 0.0f};
+    puff.color            = Vec3{0.3f, 0.8f, 1.0f};      // cyan
+    puff.size             = 0.12f;
+    puff.end_color        = Vec3{0.1f, 0.2f, 0.6f};      // deepen to blue
+    puff.end_size         = 0.02f;
+    puff.alpha            = 1.0f;
+    puff.end_alpha        = 0.0f;
+    puff.alpha_easing     = mosaic::engine::particles::EaseOut;
+    world.add_component<mosaic::engine::particles::ParticleEmitter>(puffer, puff);
+    world.add_component<mosaic::engine::script::ScriptComponent>(puffer,
+        mosaic::engine::script::ScriptComponent{kBurstScript});
 }
 
 } // namespace mosaic::app

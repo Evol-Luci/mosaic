@@ -4,6 +4,8 @@
 #include "app/run/demo_scene.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/assets/asset_metadata.hpp"
+#include "engine/particles/particle_emitter.hpp"
+#include "engine/particles/particle_system.hpp"
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
 #include "engine/script/script_source.hpp"
@@ -44,6 +46,45 @@ TEST_CASE("setup_runtime wires ScriptSystem so scripts tick in the runtime", "[a
 
     for (int i = 0; i < 4; ++i) { world.tick(0.25f); } // 0.25 * 4, binary-exact
     REQUIRE(world.get_component<Transform>(e)->position.x == 1.0f);
+}
+
+TEST_CASE("a script drives particle emission via burst_trigger", "[app]")
+{
+    using mosaic::engine::particles::ParticleEmitter;
+    using mosaic::engine::particles::ParticleSystem;
+
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    AssetRegistry registry;
+
+    const auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{});
+    ParticleEmitter em;
+    em.emitting = false; // burst-only, so growth comes solely from the script's triggers
+    em.burst    = 4;
+    em.lifetime = 100.0f; // long, so nothing ages out during the test
+    world.add_component<ParticleEmitter>(e, em);
+    world.add_component<ScriptComponent>(e, ScriptComponent{
+        "def on_update(dt):\n"
+        "    c = get_component(entity, 'ParticleEmitter')\n"
+        "    c['burst_trigger'] += 1\n"
+        "    set_component(entity, 'ParticleEmitter', c)\n"});
+
+    setup_runtime(world, registry, types, [] { return create_python_script_engine(); });
+    auto* psys = world.get_system<ParticleSystem>();
+    REQUIRE(psys != nullptr);
+
+    // ScriptSystem runs before ParticleSystem. On the first tick the script bumps
+    // burst_trigger to 1 before the emitter is first seen, so the first-sight sync
+    // absorbs it and only the on-sight burst spawns (4).
+    world.tick(0.1f);
+    REQUIRE(psys->particles_for(e)->size() == 4);
+
+    // Each later tick the script's bump differs from the last acted value, re-arming
+    // exactly one burst (+4) per tick.
+    world.tick(0.1f);
+    world.tick(0.1f);
+    REQUIRE(psys->particles_for(e)->size() == 12);
 }
 
 TEST_CASE("setup_runtime lets a scene reference a script by AssetID", "[app]")

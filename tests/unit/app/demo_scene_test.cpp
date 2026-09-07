@@ -27,10 +27,10 @@ TEST_CASE("build_default_scene creates the demo entities with Transforms", "[app
         [&](World::EntityID, mosaic::engine::transform::Transform&) { ++transforms; });
     // ground, box, sphere, capsule, box2, point-light, camera, orbiter carry a Transform (8);
     // the directional light has none.
-    REQUIRE(transforms == 9); // + the fountain particle emitter
+    REQUIRE(transforms == 10); // + the fountain particle emitter + the scripted puffer emitter
 }
 
-TEST_CASE("build_default_scene includes one scripted (ScriptComponent) demo object", "[app]")
+TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo objects", "[app]")
 {
     World world;
     build_default_scene(world);
@@ -42,7 +42,7 @@ TEST_CASE("build_default_scene includes one scripted (ScriptComponent) demo obje
             ++scripted;
             REQUIRE(sc.source.find("on_update") != std::string::npos);
         });
-    REQUIRE(scripted == 1);
+    REQUIRE(scripted == 2); // the orbiter cube + the scripted puffer emitter
 }
 
 TEST_CASE("setup_runtime registers built-in meshes + demo textures and returns a render system",
