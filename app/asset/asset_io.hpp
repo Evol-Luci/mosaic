@@ -7,6 +7,7 @@
 #include <optional>
 #include <random>
 #include <string>
+#include <vector>
 
 #include "app/asset/image_cook.hpp"
 #include "app/asset/audio_cook.hpp"
@@ -14,6 +15,7 @@
 #include "app/run/scene_io.hpp"       // save_scene_file / load_scene_file
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
+#include "engine/audio/audio_backend.hpp"
 #include "engine/render/image.hpp"
 #include "engine/script/script_source.hpp"
 #include "foundation/logging/log.hpp"
@@ -193,6 +195,31 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
         registry.register_resource<mosaic::engine::render::Image>(
             meta, std::make_shared<mosaic::engine::render::Image>(*img));
         ++count;
+    }
+    return count;
+}
+
+// Register every loaded "audio" asset in `registry` with `backend` so play(clip) can find its
+// PCM. Returns the count registered. Called once at startup after load_project_assets.
+inline int register_audio_clips(mosaic::engine::audio::AudioBackend& backend,
+                                mosaic::engine::assets::AssetRegistry& registry)
+{
+    std::vector<mosaic::foundation::serialization::AssetID> audio_ids;
+    registry.for_each(
+        [&](const mosaic::engine::assets::AssetMetadata& meta)
+        {
+            if (meta.type == "audio") { audio_ids.push_back(meta.uuid); }
+        });
+
+    int count = 0;
+    for (const auto& id : audio_ids)
+    {
+        auto clip = registry.load<mosaic::engine::audio::AudioClip>(id);
+        if (clip && backend.register_clip(id, clip->pcm.data(), clip->frames, clip->channels,
+                                          clip->sample_rate))
+        {
+            ++count;
+        }
     }
     return count;
 }

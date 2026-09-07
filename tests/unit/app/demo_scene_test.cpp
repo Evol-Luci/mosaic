@@ -2,6 +2,8 @@
 #include <string>
 
 #include "app/run/demo_scene.hpp"
+#include "engine/audio/audio_backend.hpp"
+#include "modules/audio_miniaudio/miniaudio_backend.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/render/builtin_meshes.hpp"
@@ -62,4 +64,39 @@ TEST_CASE("setup_runtime registers built-in meshes + demo textures and returns a
     REQUIRE(registry.contains(mosaic::engine::render::kSphereMeshId));
     REQUIRE(registry.contains(mosaic::engine::render::kCapsuleMeshId));
     REQUIRE(registry.contains(kCheckerTextureId)); // demo checkerboard texture
+}
+
+TEST_CASE("setup_runtime + default scene starts the demo sound on a real backend", "[app]")
+{
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry    reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    auto  backend = mosaic::audio::miniaudio::create_miniaudio_backend(/*null_device=*/true);
+    REQUIRE(backend != nullptr);
+    auto* raw = backend.get();
+    setup_runtime(world, registry, types,
+                  [] { return mosaic::script::python::create_python_script_engine(); }, {}, false,
+                  std::move(backend));
+    build_default_scene(world);
+
+    world.tick(0.0f); // AudioSystem start-edge -> the orbiter's AudioSource plays voice 1
+    REQUIRE(raw->is_playing(1));
+}
+
+TEST_CASE("setup_runtime + default scene is silent and safe with a null audio backend", "[app]")
+{
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry    reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    setup_runtime(world, registry, types,
+                  [] { return mosaic::script::python::create_python_script_engine(); }, {}, false,
+                  nullptr); // no audio backend
+    build_default_scene(world);
+    REQUIRE_NOTHROW(world.tick(0.0f)); // AudioSystem no-ops; no crash
 }
