@@ -10,7 +10,16 @@ namespace mosaic::engine::particles
 // Over-life interpolation curves selectable per property. Serialized as int
 // (the reflection layer supports int, not enum class), so these values are a
 // stable on-disk contract — append new modes, do not renumber.
-enum Easing : int { EaseLinear = 0, EaseIn = 1, EaseOut = 2, EaseInOut = 3 };
+enum Easing : int
+{
+    EaseLinear    = 0,
+    EaseIn        = 1, // quadratic
+    EaseOut       = 2,
+    EaseInOut     = 3, // smoothstep
+    EaseCubicIn   = 4, // t^3 — steeper ease-in
+    EaseCubicOut  = 5,
+    EaseCubicInOut = 6,
+};
 
 // Authored parameters for an entity that emits particles. Reflected + serialized;
 // the live particle buffer lives in ParticleSystem, not here.
@@ -86,6 +95,11 @@ inline float apply_easing(int mode, float t)
         case EaseIn:    return t * t;
         case EaseOut:   return 1.0f - (1.0f - t) * (1.0f - t);
         case EaseInOut: return t * t * (3.0f - 2.0f * t); // smoothstep
+        case EaseCubicIn:  return t * t * t;
+        case EaseCubicOut: { const float u = 1.0f - t; return 1.0f - u * u * u; }
+        case EaseCubicInOut:
+            if (t < 0.5f) { return 4.0f * t * t * t; }
+            else { const float u = 2.0f * (1.0f - t); return 1.0f - 0.5f * u * u * u; }
         case EaseLinear:
         default:        return t;
     }
