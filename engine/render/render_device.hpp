@@ -60,6 +60,20 @@ struct ParticleDrawParams
     mosaic::foundation::math::Vec3 camera_up;
 };
 
+// One vertex of a ribbon strip (pre-expanded, world-space). alpha is the taper factor.
+struct RibbonVertex
+{
+    mosaic::foundation::math::Vec3 position;
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
+// Camera data for ribbons. view_proj = projection * view (vertices are already world-space).
+struct RibbonDrawParams
+{
+    mosaic::foundation::math::Mat4 view_proj;
+};
+
 class RenderDevice
 {
 public:
@@ -85,6 +99,11 @@ public:
     // Must be called after mesh draws in the same pass (see RenderSystem ordering contract).
     virtual void draw_particles(const std::vector<ParticleInstance>& /*instances*/,
                                 const ParticleDrawParams& /*params*/) {}
+
+    // Draw pre-expanded, alpha-blended ribbon triangles (world-space). Default no-op so
+    // headless devices and test fakes need not implement it (like draw_particles).
+    virtual void draw_ribbons(const std::vector<RibbonVertex>& /*vertices*/,
+                              const RibbonDrawParams& /*params*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
