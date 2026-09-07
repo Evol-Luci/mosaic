@@ -13,6 +13,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_system.hpp"
+#include "engine/vfx/ribbon.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "foundation/math/mat4.hpp"
@@ -125,27 +126,27 @@ public:
                     });
             }
 
-            if (trails != nullptr)
-            {
-                world.for_each<mosaic::engine::vfx::TrailRenderer>(
-                    [&](mosaic::foundation::EntityID e, mosaic::engine::vfx::TrailRenderer& tr)
-                    {
-                        const auto* pts = trails->points_for(e);
-                        if (pts == nullptr || pts->empty()) { return; }
-                        const int n = static_cast<int>(pts->size());
-                        for (int i = 0; i < n; ++i)
-                        {
-                            const float frac = static_cast<float>(i + 1) / static_cast<float>(n);
-                            instances.push_back(
-                                ParticleInstance{(*pts)[i], tr.size * frac, tr.color, frac});
-                        }
-                    });
-            }
-
             if (!instances.empty())
             {
                 device.draw_particles(instances,
                                       ParticleDrawParams{projection * view, cam_right, cam_up});
+            }
+
+            if (trails != nullptr)
+            {
+                const Vec3 cam_pos{cam_world.m[12], cam_world.m[13], cam_world.m[14]};
+                std::vector<RibbonVertex> ribbon;
+                world.for_each<mosaic::engine::vfx::TrailRenderer>(
+                    [&](mosaic::foundation::EntityID e, mosaic::engine::vfx::TrailRenderer& tr)
+                    {
+                        const auto* pts = trails->points_for(e);
+                        if (pts == nullptr) { return; }
+                        mosaic::engine::vfx::build_ribbon(*pts, cam_pos, tr.size, tr.color, ribbon);
+                    });
+                if (!ribbon.empty())
+                {
+                    device.draw_ribbons(ribbon, RibbonDrawParams{projection * view});
+                }
             }
         }
     }

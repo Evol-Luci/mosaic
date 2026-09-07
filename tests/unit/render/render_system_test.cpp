@@ -48,6 +48,8 @@ using mosaic::foundation::math::Vec3;
 using mosaic::foundation::serialization::AssetID;
 using mosaic::engine::render::ParticleInstance;
 using mosaic::engine::render::ParticleDrawParams;
+using mosaic::engine::render::RibbonVertex;
+using mosaic::engine::render::RibbonDrawParams;
 using mosaic::engine::particles::ParticleEmitter;
 using mosaic::engine::particles::ParticleSystem;
 using Catch::Approx;
@@ -85,6 +87,14 @@ public:
                         const ParticleDrawParams& params) override
     {
         particle_draws.push_back({instances, params});
+    }
+
+    struct RibbonDrawCall { std::vector<RibbonVertex> vertices; RibbonDrawParams params; };
+    std::vector<RibbonDrawCall> ribbon_draws;
+    void draw_ribbons(const std::vector<RibbonVertex>& vertices,
+                      const RibbonDrawParams& params) override
+    {
+        ribbon_draws.push_back({vertices, params});
     }
 };
 
@@ -556,7 +566,7 @@ TEST_CASE("RenderSystem interpolates particle color/size/alpha over life", "[ren
     REQUIRE(call.instances[0].alpha == Approx(0.9f));
 }
 
-TEST_CASE("RenderSystem draws a trail as tapered billboards", "[render]")
+TEST_CASE("RenderSystem draws a trail as a ribbon", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -576,15 +586,11 @@ TEST_CASE("RenderSystem draws a trail as tapered billboards", "[render]")
     tr.max_points      = 10;
     world.add_component<mosaic::engine::vfx::TrailRenderer>(e, tr);
 
-    for (int i = 0; i < 4; ++i) { world.tick(0.05f); } // seed + 3 samples -> 4 points
+    for (int i = 0; i < 4; ++i) { world.tick(0.05f); } // seed + 3 samples -> 4 points -> 3 segments
 
     rs.render(world, device, registry);
-    REQUIRE(device.particle_draws.size() == 1);
-    const auto& call = device.particle_draws[0];
-    REQUIRE(call.instances.size() == 4);
-    // Oldest (index 0) is faintest/smallest; newest (last) is full alpha + full size.
-    REQUIRE(call.instances.front().alpha == Approx(0.25f));
-    REQUIRE(call.instances.back().alpha == Approx(1.0f));
-    REQUIRE(call.instances.back().size == Approx(0.2f));
-    REQUIRE(call.instances.back().color.x == Approx(0.1f));
+    REQUIRE(device.ribbon_draws.size() == 1);
+    REQUIRE(device.ribbon_draws[0].vertices.size() == 6 * 3); // 6 verts/segment, 3 segments
+    // Trails no longer contribute to the particle batch.
+    REQUIRE(device.particle_draws.empty());
 }

@@ -134,6 +134,7 @@ add_executable(mosaic_unit_tests
   unit/app/audio_cook_test.cpp
   unit/app/audio_asset_test.cpp
   unit/vfx/trail_system_test.cpp
+  unit/vfx/ribbon_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
