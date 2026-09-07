@@ -28,7 +28,11 @@ class AudioBackend
 {
 public:
     virtual ~AudioBackend() = default;
-    virtual VoiceId play(AssetID clip, float gain, float pitch, bool looping) = 0;
+    virtual VoiceId play(AssetID clip, float gain, float pitch, bool looping, bool spatial) = 0;
+    // Register decoded interleaved f32 PCM for a clip id so play(clip,...) can use it.
+    // Returns false on invalid data. Re-registering an id replaces it.
+    virtual bool register_clip(AssetID clip, const float* interleaved, std::uint64_t frames,
+                               std::uint32_t channels, std::uint32_t sample_rate) = 0;
     virtual void    stop(VoiceId voice) = 0;
     virtual void    set_gain(VoiceId voice, float gain) = 0;
     virtual void    set_pitch(VoiceId voice, float pitch) = 0;

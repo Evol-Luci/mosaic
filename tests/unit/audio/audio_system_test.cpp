@@ -27,7 +27,7 @@ using mosaic::foundation::serialization::AssetID;
 class FakeAudioBackend : public AudioBackend
 {
 public:
-    struct PlayCall { AssetID clip; float gain; float pitch; bool looping; };
+    struct PlayCall { AssetID clip; float gain; float pitch; bool looping; bool spatial; };
     std::vector<PlayCall>                 plays;
     std::vector<VoiceId>                  stops;
     std::vector<std::pair<VoiceId, float>> gains;
@@ -36,10 +36,18 @@ public:
     bool                                   listener_set = false;
     ListenerState                          listener{};
 
-    VoiceId play(AssetID clip, float gain, float pitch, bool looping) override
+    VoiceId play(AssetID clip, float gain, float pitch, bool looping, bool spatial) override
     {
-        plays.push_back(PlayCall{clip, gain, pitch, looping});
+        plays.push_back(PlayCall{clip, gain, pitch, looping, spatial});
         return next_voice_++;
+    }
+
+    std::vector<AssetID> registered;
+    bool register_clip(AssetID clip, const float*, std::uint64_t, std::uint32_t,
+                       std::uint32_t) override
+    {
+        registered.push_back(clip);
+        return true;
     }
     void stop(VoiceId voice) override { stops.push_back(voice); }
     void set_gain(VoiceId voice, float gain) override { gains.emplace_back(voice, gain); }

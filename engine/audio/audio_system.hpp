@@ -52,7 +52,7 @@ public:
 
                 if (src.playing && !st.was_playing)
                 {
-                    st.id    = backend_->play(src.clip, src.gain, src.pitch, src.looping);
+                    st.id    = backend_->play(src.clip, src.gain, src.pitch, src.looping, src.spatial);
                     st.gain  = src.gain;
                     st.pitch = src.pitch;
                 }
