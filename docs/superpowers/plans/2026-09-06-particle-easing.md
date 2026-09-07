@@ -122,20 +122,20 @@ TEST_CASE("default emitter easing is linear", "[particles]")
 }
 ```
 
-Also extend the existing `TEST_CASE("ParticleEmitter round-trips through reflection", ...)`. After the current `e.end_alpha = 0.25f;` line in the setup block, add:
+Also extend the existing `TEST_CASE("ParticleEmitter round-trips through reflection", ...)`. This test appears *above* the `using`-declarations added below, so reference the enumerators fully qualified here. After the current `e.end_alpha = 0.25f;` line in the setup block, add:
 
 ```cpp
-    e.color_easing = EaseIn;
-    e.size_easing = EaseOut;
-    e.alpha_easing = EaseInOut;
+    e.color_easing = mosaic::engine::particles::EaseIn;
+    e.size_easing = mosaic::engine::particles::EaseOut;
+    e.alpha_easing = mosaic::engine::particles::EaseInOut;
 ```
 
 and after the existing `REQUIRE(back.end_alpha == Approx(0.25f));` assertion, add:
 
 ```cpp
-    REQUIRE(back.color_easing == EaseIn);
-    REQUIRE(back.size_easing == EaseOut);
-    REQUIRE(back.alpha_easing == EaseInOut);
+    REQUIRE(back.color_easing == mosaic::engine::particles::EaseIn);
+    REQUIRE(back.size_easing == mosaic::engine::particles::EaseOut);
+    REQUIRE(back.alpha_easing == mosaic::engine::particles::EaseInOut);
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
