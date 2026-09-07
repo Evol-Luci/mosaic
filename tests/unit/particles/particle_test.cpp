@@ -112,6 +112,9 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     e.end_size         = 0.05f;
     e.alpha            = 0.8f;
     e.end_alpha        = 0.25f;
+    e.color_easing     = mosaic::engine::particles::EaseIn;
+    e.size_easing      = mosaic::engine::particles::EaseOut;
+    e.alpha_easing     = mosaic::engine::particles::EaseInOut;
 
     const auto value = mosaic::foundation::serialization::to_value(e);
     ParticleEmitter back;
@@ -136,6 +139,9 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     REQUIRE(back.end_size == Approx(0.05f));
     REQUIRE(back.alpha == Approx(0.8f));
     REQUIRE(back.end_alpha == Approx(0.25f));
+    REQUIRE(back.color_easing == mosaic::engine::particles::EaseIn);
+    REQUIRE(back.size_easing == mosaic::engine::particles::EaseOut);
+    REQUIRE(back.alpha_easing == mosaic::engine::particles::EaseInOut);
 }
 
 using mosaic::engine::particles::alpha_at;
@@ -204,4 +210,83 @@ TEST_CASE("default emitter reproduces the previous constant/fade behavior", "[pa
     REQUIRE(alpha_at(e, 0.0f) == Approx(1.0f));
     REQUIRE(alpha_at(e, 0.25f) == Approx(0.75f));
     REQUIRE(alpha_at(e, 1.0f) == Approx(0.0f));
+}
+
+using mosaic::engine::particles::apply_easing;
+using mosaic::engine::particles::EaseIn;
+using mosaic::engine::particles::EaseInOut;
+using mosaic::engine::particles::EaseLinear;
+using mosaic::engine::particles::EaseOut;
+
+TEST_CASE("apply_easing maps endpoints 0->0 and 1->1 for every mode", "[particles]")
+{
+    for (int mode : {EaseLinear, EaseIn, EaseOut, EaseInOut})
+    {
+        REQUIRE(apply_easing(mode, 0.0f) == Approx(0.0f));
+        REQUIRE(apply_easing(mode, 1.0f) == Approx(1.0f));
+    }
+}
+
+TEST_CASE("apply_easing produces the expected midpoint per mode", "[particles]")
+{
+    REQUIRE(apply_easing(EaseLinear, 0.5f) == Approx(0.5f));
+    REQUIRE(apply_easing(EaseIn, 0.5f) == Approx(0.25f));
+    REQUIRE(apply_easing(EaseOut, 0.5f) == Approx(0.75f));
+    REQUIRE(apply_easing(EaseInOut, 0.5f) == Approx(0.5f)); // smoothstep(0.5)=0.5
+}
+
+TEST_CASE("apply_easing falls back to linear for an unknown mode", "[particles]")
+{
+    REQUIRE(apply_easing(99, 0.25f) == Approx(0.25f));
+    REQUIRE(apply_easing(-3, 0.8f) == Approx(0.8f));
+}
+
+TEST_CASE("over-life helpers apply the property's easing", "[particles]")
+{
+    ParticleEmitter e;
+    e.color = Vec3{0.0f, 0.0f, 0.0f};
+    e.end_color = Vec3{1.0f, 1.0f, 1.0f};
+    e.size = 0.0f;
+    e.end_size = 1.0f;
+    e.alpha = 0.0f;
+    e.end_alpha = 1.0f;
+    e.color_easing = EaseIn;   // t^2 -> 0.25 at t=0.5
+    e.size_easing = EaseOut;   // 1-(1-t)^2 -> 0.75 at t=0.5
+    e.alpha_easing = EaseInOut; // smoothstep -> 0.5 at t=0.5
+
+    REQUIRE(color_at(e, 0.5f).x == Approx(0.25f));
+    REQUIRE(size_at(e, 0.5f) == Approx(0.75f));
+    REQUIRE(alpha_at(e, 0.5f) == Approx(0.5f));
+}
+
+TEST_CASE("over-life endpoints stay exact under any easing", "[particles]")
+{
+    ParticleEmitter e;
+    e.color = Vec3{0.2f, 0.4f, 0.6f};
+    e.end_color = Vec3{0.8f, 0.1f, 0.0f};
+    e.size = 0.25f;
+    e.end_size = 1.0f;
+    e.alpha = 1.0f;
+    e.end_alpha = 0.0f;
+    e.color_easing = EaseIn;
+    e.size_easing = EaseOut;
+    e.alpha_easing = EaseInOut;
+
+    REQUIRE(color_at(e, 0.0f).x == Approx(0.2f));
+    REQUIRE(color_at(e, 1.0f).x == Approx(0.8f));
+    REQUIRE(size_at(e, 0.0f) == Approx(0.25f));
+    REQUIRE(size_at(e, 1.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 0.0f) == Approx(1.0f));
+    REQUIRE(alpha_at(e, 1.0f) == Approx(0.0f));
+}
+
+TEST_CASE("default emitter easing is linear", "[particles]")
+{
+    ParticleEmitter e; // *_easing all default 0
+    REQUIRE(e.color_easing == 0);
+    REQUIRE(e.size_easing == 0);
+    REQUIRE(e.alpha_easing == 0);
+    e.size = 0.0f;
+    e.end_size = 1.0f;
+    REQUIRE(size_at(e, 0.5f) == Approx(0.5f)); // linear midpoint
 }
