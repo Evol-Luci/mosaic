@@ -47,6 +47,8 @@
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/script_python/python_script_engine.hpp"
+#include "engine/audio/audio_backend.hpp"
+#include "modules/audio_miniaudio/miniaudio_backend.hpp"
 
 namespace
 {
@@ -166,16 +168,26 @@ int main(int argc, char** argv)
     script_host.request_stop = [] { g_stop.store(true); };
     script_host.set_playing  = [](bool playing) { if (!playing) { g_stop.store(true); } };
 
+    // Real audio device only for the interactive windowed run; headless runs stay silent.
+    std::unique_ptr<mosaic::engine::audio::AudioBackend> audio =
+        options.window ? mosaic::audio::miniaudio::create_miniaudio_backend() : nullptr;
+    mosaic::engine::audio::AudioBackend* audio_raw = audio.get();
+
     auto render_system =
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
-                      script_host, options.script_thread)
+                      script_host, options.script_thread, std::move(audio))
             .render_system;
 
     if (options.assets_dir)
     {
         const int n = load_project_assets(asset_registry, *options.assets_dir);
         if (n > 0) { mosaic::foundation::log::info("import", "loaded {} project asset(s)", n); }
+        if (audio_raw != nullptr)
+        {
+            const int a = mosaic::app::register_audio_clips(*audio_raw, asset_registry);
+            if (a > 0) { mosaic::foundation::log::info("audio", "registered {} audio clip(s)", a); }
+        }
     }
 
     if (options.window)
