@@ -1,12 +1,16 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <utility>
 
 #include "engine/animation/animation_system.hpp"
+#include "engine/audio/audio_clip.hpp"
+#include "engine/audio/audio_components.hpp"
+#include "engine/audio/audio_system.hpp"
 #include "engine/particles/particle_system.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
@@ -47,6 +51,32 @@ inline const mosaic::foundation::serialization::AssetID kSolidTextureId{
 inline const mosaic::foundation::serialization::AssetID kStripesTextureId{
     std::array<std::uint8_t, 16>{0xB2}};
 
+// Well-known AssetID for the procedural demo tone (A4). Same fixed-id pattern as the textures.
+inline const mosaic::foundation::serialization::AssetID kToneClipId{
+    std::array<std::uint8_t, 16>{0xA0, 0xD1, 0x0}};
+
+// A short looping stereo 440 Hz sine, generated in code (no committed binary). Used as the
+// default scene's demo sound so `mosaic run --window` is audible.
+inline std::shared_ptr<mosaic::engine::audio::AudioClip> make_demo_tone()
+{
+    const std::uint32_t rate     = 48000;
+    const std::uint32_t channels = 2;
+    const std::uint64_t frames   = rate / 2; // 0.5 s
+    auto                clip      = std::make_shared<mosaic::engine::audio::AudioClip>();
+    clip->channels    = channels;
+    clip->sample_rate = rate;
+    clip->frames      = frames;
+    clip->pcm.resize(static_cast<std::size_t>(frames) * channels);
+    for (std::uint64_t i = 0; i < frames; ++i)
+    {
+        const float s = 0.2f * std::sin(2.0f * 3.14159265f * 440.0f *
+                                        static_cast<float>(i) / static_cast<float>(rate));
+        clip->pcm[i * channels + 0] = s;
+        clip->pcm[i * channels + 1] = s;
+    }
+    return clip;
+}
+
 // The RenderSystem the frame loop drives. (Non-serialized runtime state.)
 struct RuntimeScene
 {
@@ -83,7 +113,8 @@ inline RuntimeScene setup_runtime(
     const mosaic::engine::reflection::ComponentReflection&  reflection,
     mosaic::engine::script::ScriptSystem::EngineFactory     script_factory,
     mosaic::engine::script::ScriptHost                      host = {},
-    bool                                                    script_thread = false)
+    bool                                                    script_thread = false,
+    std::unique_ptr<mosaic::engine::audio::AudioBackend>    audio_backend = nullptr)
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
@@ -105,6 +136,21 @@ inline RuntimeScene setup_runtime(
 
     // Particles: spawn/age transient particles per emitter (reads Transform, writes nothing back).
     world.add_system<mosaic::engine::particles::ParticleSystem>();
+
+    // Audio: an injected backend (null in headless/tests -> AudioSystem no-ops). When a real
+    // backend is present, register the procedural demo tone so the default scene is audible.
+    if (audio_backend != nullptr)
+    {
+        auto tone = make_demo_tone();
+        audio_backend->register_clip(kToneClipId, tone->pcm.data(), tone->frames, tone->channels,
+                                     tone->sample_rate);
+        mosaic::engine::assets::AssetMetadata tone_meta;
+        tone_meta.uuid    = kToneClipId;
+        tone_meta.type    = "audio";
+        tone_meta.version = 1;
+        registry.register_resource<mosaic::engine::audio::AudioClip>(tone_meta, tone);
+    }
+    world.add_system<mosaic::engine::audio::AudioSystem>(std::move(audio_backend));
 
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
@@ -271,6 +317,8 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(camera,
         transform::Transform{Vec3{0, 2.5f, 9}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::Camera>(camera, render::Camera{});
+    world.add_component<mosaic::engine::audio::AudioListener>(
+        camera, mosaic::engine::audio::AudioListener{});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();
@@ -298,6 +346,16 @@ inline void build_default_scene(mosaic::engine::World& world)
     trail.end_alpha        = 0.0f;
     trail.alpha_easing     = mosaic::engine::particles::EaseOut;
     world.add_component<mosaic::engine::particles::ParticleEmitter>(orbiter, trail);
+
+    // A looping 3D tone on the orbiter — pans as it circles (script-driven emission's sibling
+    // for audio). References kToneClipId, which setup_runtime registers with the backend.
+    mosaic::engine::audio::AudioSource orbiter_sound;
+    orbiter_sound.clip    = kToneClipId;
+    orbiter_sound.gain    = 0.5f;
+    orbiter_sound.looping = true;
+    orbiter_sound.spatial = true;
+    orbiter_sound.playing = true;
+    world.add_component<mosaic::engine::audio::AudioSource>(orbiter, orbiter_sound);
 
     // A fountain of orange particles rising and falling under gravity. No MeshRenderer:
     // the emitter itself is invisible; only its particles draw (RenderSystem particle pass).

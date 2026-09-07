@@ -128,3 +128,25 @@ TEST_CASE("import_asset rejects a non-WAV .wav", "[app]")
 
     fs::remove_all(proj); fs::remove(src);
 }
+
+TEST_CASE("register_audio_clips hands loaded audio assets to a backend", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("proj_reg");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+    const std::string src = tmp("src_reg") + ".wav";
+    REQUIRE(save_scene_file(src, make_wav16(48000, 2000)));
+    const auto id = import_asset(proj, src);
+    REQUIRE(id.has_value());
+
+    AssetRegistry registry;
+    REQUIRE(load_project_assets(registry, (fs::path(proj) / "assets").string()) == 1);
+
+    auto backend = create_miniaudio_backend(/*null_device=*/true);
+    REQUIRE(backend != nullptr);
+    REQUIRE(mosaic::app::register_audio_clips(*backend, registry) == 1);
+    REQUIRE(backend->play(*id, 1.0f, 1.0f, false, true) != 0); // clip is now playable
+
+    fs::remove_all(proj); fs::remove(src);
+}
