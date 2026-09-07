@@ -3,6 +3,7 @@
 #include <string>
 
 #include "engine/animation/animation_player.hpp"
+#include "engine/audio/audio_components.hpp"
 #include "engine/navigation/nav_agent.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -42,6 +43,8 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::sequencer::Sequence>(registry, "Sequence");
     types.register_component<mosaic::engine::navigation::NavAgent>(registry, "NavAgent");
     types.register_component<mosaic::engine::particles::ParticleEmitter>(registry, "ParticleEmitter");
+    types.register_component<mosaic::engine::audio::AudioSource>(registry, "AudioSource");
+    types.register_component<mosaic::engine::audio::AudioListener>(registry, "AudioListener");
 }
 
 } // namespace mosaic::engine::reflection
