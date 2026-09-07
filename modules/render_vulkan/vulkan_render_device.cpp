@@ -63,6 +63,13 @@ struct RibbonPush
 };
 static_assert(sizeof(RibbonPush) == 64, "ribbon push constant layout must match the shader");
 
+struct DecalPush
+{
+    float mvp[16];
+    float color[4]; // rgb = tint, a = alpha
+};
+static_assert(sizeof(DecalPush) == 80, "decal push constant layout must match the shader");
+
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
 void vk_check(VkResult r, const char* what)
@@ -174,6 +181,7 @@ public:
         create_pipeline();
         create_particle_pipeline();
         create_ribbon_pipeline();
+        create_decal_pipeline();
         create_command_pool_and_buffers();
         create_sync_objects();
 
@@ -258,6 +266,9 @@ public:
             if (vp_ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ribbon_pipeline_, nullptr); }
             if (ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, ribbon_pipeline_, nullptr); }
             if (ribbon_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, ribbon_pipeline_layout_, nullptr); }
+            if (vp_decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_decal_pipeline_, nullptr); }
+            if (decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, decal_pipeline_, nullptr); }
+            if (decal_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, decal_pipeline_layout_, nullptr); }
             for (auto& ib : particle_instances_)
             {
                 if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
@@ -659,6 +670,32 @@ public:
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd_[frame_], 0, 1, &vb.buf, &offset);
         vkCmdDraw(cmd_[frame_], static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+    }
+
+    void draw_decals(const std::vector<mosaic::engine::render::DecalInstance>& decals) override
+    {
+        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        if (frame_skipped_ || decals.empty() || textures_.empty()) { return; }
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          viewport_pass_open_ ? vp_decal_pipeline_ : decal_pipeline_);
+
+        for (const auto& d : decals)
+        {
+            const std::uint32_t tex_index =
+                (d.texture == 0 || d.texture > textures_.size()) ? 0u : d.texture - 1u;
+            vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    decal_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0,
+                                    nullptr);
+            DecalPush pc{};
+            std::memcpy(pc.mvp, d.mvp.m.data(), sizeof(pc.mvp));
+            pc.color[0] = d.color.x; pc.color[1] = d.color.y; pc.color[2] = d.color.z;
+            pc.color[3] = d.alpha;
+            vkCmdPushConstants(cmd_[frame_], decal_pipeline_layout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                               sizeof(pc), &pc);
+            vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
+        }
     }
 
     void begin_frame() override
@@ -1973,6 +2010,99 @@ private:
         vkDestroyShaderModule(device_, vert, nullptr);
     }
 
+    void create_decal_pipeline()
+    {
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/decal.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/decal.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        // No vertex buffer: the quad is generated from gl_VertexIndex.
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE; // quad visible from both sides
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_TRUE;
+        depth.depthWriteEnable = VK_FALSE; // transparent: respect scene depth, don't occlude peers
+        depth.depthCompareOp = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        push.offset = 0; push.size = sizeof(DecalPush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1; layout.pSetLayouts = &texture_set_layout_;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &decal_pipeline_layout_),
+                 "vkCreatePipelineLayout(decal)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = decal_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &decal_pipeline_),
+                 "vkCreateGraphicsPipelines(decal)");
+
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_decal_pipeline_),
+                 "vkCreateGraphicsPipelines(decal offscreen)");
+
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
     // --- buffers / one-time transfers -------------------------------------
 
     void create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -2285,6 +2415,9 @@ private:
     VkPipeline       ribbon_pipeline_ = VK_NULL_HANDLE;
     VkPipeline       vp_ribbon_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout ribbon_pipeline_layout_ = VK_NULL_HANDLE;
+    VkPipeline       decal_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline       vp_decal_pipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout decal_pipeline_layout_ = VK_NULL_HANDLE;
 
     struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
     std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
