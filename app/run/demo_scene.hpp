@@ -14,6 +14,8 @@
 #include "engine/particles/particle_system.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
+#include "engine/vfx/trail_renderer.hpp"
+#include "engine/vfx/trail_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -136,6 +138,9 @@ inline RuntimeScene setup_runtime(
 
     // Particles: spawn/age transient particles per emitter (reads Transform, writes nothing back).
     world.add_system<mosaic::engine::particles::ParticleSystem>();
+
+    // Trails: sample moving entities' positions for the VFX billboard-chain pass.
+    world.add_system<mosaic::engine::vfx::TrailSystem>();
 
     // Audio: an injected backend (null in headless/tests -> AudioSystem no-ops). When a real
     // backend is present, register the procedural demo tone so the default scene is audible.
@@ -287,6 +292,13 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
+
+    mosaic::engine::vfx::TrailRenderer sphere_trail;
+    sphere_trail.color           = Vec3{0.4f, 0.7f, 1.0f}; // pale blue tail
+    sphere_trail.size            = 0.18f;
+    sphere_trail.max_points      = 40;
+    sphere_trail.sample_interval = 0.02f;
+    world.add_component<mosaic::engine::vfx::TrailRenderer>(sphere, sphere_trail);
 
     const auto capsule = world.create_entity();
     world.add_component<transform::Transform>(capsule,
