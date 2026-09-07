@@ -14,6 +14,7 @@
 #include "engine/particles/particle_system.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
+#include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -276,6 +277,15 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Material>(ground, render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}});
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    // A decal lying flat on the ground (rotated so the local XY quad faces up).
+    const auto decal = world.create_entity();
+    world.add_component<transform::Transform>(decal,
+        transform::Transform{Vec3{0, 0.02f, 0},
+                             mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.5707963f),
+                             Vec3{3, 3, 1}, {}});
+    world.add_component<mosaic::engine::vfx::Decal>(decal,
+        mosaic::engine::vfx::Decal{kStripesTextureId, Vec3{1.0f, 0.9f, 0.6f}, 0.85f});
 
     const auto box = world.create_entity();
     world.add_component<transform::Transform>(box,

@@ -55,8 +55,11 @@ int transform_count(const std::string& scene_path, const ComponentReflection& ty
     Options o; o.scene = scene_path;
     World w;
     if (!populate_world(w, o, types)) return -1;
-    int n = 0; w.for_each<Transform>([&](World::EntityID, Transform&) { ++n; });
-    return n;
+    // 1 ground, 4 dynamic physics objects, 1 camera, 1 orbiter, 1 fountain, 1 puffer, 1 point light, 1 decal = 11 transforms
+    int transforms = 0;
+    w.for_each<mosaic::engine::transform::Transform>(
+        [&](World::EntityID, mosaic::engine::transform::Transform&) { transforms++; });
+    return transforms;
 }
 } // namespace
 
@@ -76,9 +79,9 @@ TEST_CASE("build_bundle produces a runnable self-contained bundle", "[app]")
     auto m = load_manifest(out);
     REQUIRE(m.has_value());
     REQUIRE(m->default_scene == "scenes/main.json");
-    // Scene copied + loads to the 10-entity demo (8 + the fountain emitter + the scripted puffer).
+    // Scene copied + loads to the 11-entity demo (8 + the fountain emitter + the scripted puffer + the decal).
     REQUIRE(fs::exists(fs::path(out) / "scenes" / "main.json"));
-    REQUIRE(transform_count((fs::path(out) / "scenes" / "main.json").string(), types) == 10);
+    REQUIRE(transform_count((fs::path(out) / "scenes" / "main.json").string(), types) == 11);
     // Runtime binary copied verbatim + executable.
     REQUIRE(fs::exists(fs::path(out) / "mosaic"));
     REQUIRE(mosaic::app::load_scene_file((fs::path(out) / "mosaic").string()).value() == bin_bytes);

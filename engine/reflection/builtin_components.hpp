@@ -16,6 +16,7 @@
 #include "engine/render/point_light.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/transform/transform.hpp"
+#include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
@@ -47,6 +48,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::audio::AudioSource>(registry, "AudioSource");
     types.register_component<mosaic::engine::audio::AudioListener>(registry, "AudioListener");
     types.register_component<mosaic::engine::vfx::TrailRenderer>(registry, "TrailRenderer");
+    types.register_component<mosaic::engine::vfx::Decal>(registry, "Decal");
 }
 
 } // namespace mosaic::engine::reflection
