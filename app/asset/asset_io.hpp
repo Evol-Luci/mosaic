@@ -9,6 +9,7 @@
 #include <string>
 
 #include "app/asset/image_cook.hpp"
+#include "app/asset/audio_cook.hpp"
 #include "app/project/project_io.hpp" // load_manifest
 #include "app/run/scene_io.hpp"       // save_scene_file / load_scene_file
 #include "engine/assets/asset_metadata.hpp"
@@ -61,6 +62,18 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         blob_bytes = *src;       // script blob is the source text verbatim
         blob_ext   = ".script";
         asset_type = "script";
+    }
+    else if (ext == ".wav")
+    {
+        const std::optional<mosaic::engine::audio::AudioClip> clip = read_wav(*src);
+        if (!clip)
+        {
+            mosaic::foundation::log::error("import", "not a supported WAV (16-bit PCM or float32): {}", source_file);
+            return std::nullopt;
+        }
+        blob_bytes = cook_audio(*clip);
+        blob_ext   = ".audioclip";
+        asset_type = "audio";
     }
     else
     {
@@ -153,6 +166,20 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             registry.register_resource<mosaic::engine::script::ScriptSource>(
                 meta, std::make_shared<mosaic::engine::script::ScriptSource>(
                           mosaic::engine::script::ScriptSource{*text}));
+            ++count;
+            continue;
+        }
+
+        if (meta.type == "audio")
+        {
+            const fs::path clip_path =
+                entry.path().parent_path() / (entry.path().stem().string() + ".audioclip");
+            const std::optional<std::string> blob = load_scene_file(clip_path.string());
+            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked audio {}", clip_path.string()); continue; }
+            const std::optional<mosaic::engine::audio::AudioClip> clip = uncook_audio(*blob);
+            if (!clip) { mosaic::foundation::log::warn("import", "corrupt cooked audio {}", clip_path.string()); continue; }
+            registry.register_resource<mosaic::engine::audio::AudioClip>(
+                meta, std::make_shared<mosaic::engine::audio::AudioClip>(*clip));
             ++count;
             continue;
         }
