@@ -131,6 +131,8 @@ add_executable(mosaic_unit_tests
   unit/audio/audio_components_test.cpp
   unit/audio/audio_system_test.cpp
   unit/audio/miniaudio_backend_test.cpp
+  unit/app/audio_cook_test.cpp
+  unit/app/audio_asset_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
