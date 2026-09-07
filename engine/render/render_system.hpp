@@ -14,6 +14,7 @@
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_system.hpp"
 #include "engine/vfx/ribbon.hpp"
+#include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "foundation/math/mat4.hpp"
@@ -92,6 +93,21 @@ public:
                             DrawParams{projection * view * wt->matrix, light_obj,
                                        light.color, base_color, point_position, point_color, point_range});
             });
+
+        // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
+        // meshes so they blend onto surfaces; MVP composed here (device does no matrix math).
+        {
+            std::vector<DecalInstance> decals;
+            world.for_each<mosaic::engine::vfx::Decal>(
+                [&](mosaic::foundation::EntityID e, mosaic::engine::vfx::Decal& d)
+                {
+                    const auto* wt = world.get_component<transform::WorldTransform>(e);
+                    if (wt == nullptr) { return; }
+                    const TextureHandle tex = texture_cache_.get(d.texture, registry, device);
+                    decals.push_back(DecalInstance{projection * view * wt->matrix, tex, d.color, d.alpha});
+                });
+            if (!decals.empty()) { device.draw_decals(decals); }
+        }
 
         // Billboard pass: particles + trails share one instanced, camera-facing draw. Runs
         // last in the pass (the device binds the particle pipeline; no mesh draw may follow).

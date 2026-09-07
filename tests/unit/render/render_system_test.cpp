@@ -50,6 +50,7 @@ using mosaic::engine::render::ParticleInstance;
 using mosaic::engine::render::ParticleDrawParams;
 using mosaic::engine::render::RibbonVertex;
 using mosaic::engine::render::RibbonDrawParams;
+using mosaic::engine::render::DecalInstance;
 using mosaic::engine::particles::ParticleEmitter;
 using mosaic::engine::particles::ParticleSystem;
 using Catch::Approx;
@@ -95,6 +96,12 @@ public:
                       const RibbonDrawParams& params) override
     {
         ribbon_draws.push_back({vertices, params});
+    }
+
+    std::vector<std::vector<DecalInstance>> decal_draws;
+    void draw_decals(const std::vector<DecalInstance>& decals) override
+    {
+        decal_draws.push_back(decals);
     }
 };
 
@@ -593,4 +600,28 @@ TEST_CASE("RenderSystem draws a trail as a ribbon", "[render]")
     REQUIRE(device.ribbon_draws[0].vertices.size() == 6 * 3); // 6 verts/segment, 3 segments
     // Trails no longer contribute to the particle batch.
     REQUIRE(device.particle_draws.empty());
+}
+
+TEST_CASE("RenderSystem emits a decal instance per Decal entity", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{Mat4::identity()}); // as the mesh tests do
+    mosaic::engine::vfx::Decal d;
+    d.color = Vec3{0.3f, 0.6f, 0.9f};
+    d.alpha = 0.5f;
+    world.add_component<mosaic::engine::vfx::Decal>(e, d);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.decal_draws.size() == 1);
+    REQUIRE(device.decal_draws[0].size() == 1);
+    REQUIRE(device.decal_draws[0][0].color.x == Approx(0.3f));
+    REQUIRE(device.decal_draws[0][0].alpha == Approx(0.5f));
 }
