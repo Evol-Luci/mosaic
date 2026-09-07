@@ -100,6 +100,7 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     e.emitting         = false;
     e.rate             = 25.0f;
     e.burst            = 8;
+    e.burst_trigger    = 4;
     e.lifetime         = 4.5f;
     e.initial_velocity = Vec3{1.0f, 2.0f, 3.0f};
     e.spread           = 0.75f;
@@ -123,6 +124,7 @@ TEST_CASE("ParticleEmitter round-trips through reflection", "[particles]")
     REQUIRE(back.emitting == false);
     REQUIRE(back.rate == Approx(25.0f));
     REQUIRE(back.burst == 8);
+    REQUIRE(back.burst_trigger == 4);
     REQUIRE(back.lifetime == Approx(4.5f));
     REQUIRE(back.initial_velocity.y == Approx(2.0f));
     REQUIRE(back.spread == Approx(0.75f));

@@ -18,7 +18,8 @@ struct ParticleEmitter
 {
     bool          emitting         = true;                       // continuous emission on/off
     float         rate             = 10.0f;                      // particles per second
-    int           burst            = 0;                          // one-shot count on activation
+    int           burst            = 0;                          // count spawned per burst event
+    int           burst_trigger    = 0;                          // bump (e.g. += 1) to fire another burst
     float         lifetime         = 1.0f;                       // seconds each particle lives
     Vec3          initial_velocity = Vec3{0.0f, 1.0f, 0.0f};     // base spawn velocity
     float         spread           = 0.0f;                       // per-axis symmetric jitter
@@ -42,6 +43,7 @@ void reflect(V& visitor, ParticleEmitter& e)
     visitor.member("emitting", e.emitting);
     visitor.member("rate", e.rate);
     visitor.member("burst", e.burst);
+    visitor.member("burst_trigger", e.burst_trigger);
     visitor.member("lifetime", e.lifetime);
     visitor.member("initial_velocity", e.initial_velocity);
     visitor.member("spread", e.spread);
