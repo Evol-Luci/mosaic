@@ -60,6 +60,7 @@ public:
                     EmitterState st;
                     st.rng.state = em.seed;
                     st.last_burst_trigger = em.burst_trigger; // counter must not also fire on creation
+                    st.last_origin = origin; // no interpolation before the emitter has moved
                     fire_burst(st);                            // one-shot burst on first sight
                     it = states_.emplace(id, std::move(st)).first;
                 }
@@ -75,13 +76,26 @@ public:
                 if (em.emitting)
                 {
                     st.accumulator += em.rate * dt;
-                    while (st.accumulator >= 1.0f &&
-                           static_cast<int>(st.particles.size()) < em.max_particles)
+                    // Count how many spawn this tick (respecting the cap), then place them along
+                    // the path the emitter swept this tick (prev -> curr) so a moving emitter
+                    // streams instead of clumping. Stationary => prev == curr => spos == origin.
+                    int n = 0;
                     {
-                        st.particles.push_back(spawn_particle(em, origin, st.rng));
-                        st.accumulator -= 1.0f;
+                        float acc = st.accumulator;
+                        int   sz  = static_cast<int>(st.particles.size());
+                        while (acc >= 1.0f && sz < em.max_particles) { ++n; acc -= 1.0f; ++sz; }
                     }
+                    const mosaic::foundation::math::Vec3 prev = st.last_origin;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        const float f = (static_cast<float>(i) + 0.5f) / static_cast<float>(n);
+                        const mosaic::foundation::math::Vec3 spos = prev + (origin - prev) * f;
+                        st.particles.push_back(spawn_particle(em, spos, st.rng));
+                    }
+                    st.accumulator -= static_cast<float>(n);
                 }
+
+                st.last_origin = origin; // path start for next tick (set every tick, moving or not)
 
                 for (Particle& p : st.particles) { integrate(p, em.acceleration, dt); }
 
@@ -116,6 +130,7 @@ private:
         Rng                   rng;
         float                 accumulator = 0.0f;
         int                   last_burst_trigger = 0;
+        mosaic::foundation::math::Vec3 last_origin{}; // emitter origin at the previous tick (path start)
     };
 
     std::unordered_map<std::uint64_t, EmitterState> states_;
