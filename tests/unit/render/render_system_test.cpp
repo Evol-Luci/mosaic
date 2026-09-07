@@ -22,6 +22,8 @@
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/particles/particle_system.hpp"
+#include "engine/vfx/trail_renderer.hpp"
+#include "engine/vfx/trail_system.hpp"
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
@@ -552,4 +554,37 @@ TEST_CASE("RenderSystem interpolates particle color/size/alpha over life", "[ren
     REQUIRE(call.instances[0].color.x == Approx(0.1f));
     REQUIRE(call.instances[0].size == Approx(0.1f));
     REQUIRE(call.instances[0].alpha == Approx(0.9f));
+}
+
+TEST_CASE("RenderSystem draws a trail as tapered billboards", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+    world.add_system<mosaic::engine::vfx::TrailSystem>();
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::transform::Transform>(
+        e, mosaic::engine::transform::Transform{});
+    mosaic::engine::vfx::TrailRenderer tr;
+    tr.size            = 0.2f;
+    tr.color           = Vec3{0.1f, 0.2f, 0.3f};
+    tr.sample_interval = 0.05f;
+    tr.max_points      = 10;
+    world.add_component<mosaic::engine::vfx::TrailRenderer>(e, tr);
+
+    for (int i = 0; i < 4; ++i) { world.tick(0.05f); } // seed + 3 samples -> 4 points
+
+    rs.render(world, device, registry);
+    REQUIRE(device.particle_draws.size() == 1);
+    const auto& call = device.particle_draws[0];
+    REQUIRE(call.instances.size() == 4);
+    // Oldest (index 0) is faintest/smallest; newest (last) is full alpha + full size.
+    REQUIRE(call.instances.front().alpha == Approx(0.25f));
+    REQUIRE(call.instances.back().alpha == Approx(1.0f));
+    REQUIRE(call.instances.back().size == Approx(0.2f));
+    REQUIRE(call.instances.back().color.x == Approx(0.1f));
 }
