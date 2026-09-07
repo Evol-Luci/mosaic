@@ -163,6 +163,119 @@ TEST_CASE("ParticleSystem is bit-identical across two runs of the same schedule"
     }
 }
 
+TEST_CASE("ParticleSystem re-arms a burst when burst_trigger changes", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    ParticleEmitter em;
+    em.emitting = false; // isolate burst behavior
+    em.burst    = 5;
+    em.lifetime = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 5); // on-sight burst
+
+    world.get_component<ParticleEmitter>(e)->burst_trigger += 1;
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 10); // re-armed burst
+}
+
+TEST_CASE("ParticleSystem does not re-fire a burst without a trigger change", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    ParticleEmitter em;
+    em.emitting = false;
+    em.burst    = 4;
+    em.lifetime = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    world.tick(0.1f);
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 4); // only the on-sight burst
+}
+
+TEST_CASE("ParticleSystem fires one burst per tick regardless of multiple trigger bumps", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    ParticleEmitter em;
+    em.emitting = false;
+    em.burst    = 3;
+    em.lifetime = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 3);
+
+    auto* comp = world.get_component<ParticleEmitter>(e);
+    comp->burst_trigger += 1;
+    comp->burst_trigger += 1;
+    comp->burst_trigger += 1;
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 6); // one extra burst, not three
+}
+
+TEST_CASE("ParticleSystem burst re-arm respects max_particles", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    ParticleEmitter em;
+    em.emitting      = false;
+    em.burst         = 8;
+    em.max_particles = 10;
+    em.lifetime      = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 8);
+
+    world.get_component<ParticleEmitter>(e)->burst_trigger += 1;
+    world.tick(0.1f);
+    REQUIRE(sys.particles_for(e)->size() == 10); // capped, not 16
+}
+
+TEST_CASE("ParticleSystem burst re-arm is deterministic across runs", "[particles]")
+{
+    auto run = []
+    {
+        World world;
+        auto& sys = world.add_system<ParticleSystem>();
+        const auto e = world.create_entity();
+        ParticleEmitter em;
+        em.emitting = false;
+        em.burst    = 4;
+        em.spread   = 1.0f; // seeded jitter so buffers are non-trivial
+        em.lifetime = 100.0f;
+        em.seed     = 7;
+        world.add_component<ParticleEmitter>(e, em);
+        world.tick(0.1f);
+        world.get_component<ParticleEmitter>(e)->burst_trigger += 1;
+        world.tick(0.1f);
+        return *sys.particles_for(e); // copy the pool
+    };
+
+    const auto a = run();
+    const auto b = run();
+    REQUIRE(a.size() == b.size());
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        REQUIRE(a[i].position.x == b[i].position.x);
+        REQUIRE(a[i].velocity.x == b[i].velocity.x);
+        REQUIRE(a[i].age == b[i].age);
+    }
+}
+
 #include "engine/reflection/builtin_components.hpp"
 #include "foundation/reflection/type_registry.hpp"
 

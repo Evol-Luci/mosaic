@@ -42,21 +42,35 @@ public:
                     origin = tf->position;
                 }
 
+                // Spawn `burst` particles (shared by the on-sight burst and re-arms),
+                // capped at max_particles.
+                auto fire_burst = [&](EmitterState& s)
+                {
+                    for (int i = 0; i < em.burst &&
+                         static_cast<int>(s.particles.size()) < em.max_particles;
+                         ++i)
+                    {
+                        s.particles.push_back(spawn_particle(em, origin, s.rng));
+                    }
+                };
+
                 auto it = states_.find(id);
                 if (it == states_.end())
                 {
                     EmitterState st;
                     st.rng.state = em.seed;
-                    // One-shot burst on first sight.
-                    for (int i = 0; i < em.burst && static_cast<int>(st.particles.size()) <
-                                        em.max_particles;
-                         ++i)
-                    {
-                        st.particles.push_back(spawn_particle(em, origin, st.rng));
-                    }
+                    st.last_burst_trigger = em.burst_trigger; // counter must not also fire on creation
+                    fire_burst(st);                            // one-shot burst on first sight
                     it = states_.emplace(id, std::move(st)).first;
                 }
                 EmitterState& st = it->second;
+
+                // Re-arm: any change to burst_trigger fires exactly one more burst.
+                if (em.burst_trigger != st.last_burst_trigger)
+                {
+                    fire_burst(st);
+                    st.last_burst_trigger = em.burst_trigger;
+                }
 
                 if (em.emitting)
                 {
@@ -101,6 +115,7 @@ private:
         std::vector<Particle> particles;
         Rng                   rng;
         float                 accumulator = 0.0f;
+        int                   last_burst_trigger = 0;
     };
 
     std::unordered_map<std::uint64_t, EmitterState> states_;
