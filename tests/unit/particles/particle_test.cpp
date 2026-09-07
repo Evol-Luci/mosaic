@@ -215,6 +215,9 @@ TEST_CASE("default emitter reproduces the previous constant/fade behavior", "[pa
 }
 
 using mosaic::engine::particles::apply_easing;
+using mosaic::engine::particles::EaseCubicIn;
+using mosaic::engine::particles::EaseCubicInOut;
+using mosaic::engine::particles::EaseCubicOut;
 using mosaic::engine::particles::EaseIn;
 using mosaic::engine::particles::EaseInOut;
 using mosaic::engine::particles::EaseLinear;
@@ -222,7 +225,8 @@ using mosaic::engine::particles::EaseOut;
 
 TEST_CASE("apply_easing maps endpoints 0->0 and 1->1 for every mode", "[particles]")
 {
-    for (int mode : {EaseLinear, EaseIn, EaseOut, EaseInOut})
+    for (int mode : {EaseLinear, EaseIn, EaseOut, EaseInOut, EaseCubicIn, EaseCubicOut,
+                     EaseCubicInOut})
     {
         REQUIRE(apply_easing(mode, 0.0f) == Approx(0.0f));
         REQUIRE(apply_easing(mode, 1.0f) == Approx(1.0f));
@@ -235,6 +239,25 @@ TEST_CASE("apply_easing produces the expected midpoint per mode", "[particles]")
     REQUIRE(apply_easing(EaseIn, 0.5f) == Approx(0.25f));
     REQUIRE(apply_easing(EaseOut, 0.5f) == Approx(0.75f));
     REQUIRE(apply_easing(EaseInOut, 0.5f) == Approx(0.5f)); // smoothstep(0.5)=0.5
+    REQUIRE(apply_easing(EaseCubicIn, 0.5f) == Approx(0.125f));   // 0.5^3
+    REQUIRE(apply_easing(EaseCubicOut, 0.5f) == Approx(0.875f));  // 1 - 0.5^3
+    REQUIRE(apply_easing(EaseCubicInOut, 0.5f) == Approx(0.5f));
+}
+
+TEST_CASE("apply_easing cubic curves stay monotonic within [0,1]", "[particles]")
+{
+    for (int mode : {EaseCubicIn, EaseCubicOut, EaseCubicInOut})
+    {
+        float prev = apply_easing(mode, 0.0f);
+        for (int i = 1; i <= 20; ++i)
+        {
+            const float v = apply_easing(mode, static_cast<float>(i) / 20.0f);
+            REQUIRE(v >= prev - 1e-6f); // non-decreasing
+            REQUIRE(v >= -1e-6f);
+            REQUIRE(v <= 1.0f + 1e-6f); // no overshoot outside [0,1]
+            prev = v;
+        }
+    }
 }
 
 TEST_CASE("apply_easing falls back to linear for an unknown mode", "[particles]")
