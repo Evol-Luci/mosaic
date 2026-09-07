@@ -281,6 +281,24 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
 
+    // A continuous emitter on the moving orbiter: sub-frame spawn interpolation
+    // spreads its trail smoothly along the orbit arc instead of clumping per tick.
+    mosaic::engine::particles::ParticleEmitter trail;
+    trail.emitting         = true;
+    trail.rate             = 40.0f;
+    trail.lifetime         = 0.8f;
+    trail.initial_velocity = Vec3{0.0f, 0.0f, 0.0f};
+    trail.spread           = 0.2f;
+    trail.acceleration     = Vec3{0.0f, 0.0f, 0.0f};
+    trail.color            = Vec3{0.2f, 0.9f, 0.3f};   // match the cube (green)
+    trail.size             = 0.08f;
+    trail.end_color        = Vec3{0.9f, 0.9f, 0.2f};   // fade to yellow
+    trail.end_size         = 0.01f;
+    trail.alpha            = 1.0f;
+    trail.end_alpha        = 0.0f;
+    trail.alpha_easing     = mosaic::engine::particles::EaseOut;
+    world.add_component<mosaic::engine::particles::ParticleEmitter>(orbiter, trail);
+
     // A fountain of orange particles rising and falling under gravity. No MeshRenderer:
     // the emitter itself is invisible; only its particles draw (RenderSystem particle pass).
     const auto fountain = world.create_entity();

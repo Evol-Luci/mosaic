@@ -276,6 +276,136 @@ TEST_CASE("ParticleSystem burst re-arm is deterministic across runs", "[particle
     }
 }
 
+TEST_CASE("ParticleSystem interpolates a single continuous spawn to the path midpoint", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    Transform tf;
+    tf.position = mosaic::foundation::math::Vec3{0.0f, 0.0f, 0.0f};
+    world.add_component<Transform>(e, tf);
+
+    ParticleEmitter em;
+    em.emitting         = true;
+    em.rate             = 10.0f; // rate*dt = 1 -> exactly one spawn per tick
+    em.spread           = 0.0f;
+    em.initial_velocity = mosaic::foundation::math::Vec3{}; // isolate position
+    em.acceleration     = mosaic::foundation::math::Vec3{};
+    em.lifetime         = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f); // first tick: prev == curr == (0,0,0); one particle at x=0
+    world.get_component<Transform>(e)->position = mosaic::foundation::math::Vec3{10.0f, 0.0f, 0.0f};
+    world.tick(0.1f); // swept (0)->(10); the one continuous spawn lands at the midpoint x=5
+
+    const auto& pool = *sys.particles_for(e);
+    REQUIRE(pool.size() == 2);
+    // The tick-2 particle is the only one with x>0; it must sit at the path midpoint, not at 10.
+    float max_x = 0.0f;
+    for (const auto& p : pool) { max_x = std::max(max_x, p.position.x); }
+    REQUIRE(max_x == Approx(5.0f));
+}
+
+TEST_CASE("ParticleSystem spreads multiple continuous spawns along the path", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    Transform tf;
+    tf.position = mosaic::foundation::math::Vec3{0.0f, 0.0f, 0.0f};
+    world.add_component<Transform>(e, tf);
+
+    ParticleEmitter em;
+    em.emitting         = true;
+    em.rate             = 30.0f; // 3 spawns per 0.1s tick
+    em.spread           = 0.0f;
+    em.initial_velocity = mosaic::foundation::math::Vec3{};
+    em.acceleration     = mosaic::foundation::math::Vec3{};
+    em.lifetime         = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f); // 3 particles at x=0 (first tick, no interpolation)
+    world.get_component<Transform>(e)->position = mosaic::foundation::math::Vec3{10.0f, 0.0f, 0.0f};
+    world.tick(0.1f); // 3 more spread along (0)->(10) at f = 0.5/3, 1.5/3, 2.5/3
+
+    const auto& pool = *sys.particles_for(e);
+    REQUIRE(pool.size() == 6);
+    // Collect the tick-2 particles (x > 0) and check they are the spread {5/3, 5, 25/3}.
+    std::vector<float> xs;
+    for (const auto& p : pool) { if (p.position.x > 0.001f) { xs.push_back(p.position.x); } }
+    std::sort(xs.begin(), xs.end());
+    REQUIRE(xs.size() == 3);
+    REQUIRE(xs[0] == Approx(5.0f / 3.0f));
+    REQUIRE(xs[1] == Approx(5.0f));
+    REQUIRE(xs[2] == Approx(25.0f / 3.0f));
+}
+
+TEST_CASE("ParticleSystem re-armed burst is not path-interpolated", "[particles]")
+{
+    World world;
+    auto& sys = world.add_system<ParticleSystem>();
+
+    const auto e = world.create_entity();
+    Transform tf;
+    tf.position = mosaic::foundation::math::Vec3{0.0f, 0.0f, 0.0f};
+    world.add_component<Transform>(e, tf);
+
+    ParticleEmitter em;
+    em.emitting         = false; // burst-only, isolate burst behavior
+    em.burst            = 3;
+    em.spread           = 0.0f;
+    em.initial_velocity = mosaic::foundation::math::Vec3{};
+    em.acceleration     = mosaic::foundation::math::Vec3{};
+    em.lifetime         = 100.0f;
+    world.add_component<ParticleEmitter>(e, em);
+
+    world.tick(0.1f); // on-sight burst of 3 at x=0
+    world.get_component<Transform>(e)->position = mosaic::foundation::math::Vec3{10.0f, 0.0f, 0.0f};
+    world.get_component<ParticleEmitter>(e)->burst_trigger += 1;
+    world.tick(0.1f); // re-armed burst: all 3 at the current origin x=10, NOT spread
+
+    const auto& pool = *sys.particles_for(e);
+    REQUIRE(pool.size() == 6);
+    int at_ten = 0;
+    for (const auto& p : pool) { if (p.position.x == Approx(10.0f)) { ++at_ten; } }
+    REQUIRE(at_ten == 3); // the whole re-armed burst spawned at the current origin
+}
+
+TEST_CASE("ParticleSystem path interpolation is deterministic under motion", "[particles]")
+{
+    auto run = []
+    {
+        World world;
+        auto& sys = world.add_system<ParticleSystem>();
+        const auto e = world.create_entity();
+        Transform tf;
+        tf.position = mosaic::foundation::math::Vec3{0.0f, 0.0f, 0.0f};
+        world.add_component<Transform>(e, tf);
+        ParticleEmitter em;
+        em.emitting = true;
+        em.rate     = 30.0f;
+        em.spread   = 1.0f; // seeded jitter so buffers are non-trivial
+        em.lifetime = 100.0f;
+        em.seed     = 5;
+        world.add_component<ParticleEmitter>(e, em);
+        world.tick(0.1f);
+        world.get_component<Transform>(e)->position = mosaic::foundation::math::Vec3{7.0f, 3.0f, 0.0f};
+        world.tick(0.1f);
+        return *sys.particles_for(e);
+    };
+    const auto a = run();
+    const auto b = run();
+    REQUIRE(a.size() == b.size());
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        REQUIRE(a[i].position.x == b[i].position.x);
+        REQUIRE(a[i].position.y == b[i].position.y);
+        REQUIRE(a[i].velocity.x == b[i].velocity.x);
+    }
+}
+
 #include "engine/reflection/builtin_components.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
