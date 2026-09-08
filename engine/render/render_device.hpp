@@ -100,6 +100,14 @@ struct UiQuad
     float                          alpha = 1.0f;
 };
 
+// One textured HUD quad in normalized screen space; samples the bound texture × tint.
+struct UiImageQuad
+{
+    mosaic::engine::ui::Rect       rect;
+    mosaic::foundation::math::Vec3 tint;
+    float                          alpha = 1.0f;
+};
+
 class RenderDevice
 {
 public:
@@ -139,6 +147,11 @@ public:
 
     // Draw alpha-blended screen-space HUD quads (topmost). Default no-op (like draw_decals).
     virtual void draw_ui(const std::vector<UiQuad>& /*quads*/) {}
+
+    // Draw alpha-blended textured HUD quads (full RGBA × tint) sampling `texture`.
+    // Default no-op (like draw_ui). Called after draw_ui (panels), so images sit over panels.
+    virtual void draw_ui_image(const std::vector<UiImageQuad>& /*quads*/,
+                               TextureHandle /*texture*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
