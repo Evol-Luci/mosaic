@@ -19,6 +19,7 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/vfx/trail_renderer.hpp"
+#include "engine/ui/ui_panel.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
 namespace mosaic::engine::reflection
@@ -51,6 +52,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::vfx::TrailRenderer>(registry, "TrailRenderer");
     types.register_component<mosaic::engine::vfx::Decal>(registry, "Decal");
     types.register_component<mosaic::engine::vfx::ScreenEffect>(registry, "ScreenEffect");
+    types.register_component<mosaic::engine::ui::UiPanel>(registry, "UiPanel");
 }
 
 } // namespace mosaic::engine::reflection
