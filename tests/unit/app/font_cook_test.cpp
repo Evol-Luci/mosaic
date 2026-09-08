@@ -1,0 +1,60 @@
+#include <optional>
+#include <string>
+
+#include <catch2/catch_approx.hpp>
+#include <catch2/catch_test_macros.hpp>
+
+#include "app/asset/font_cook.hpp"
+#include "app/run/scene_io.hpp" // load_scene_file
+
+using Catch::Approx;
+using mosaic::app::read_ttf;
+using mosaic::engine::ui::FontAtlas;
+
+namespace
+{
+std::string fixture_ttf()
+{
+    const std::string path = std::string(MOSAIC_TEST_DIR) + "/fixtures/LiberationSans-Regular.ttf";
+    const auto bytes = mosaic::app::load_scene_file(path);
+    REQUIRE(bytes.has_value());
+    return *bytes;
+}
+} // namespace
+
+TEST_CASE("read_ttf bakes ASCII glyph metrics from a TTF", "[app]")
+{
+    const std::optional<FontAtlas> font = read_ttf(fixture_ttf(), 48.0f);
+    REQUIRE(font.has_value());
+
+    // Baked at the requested size, with sane vertical metrics.
+    REQUIRE(font->pixel_size == Approx(48.0f));
+    REQUIRE(font->ascent > 0.0f);
+    REQUIRE(font->descent < 0.0f);          // stb convention: descent is negative
+    REQUIRE(font->line_height > font->ascent);
+
+    // All printable ASCII 32..126 present (95 glyphs).
+    REQUIRE(font->glyphs.size() == 95);
+
+    // 'A' is a real glyph with a positive advance and a non-empty quad.
+    const auto a = font->glyphs.find(static_cast<std::uint32_t>('A'));
+    REQUIRE(a != font->glyphs.end());
+    REQUIRE(a->second.advance > 0.0f);
+    REQUIRE(a->second.width > 0.0f);
+    REQUIRE(a->second.height > 0.0f);
+    REQUIRE(a->second.u1 > a->second.u0);
+    REQUIRE(a->second.v1 > a->second.v0);
+
+    // Space advances the pen but has an empty quad.
+    const auto sp = font->glyphs.find(static_cast<std::uint32_t>(' '));
+    REQUIRE(sp != font->glyphs.end());
+    REQUIRE(sp->second.advance > 0.0f);
+    REQUIRE(sp->second.width == Approx(0.0f));
+    REQUIRE(sp->second.height == Approx(0.0f));
+
+    // RGBA8 atlas of the declared size.
+    REQUIRE(font->atlas.width == 512u);
+    REQUIRE(font->atlas.height > 0u);
+    REQUIRE(font->atlas.pixels.size() ==
+            static_cast<std::size_t>(font->atlas.width) * font->atlas.height * 4u);
+}

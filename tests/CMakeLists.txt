@@ -133,6 +133,7 @@ add_executable(mosaic_unit_tests
   unit/audio/miniaudio_backend_test.cpp
   unit/app/audio_cook_test.cpp
   unit/app/audio_asset_test.cpp
+  unit/app/font_cook_test.cpp
   unit/vfx/trail_system_test.cpp
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
@@ -155,6 +156,8 @@ target_link_libraries(mosaic_unit_tests PRIVATE
 )
 target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)
 target_include_directories(mosaic_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit/serialization)
+target_compile_definitions(mosaic_unit_tests PRIVATE
+  MOSAIC_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 include(Catch)
 catch_discover_tests(mosaic_unit_tests)
