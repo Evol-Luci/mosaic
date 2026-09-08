@@ -100,6 +100,15 @@ struct UiQuad
     float                          alpha = 1.0f;
 };
 
+// One textured glyph quad in normalized screen space; samples the bound font atlas.
+struct UiGlyphQuad
+{
+    mosaic::engine::ui::Rect       rect;
+    float                          u0 = 0, v0 = 0, u1 = 0, v1 = 0;
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
 class RenderDevice
 {
 public:
@@ -139,6 +148,11 @@ public:
 
     // Draw alpha-blended screen-space HUD quads (topmost). Default no-op (like draw_decals).
     virtual void draw_ui(const std::vector<UiQuad>& /*quads*/) {}
+
+    // Draw alpha-blended textured glyph quads sampling `atlas` (coverage in alpha).
+    // Default no-op (like draw_ui). Called in the HUD pass after draw_ui.
+    virtual void draw_ui_text(const std::vector<UiGlyphQuad>& /*quads*/,
+                              TextureHandle /*atlas*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
