@@ -15,7 +15,7 @@ find_program(GLSLC glslc REQUIRED
 
 set(_shader_dir ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 file(MAKE_DIRECTORY ${_shader_dir})
-foreach(_stage cube.vert cube.frag particle.vert particle.frag ribbon.vert ribbon.frag decal.vert decal.frag)
+foreach(_stage cube.vert cube.frag particle.vert particle.frag ribbon.vert ribbon.frag decal.vert decal.frag screen_effect.vert screen_effect.frag)
   add_custom_command(
     OUTPUT  ${_shader_dir}/${_stage}.spv
     COMMAND ${GLSLC} ${CMAKE_CURRENT_SOURCE_DIR}/shaders/${_stage} -o ${_shader_dir}/${_stage}.spv

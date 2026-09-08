@@ -17,6 +17,7 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
+#include "engine/vfx/screen_effect.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 #include <algorithm>
@@ -164,6 +165,22 @@ public:
                     device.draw_ribbons(ribbon, RibbonDrawParams{projection * view});
                 }
             }
+        }
+
+        // Screen-effect overlay: fullscreen fade/tint/vignette, drawn last (over everything).
+        {
+            bool done = false;
+            world.for_each<mosaic::engine::vfx::ScreenEffect>(
+                [&](mosaic::foundation::EntityID, mosaic::engine::vfx::ScreenEffect& se)
+                {
+                    if (done) { return; }
+                    done = true;
+                    if (se.tint_strength > 0.0f || se.vignette > 0.0f)
+                    {
+                        device.draw_screen_effect(
+                            ScreenEffectParams{se.tint, se.tint_strength, se.vignette});
+                    }
+                });
         }
     }
 

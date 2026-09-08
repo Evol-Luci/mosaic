@@ -51,6 +51,7 @@ using mosaic::engine::render::ParticleDrawParams;
 using mosaic::engine::render::RibbonVertex;
 using mosaic::engine::render::RibbonDrawParams;
 using mosaic::engine::render::DecalInstance;
+using mosaic::engine::render::ScreenEffectParams;
 using mosaic::engine::particles::ParticleEmitter;
 using mosaic::engine::particles::ParticleSystem;
 using Catch::Approx;
@@ -102,6 +103,12 @@ public:
     void draw_decals(const std::vector<DecalInstance>& decals) override
     {
         decal_draws.push_back(decals);
+    }
+
+    std::vector<ScreenEffectParams> screen_effect_draws;
+    void draw_screen_effect(const ScreenEffectParams& params) override
+    {
+        screen_effect_draws.push_back(params);
     }
 };
 
@@ -624,4 +631,41 @@ TEST_CASE("RenderSystem emits a decal instance per Decal entity", "[render]")
     REQUIRE(device.decal_draws[0].size() == 1);
     REQUIRE(device.decal_draws[0][0].color.x == Approx(0.3f));
     REQUIRE(device.decal_draws[0][0].alpha == Approx(0.5f));
+}
+
+TEST_CASE("RenderSystem draws a screen effect when active", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    mosaic::engine::vfx::ScreenEffect se;
+    se.tint          = Vec3{1.0f, 0.0f, 0.0f};
+    se.tint_strength = 0.5f;
+    world.add_component<mosaic::engine::vfx::ScreenEffect>(e, se);
+
+    rs.render(world, device, registry);
+    REQUIRE(device.screen_effect_draws.size() == 1);
+    REQUIRE(device.screen_effect_draws[0].tint_strength == Approx(0.5f));
+    REQUIRE(device.screen_effect_draws[0].tint.x == Approx(1.0f));
+}
+
+TEST_CASE("RenderSystem skips an inactive (all-zero) screen effect", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::vfx::ScreenEffect>(e, mosaic::engine::vfx::ScreenEffect{});
+
+    rs.render(world, device, registry);
+    REQUIRE(device.screen_effect_draws.empty());
 }

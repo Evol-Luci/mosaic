@@ -17,6 +17,7 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
+#include "engine/vfx/screen_effect.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -341,6 +342,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Camera>(camera, render::Camera{});
     world.add_component<mosaic::engine::audio::AudioListener>(
         camera, mosaic::engine::audio::AudioListener{});
+
+    world.add_component<mosaic::engine::vfx::ScreenEffect>(camera,
+        mosaic::engine::vfx::ScreenEffect{Vec3{0, 0, 0}, 0.0f, 0.4f}); // subtle vignette
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();

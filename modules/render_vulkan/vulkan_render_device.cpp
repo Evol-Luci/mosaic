@@ -70,6 +70,13 @@ struct DecalPush
 };
 static_assert(sizeof(DecalPush) == 80, "decal push constant layout must match the shader");
 
+struct ScreenEffectPush
+{
+    float tint[4];   // rgb = tint, a = strength
+    float params[4]; // x = vignette
+};
+static_assert(sizeof(ScreenEffectPush) == 32, "screen-effect push constant must match the shader");
+
 // Throw on any non-success VkResult so bring-up failures surface as exceptions
 // (the factory contract is "throws std::runtime_error on failure").
 void vk_check(VkResult r, const char* what)
@@ -182,6 +189,7 @@ public:
         create_particle_pipeline();
         create_ribbon_pipeline();
         create_decal_pipeline();
+        create_screen_effect_pipeline();
         create_command_pool_and_buffers();
         create_sync_objects();
 
@@ -269,6 +277,9 @@ public:
             if (vp_decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_decal_pipeline_, nullptr); }
             if (decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, decal_pipeline_, nullptr); }
             if (decal_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, decal_pipeline_layout_, nullptr); }
+            if (vp_screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_screen_effect_pipeline_, nullptr); }
+            if (screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, screen_effect_pipeline_, nullptr); }
+            if (screen_effect_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, screen_effect_pipeline_layout_, nullptr); }
             for (auto& ib : particle_instances_)
             {
                 if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
@@ -696,6 +707,24 @@ public:
                                sizeof(pc), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
         }
+    }
+
+    void draw_screen_effect(const mosaic::engine::render::ScreenEffectParams& params) override
+    {
+        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        if (frame_skipped_) { return; }
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          viewport_pass_open_ ? vp_screen_effect_pipeline_ : screen_effect_pipeline_);
+
+        ScreenEffectPush pc{};
+        pc.tint[0] = params.tint.x; pc.tint[1] = params.tint.y; pc.tint[2] = params.tint.z;
+        pc.tint[3] = params.tint_strength;
+        pc.params[0] = params.vignette;
+        vkCmdPushConstants(cmd_[frame_], screen_effect_pipeline_layout_,
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+        vkCmdDraw(cmd_[frame_], 3, 1, 0, 0);
     }
 
     void begin_frame() override
@@ -2103,6 +2132,98 @@ private:
         vkDestroyShaderModule(device_, vert, nullptr);
     }
 
+    void create_screen_effect_pipeline()
+    {
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/screen_effect.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/screen_effect.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO; // no inputs
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_FALSE;  // overlay is always on top
+        depth.depthWriteEnable = VK_FALSE;
+        depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        push.offset = 0; push.size = sizeof(ScreenEffectPush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 0;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &screen_effect_pipeline_layout_),
+                 "vkCreatePipelineLayout(screen_effect)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = screen_effect_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &screen_effect_pipeline_),
+                 "vkCreateGraphicsPipelines(screen_effect)");
+
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_screen_effect_pipeline_),
+                 "vkCreateGraphicsPipelines(screen_effect offscreen)");
+
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
     // --- buffers / one-time transfers -------------------------------------
 
     void create_buffer(VkDeviceSize size, VkBufferUsageFlags usage,
@@ -2418,6 +2539,9 @@ private:
     VkPipeline       decal_pipeline_ = VK_NULL_HANDLE;
     VkPipeline       vp_decal_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout decal_pipeline_layout_ = VK_NULL_HANDLE;
+    VkPipeline       screen_effect_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline       vp_screen_effect_pipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout screen_effect_pipeline_layout_ = VK_NULL_HANDLE;
 
     struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
     std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
