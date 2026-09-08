@@ -1,0 +1,3 @@
+DemoSans.ttf — Liberation Sans, © Red Hat, Inc., SIL Open Font License 1.1.
+Full license: https://scripts.sil.org/OFL
+Bundled as the built-in HUD demo font.
