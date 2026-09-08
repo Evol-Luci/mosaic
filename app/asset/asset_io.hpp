@@ -11,6 +11,7 @@
 
 #include "app/asset/image_cook.hpp"
 #include "app/asset/audio_cook.hpp"
+#include "app/asset/font_cook.hpp"
 #include "app/project/project_io.hpp" // load_manifest
 #include "app/run/scene_io.hpp"       // save_scene_file / load_scene_file
 #include "engine/assets/asset_metadata.hpp"
@@ -76,6 +77,18 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         blob_bytes = cook_audio(*clip);
         blob_ext   = ".audioclip";
         asset_type = "audio";
+    }
+    else if (ext == ".ttf" || ext == ".otf")
+    {
+        const std::optional<mosaic::engine::ui::FontAtlas> font = read_ttf(*src, 48.0f);
+        if (!font)
+        {
+            mosaic::foundation::log::error("import", "not a supported font (TTF/OTF): {}", source_file);
+            return std::nullopt;
+        }
+        blob_bytes = cook_font(*font);
+        blob_ext   = ".font";
+        asset_type = "font";
     }
     else
     {
@@ -182,6 +195,20 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             if (!clip) { mosaic::foundation::log::warn("import", "corrupt cooked audio {}", clip_path.string()); continue; }
             registry.register_resource<mosaic::engine::audio::AudioClip>(
                 meta, std::make_shared<mosaic::engine::audio::AudioClip>(*clip));
+            ++count;
+            continue;
+        }
+
+        if (meta.type == "font")
+        {
+            const fs::path font_path =
+                entry.path().parent_path() / (entry.path().stem().string() + ".font");
+            const std::optional<std::string> blob = load_scene_file(font_path.string());
+            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked font {}", font_path.string()); continue; }
+            const std::optional<mosaic::engine::ui::FontAtlas> font = uncook_font(*blob);
+            if (!font) { mosaic::foundation::log::warn("import", "corrupt cooked font {}", font_path.string()); continue; }
+            registry.register_resource<mosaic::engine::ui::FontAtlas>(
+                meta, std::make_shared<mosaic::engine::ui::FontAtlas>(*font));
             ++count;
             continue;
         }
