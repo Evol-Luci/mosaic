@@ -58,3 +58,48 @@ TEST_CASE("read_ttf bakes ASCII glyph metrics from a TTF", "[app]")
     REQUIRE(font->atlas.pixels.size() ==
             static_cast<std::size_t>(font->atlas.width) * font->atlas.height * 4u);
 }
+
+#include "engine/ui/font_atlas.hpp"
+
+using mosaic::app::cook_font;
+using mosaic::app::uncook_font;
+
+TEST_CASE("cook_font / uncook_font round-trip is bit-identical", "[app]")
+{
+    const std::optional<FontAtlas> font = read_ttf(fixture_ttf(), 48.0f);
+    REQUIRE(font.has_value());
+
+    const std::string blob = cook_font(*font);
+    const std::optional<FontAtlas> back = uncook_font(blob);
+    REQUIRE(back.has_value());
+
+    REQUIRE(back->pixel_size == font->pixel_size);
+    REQUIRE(back->ascent == font->ascent);
+    REQUIRE(back->descent == font->descent);
+    REQUIRE(back->line_height == font->line_height);
+    REQUIRE(back->atlas.width == font->atlas.width);
+    REQUIRE(back->atlas.height == font->atlas.height);
+    REQUIRE(back->atlas.pixels == font->atlas.pixels); // exact bytes
+    REQUIRE(back->glyphs.size() == font->glyphs.size());
+    for (const auto& [cp, g] : font->glyphs)
+    {
+        const auto it = back->glyphs.find(cp);
+        REQUIRE(it != back->glyphs.end());
+        REQUIRE(it->second.u0 == g.u0);
+        REQUIRE(it->second.v1 == g.v1);
+        REQUIRE(it->second.advance == g.advance);
+        REQUIRE(it->second.x_off == g.x_off);
+        REQUIRE(it->second.y_off == g.y_off);
+        REQUIRE(it->second.width == g.width);
+        REQUIRE(it->second.height == g.height);
+    }
+}
+
+TEST_CASE("uncook_font rejects garbage and truncation", "[app]")
+{
+    REQUIRE_FALSE(uncook_font("NOTAFONTblob").has_value());          // bad magic
+    const std::optional<FontAtlas> font = read_ttf(fixture_ttf(), 48.0f);
+    REQUIRE(font.has_value());
+    const std::string good = cook_font(*font);
+    REQUIRE_FALSE(uncook_font(good.substr(0, good.size() - 10)).has_value()); // truncated pixels
+}
