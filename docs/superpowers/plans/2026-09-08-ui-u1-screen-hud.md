@@ -19,6 +19,7 @@
 - **Namespaces:** neutral UI types live in `namespace mosaic::engine::ui`. `Vec2`/`Vec3` come from `foundation/math`.
 - **GPU verification caveat:** the on-screen HUD is the maintainer's hardware check; automated verification is headless tests + `cmake --build` + `mosaic run --window --ticks N` exiting 0 with no Vulkan validation errors.
 - **Test executable:** all unit tests compile into the single `mosaic_unit_tests` target; add new test files to `tests/CMakeLists.txt`.
+- **Build convention:** this repo uses CMake presets into `build/debug/`. Configure (already done): `cmake --preset debug`. Build: `cmake --build --preset debug [--target <t>]`. Test binary: `./build/debug/tests/mosaic_unit_tests "[tag]"` (Catch2 tag filter; comma = OR, e.g. `"[render],[ui]"`). Full suite: `ctest --preset debug`. App binary: `./build/debug/app/mosaic`. Do **not** use `cmake --build build` or `./build/app/...` — the artifacts live under `build/debug/`.
 
 ---
 
@@ -108,7 +109,7 @@ Add to `tests/CMakeLists.txt` (in the `add_executable(mosaic_unit_tests ...)` so
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -20`
 Expected: FAIL — `engine/ui/ui_rect.hpp` not found (no such file).
 
 - [ ] **Step 3: Write the implementation**
@@ -172,7 +173,7 @@ inline Rect resolve_rect(Anchor anchor, Vec2 pos, Vec2 size)
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -5 && ctest --test-dir build -R "ui" --output-on-failure 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -5 && ./build/debug/tests/mosaic_unit_tests "[ui]" 2>&1 | tail -20`
 Expected: the `[ui][layout]` cases PASS.
 
 - [ ] **Step 5: Commit**
@@ -257,7 +258,7 @@ Add to `tests/CMakeLists.txt`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -20`
 Expected: FAIL — `engine/ui/ui_panel.hpp` not found / `find("UiPanel")` returns null.
 
 - [ ] **Step 3: Write the implementation**
@@ -316,7 +317,7 @@ Register it in `engine/reflection/builtin_components.hpp` — add the include ne
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -5 && ctest --test-dir build -R "ui" --output-on-failure 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -5 && ./build/debug/tests/mosaic_unit_tests "[ui]" 2>&1 | tail -20`
 Expected: `[ui][reflection]` cases PASS.
 
 - [ ] **Step 5: Commit**
@@ -420,7 +421,7 @@ TEST_CASE("RenderSystem skips fully transparent UiPanels", "[render][ui]")
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -20`
 Expected: FAIL — `UiQuad` undefined / `draw_ui` not a member.
 
 - [ ] **Step 3: Write the implementation**
@@ -495,7 +496,7 @@ At the very end of `render`, **after** the screen-effect overlay block:
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `cmake --build build --target mosaic_unit_tests 2>&1 | tail -5 && ctest --test-dir build -R "render|ui" --output-on-failure 2>&1 | tail -25`
+Run: `cmake --build --preset debug --target mosaic_unit_tests 2>&1 | tail -5 && ./build/debug/tests/mosaic_unit_tests "[render],[ui]" 2>&1 | tail -25`
 Expected: the two `[render][ui]` cases PASS; existing render tests still PASS.
 
 - [ ] **Step 5: Commit**
@@ -580,7 +581,7 @@ In `modules/render_vulkan/CMakeLists.txt`, extend the `foreach(_stage ...)` list
 foreach(_stage cube.vert cube.frag particle.vert particle.frag ribbon.vert ribbon.frag decal.vert decal.frag screen_effect.vert screen_effect.frag ui.vert ui.frag)
 ```
 
-Run: `cmake --build build --target mosaic_render_vulkan 2>&1 | tail -20`
+Run: `cmake --build --preset debug --target mosaic_render_vulkan 2>&1 | tail -20`
 Expected: `ui.vert`/`ui.frag` compile to SPIR-V with no glslang errors (the `draw_ui` override is still the default no-op at this point — link succeeds).
 
 - [ ] **Step 3: Implement the pipeline + `draw_ui` override**
@@ -647,8 +648,8 @@ static_assert(sizeof(UiPush) == 32, "ui push constant must match the shader");
 
 Run:
 ```bash
-cmake --build build 2>&1 | tail -10
-./build/app/mosaic run --window --ticks 3 2>&1 | tail -20; echo "exit: $?"
+cmake --build --preset debug 2>&1 | tail -10
+./build/debug/app/mosaic run --window --ticks 3 2>&1 | tail -20; echo "exit: $?"
 ```
 Expected: build succeeds; `mosaic run --window --ticks 3` exits 0 with **no** Vulkan validation errors (the HUD's on-screen appearance is the maintainer's hardware check).
 
@@ -697,9 +698,9 @@ In `app/run/demo_scene.hpp`, next to the camera's `ScreenEffect` attach, add:
 
 Run:
 ```bash
-cmake --build build 2>&1 | tail -5
-ctest --test-dir build --output-on-failure 2>&1 | tail -15
-./build/app/mosaic run --window --ticks 3 2>&1 | tail -5; echo "exit: $?"
+cmake --build --preset debug 2>&1 | tail -5
+ctest --preset debug --output-on-failure 2>&1 | tail -15
+./build/debug/app/mosaic run --window --ticks 3 2>&1 | tail -5; echo "exit: $?"
 ```
 Expected: **all** tests PASS (the four default-scene count tests included — counts are unchanged because the panel rides on the camera entity); `mosaic run --window --ticks 3` exits 0.
 
