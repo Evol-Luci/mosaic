@@ -83,6 +83,14 @@ struct DecalInstance
     float                          alpha = 1.0f;
 };
 
+// Fullscreen post overlay parameters (fade/tint/vignette).
+struct ScreenEffectParams
+{
+    mosaic::foundation::math::Vec3 tint;
+    float                          tint_strength = 0.0f;
+    float                          vignette      = 0.0f;
+};
+
 class RenderDevice
 {
 public:
@@ -116,6 +124,9 @@ public:
 
     // Draw alpha-blended textured quads (decals). Default no-op (like draw_particles).
     virtual void draw_decals(const std::vector<DecalInstance>& /*decals*/) {}
+
+    // Draw a fullscreen fade/tint/vignette overlay. Default no-op (like draw_particles).
+    virtual void draw_screen_effect(const ScreenEffectParams& /*params*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized
