@@ -133,6 +133,8 @@ add_executable(mosaic_unit_tests
   unit/audio/miniaudio_backend_test.cpp
   unit/app/audio_cook_test.cpp
   unit/app/audio_asset_test.cpp
+  unit/ui/ui_rect_test.cpp
+  unit/ui/ui_panel_reflection_test.cpp
   unit/vfx/trail_system_test.cpp
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
