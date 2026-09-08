@@ -24,6 +24,8 @@
 #include "engine/particles/particle_system.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
+#include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_rect.hpp"
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
@@ -109,6 +111,12 @@ public:
     void draw_screen_effect(const ScreenEffectParams& params) override
     {
         screen_effect_draws.push_back(params);
+    }
+
+    std::vector<std::vector<mosaic::engine::render::UiQuad>> ui_draws;
+    void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
+    {
+        ui_draws.push_back(quads);
     }
 };
 
@@ -668,4 +676,54 @@ TEST_CASE("RenderSystem skips an inactive (all-zero) screen effect", "[render]")
 
     rs.render(world, device, registry);
     REQUIRE(device.screen_effect_draws.empty());
+}
+
+TEST_CASE("RenderSystem emits a UiQuad per visible UiPanel, order-sorted", "[render][ui]")
+{
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto back = world.create_entity();
+    UiPanel bp; bp.anchor = static_cast<int>(Anchor::TopLeft);
+    bp.pos = {0.1f, 0.1f}; bp.size = {0.2f, 0.2f}; bp.order = 0;
+    world.add_component<UiPanel>(back, bp);
+
+    auto front = world.create_entity();
+    UiPanel fp; fp.anchor = static_cast<int>(Anchor::TopLeft);
+    fp.pos = {0.3f, 0.3f}; fp.size = {0.1f, 0.1f}; fp.order = 10;
+    world.add_component<UiPanel>(front, fp);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws.front();
+    REQUIRE(quads.size() == 2);
+    // order-sorted: order 0 first, order 10 last.
+    REQUIRE(quads[0].rect.x == Approx(0.1f));  // the back panel
+    REQUIRE(quads[1].rect.x == Approx(0.3f));  // the front panel
+    REQUIRE(quads[1].rect.w == Approx(0.1f));
+}
+
+TEST_CASE("RenderSystem skips fully transparent UiPanels", "[render][ui]")
+{
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    UiPanel p; p.alpha = 0.0f;
+    world.add_component<UiPanel>(e, p);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // No visible panels -> draw_ui not called at all.
+    REQUIRE(device.ui_draws.empty());
 }

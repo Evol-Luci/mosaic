@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "engine/render/image.hpp"
+#include "engine/ui/ui_rect.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec2.hpp"
 #include "foundation/math/vec3.hpp"
@@ -91,6 +92,14 @@ struct ScreenEffectParams
     float                          vignette      = 0.0f;
 };
 
+// One HUD quad in normalized screen space (top-left origin), alpha-blended.
+struct UiQuad
+{
+    mosaic::engine::ui::Rect       rect;
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
 class RenderDevice
 {
 public:
@@ -127,6 +136,9 @@ public:
 
     // Draw a fullscreen fade/tint/vignette overlay. Default no-op (like draw_particles).
     virtual void draw_screen_effect(const ScreenEffectParams& /*params*/) {}
+
+    // Draw alpha-blended screen-space HUD quads (topmost). Default no-op (like draw_decals).
+    virtual void draw_ui(const std::vector<UiQuad>& /*quads*/) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized

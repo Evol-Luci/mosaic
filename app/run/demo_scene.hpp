@@ -18,6 +18,8 @@
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
+#include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_rect.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -345,6 +347,13 @@ inline void build_default_scene(mosaic::engine::World& world)
 
     world.add_component<mosaic::engine::vfx::ScreenEffect>(camera,
         mosaic::engine::vfx::ScreenEffect{Vec3{0, 0, 0}, 0.0f, 0.4f}); // subtle vignette
+
+    // Demo HUD: a translucent bar anchored top-left, over everything.
+    world.add_component<mosaic::engine::ui::UiPanel>(camera,
+        mosaic::engine::ui::UiPanel{
+            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
+            Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();

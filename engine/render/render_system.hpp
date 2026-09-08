@@ -18,13 +18,22 @@
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
+#include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_rect.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 #include <algorithm>
+#include <utility>
 #include <vector>
 
 namespace mosaic::engine::render
 {
+inline mosaic::engine::ui::Anchor to_anchor(int a)
+{
+    return (a >= 0 && a <= 8) ? static_cast<mosaic::engine::ui::Anchor>(a)
+                              : mosaic::engine::ui::Anchor::TopLeft;
+}
+
 // Render-time traversal: finds the active camera + directional light and draws every
 // entity with WorldTransform + MeshRenderer, lit (Lambert; light transformed into each
 // mesh's object space so the backend needs no model matrix). Fallbacks keep the scene
@@ -181,6 +190,29 @@ public:
                             ScreenEffectParams{se.tint, se.tint_strength, se.vignette});
                     }
                 });
+        }
+
+        // HUD pass: screen-space alpha-blended panels, drawn last (topmost, over the
+        // screen-effect overlay). order-sorted so higher `order` draws on top.
+        {
+            std::vector<std::pair<int, UiQuad>> pending;
+            world.for_each<mosaic::engine::ui::UiPanel>(
+                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiPanel& p)
+                {
+                    if (p.alpha <= 0.0f) { return; }
+                    const auto rect = mosaic::engine::ui::resolve_rect(
+                        to_anchor(p.anchor), p.pos, p.size);
+                    pending.push_back({p.order, UiQuad{rect, p.color, p.alpha}});
+                });
+            std::stable_sort(pending.begin(), pending.end(),
+                             [](const auto& l, const auto& r) { return l.first < r.first; });
+            if (!pending.empty())
+            {
+                std::vector<UiQuad> quads;
+                quads.reserve(pending.size());
+                for (auto& pr : pending) { quads.push_back(pr.second); }
+                device.draw_ui(quads);
+            }
         }
     }
 
