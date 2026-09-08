@@ -18,6 +18,7 @@
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
+#include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -354,6 +355,14 @@ inline void build_default_scene(mosaic::engine::World& world)
             static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
             mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
             Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
+
+    world.add_component<mosaic::engine::ui::UiImage>(camera,
+        mosaic::engine::ui::UiImage{
+            kCheckerTextureId,
+            static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
+            mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            mosaic::foundation::math::Vec2{0.12f, 0.12f},
+            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 0});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();
