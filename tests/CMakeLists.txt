@@ -148,6 +148,7 @@ add_executable(mosaic_unit_tests
   unit/app/font_asset_test.cpp
   unit/net/loopback_transport_test.cpp
   unit/net/message_test.cpp
+  unit/net/network_system_test.cpp
   unit/vfx/trail_system_test.cpp
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
