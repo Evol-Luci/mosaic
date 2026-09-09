@@ -18,6 +18,9 @@
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
+#include "engine/render/font_texture_cache.hpp"
+#include "engine/ui/text_layout.hpp"
+#include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_image.hpp"
@@ -230,6 +233,31 @@ public:
                         std::vector<UiImageQuad>{UiImageQuad{rect, im.tint, im.alpha}}, tex);
                 });
         }
+
+        // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
+        {
+            world.for_each<mosaic::engine::ui::UiText>(
+                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiText& t)
+                {
+                    if (t.alpha <= 0.0f || t.text.empty()) { return; }
+                    std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
+                        registry.load<mosaic::engine::ui::FontAtlas>(t.font);
+                    if (!font) { return; }
+                    const TextureHandle atlas = font_textures_.get(t.font, registry, device);
+                    if (atlas == 0) { return; }
+                    const std::vector<mosaic::engine::ui::TextQuad> tq =
+                        mosaic::engine::ui::layout_text(*font, t.text, to_anchor(t.anchor),
+                                                        t.pos, t.height, aspect_, t.color, t.alpha);
+                    if (tq.empty()) { return; }
+                    std::vector<UiGlyphQuad> quads;
+                    quads.reserve(tq.size());
+                    for (const auto& q : tq)
+                    {
+                        quads.push_back(UiGlyphQuad{q.rect, q.u0, q.v0, q.u1, q.v1, q.color, q.alpha});
+                    }
+                    device.draw_ui_text(quads, atlas);
+                });
+        }
     }
 
 private:
@@ -336,6 +364,7 @@ private:
     float aspect_ = 16.0f / 9.0f;
     mutable MeshCache     mesh_cache_;
     mutable TextureCache  texture_cache_;
+    mutable FontTextureCache font_textures_;
     mutable TextureHandle default_white_ = 0;
 };
 } // namespace mosaic::engine::render

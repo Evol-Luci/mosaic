@@ -21,6 +21,9 @@
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_text.hpp"
+#include "app/asset/font_cook.hpp"
+#include "app/run/scene_io.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/physics/physics_components.hpp"
@@ -57,6 +60,9 @@ inline const mosaic::foundation::serialization::AssetID kSolidTextureId{
     std::array<std::uint8_t, 16>{0xA1}};
 inline const mosaic::foundation::serialization::AssetID kStripesTextureId{
     std::array<std::uint8_t, 16>{0xB2}};
+
+inline const mosaic::foundation::serialization::AssetID kBuiltinFontId{
+    std::array<std::uint8_t, 16>{0xF0}};
 
 // Well-known AssetID for the procedural demo tone (A4). Same fixed-id pattern as the textures.
 inline const mosaic::foundation::serialization::AssetID kToneClipId{
@@ -108,6 +114,19 @@ make_physics_raycast(mosaic::engine::World& world)
         return mosaic::engine::script::ScriptRayHit{
             h.hit, h.entity.value(), h.point, h.normal, h.distance};
     };
+}
+
+inline void register_builtin_font(mosaic::engine::assets::AssetRegistry& registry)
+{
+    const std::optional<std::string> bytes =
+        mosaic::app::load_scene_file(std::string(MOSAIC_FONT_DIR) + "/DemoSans.ttf");
+    if (!bytes) { return; } // no demo text if the bundled font is missing
+    const std::optional<mosaic::engine::ui::FontAtlas> font =
+        mosaic::app::read_ttf(*bytes, 48.0f);
+    if (!font) { return; }
+    registry.register_resource<mosaic::engine::ui::FontAtlas>(
+        mosaic::engine::assets::AssetMetadata{kBuiltinFontId, "font"},
+        std::make_shared<mosaic::engine::ui::FontAtlas>(*font));
 }
 
 // Non-serializable runtime scaffolding for ANY scene: register built-in meshes + the demo
@@ -166,6 +185,7 @@ inline RuntimeScene setup_runtime(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
 
     render::register_builtin_meshes(registry);
+    register_builtin_font(registry);
 
     world.events().subscribe<physics::ContactEvent>(
         [](const physics::ContactEvent& c)
@@ -363,6 +383,12 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::foundation::math::Vec2{0.03f, 0.03f},
             mosaic::foundation::math::Vec2{0.12f, 0.12f},
             mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 0});
+    world.add_component<mosaic::engine::ui::UiText>(camera,
+        mosaic::engine::ui::UiText{
+            kBuiltinFontId, "MOSAIC",
+            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            mosaic::foundation::math::Vec2{0.03f, 0.10f}, 0.06f,
+            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 1});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();

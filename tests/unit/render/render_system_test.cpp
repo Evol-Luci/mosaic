@@ -24,6 +24,11 @@
 #include "engine/particles/particle_system.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
+#include "app/asset/font_cook.hpp"   // read_ttf for a real FontAtlas
+#include "app/run/scene_io.hpp"
+#include "engine/render/font_texture_cache.hpp"
+#include "engine/ui/font_atlas.hpp"
+#include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_image.hpp"
@@ -127,6 +132,15 @@ public:
                        mosaic::engine::render::TextureHandle texture) override
     {
         ui_image_draws.push_back({quads, texture});
+    }
+
+    struct UiTextDrawCall { std::vector<mosaic::engine::render::UiGlyphQuad> quads;
+                            mosaic::engine::render::TextureHandle atlas; };
+    std::vector<UiTextDrawCall> ui_text_draws;
+    void draw_ui_text(const std::vector<mosaic::engine::render::UiGlyphQuad>& quads,
+                      mosaic::engine::render::TextureHandle atlas) override
+    {
+        ui_text_draws.push_back({quads, atlas});
     }
 };
 
@@ -750,6 +764,20 @@ mosaic::foundation::serialization::AssetID register_white_texture(AssetRegistry&
     registry.register_resource<Image>(AssetMetadata{tex_id, "texture"}, img);
     return tex_id;
 }
+mosaic::foundation::serialization::AssetID register_font(AssetRegistry& registry)
+{
+    const auto bytes = mosaic::app::load_scene_file(
+        std::string(MOSAIC_TEST_DIR) + "/fixtures/LiberationSans-Regular.ttf");
+    REQUIRE(bytes.has_value());
+    auto font = mosaic::app::read_ttf(*bytes, 48.0f);
+    REQUIRE(font.has_value());
+    const auto id = mosaic::foundation::serialization::AssetID::from_string(
+        "00000000-0000-0000-0000-0000000000fa");
+    registry.register_resource<mosaic::engine::ui::FontAtlas>(
+        mosaic::engine::assets::AssetMetadata{id, "font"},
+        std::make_shared<mosaic::engine::ui::FontAtlas>(*font));
+    return id;
+}
 } // namespace
 
 TEST_CASE("RenderSystem emits a UiImageQuad for a UiImage with a registered texture", "[render][ui]")
@@ -797,4 +825,60 @@ TEST_CASE("RenderSystem skips a transparent or textureless UiImage", "[render][u
     FakeRenderDevice device;
     rs.render(world, device, registry);
     REQUIRE(device.ui_image_draws.empty());
+}
+
+TEST_CASE("RenderSystem emits glyph quads for a UiText with a registered font", "[render][ui]")
+{
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    UiText t; t.font = font_id; t.text = "AB"; t.height = 0.1f;
+    world.add_component<UiText>(e, t);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_text_draws.size() == 1);
+    REQUIRE(device.ui_text_draws[0].quads.size() == 2); // A, B
+    REQUIRE(device.ui_text_draws[0].atlas != 0);        // atlas uploaded
+}
+
+TEST_CASE("RenderSystem skips UiText that is empty, transparent, or unresolved", "[render][ui]")
+{
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto empty = world.create_entity();
+    UiText a; a.font = font_id; a.text = ""; world.add_component<UiText>(empty, a);
+    auto clear = world.create_entity();
+    UiText b; b.font = font_id; b.text = "X"; b.alpha = 0.0f; world.add_component<UiText>(clear, b);
+    auto nofont = world.create_entity();
+    UiText c; c.text = "X"; world.add_component<UiText>(nofont, c); // nil font
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.ui_text_draws.empty());
+}
+
+TEST_CASE("FontTextureCache uploads a font atlas at most once", "[render][ui]")
+{
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    FakeRenderDevice device;
+    mosaic::engine::render::FontTextureCache cache;
+
+    const auto h1 = cache.get(font_id, registry, device);
+    const auto h2 = cache.get(font_id, registry, device);
+    REQUIRE(h1 != 0);
+    REQUIRE(h1 == h2);
+    REQUIRE(cache.get(mosaic::foundation::serialization::AssetID{}, registry, device) == 0);
 }
