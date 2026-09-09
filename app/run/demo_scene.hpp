@@ -22,6 +22,9 @@
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_text.hpp"
+#include "engine/ui/pointer.hpp"
+#include "engine/ui/ui_button.hpp"
+#include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
 #include "app/run/scene_io.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -140,7 +143,8 @@ inline RuntimeScene setup_runtime(
     mosaic::engine::script::ScriptSystem::EngineFactory     script_factory,
     mosaic::engine::script::ScriptHost                      host = {},
     bool                                                    script_thread = false,
-    std::unique_ptr<mosaic::engine::audio::AudioBackend>    audio_backend = nullptr)
+    std::unique_ptr<mosaic::engine::audio::AudioBackend>    audio_backend = nullptr,
+    std::function<mosaic::engine::ui::PointerState()>       pointer = {})
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
@@ -184,6 +188,9 @@ inline RuntimeScene setup_runtime(
     world.add_system<physics::PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(physics::WorldDef{}));
 
+    // UI interaction: reads the injected pointer, turns clicks into ScriptEvents.
+    world.add_system<mosaic::engine::ui::UiSystem>(std::move(pointer));
+
     render::register_builtin_meshes(registry);
     register_builtin_font(registry);
 
@@ -223,6 +230,16 @@ inline RuntimeScene setup_runtime(
             p["normal_impulse"] = ser::Value(static_cast<double>(c.normal_impulse));
             world.events().emit(
                 mosaic::engine::script::ScriptEvent{"contact", ser::Value(std::move(p))});
+        });
+
+    // Demo: log when the HUD button is clicked (proves the U4 click path end to end).
+    world.events().subscribe<mosaic::engine::script::ScriptEvent>(
+        [](const mosaic::engine::script::ScriptEvent& e)
+        {
+            if (e.name == "hud_click")
+            {
+                mosaic::foundation::log::info("ui", "HUD button clicked");
+            }
         });
 
     auto register_texture = [&](mosaic::foundation::serialization::AssetID id, auto&& pixel_fn)
@@ -375,6 +392,13 @@ inline void build_default_scene(mosaic::engine::World& world)
             static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
             mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
             Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
+
+    world.add_component<mosaic::engine::ui::UiButton>(camera,
+        mosaic::engine::ui::UiButton{
+            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            mosaic::foundation::math::Vec2{0.02f, 0.02f},
+            mosaic::foundation::math::Vec2{0.25f, 0.06f},
+            "hud_click"});
 
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         mosaic::engine::ui::UiImage{
