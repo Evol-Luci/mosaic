@@ -31,6 +31,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_image.hpp"
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
@@ -122,6 +123,15 @@ public:
     void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
     {
         ui_draws.push_back(quads);
+    }
+
+    struct UiImageDrawCall { std::vector<mosaic::engine::render::UiImageQuad> quads;
+                             mosaic::engine::render::TextureHandle texture; };
+    std::vector<UiImageDrawCall> ui_image_draws;
+    void draw_ui_image(const std::vector<mosaic::engine::render::UiImageQuad>& quads,
+                       mosaic::engine::render::TextureHandle texture) override
+    {
+        ui_image_draws.push_back({quads, texture});
     }
 
     struct UiTextDrawCall { std::vector<mosaic::engine::render::UiGlyphQuad> quads;
@@ -744,6 +754,16 @@ TEST_CASE("RenderSystem skips fully transparent UiPanels", "[render][ui]")
 
 namespace
 {
+mosaic::foundation::serialization::AssetID register_white_texture(AssetRegistry& registry)
+{
+    std::array<std::uint8_t, 16> bytes{};
+    bytes[0] = 77;
+    const mosaic::foundation::serialization::AssetID tex_id{bytes};
+    auto img = std::make_shared<Image>();
+    img->width = 1; img->height = 1; img->pixels = {255, 255, 255, 255};
+    registry.register_resource<Image>(AssetMetadata{tex_id, "texture"}, img);
+    return tex_id;
+}
 mosaic::foundation::serialization::AssetID register_font(AssetRegistry& registry)
 {
     const auto bytes = mosaic::app::load_scene_file(
@@ -759,6 +779,53 @@ mosaic::foundation::serialization::AssetID register_font(AssetRegistry& registry
     return id;
 }
 } // namespace
+
+TEST_CASE("RenderSystem emits a UiImageQuad for a UiImage with a registered texture", "[render][ui]")
+{
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto tex_id = register_white_texture(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    UiImage im; im.texture = tex_id; im.anchor = static_cast<int>(Anchor::TopLeft);
+    im.pos = {0.1f, 0.1f}; im.size = {0.2f, 0.2f}; im.tint = Vec3{0.5f, 0.6f, 0.7f}; im.alpha = 0.9f;
+    world.add_component<UiImage>(e, im);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 1);
+    REQUIRE(device.ui_image_draws[0].texture != 0);
+    const auto& quads = device.ui_image_draws[0].quads;
+    REQUIRE(quads.size() == 1);
+    REQUIRE(quads[0].rect.x == Approx(0.1f));   // resolve_rect TopLeft
+    REQUIRE(quads[0].rect.w == Approx(0.2f));
+    REQUIRE(quads[0].tint.y == Approx(0.6f));
+    REQUIRE(quads[0].alpha == Approx(0.9f));
+}
+
+TEST_CASE("RenderSystem skips a transparent or textureless UiImage", "[render][ui]")
+{
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto tex_id = register_white_texture(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto clear = world.create_entity();
+    UiImage a; a.texture = tex_id; a.alpha = 0.0f; world.add_component<UiImage>(clear, a);
+    auto notex = world.create_entity();
+    UiImage b; world.add_component<UiImage>(notex, b); // nil texture
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.ui_image_draws.empty());
+}
 
 TEST_CASE("RenderSystem emits glyph quads for a UiText with a registered font", "[render][ui]")
 {

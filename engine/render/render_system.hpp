@@ -23,6 +23,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_image.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 #include <algorithm>
@@ -218,7 +219,22 @@ public:
             }
         }
 
-        // HUD text pass: single-line UiText, drawn over panels (topmost). Uses aspect_.
+        // HUD image pass: textured sprites, drawn over panels. Reuses texture_cache_.
+        {
+            world.for_each<mosaic::engine::ui::UiImage>(
+                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiImage& im)
+                {
+                    if (im.alpha <= 0.0f) { return; }
+                    const TextureHandle tex = texture_cache_.get(im.texture, registry, device);
+                    if (tex == 0) { return; }
+                    const mosaic::engine::ui::Rect rect = mosaic::engine::ui::resolve_rect(
+                        to_anchor(im.anchor), im.pos, im.size);
+                    device.draw_ui_image(
+                        std::vector<UiImageQuad>{UiImageQuad{rect, im.tint, im.alpha}}, tex);
+                });
+        }
+
+        // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
         {
             world.for_each<mosaic::engine::ui::UiText>(
                 [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiText& t)
