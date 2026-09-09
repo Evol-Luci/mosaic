@@ -21,7 +21,7 @@ void main() {
     vec2 c = corner(gl_VertexIndex);
     float nx = pc.rect.x + c.x * pc.rect.z;
     float ny = pc.rect.y + c.y * pc.rect.w;
-    gl_Position = vec4(nx * 2.0 - 1.0, ny * 2.0 - 1.0, 0.0, 1.0);
+    gl_Position = vec4(nx * 2.0 - 1.0, 1.0 - ny * 2.0, 0.0, 1.0);
     v_uv = c;           // full-texture UV 0..1
     v_tint = pc.tint;
 }

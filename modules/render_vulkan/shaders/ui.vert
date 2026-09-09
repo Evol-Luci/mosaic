@@ -22,7 +22,8 @@ void main() {
     vec2 uv = corner(gl_VertexIndex);
     float nx = pc.rect.x + uv.x * pc.rect.z; // normalized [0,1], top-left origin
     float ny = pc.rect.y + uv.y * pc.rect.w;
-    // to NDC: x [-1,1] left->right, y [-1,1] top->bottom (top-left origin -> +y down)
-    gl_Position = vec4(nx * 2.0 - 1.0, ny * 2.0 - 1.0, 0.0, 1.0);
+    // The pass uses a negative-height viewport (Y-flip), so a top-left-origin ny (0 = top)
+    // maps to clip.y = 1 - 2*ny to land at the window top. x is left->right as usual.
+    gl_Position = vec4(nx * 2.0 - 1.0, 1.0 - ny * 2.0, 0.0, 1.0);
     v_color = pc.color;
 }
