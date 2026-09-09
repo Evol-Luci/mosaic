@@ -22,13 +22,16 @@ struct TextQuad
 inline std::vector<TextQuad> layout_text(const FontAtlas& font, const std::string& text,
                                          Anchor anchor, mosaic::foundation::math::Vec2 pos,
                                          float height, float aspect,
-                                         mosaic::foundation::math::Vec3 color, float alpha)
+                                         mosaic::foundation::math::Vec3 color, float alpha,
+                                         const Rect& frame = Rect{0.0f, 0.0f, 1.0f, 1.0f})
 {
     std::vector<TextQuad> out;
     if (font.line_height <= 0.0f || aspect <= 0.0f) { return out; }
 
-    const float scale = height / font.line_height; // atlas px -> normalized Y
-    const float sx    = scale / aspect;            // atlas px -> normalized X
+    // `height` is a fraction of the frame's height (the screen when frame = {0,0,1,1}),
+    // so nested text scales with its parent. scale maps atlas px -> normalized Y.
+    const float scale = (height * frame.h) / font.line_height;
+    const float sx    = scale / aspect;            // atlas px -> normalized X (aspect-correct)
 
     // Measure total advance width (present glyphs only).
     float total_adv = 0.0f;
@@ -39,7 +42,10 @@ inline std::vector<TextQuad> layout_text(const FontAtlas& font, const std::strin
     }
     const float w = total_adv * sx;
 
-    const Rect box = resolve_rect(anchor, pos, mosaic::foundation::math::Vec2{w, height});
+    // Pass the box size as frame-fractions so resolve_in maps it back to the right screen
+    // rect: box.w = (w/frame.w)*frame.w = w, box.h = height*frame.h. Screen frame is a no-op.
+    const float box_w = (frame.w > 0.0f) ? w / frame.w : w;
+    const Rect box = resolve_in(frame, anchor, pos, mosaic::foundation::math::Vec2{box_w, height});
     float pen_x = box.x;
     const float baseline = box.y + font.ascent * scale;
 

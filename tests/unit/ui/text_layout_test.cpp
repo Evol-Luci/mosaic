@@ -81,3 +81,16 @@ TEST_CASE("layout_text ignores codepoints absent from the atlas", "[ui][text]")
     const auto quads = layout_text(font, "A\tB", Anchor::TopLeft, Vec2{0, 0}, 0.1f, 1.0f, kWhite, 1.0f);
     REQUIRE(quads.size() == 2); // only A and B
 }
+
+TEST_CASE("layout_text offsets glyph quads into a non-screen frame", "[ui][text]")
+{
+    const FontAtlas font = fixture_font();
+    const mosaic::engine::ui::Rect frame{0.5f, 0.5f, 0.5f, 0.5f};
+    const auto full  = layout_text(font, "A", Anchor::TopLeft, Vec2{0, 0}, 0.1f, 1.0f, kWhite, 1.0f);
+    const auto inset = layout_text(font, "A", Anchor::TopLeft, Vec2{0, 0}, 0.1f, 1.0f, kWhite, 1.0f, frame);
+    REQUIRE(!inset.empty());
+    // The frame's origin is (0.5,0.5), so the inset glyph sits to the lower-right of the
+    // screen-space one and is half the width.
+    REQUIRE(inset[0].rect.x > full[0].rect.x);
+    REQUIRE(inset[0].rect.w == Approx(full[0].rect.w * 0.5f));
+}
