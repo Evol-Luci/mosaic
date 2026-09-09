@@ -41,6 +41,7 @@
 #include "engine/script/script_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
+#include "engine/ui/pointer.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
@@ -176,7 +177,21 @@ int main(int argc, char** argv)
     auto render_system =
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
-                      script_host, options.script_thread, std::move(audio))
+                      script_host, options.script_thread, std::move(audio),
+                      [&glfw_window]() -> mosaic::engine::ui::PointerState
+                      {
+                          if (glfw_window == nullptr) { return {}; }
+                          int ww = 0, wh = 0;
+                          glfwGetWindowSize(glfw_window, &ww, &wh);
+                          if (ww <= 0 || wh <= 0) { return {}; }
+                          double mx = 0.0, my = 0.0;
+                          glfwGetCursorPos(glfw_window, &mx, &my);
+                          mosaic::engine::ui::PointerState p;
+                          p.x = std::clamp(static_cast<float>(mx / ww), 0.0f, 1.0f);
+                          p.y = std::clamp(static_cast<float>(my / wh), 0.0f, 1.0f);
+                          p.down = glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+                          return p;
+                      })
             .render_system;
 
     if (options.assets_dir)
