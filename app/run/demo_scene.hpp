@@ -25,6 +25,7 @@
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/world_label.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
 #include "app/run/scene_io.hpp"
@@ -436,6 +437,13 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::Material>(orbiter, render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
+    // A floating world-space label above the orbiter (U5b): camera-facing 3D text that
+    // tracks the cube as it circles. No new entity -> default-scene counts unchanged.
+    world.add_component<mosaic::engine::ui::WorldLabel>(orbiter,
+        mosaic::engine::ui::WorldLabel{
+            kBuiltinFontId, "Orbiter", 0.4f,
+            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f,
+            mosaic::foundation::math::Vec3{0.0f, 0.8f, 0.0f}});
 
     // A continuous emitter on the moving orbiter: sub-frame spawn interpolation
     // spreads its trail smoothly along the orbit arc instead of clumping per tick.
