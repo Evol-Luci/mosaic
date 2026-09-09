@@ -137,6 +137,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_panel_reflection_test.cpp
   unit/ui/ui_image_reflection_test.cpp
   unit/ui/ui_button_reflection_test.cpp
+  unit/ui/ui_system_test.cpp
   unit/ui/text_layout_test.cpp
   unit/ui/ui_text_reflection_test.cpp
   unit/app/font_cook_test.cpp
