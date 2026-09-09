@@ -24,6 +24,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
+#include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
 #include "app/run/scene_io.hpp"
@@ -399,6 +400,19 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::foundation::math::Vec2{0.02f, 0.02f},
             mosaic::foundation::math::Vec2{0.25f, 0.06f},
             "hud_click"});
+
+    // A nested child label parented to the camera's HUD-bar UiPanel: its pos/height are
+    // relative to the bar (U5a hierarchy), so it tracks the bar. No Transform -> the
+    // default-scene Transform-count tests are unaffected.
+    const auto hud_label = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiText>(hud_label,
+        mosaic::engine::ui::UiText{
+            kBuiltinFontId, "HP",
+            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            mosaic::foundation::math::Vec2{0.05f, 0.15f}, 0.5f,
+            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 3});
+    world.add_component<mosaic::engine::ui::UiParent>(hud_label,
+        mosaic::engine::ui::UiParent{camera});
 
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         mosaic::engine::ui::UiImage{
