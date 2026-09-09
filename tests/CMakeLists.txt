@@ -143,6 +143,7 @@ add_executable(mosaic_unit_tests
   unit/ui/text_layout_test.cpp
   unit/ui/ui_text_reflection_test.cpp
   unit/ui/world_label_reflection_test.cpp
+  unit/ui/world_text_test.cpp
   unit/app/font_cook_test.cpp
   unit/app/font_asset_test.cpp
   unit/vfx/trail_system_test.cpp

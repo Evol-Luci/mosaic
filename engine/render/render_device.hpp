@@ -61,6 +61,15 @@ struct ParticleDrawParams
     mosaic::foundation::math::Vec3 camera_up;
 };
 
+// One world-space glyph vertex (camera-facing text). CPU-expanded; drawn by draw_world_text.
+struct WorldGlyphVertex
+{
+    mosaic::foundation::math::Vec3 position; // world space
+    float                          u = 0, v = 0;
+    mosaic::foundation::math::Vec3 color;
+    float                          alpha = 1.0f;
+};
+
 // One vertex of a ribbon strip (pre-expanded, world-space). alpha is the taper factor.
 struct RibbonVertex
 {
