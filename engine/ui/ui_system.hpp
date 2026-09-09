@@ -7,6 +7,7 @@
 #include "engine/script/script_event.hpp"
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
+#include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -40,7 +41,7 @@ public:
                 [&](mosaic::foundation::EntityID e, UiButton& b)
                 {
                     if (pressed_ != mosaic::foundation::EntityID{}) { return; }
-                    if (hit(p, b)) { pressed_ = e; }
+                    if (hit(world, e, p, b)) { pressed_ = e; }
                 });
         }
         else if (!p.down && was_down_)
@@ -51,7 +52,7 @@ public:
                 world.for_each<UiButton>(
                     [&](mosaic::foundation::EntityID e, UiButton& b)
                     {
-                        if (e != pressed_ || !hit(p, b)) { return; }
+                        if (e != pressed_ || !hit(world, e, p, b)) { return; }
                         namespace ser = mosaic::foundation::serialization;
                         ser::Table payload;
                         payload["entity"] = ser::Value(static_cast<std::uint64_t>(e.value()));
@@ -66,9 +67,10 @@ public:
     }
 
 private:
-    static bool hit(const PointerState& p, UiButton& b)
+    static bool hit(mosaic::engine::World& world, mosaic::foundation::EntityID e,
+                    const PointerState& p, UiButton& b)
     {
-        const Rect r = resolve_rect(button_anchor(b.anchor), b.pos, b.size);
+        const Rect r = resolve_ui_rect(world, e, button_anchor(b.anchor), b.pos, b.size);
         return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
     }
 

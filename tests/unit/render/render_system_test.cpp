@@ -30,6 +30,7 @@
 #include "engine/ui/font_atlas.hpp"
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "foundation/math/mat4.hpp"
@@ -881,4 +882,40 @@ TEST_CASE("FontTextureCache uploads a font atlas at most once", "[render][ui]")
     REQUIRE(h1 != 0);
     REQUIRE(h1 == h2);
     REQUIRE(cache.get(mosaic::foundation::serialization::AssetID{}, registry, device) == 0);
+}
+
+TEST_CASE("RenderSystem resolves a child UiPanel within its parent panel", "[render][ui]")
+{
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto parent = world.create_entity();
+    UiPanel pp; pp.anchor = 0; pp.pos = {0.5f, 0.5f}; pp.size = {0.4f, 0.4f}; pp.alpha = 1.0f;
+    world.add_component<UiPanel>(parent, pp);
+
+    auto child = world.create_entity();
+    UiPanel cp; cp.anchor = 0; cp.pos = {0.0f, 0.0f}; cp.size = {0.5f, 0.5f}; cp.alpha = 1.0f;
+    world.add_component<UiPanel>(child, cp);
+    world.add_component<UiParent>(child, UiParent{parent});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws.front();
+    REQUIRE(quads.size() == 2); // parent + child
+    // The child sits inside the parent frame {0.5,0.5,0.4,0.4}: top-left (0.5,0.5), 0.2 wide.
+    bool found_child = false;
+    for (const auto& q : quads)
+    {
+        if (q.rect.w == Approx(0.2f) && q.rect.x == Approx(0.5f) && q.rect.y == Approx(0.5f))
+        {
+            found_child = true;
+        }
+    }
+    REQUIRE(found_child);
 }

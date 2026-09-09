@@ -20,6 +20,7 @@
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/render/font_texture_cache.hpp"
 #include "engine/ui/text_layout.hpp"
+#include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
@@ -201,11 +202,11 @@ public:
         {
             std::vector<std::pair<int, UiQuad>> pending;
             world.for_each<mosaic::engine::ui::UiPanel>(
-                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiPanel& p)
+                [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiPanel& p)
                 {
                     if (p.alpha <= 0.0f) { return; }
-                    const auto rect = mosaic::engine::ui::resolve_rect(
-                        to_anchor(p.anchor), p.pos, p.size);
+                    const auto rect = mosaic::engine::ui::resolve_ui_rect(
+                        world, e, to_anchor(p.anchor), p.pos, p.size);
                     pending.push_back({p.order, UiQuad{rect, p.color, p.alpha}});
                 });
             std::stable_sort(pending.begin(), pending.end(),
@@ -222,13 +223,13 @@ public:
         // HUD image pass: textured sprites, drawn over panels. Reuses texture_cache_.
         {
             world.for_each<mosaic::engine::ui::UiImage>(
-                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiImage& im)
+                [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
                 {
                     if (im.alpha <= 0.0f) { return; }
                     const TextureHandle tex = texture_cache_.get(im.texture, registry, device);
                     if (tex == 0) { return; }
-                    const mosaic::engine::ui::Rect rect = mosaic::engine::ui::resolve_rect(
-                        to_anchor(im.anchor), im.pos, im.size);
+                    const mosaic::engine::ui::Rect rect = mosaic::engine::ui::resolve_ui_rect(
+                        world, e, to_anchor(im.anchor), im.pos, im.size);
                     device.draw_ui_image(
                         std::vector<UiImageQuad>{UiImageQuad{rect, im.tint, im.alpha}}, tex);
                 });
@@ -237,7 +238,7 @@ public:
         // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
         {
             world.for_each<mosaic::engine::ui::UiText>(
-                [&](mosaic::foundation::EntityID, mosaic::engine::ui::UiText& t)
+                [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiText& t)
                 {
                     if (t.alpha <= 0.0f || t.text.empty()) { return; }
                     std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
@@ -245,9 +246,12 @@ public:
                     if (!font) { return; }
                     const TextureHandle atlas = font_textures_.get(t.font, registry, device);
                     if (atlas == 0) { return; }
+                    const mosaic::engine::ui::Rect frame =
+                        mosaic::engine::ui::resolve_parent_frame(world, e);
                     const std::vector<mosaic::engine::ui::TextQuad> tq =
                         mosaic::engine::ui::layout_text(*font, t.text, to_anchor(t.anchor),
-                                                        t.pos, t.height, aspect_, t.color, t.alpha);
+                                                        t.pos, t.height, aspect_, t.color, t.alpha,
+                                                        frame);
                     if (tq.empty()) { return; }
                     std::vector<UiGlyphQuad> quads;
                     quads.reserve(tq.size());
