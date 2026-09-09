@@ -33,6 +33,7 @@
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_image.hpp"
+#include "engine/ui/world_label.hpp"
 #include "foundation/math/mat4.hpp"
 
 using mosaic::engine::World;
@@ -142,6 +143,17 @@ public:
                       mosaic::engine::render::TextureHandle atlas) override
     {
         ui_text_draws.push_back({quads, atlas});
+    }
+
+    struct WorldTextDrawCall { std::vector<mosaic::engine::render::WorldGlyphVertex> verts;
+                               Mat4 view_proj;
+                               mosaic::engine::render::TextureHandle atlas; };
+    std::vector<WorldTextDrawCall> world_text_draws;
+    void draw_world_text(const std::vector<mosaic::engine::render::WorldGlyphVertex>& verts,
+                         const Mat4& view_proj,
+                         mosaic::engine::render::TextureHandle atlas) override
+    {
+        world_text_draws.push_back({verts, view_proj, atlas});
     }
 };
 
@@ -918,4 +930,46 @@ TEST_CASE("RenderSystem resolves a child UiPanel within its parent panel", "[ren
         }
     }
     REQUIRE(found_child);
+}
+
+TEST_CASE("RenderSystem emits world-text verts for a WorldLabel with a WorldTransform", "[render][ui]")
+{
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+    WorldLabel l; l.font = font_id; l.text = "Hi"; l.size = 1.0f;
+    world.add_component<WorldLabel>(e, l);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.world_text_draws.size() == 1);
+    REQUIRE(device.world_text_draws[0].verts.size() == 12); // "Hi" = 2 glyphs * 6
+    REQUIRE(device.world_text_draws[0].atlas != 0);
+}
+
+TEST_CASE("RenderSystem skips a WorldLabel with no WorldTransform or empty text", "[render][ui]")
+{
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto no_wt = world.create_entity();
+    WorldLabel a; a.font = font_id; a.text = "X"; world.add_component<WorldLabel>(no_wt, a);
+    auto empty = world.create_entity();
+    world.add_component<WorldTransform>(empty, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+    WorldLabel b; b.font = font_id; b.text = ""; world.add_component<WorldLabel>(empty, b);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.world_text_draws.empty());
 }

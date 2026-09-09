@@ -25,6 +25,8 @@
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_image.hpp"
+#include "engine/ui/world_label.hpp"
+#include "engine/ui/world_text.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 #include <algorithm>
@@ -194,6 +196,33 @@ public:
                         device.draw_screen_effect(
                             ScreenEffectParams{se.tint, se.tint_strength, se.vignette});
                     }
+                });
+        }
+
+        // World-label pass: camera-facing 3D text. Part of the scene (depth-tested),
+        // under the screen-space HUD passes.
+        {
+            const Mat4 cam_world = Mat4::inverse_affine(view);
+            const Vec3 cam_right = mosaic::foundation::math::normalize(
+                Vec3{cam_world.m[0], cam_world.m[1], cam_world.m[2]});
+            const Vec3 cam_up = mosaic::foundation::math::normalize(
+                Vec3{cam_world.m[4], cam_world.m[5], cam_world.m[6]});
+            world.for_each<mosaic::engine::ui::WorldLabel>(
+                [&](mosaic::foundation::EntityID e, mosaic::engine::ui::WorldLabel& l)
+                {
+                    if (l.alpha <= 0.0f || l.text.empty()) { return; }
+                    const auto* wt = world.get_component<transform::WorldTransform>(e);
+                    if (wt == nullptr) { return; }
+                    std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
+                        registry.load<mosaic::engine::ui::FontAtlas>(l.font);
+                    if (!font) { return; }
+                    const TextureHandle atlas = font_textures_.get(l.font, registry, device);
+                    if (atlas == 0) { return; }
+                    const Vec3 pos{wt->matrix.m[12], wt->matrix.m[13], wt->matrix.m[14]};
+                    const Vec3 anchor{pos.x + l.offset.x, pos.y + l.offset.y, pos.z + l.offset.z};
+                    const auto verts = mosaic::engine::ui::build_world_text(
+                        *font, l.text, anchor, cam_right, cam_up, l.size, l.color, l.alpha);
+                    if (!verts.empty()) { device.draw_world_text(verts, projection * view, atlas); }
                 });
         }
 

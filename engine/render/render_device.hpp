@@ -157,6 +157,12 @@ public:
     virtual void draw_ribbons(const std::vector<RibbonVertex>& /*vertices*/,
                               const RibbonDrawParams& /*params*/) {}
 
+    // Draw camera-facing world-space text glyphs (pre-expanded world verts), sampling the
+    // font atlas. view_proj = projection * view. Default no-op (like draw_ribbons).
+    virtual void draw_world_text(const std::vector<WorldGlyphVertex>& /*verts*/,
+                                 const mosaic::foundation::math::Mat4& /*view_proj*/,
+                                 TextureHandle /*atlas*/) {}
+
     // Draw alpha-blended textured quads (decals). Default no-op (like draw_particles).
     virtual void draw_decals(const std::vector<DecalInstance>& /*decals*/) {}
 
