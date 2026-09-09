@@ -49,4 +49,16 @@ inline Rect resolve_rect(Anchor anchor, Vec2 pos, Vec2 size)
     r.h = size.y;
     return r;
 }
+
+// Resolve an element within an arbitrary frame rect (normalized, top-left origin).
+// pos/size are fractions of `frame`; anchor picks the frame's corner/edge.
+// resolve_rect(a,p,s) == resolve_in(Rect{0,0,1,1}, a, p, s).
+inline Rect resolve_in(const Rect& frame, Anchor anchor, Vec2 pos, Vec2 size)
+{
+    const Rect local = resolve_rect(anchor, pos, size);
+    return Rect{frame.x + local.x * frame.w,
+                frame.y + local.y * frame.h,
+                local.w * frame.w,
+                local.h * frame.h};
+}
 } // namespace mosaic::engine::ui
