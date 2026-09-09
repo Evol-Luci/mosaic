@@ -24,6 +24,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/world_label.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
 namespace mosaic::engine::reflection
@@ -60,6 +61,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::ui::UiImage>(registry, "UiImage");
     types.register_component<mosaic::engine::ui::UiButton>(registry, "UiButton");
     types.register_component<mosaic::engine::ui::UiParent>(registry, "UiParent");
+    types.register_component<mosaic::engine::ui::WorldLabel>(registry, "WorldLabel");
     types.register_component<mosaic::engine::ui::UiText>(registry, "UiText");
 }
 
