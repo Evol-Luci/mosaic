@@ -22,7 +22,7 @@ void main() {
     vec2 c = corner(gl_VertexIndex);
     float nx = pc.rect.x + c.x * pc.rect.z;
     float ny = pc.rect.y + c.y * pc.rect.w;
-    gl_Position = vec4(nx * 2.0 - 1.0, ny * 2.0 - 1.0, 0.0, 1.0);
+    gl_Position = vec4(nx * 2.0 - 1.0, 1.0 - ny * 2.0, 0.0, 1.0);
     v_uv = vec2(mix(pc.uv.x, pc.uv.z, c.x), mix(pc.uv.y, pc.uv.w, c.y));
     v_color = pc.color;
 }
