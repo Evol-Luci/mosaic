@@ -3,6 +3,8 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "engine/net/net_replicated.hpp"
 #include "engine/reflection/component_reflection.hpp"
@@ -109,6 +111,8 @@ inline bool apply_snapshot(const std::string& blob, World& world,
         return false;
     }
 
+    std::unordered_set<NetId> seen;
+
     for (const Value& node_value : entities->as<ser::Array>())
     {
         if (!node_value.is<ser::Table>())
@@ -122,6 +126,8 @@ inline bool apply_snapshot(const std::string& blob, World& world,
         {
             return false;
         }
+
+        seen.insert(net);
 
         World::EntityID local;
         auto it = ids.map.find(net);
@@ -144,6 +150,22 @@ inline bool apply_snapshot(const std::string& blob, World& world,
         {
             types.set_value(world, local, name, value); // upsert (add or update)
         }
+    }
+
+    // Remove tracked entities absent from this (full) snapshot: server-authoritative despawn.
+    std::vector<NetId> to_remove;
+    for (const auto& [net_id, local] : ids.map)
+    {
+        (void)local;
+        if (seen.find(net_id) == seen.end())
+        {
+            to_remove.push_back(net_id);
+        }
+    }
+    for (NetId net_id : to_remove)
+    {
+        world.destroy_entity(ids.map[net_id]);
+        ids.map.erase(net_id);
     }
 
     return true;
