@@ -7,8 +7,9 @@ namespace mosaic::engine::net
 {
 enum class MessageType : std::uint8_t
 {
-    Hello   = 1, // client -> server on connect (payload: empty)
-    Welcome = 2, // server -> client (payload: u32 assigned session id)
+    Hello    = 1, // client -> server on connect (payload: empty)
+    Welcome  = 2, // server -> client (payload: u32 assigned session id)
+    Snapshot = 3, // server -> client (payload: JSON replication snapshot from N3)
 };
 
 // Frame = [1 byte type][payload bytes].
@@ -26,7 +27,8 @@ inline bool decode(const std::string& frame, MessageType& type, std::string& pay
     if (frame.empty()) { return false; }
     const auto raw = static_cast<std::uint8_t>(frame[0]);
     if (raw != static_cast<std::uint8_t>(MessageType::Hello) &&
-        raw != static_cast<std::uint8_t>(MessageType::Welcome))
+        raw != static_cast<std::uint8_t>(MessageType::Welcome) &&
+        raw != static_cast<std::uint8_t>(MessageType::Snapshot))
     {
         return false;
     }

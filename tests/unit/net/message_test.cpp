@@ -38,3 +38,22 @@ TEST_CASE("put_u32/get_u32 round-trip (little-endian)", "[net]")
     REQUIRE(get_u32(put_u32(0u)) == 0u);
     REQUIRE(get_u32("abc") == 0u); // too short -> 0, no crash
 }
+
+TEST_CASE("encode/decode round-trips a Snapshot frame", "[net]")
+{
+    using mosaic::engine::net::decode;
+    using mosaic::engine::net::encode;
+    using mosaic::engine::net::MessageType;
+
+    const std::string blob = R"({"entities":[{"net":1,"components":{}}]})";
+    MessageType type{};
+    std::string payload;
+    REQUIRE(decode(encode(MessageType::Snapshot, blob), type, payload));
+    REQUIRE(type == MessageType::Snapshot);
+    REQUIRE(payload == blob);
+
+    // Empty payload also round-trips.
+    REQUIRE(decode(encode(MessageType::Snapshot, ""), type, payload));
+    REQUIRE(type == MessageType::Snapshot);
+    REQUIRE(payload.empty());
+}
