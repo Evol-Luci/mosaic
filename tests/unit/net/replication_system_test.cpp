@@ -1,0 +1,85 @@
+#include <memory>
+#include <vector>
+
+#include <catch2/catch_test_macros.hpp>
+
+#include "engine/net/loopback_transport.hpp"
+#include "engine/net/network_system.hpp"
+#include "engine/net/net_replicated.hpp"
+#include "engine/net/replication_system.hpp"
+#include "engine/reflection/builtin_components.hpp"
+#include "engine/reflection/component_reflection.hpp"
+#include "engine/render/material.hpp"
+#include "engine/transform/transform.hpp"
+#include "engine/world/world.hpp"
+#include "foundation/reflection/type_registry.hpp"
+
+using mosaic::engine::World;
+using mosaic::engine::net::make_loopback_pair;
+using mosaic::engine::net::NetworkSystem;
+using mosaic::engine::net::NetReplicated;
+using mosaic::engine::net::ReplicationSystem;
+using mosaic::engine::net::Role;
+using mosaic::engine::render::Material;
+using mosaic::engine::transform::Transform;
+namespace refl = mosaic::engine::reflection;
+
+TEST_CASE("client World mirrors the server over the session", "[net][replication]")
+{
+    // Shared component reflection (type metadata only — safe across both Worlds).
+    mosaic::foundation::reflection::TypeRegistry registry;
+    refl::ComponentReflection types;
+    refl::register_builtin_components(registry, types);
+
+    auto [server_tx, client_tx] = make_loopback_pair();
+
+    World server_world;
+    auto& server_net = server_world.add_system<NetworkSystem>(Role::Server, server_tx);
+    server_world.add_system<ReplicationSystem>(Role::Server, &server_net, &types);
+
+    World client_world;
+    auto& client_net = client_world.add_system<NetworkSystem>(Role::Client, client_tx);
+    client_world.add_system<ReplicationSystem>(Role::Client, &client_net, &types);
+
+    // Server scene: one replicated entity + one unmarked entity.
+    const auto se = server_world.create_entity();
+    server_world.add_component<NetReplicated>(se, NetReplicated{1});
+    Transform st; st.position = {1.0f, 2.0f, 3.0f};
+    server_world.add_component<Transform>(se, st);
+    Material sm; sm.base_color = {0.25f, 0.5f, 0.75f};
+    server_world.add_component<Material>(se, sm);
+
+    const auto unmarked = server_world.create_entity();
+    server_world.add_component<Transform>(unmarked, Transform{});
+
+    auto pump = [&]() {
+        for (int i = 0; i < 8; ++i) { client_world.tick(0.016f); server_world.tick(0.016f); }
+    };
+
+    pump(); // handshake + first snapshot round-trip
+
+    // Client mirrors exactly the one replicated entity.
+    int count = 0;
+    World::EntityID only;
+    client_world.for_each_entity([&](World::EntityID e) { ++count; only = e; });
+    REQUIRE(count == 1);
+
+    const Transform* ct = client_world.get_component<Transform>(only);
+    REQUIRE(ct != nullptr);
+    REQUIRE(ct->position.x == 1.0f);
+    REQUIRE(ct->position.y == 2.0f);
+    REQUIRE(ct->position.z == 3.0f);
+    const Material* cm = client_world.get_component<Material>(only);
+    REQUIRE(cm != nullptr);
+    REQUIRE(cm->base_color.x == 0.25f);
+    REQUIRE_FALSE(client_world.has_component<NetReplicated>(only));
+
+    // Move the server entity; the client updates in place, still exactly one entity.
+    server_world.get_component<Transform>(se)->position = {5.0f, 6.0f, 7.0f};
+    pump();
+
+    count = 0;
+    client_world.for_each_entity([&](World::EntityID e) { ++count; only = e; });
+    REQUIRE(count == 1); // no duplicate from repeated per-tick snapshots
+    REQUIRE(client_world.get_component<Transform>(only)->position.x == 5.0f);
+}
