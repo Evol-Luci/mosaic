@@ -17,6 +17,14 @@ namespace mosaic::engine::net
 {
 enum class Role { Server, Client };
 
+// A received application frame (non-control), surfaced to other systems via take_inbound().
+struct InboundMessage
+{
+    std::uint32_t peer;      // server: sender's session id; client: 0 ("the server")
+    MessageType   type;
+    std::string   payload;
+};
+
 // Drives the connection lifecycle over an injected Transport. Server: assigns a monotonic
 // session id per client on Hello and replies Welcome; Client: sends Hello on connect and
 // adopts the id from Welcome. Emits NetworkEvent on the World bus. Writes no ECS state.
@@ -41,19 +49,51 @@ public:
     std::uint32_t local_id() const { return local_id_; }      // client
     const std::vector<std::uint32_t>& clients() const { return clients_; } // server
 
+    // Drain buffered non-control frames received since the last call (drain-once).
+    std::vector<InboundMessage> take_inbound()
+    {
+        std::vector<InboundMessage> out = std::move(inbound_);
+        inbound_.clear();
+        return out;
+    }
+
+    // Server: send `bytes` to every connected session. Zero sessions -> no-op.
+    void broadcast(Channel channel, const std::string& bytes)
+    {
+        if (!transport_) { return; }
+        for (const auto& [conn, id] : sessions_)
+        {
+            (void)id;
+            transport_->send(conn, channel, bytes);
+        }
+    }
+
 private:
     void handle_server(mosaic::engine::World& world, const NetEvent& ev)
     {
         if (ev.type == NetEvent::Type::Message)
         {
             MessageType type{}; std::string payload;
-            if (!decode(ev.data, type, payload) || type != MessageType::Hello) { return; }
-            if (sessions_.count(ev.connection) != 0) { return; } // duplicate Hello -> ignore
-            const std::uint32_t id = next_session_id_++;
-            sessions_.emplace(ev.connection, id);
-            clients_.push_back(id);
-            transport_->send(ev.connection, Channel::Reliable, encode(MessageType::Welcome, put_u32(id)));
-            world.events().emit(NetworkEvent{NetworkEvent::Type::PeerJoined, id});
+            if (!decode(ev.data, type, payload)) { return; }
+            if (type == MessageType::Hello)
+            {
+                if (sessions_.count(ev.connection) != 0) { return; } // duplicate Hello
+                const std::uint32_t id = next_session_id_++;
+                sessions_.emplace(ev.connection, id);
+                clients_.push_back(id);
+                transport_->send(ev.connection, Channel::Reliable,
+                                 encode(MessageType::Welcome, put_u32(id)));
+                world.events().emit(NetworkEvent{NetworkEvent::Type::PeerJoined, id});
+            }
+            else
+            {
+                // Non-control frame: buffer only from an established session.
+                auto it = sessions_.find(ev.connection);
+                if (it != sessions_.end())
+                {
+                    inbound_.push_back({it->second, type, payload});
+                }
+            }
         }
         else if (ev.type == NetEvent::Type::Disconnected)
         {
@@ -76,10 +116,17 @@ private:
         else if (ev.type == NetEvent::Type::Message)
         {
             MessageType type{}; std::string payload;
-            if (!decode(ev.data, type, payload) || type != MessageType::Welcome) { return; }
-            local_id_ = get_u32(payload);
-            connected_ = true;
-            world.events().emit(NetworkEvent{NetworkEvent::Type::SessionEstablished, local_id_});
+            if (!decode(ev.data, type, payload)) { return; }
+            if (type == MessageType::Welcome)
+            {
+                local_id_ = get_u32(payload);
+                connected_ = true;
+                world.events().emit(NetworkEvent{NetworkEvent::Type::SessionEstablished, local_id_});
+            }
+            else
+            {
+                inbound_.push_back({0u, type, payload});
+            }
         }
         else if (ev.type == NetEvent::Type::Disconnected)
         {
@@ -97,5 +144,7 @@ private:
     // client
     bool connected_ = false;
     std::uint32_t local_id_ = 0;
+
+    std::vector<InboundMessage> inbound_;
 };
 } // namespace mosaic::engine::net

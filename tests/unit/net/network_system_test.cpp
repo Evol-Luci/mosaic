@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <vector>
@@ -155,4 +156,82 @@ TEST_CASE("no traffic emits no events", "[net]")
     w.events().subscribe<NetworkEvent>([&](const NetworkEvent& e) { events.push_back(e); });
     w.tick(0.016f);
     REQUIRE(events.empty());
+}
+
+TEST_CASE("server buffers a snapshot frame from an established session", "[net]")
+{
+    using mosaic::engine::net::InboundMessage;
+    auto fake = std::make_shared<FakeTransport>();
+    World w;
+    auto& server = w.add_system<NetworkSystem>(Role::Server, fake);
+
+    fake->inject_message(10u, encode(MessageType::Hello, ""));
+    w.tick(0.016f); // establishes session 1 for conn 10
+
+    fake->inject_message(10u, encode(MessageType::Snapshot, "BLOB"));
+    fake->inject_message(99u, encode(MessageType::Snapshot, "NOPE")); // unknown conn
+    w.tick(0.016f);
+
+    std::vector<InboundMessage> got = server.take_inbound();
+    REQUIRE(got.size() == 1);            // the unknown-conn frame was dropped
+    REQUIRE(got[0].peer == 1u);          // sender's session id
+    REQUIRE(got[0].type == MessageType::Snapshot);
+    REQUIRE(got[0].payload == "BLOB");
+
+    REQUIRE(server.take_inbound().empty()); // drain-once
+}
+
+TEST_CASE("client buffers a snapshot frame as peer 0", "[net]")
+{
+    using mosaic::engine::net::InboundMessage;
+    auto fake = std::make_shared<FakeTransport>();
+    World w;
+    auto& client = w.add_system<NetworkSystem>(Role::Client, fake);
+
+    fake->inject_message(1u, encode(MessageType::Snapshot, "BLOB"));
+    w.tick(0.016f);
+
+    std::vector<InboundMessage> got = client.take_inbound();
+    REQUIRE(got.size() == 1);
+    REQUIRE(got[0].peer == 0u);
+    REQUIRE(got[0].type == MessageType::Snapshot);
+    REQUIRE(got[0].payload == "BLOB");
+}
+
+TEST_CASE("server broadcast sends to every connected session", "[net]")
+{
+    auto fake = std::make_shared<FakeTransport>();
+    World w;
+    auto& server = w.add_system<NetworkSystem>(Role::Server, fake);
+
+    fake->inject_message(10u, encode(MessageType::Hello, ""));
+    fake->inject_message(11u, encode(MessageType::Hello, ""));
+    w.tick(0.016f); // two sessions; fake->sent now holds two Welcomes
+
+    const std::size_t before = fake->sent.size();
+    server.broadcast(Channel::Reliable, encode(MessageType::Snapshot, "BLOB"));
+
+    // Two new sends, one per connection, carrying the snapshot frame on Reliable.
+    REQUIRE(fake->sent.size() == before + 2);
+    std::vector<ConnectionId> targets{fake->sent[before].to, fake->sent[before + 1].to};
+    std::sort(targets.begin(), targets.end());
+    REQUIRE(targets == std::vector<ConnectionId>{10u, 11u});
+    for (std::size_t i = before; i < fake->sent.size(); ++i)
+    {
+        REQUIRE(fake->sent[i].channel == Channel::Reliable);
+        MessageType t{}; std::string p;
+        REQUIRE(mosaic::engine::net::decode(fake->sent[i].bytes, t, p));
+        REQUIRE(t == MessageType::Snapshot);
+        REQUIRE(p == "BLOB");
+    }
+}
+
+TEST_CASE("broadcast with no clients sends nothing", "[net]")
+{
+    auto fake = std::make_shared<FakeTransport>();
+    World w;
+    auto& server = w.add_system<NetworkSystem>(Role::Server, fake);
+
+    server.broadcast(Channel::Reliable, encode(MessageType::Snapshot, "BLOB"));
+    REQUIRE(fake->sent.empty()); // no-op, no crash
 }
