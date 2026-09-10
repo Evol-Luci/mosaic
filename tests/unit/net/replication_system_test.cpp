@@ -83,3 +83,48 @@ TEST_CASE("client World mirrors the server over the session", "[net][replication
     REQUIRE(count == 1); // no duplicate from repeated per-tick snapshots
     REQUIRE(client_world.get_component<Transform>(only)->position.x == 5.0f);
 }
+
+TEST_CASE("client despawns an entity removed on the server", "[net][replication]")
+{
+    mosaic::foundation::reflection::TypeRegistry registry;
+    refl::ComponentReflection types;
+    refl::register_builtin_components(registry, types);
+
+    auto [server_tx, client_tx] = make_loopback_pair();
+
+    World server_world;
+    auto& server_net = server_world.add_system<NetworkSystem>(Role::Server, server_tx);
+    server_world.add_system<ReplicationSystem>(Role::Server, &server_net, &types);
+
+    World client_world;
+    auto& client_net = client_world.add_system<NetworkSystem>(Role::Client, client_tx);
+    client_world.add_system<ReplicationSystem>(Role::Client, &client_net, &types);
+
+    // Two replicated entities on the server.
+    const auto a = server_world.create_entity();
+    server_world.add_component<NetReplicated>(a, NetReplicated{1});
+    Transform ta; ta.position = {1.0f, 0.0f, 0.0f};
+    server_world.add_component<Transform>(a, ta);
+    const auto b = server_world.create_entity();
+    server_world.add_component<NetReplicated>(b, NetReplicated{2});
+    server_world.add_component<Transform>(b, Transform{});
+
+    auto pump = [&]() {
+        for (int i = 0; i < 8; ++i) { client_world.tick(0.016f); server_world.tick(0.016f); }
+    };
+
+    pump();
+    int count = 0;
+    client_world.for_each_entity([&](World::EntityID) { ++count; });
+    REQUIRE(count == 2); // client mirrors both
+
+    // Remove B on the server; the client should drop exactly it.
+    server_world.destroy_entity(b);
+    pump();
+
+    count = 0;
+    World::EntityID only;
+    client_world.for_each_entity([&](World::EntityID e) { ++count; only = e; });
+    REQUIRE(count == 1);
+    REQUIRE(client_world.get_component<Transform>(only)->position.x == 1.0f); // net 1 survived
+}
