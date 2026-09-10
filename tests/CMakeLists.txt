@@ -150,6 +150,7 @@ add_executable(mosaic_unit_tests
   unit/net/message_test.cpp
   unit/net/network_system_test.cpp
   unit/net/net_replicated_test.cpp
+  unit/net/replication_test.cpp
   unit/vfx/trail_system_test.cpp
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
