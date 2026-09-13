@@ -149,6 +149,7 @@ add_executable(mosaic_unit_tests
   unit/net/loopback_transport_test.cpp
   unit/net/message_test.cpp
   unit/net/network_system_test.cpp
+  unit/net/input_system_test.cpp
   unit/net/net_replicated_test.cpp
   unit/net/replication_test.cpp
   unit/net/replication_system_test.cpp

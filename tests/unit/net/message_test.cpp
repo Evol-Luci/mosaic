@@ -57,3 +57,13 @@ TEST_CASE("encode/decode round-trips a Snapshot frame", "[net]")
     REQUIRE(type == MessageType::Snapshot);
     REQUIRE(payload.empty());
 }
+
+TEST_CASE("Input frame round-trips through encode/decode", "[net]")
+{
+    const std::string frame = encode(MessageType::Input, "move:1,0");
+    MessageType type{};
+    std::string payload;
+    REQUIRE(decode(frame, type, payload));
+    REQUIRE(type == MessageType::Input);
+    REQUIRE(payload == "move:1,0");
+}

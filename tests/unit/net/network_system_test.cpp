@@ -15,6 +15,7 @@
 using mosaic::engine::World;
 using mosaic::engine::net::Channel;
 using mosaic::engine::net::ConnectionId;
+using mosaic::engine::net::decode;
 using mosaic::engine::net::encode;
 using mosaic::engine::net::get_u32;
 using mosaic::engine::net::make_loopback_pair;
@@ -234,4 +235,40 @@ TEST_CASE("broadcast with no clients sends nothing", "[net]")
 
     server.broadcast(Channel::Reliable, encode(MessageType::Snapshot, "BLOB"));
     REQUIRE(fake->sent.empty()); // no-op, no crash
+}
+
+TEST_CASE("client send_to_server sends to the server connection once connected", "[net]")
+{
+    auto transport = std::make_shared<FakeTransport>();
+    World world;
+    auto& client = world.add_system<NetworkSystem>(Role::Client, transport);
+
+    NetEvent connected;
+    connected.type = NetEvent::Type::Connected;
+    connected.connection = 7;
+    transport->inbox.push_back(connected);
+    world.tick(0.016f); // processes Connected -> stores server_conn_, sends Hello
+
+    client.send_to_server(Channel::Reliable, encode(MessageType::Input, "move:1,0"));
+
+    REQUIRE(transport->sent.size() == 2u); // Hello (from Connected handling) + our Input send
+    const auto& last = transport->sent.back();
+    REQUIRE(last.to == 7u);
+    REQUIRE(last.channel == Channel::Reliable);
+    MessageType type{};
+    std::string payload;
+    REQUIRE(decode(last.bytes, type, payload));
+    REQUIRE(type == MessageType::Input);
+    REQUIRE(payload == "move:1,0");
+}
+
+TEST_CASE("client send_to_server before Connected is a no-op", "[net]")
+{
+    auto transport = std::make_shared<FakeTransport>();
+    World world;
+    auto& client = world.add_system<NetworkSystem>(Role::Client, transport);
+
+    client.send_to_server(Channel::Reliable, encode(MessageType::Input, "x"));
+
+    REQUIRE(transport->sent.empty());
 }

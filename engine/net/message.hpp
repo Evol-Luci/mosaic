@@ -10,6 +10,7 @@ enum class MessageType : std::uint8_t
     Hello    = 1, // client -> server on connect (payload: empty)
     Welcome  = 2, // server -> client (payload: u32 assigned session id)
     Snapshot = 3, // server -> client (payload: JSON replication snapshot from N3)
+    Input    = 4, // client -> server (payload: opaque, app-defined bytes; N5)
 };
 
 // Frame = [1 byte type][payload bytes].
@@ -28,7 +29,8 @@ inline bool decode(const std::string& frame, MessageType& type, std::string& pay
     const auto raw = static_cast<std::uint8_t>(frame[0]);
     if (raw != static_cast<std::uint8_t>(MessageType::Hello) &&
         raw != static_cast<std::uint8_t>(MessageType::Welcome) &&
-        raw != static_cast<std::uint8_t>(MessageType::Snapshot))
+        raw != static_cast<std::uint8_t>(MessageType::Snapshot) &&
+        raw != static_cast<std::uint8_t>(MessageType::Input))
     {
         return false;
     }
