@@ -30,7 +30,7 @@ public:
         {
             if (net_->clients().empty()) { return; } // nothing to serialize/send
             net_->broadcast(Channel::Reliable,
-                            encode(MessageType::Snapshot, snapshot(world, *types_)));
+                            encode(MessageType::Snapshot, snapshot(world, *types_, alloc_)));
         }
         else
         {
@@ -49,5 +49,6 @@ private:
     NetworkSystem* net_;
     const mosaic::engine::reflection::ComponentReflection* types_;
     NetIdMap ids_; // client-held stable NetId -> local EntityID map
+    NetIdAllocator alloc_; // server-held monotonic NetId allocator (N4b)
 };
 } // namespace mosaic::engine::net

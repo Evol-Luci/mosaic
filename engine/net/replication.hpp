@@ -17,17 +17,32 @@ namespace mosaic::engine::net
 namespace ser = mosaic::foundation::serialization;
 using Value = ser::Value;
 
+// Server: monotonic NetId allocator (never 0). Owned by whoever calls snapshot() across
+// ticks (ReplicationSystem) so ids stay stable for the lifetime of the server.
+struct NetIdAllocator
+{
+    NetId next = 1;
+};
+
 // Server: JSON snapshot of every NetReplicated entity's reflected components
-// (the marker excluded — its net id is the key). Shape:
+// (the marker excluded — its net id is the key). Any entity whose id is still 0 gets a
+// fresh id from `alloc` first (N4b) — game/script code need not hand-pick ids; an
+// explicitly-set nonzero id is left untouched. Shape:
 //   { "entities": [ { "net": <u>, "components": { "<Name>": <Value>, ... } }, ... ] }
 inline std::string snapshot(World& world,
-                            const mosaic::engine::reflection::ComponentReflection& types)
+                            const mosaic::engine::reflection::ComponentReflection& types,
+                            NetIdAllocator& alloc)
 {
     const std::vector<std::string> names = types.registered_names();
 
     ser::Array entities;
     world.for_each<NetReplicated>([&](World::EntityID e, NetReplicated& nr)
     {
+        if (nr.id == 0)
+        {
+            nr.id = alloc.next++;
+        }
+
         ser::Table components;
         for (const std::string& name : names)
         {
