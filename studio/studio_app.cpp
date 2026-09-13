@@ -83,11 +83,29 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
         ImGui::EndMainMenuBar();
     }
 
-    for (const std::string& line : live_link_.poll())
+    if (play_.is_playing())
     {
-        if (auto update = parse_live_link_message(line))
+        // Studio is authoritative while simulating: push every named entity's
+        // current (possibly physics-driven) Transform to Blender.
+        world.for_each<mosaic::engine::Name>(
+            [&](mosaic::engine::World::EntityID e, mosaic::engine::Name& name)
+            {
+                if (const auto* t = world.get_component<mosaic::engine::transform::Transform>(e))
+                {
+                    live_link_.send(format_live_link_transform_message(name, *t));
+                }
+            });
+        live_link_.poll(); // drain the socket; inbound is ignored while playing
+    }
+    else
+    {
+        // Blender is authoritative while stopped (unchanged from the original slice).
+        for (const std::string& line : live_link_.poll())
         {
-            apply_live_link_update(world, *update);
+            if (auto update = parse_live_link_message(line))
+            {
+                apply_live_link_update(world, *update);
+            }
         }
     }
 
