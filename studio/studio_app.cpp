@@ -150,10 +150,16 @@ void StudioApp::draw_hierarchy(mosaic::engine::World& world)
 {
     for (const HierarchyRow& row : build_hierarchy(world))
     {
+        // Selectable's ID defaults to its label text, so two entities sharing a
+        // Name (e.g. both "Cube") collide ("2 visible items with conflicting
+        // ID"). Scope each row's ID by its entity index instead, independent
+        // of the (possibly duplicate) label.
+        ImGui::PushID(static_cast<int>(row.id.index()));
         if (ImGui::Selectable(row.label.c_str(), selection_.is_selected(row.id)))
         {
             selection_.select(row.id);
         }
+        ImGui::PopID();
     }
 }
 
