@@ -16,15 +16,17 @@ using mosaic::net::enet::create_enet_server;
 
 namespace
 {
-// Poll `t` up to max_attempts times (sleeping sleep_ms between) until pred() is true. Real
-// UDP has real scheduling latency, unlike the in-memory LoopbackTransport tests elsewhere —
-// this bounds the wait instead of assuming a fixed tick count suffices.
+// Call pred() up to max_attempts times (sleeping sleep_ms between) until it returns true.
+// pred is responsible for its own polling/event-collection — this helper only paces the
+// retries. Real UDP has real scheduling latency, unlike the in-memory LoopbackTransport
+// tests elsewhere, so a fixed tick count won't do; but poll() is drain-once, so this helper
+// must never poll on its own behalf, or it would steal events out from under pred() on the
+// next iteration.
 template <class Pred>
-void poll_until(Transport& t, Pred pred, int max_attempts = 200, int sleep_ms = 5)
+void poll_until(Pred pred, int max_attempts = 200, int sleep_ms = 5)
 {
     for (int i = 0; i < max_attempts && !pred(); ++i)
     {
-        t.poll();
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
 }
@@ -39,16 +41,12 @@ TEST_CASE("ENet transport completes a connect handshake over loopback", "[net][e
     REQUIRE(client != nullptr);
 
     std::vector<NetEvent> server_events;
-    poll_until(*server, [&]
+    std::vector<NetEvent> client_events;
+    poll_until([&]
     {
         for (auto& e : server->poll()) { server_events.push_back(e); }
-        return !server_events.empty();
-    });
-    std::vector<NetEvent> client_events;
-    poll_until(*client, [&]
-    {
         for (auto& e : client->poll()) { client_events.push_back(e); }
-        return !client_events.empty();
+        return !server_events.empty() && !client_events.empty();
     });
 
     REQUIRE(server_events.size() == 1);
