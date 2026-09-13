@@ -68,6 +68,15 @@ public:
         }
     }
 
+    // Client: send `bytes` to the server. No-op if not yet connected at the transport level
+    // (no Connected event observed) — distinct from is_connected(), which tracks the
+    // post-Welcome session.
+    void send_to_server(Channel channel, const std::string& bytes)
+    {
+        if (!transport_ || server_conn_ == 0) { return; }
+        transport_->send(server_conn_, channel, bytes);
+    }
+
 private:
     void handle_server(mosaic::engine::World& world, const NetEvent& ev)
     {
@@ -111,6 +120,7 @@ private:
     {
         if (ev.type == NetEvent::Type::Connected)
         {
+            server_conn_ = ev.connection;
             transport_->send(ev.connection, Channel::Reliable, encode(MessageType::Hello, ""));
         }
         else if (ev.type == NetEvent::Type::Message)
@@ -144,6 +154,7 @@ private:
     // client
     bool connected_ = false;
     std::uint32_t local_id_ = 0;
+    ConnectionId server_conn_ = 0; // transport link to the server, set on Connected
 
     std::vector<InboundMessage> inbound_;
 };
