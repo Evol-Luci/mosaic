@@ -86,6 +86,7 @@ add_executable(mosaic_unit_tests
   unit/studio/selection_test.cpp
   unit/studio/hierarchy_test.cpp
   unit/studio/live_link_test.cpp
+  unit/studio/live_link_server_test.cpp
   unit/studio/viewport_test.cpp
   unit/studio/play_state_test.cpp
   unit/studio/scene_file_test.cpp
