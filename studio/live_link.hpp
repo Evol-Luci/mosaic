@@ -1,6 +1,8 @@
 #pragma once
 
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,8 @@
 
 namespace mosaic::studio
 {
+using mosaic::engine::Name;
+
 struct LiveLinkUpdate
 {
     std::string                    name;
@@ -25,6 +29,10 @@ struct LiveLinkUpdate
 namespace detail
 {
 namespace ser = mosaic::foundation::serialization;
+
+// -0.0f prints as "-0" via ostream, which is ugly but harmless JSON; normalized to
+// +0.0f here purely for clean, deterministic wire output.
+inline float negate_clean(float v) { return v == 0.0f ? 0.0f : -v; }
 
 // A JSON number may come back as int64, uint64, or double depending on whether the
 // source literal had a fractional part. Normalizes any of the three to float.
@@ -79,6 +87,15 @@ inline std::optional<LiveLinkUpdate> parse_live_link_message(const std::string& 
     if (!root.is<ser::Table>()) { return std::nullopt; }
     const ser::Table& t = root.as<ser::Table>();
 
+    const ser::Value* type_v = t.find("type");
+    if (type_v != nullptr)
+    {
+        if (!type_v->is<std::string>() || type_v->as<std::string>() != "transform")
+        {
+            return std::nullopt;
+        }
+    }
+
     const ser::Value* name_v = t.find("name");
     if (name_v == nullptr || !name_v->is<std::string>()) { return std::nullopt; }
 
@@ -93,6 +110,29 @@ inline std::optional<LiveLinkUpdate> parse_live_link_message(const std::string& 
     update.rotation = *rotation;
     update.scale = *scale;
     return update;
+}
+
+// Builds one outgoing "type":"transform" JSON line (Studio -> Blender), converting
+// Mosaic's Y-up convention to Blender's Z-up (the inverse of the Blender addon's
+// _to_mosaic_position/_to_mosaic_rotation). No trailing newline — the caller
+// (LiveLinkServer::send) appends it. Hand-formatted rather than routed through
+// foundation::serialization::to_json, which pretty-prints across multiple lines and
+// would break this protocol's one-line-per-message framing.
+inline std::string format_live_link_transform_message(const Name& name,
+                                                       const mosaic::engine::transform::Transform& transform)
+{
+    std::ostringstream out;
+    out << std::setprecision(9);
+
+    const auto& p = transform.position;
+    const auto& q = transform.rotation;
+    const auto& s = transform.scale;
+
+    out << "{\"type\":\"transform\",\"name\":\"" << name.value << "\","
+        << "\"position\":[" << p.x << "," << detail::negate_clean(p.z) << "," << p.y << "],"
+        << "\"rotation\":[" << q.x << "," << detail::negate_clean(q.z) << "," << q.y << "," << q.w << "],"
+        << "\"scale\":[" << s.x << "," << s.z << "," << s.y << "]}";
+    return out.str();
 }
 
 // Finds the entity whose Name matches update.name and overwrites its Transform in

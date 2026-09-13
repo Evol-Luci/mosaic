@@ -129,3 +129,75 @@ TEST_CASE("apply_live_link_update returns false and applies nothing when the nam
     REQUIRE(world.get_component<Transform>(a)->position.x == 1.0f);
     REQUIRE(world.get_component<Transform>(b)->position.x == 2.0f);
 }
+
+TEST_CASE("parse_live_link_message accepts an explicit type:transform", "[studio]")
+{
+    const auto update = parse_live_link_message(
+        R"({"type":"transform","name":"Cube","position":[1,2,3],"rotation":[0,0,0,1],"scale":[1,1,1]})");
+    REQUIRE(update.has_value());
+    REQUIRE(update->name == "Cube");
+}
+
+TEST_CASE("parse_live_link_message rejects an unrecognized type", "[studio]")
+{
+    REQUIRE_FALSE(parse_live_link_message(
+        R"({"type":"mesh","name":"Cube","position":[1,2,3],"rotation":[0,0,0,1],"scale":[1,1,1]})").has_value());
+}
+
+TEST_CASE("format_live_link_transform_message formats an identity transform", "[studio]")
+{
+    Name name{"Cube"};
+    Transform t; // default: position (0,0,0), rotation (0,0,0,1), scale (1,1,1)
+
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+
+    REQUIRE(line ==
+        R"({"type":"transform","name":"Cube","position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]})");
+}
+
+TEST_CASE("format_live_link_transform_message formats distinct nonzero axes", "[studio]")
+{
+    Name name{"Cube"};
+    Transform t;
+    t.position = {2.0f, 3.0f, 4.0f};
+    t.rotation = {0.25f, 0.5f, 0.75f, 1.0f};
+    t.scale = {5.0f, 6.0f, 7.0f};
+
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+
+    REQUIRE(line ==
+        R"({"type":"transform","name":"Cube","position":[2,-4,3],"rotation":[0.25,-0.75,0.5,1],"scale":[5,7,6]})");
+}
+
+TEST_CASE("format_live_link_transform_message round-trips through the inverse conversion", "[studio]")
+{
+    Transform original;
+    original.position = {2.0f, 3.0f, 4.0f};
+    original.rotation = {0.25f, 0.5f, 0.75f, 1.0f};
+    original.scale = {5.0f, 6.0f, 7.0f};
+
+    const std::string line =
+        mosaic::studio::format_live_link_transform_message(Name{"Cube"}, original);
+    const auto blender_frame = parse_live_link_message(line); // raw numbers, Blender-frame
+    REQUIRE(blender_frame.has_value());
+
+    // Re-apply the known Blender -> Mosaic conversion (the addon's existing
+    // _to_mosaic_position/_to_mosaic_rotation formula) to confirm losslessness.
+    const auto& bp = blender_frame->position;
+    const auto& bq = blender_frame->rotation;
+    const auto& bs = blender_frame->scale;
+
+    REQUIRE(bp.x == original.position.x);
+    REQUIRE(-bp.y == original.position.z);
+    REQUIRE(bp.z == original.position.y);
+
+    REQUIRE(bq.x == original.rotation.x);
+    REQUIRE(-bq.y == original.rotation.z);
+    REQUIRE(bq.z == original.rotation.y);
+    REQUIRE(bq.w == original.rotation.w);
+
+    REQUIRE(bs.x == original.scale.x);
+    REQUIRE(bs.y == original.scale.z);
+    REQUIRE(bs.z == original.scale.y);
+}
+
