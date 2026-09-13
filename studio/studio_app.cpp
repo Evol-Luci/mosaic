@@ -8,6 +8,7 @@
 
 #include "studio/hierarchy.hpp"
 #include "studio/inspector.hpp"
+#include "studio/live_link.hpp"
 #include "studio/pick.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_debugger.hpp"
@@ -71,9 +72,23 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             ImGui::SetTooltip("no scripted demo object in this scene");
         }
 
+        if (ImGui::Button(live_link_label(live_link_.state())))
+        {
+            if (live_link_.state() == LiveLinkState::Off) { live_link_.start(kDefaultLiveLinkPort); }
+            else                                          { live_link_.stop(); }
+        }
+
         ImGui::Text("  %s%s", scene_file_.path().c_str(), scene_file_.dirty() ? " *" : "");
 
         ImGui::EndMainMenuBar();
+    }
+
+    for (const std::string& line : live_link_.poll())
+    {
+        if (auto update = parse_live_link_message(line))
+        {
+            apply_live_link_update(world, *update);
+        }
     }
 
     for (const Panel& panel : layout_.panels())

@@ -21,9 +21,21 @@
 #include "studio/transform_controls.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/render/material.hpp"
+#include "studio/live_link_server.hpp"
 
 namespace mosaic::studio
 {
+
+inline const char* live_link_label(LiveLinkState s)
+{
+    switch (s)
+    {
+    case LiveLinkState::Off:       return "Live Link: Off";
+    case LiveLinkState::Listening: return "Live Link: Listening";
+    case LiveLinkState::Connected: return "Live Link: Connected";
+    }
+    return "Live Link";
+}
 
 // Draws the editor shell each frame: a full-window dockspace, a menu bar (File > Exit),
 // the scene Hierarchy (entities from the World, click to select), the Inspector (shows
@@ -87,6 +99,7 @@ private:
     mosaic::engine::script::ScriptDebugger      script_debugger_;      // breakpoints persist across frames
     int                                         script_bp_line_ = 1;   // breakpoint line input
     ScriptApplyResult                           script_debug_result_;  // outcome of the last Debug run
+    LiveLinkServer                              live_link_;            // Blender Live-Link socket
 };
 
 } // namespace mosaic::studio
