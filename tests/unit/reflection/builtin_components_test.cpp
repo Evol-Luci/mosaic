@@ -18,6 +18,7 @@ TEST_CASE("register_builtin_components registers Transform by name", "[reflectio
 
     REQUIRE(types.has("Transform"));
     REQUIRE(types.has("PointLight"));
+    REQUIRE(types.has("Name"));
     REQUIRE_FALSE(types.has("NotAComponent"));
 }
 

@@ -131,7 +131,7 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     }
 }
 
-void StudioApp::draw_hierarchy(const mosaic::engine::World& world)
+void StudioApp::draw_hierarchy(mosaic::engine::World& world)
 {
     for (const HierarchyRow& row : build_hierarchy(world))
     {
