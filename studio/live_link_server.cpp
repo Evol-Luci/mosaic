@@ -111,4 +111,11 @@ std::vector<std::string> LiveLinkServer::poll()
 
     return out;
 }
+
+void LiveLinkServer::send(const std::string& line)
+{
+    if (peer_fd_ < 0) { return; }
+    const std::string with_newline = line + "\n";
+    ::send(peer_fd_, with_newline.data(), with_newline.size(), MSG_NOSIGNAL);
+}
 } // namespace mosaic::studio
