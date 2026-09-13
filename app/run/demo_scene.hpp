@@ -11,6 +11,10 @@
 #include "engine/audio/audio_clip.hpp"
 #include "engine/audio/audio_components.hpp"
 #include "engine/audio/audio_system.hpp"
+#include "engine/net/input_system.hpp"
+#include "engine/net/network_system.hpp"
+#include "engine/net/replication_system.hpp"
+#include "engine/net/transport.hpp"
 #include "engine/particles/particle_system.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
@@ -146,7 +150,10 @@ inline RuntimeScene setup_runtime(
     mosaic::engine::script::ScriptHost                      host = {},
     bool                                                    script_thread = false,
     std::unique_ptr<mosaic::engine::audio::AudioBackend>    audio_backend = nullptr,
-    std::function<mosaic::engine::ui::PointerState()>       pointer = {})
+    std::function<mosaic::engine::ui::PointerState()>       pointer = {},
+    mosaic::engine::net::Role                               net_role = mosaic::engine::net::Role::Client,
+    std::shared_ptr<mosaic::engine::net::Transport>         net_transport = nullptr,
+    std::function<std::vector<std::string>()>               input_provider = {})
 {
     namespace render  = mosaic::engine::render;
     namespace physics = mosaic::engine::physics;
@@ -266,6 +273,15 @@ inline RuntimeScene setup_runtime(
     register_texture(kStripesTextureId,
         [](std::uint32_t x, std::uint32_t, std::uint8_t* p)
         { const std::uint8_t c = ((x / 8) % 2 == 0) ? 200 : 40; p[0]=c;p[1]=c;p[2]=c;p[3]=255; });
+
+    // Networking (N7): only wired when a transport is actually injected — headless/non-
+    // networked runs and every pre-existing call site are unaffected.
+    if (net_transport != nullptr)
+    {
+        auto& net = world.add_system<mosaic::engine::net::NetworkSystem>(net_role, net_transport);
+        world.add_system<mosaic::engine::net::ReplicationSystem>(net_role, &net, &reflection);
+        world.add_system<mosaic::engine::net::InputSystem>(net_role, &net, input_provider);
+    }
 
     return RuntimeScene{std::make_shared<render::RenderSystem>()};
 }
