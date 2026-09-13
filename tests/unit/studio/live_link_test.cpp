@@ -166,10 +166,10 @@ TEST_CASE("format_live_link_transform_message formats distinct nonzero axes", "[
     const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
 
     REQUIRE(line ==
-        R"({"type":"transform","name":"Cube","position":[2,-4,3],"rotation":[0.25,-0.75,0.5,1],"scale":[5,7,6]})");
+        R"({"type":"transform","name":"Cube","position":[2,3,4],"rotation":[0.25,0.5,0.75,1],"scale":[5,6,7]})");
 }
 
-TEST_CASE("format_live_link_transform_message round-trips through the inverse conversion", "[studio]")
+TEST_CASE("format_live_link_transform_message round-trips through parse_live_link_message", "[studio]")
 {
     Transform original;
     original.position = {2.0f, 3.0f, 4.0f};
@@ -178,26 +178,30 @@ TEST_CASE("format_live_link_transform_message round-trips through the inverse co
 
     const std::string line =
         mosaic::studio::format_live_link_transform_message(Name{"Cube"}, original);
-    const auto blender_frame = parse_live_link_message(line); // raw numbers, Blender-frame
-    REQUIRE(blender_frame.has_value());
+    const auto parsed = parse_live_link_message(line);
+    REQUIRE(parsed.has_value());
 
-    // Re-apply the known Blender -> Mosaic conversion (the addon's existing
-    // _to_mosaic_position/_to_mosaic_rotation formula) to confirm losslessness.
-    const auto& bp = blender_frame->position;
-    const auto& bq = blender_frame->rotation;
-    const auto& bs = blender_frame->scale;
+    REQUIRE(parsed->position.x == original.position.x);
+    REQUIRE(parsed->position.y == original.position.y);
+    REQUIRE(parsed->position.z == original.position.z);
+    REQUIRE(parsed->rotation.x == original.rotation.x);
+    REQUIRE(parsed->rotation.y == original.rotation.y);
+    REQUIRE(parsed->rotation.z == original.rotation.z);
+    REQUIRE(parsed->rotation.w == original.rotation.w);
+    REQUIRE(parsed->scale.x == original.scale.x);
+    REQUIRE(parsed->scale.y == original.scale.y);
+    REQUIRE(parsed->scale.z == original.scale.z);
+}
 
-    REQUIRE(bp.x == original.position.x);
-    REQUIRE(-bp.y == original.position.z);
-    REQUIRE(bp.z == original.position.y);
+TEST_CASE("format_live_link_transform_message escapes special characters in the name", "[studio]")
+{
+    Name name{R"(say "hi"\)"};
+    Transform t;
 
-    REQUIRE(bq.x == original.rotation.x);
-    REQUIRE(-bq.y == original.rotation.z);
-    REQUIRE(bq.z == original.rotation.y);
-    REQUIRE(bq.w == original.rotation.w);
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+    const auto parsed = parse_live_link_message(line);
 
-    REQUIRE(bs.x == original.scale.x);
-    REQUIRE(bs.y == original.scale.z);
-    REQUIRE(bs.z == original.scale.y);
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->name == name.value);
 }
 

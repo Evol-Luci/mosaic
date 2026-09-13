@@ -30,9 +30,35 @@ namespace detail
 {
 namespace ser = mosaic::foundation::serialization;
 
-// -0.0f prints as "-0" via ostream, which is ugly but harmless JSON; normalized to
-// +0.0f here purely for clean, deterministic wire output.
-inline float negate_clean(float v) { return v == 0.0f ? 0.0f : -v; }
+// Escapes a string for embedding between double quotes in hand-built JSON (this file
+// builds outgoing messages by direct string concatenation rather than through a JSON
+// encoder, so this is the one place that needs to happen manually).
+inline std::string json_escape(const std::string& s)
+{
+    std::ostringstream out;
+    for (unsigned char c : s)
+    {
+        switch (c)
+        {
+        case '"':  out << "\\\""; break;
+        case '\\': out << "\\\\"; break;
+        case '\n': out << "\\n"; break;
+        case '\r': out << "\\r"; break;
+        case '\t': out << "\\t"; break;
+        default:
+            if (c < 0x20)
+            {
+                out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                    << static_cast<int>(c) << std::dec;
+            }
+            else
+            {
+                out << c;
+            }
+        }
+    }
+    return out.str();
+}
 
 // A JSON number may come back as int64, uint64, or double depending on whether the
 // source literal had a fractional part. Normalizes any of the three to float.
@@ -112,12 +138,16 @@ inline std::optional<LiveLinkUpdate> parse_live_link_message(const std::string& 
     return update;
 }
 
-// Builds one outgoing "type":"transform" JSON line (Studio -> Blender), converting
-// Mosaic's Y-up convention to Blender's Z-up (the inverse of the Blender addon's
-// _to_mosaic_position/_to_mosaic_rotation). No trailing newline — the caller
-// (LiveLinkServer::send) appends it. Hand-formatted rather than routed through
+// Builds one outgoing "type":"transform" JSON line (Studio -> Blender) for the given
+// Name + Transform. Values are left in Mosaic's own convention -- Studio never performs
+// axis conversion in either direction; the Blender addon's
+// _from_mosaic_position/_from_mosaic_rotation are the only place any conversion happens
+// on this side of the wire, mirroring how parse_live_link_message reads raw
+// Mosaic-frame numbers back out of an inbound message. No trailing newline — the
+// caller (LiveLinkServer::send) appends it. Hand-formatted rather than routed through
 // foundation::serialization::to_json, which pretty-prints across multiple lines and
-// would break this protocol's one-line-per-message framing.
+// would break this protocol's one-line-per-message framing. The name is JSON-escaped
+// since it's hand-interpolated rather than encoded.
 inline std::string format_live_link_transform_message(const Name& name,
                                                        const mosaic::engine::transform::Transform& transform)
 {
@@ -128,10 +158,10 @@ inline std::string format_live_link_transform_message(const Name& name,
     const auto& q = transform.rotation;
     const auto& s = transform.scale;
 
-    out << "{\"type\":\"transform\",\"name\":\"" << name.value << "\","
-        << "\"position\":[" << p.x << "," << detail::negate_clean(p.z) << "," << p.y << "],"
-        << "\"rotation\":[" << q.x << "," << detail::negate_clean(q.z) << "," << q.y << "," << q.w << "],"
-        << "\"scale\":[" << s.x << "," << s.z << "," << s.y << "]}";
+    out << "{\"type\":\"transform\",\"name\":\"" << detail::json_escape(name.value) << "\","
+        << "\"position\":[" << p.x << "," << p.y << "," << p.z << "],"
+        << "\"rotation\":[" << q.x << "," << q.y << "," << q.z << "," << q.w << "],"
+        << "\"scale\":[" << s.x << "," << s.y << "," << s.z << "]}";
     return out.str();
 }
 

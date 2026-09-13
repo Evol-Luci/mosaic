@@ -18,6 +18,7 @@ Studio's own `PlayState` (`studio/play_state.hpp`, already shipped as part of 37
   is authoritative, edits in Blender flow to Studio, Studio sends nothing back.
 - **Playing**: Studio is authoritative — Studio streams every named entity's `Transform`
   to Blender once per tick, and *ignores* (but still drains) incoming Blender messages.
+  Note that `PlayState` defaults to `is_playing() == true` on Studio launch (this predates this slice — see `studio/play_state.hpp`), so a freshly opened Studio editor is Studio-authoritative until the user presses Stop; this is documented in `docs/project/next-steps.md`.
 
 This single existing bool is the whole loop-prevention mechanism — no per-message
 sequence numbers, timestamps, or "who sent this last" bookkeeping. Both sides can always
@@ -47,42 +48,24 @@ protocol branch point yet. A `"type"` present with any other value is treated as
 follow-up mesh-sync slice will add a sibling parse function for `"type":"mesh"`; this
 slice does not need to anticipate its shape beyond leaving the field free).
 
-Values remain in Mosaic's convention (right-handed, Y-up) in both directions. Studio, not
-Blender, now also needs the **inverse** axis conversion (Mosaic → Blender) to build
-outgoing messages; see "Studio-side axis conversion" below. The Blender addon's own
-`_to_mosaic_position`/`_to_mosaic_rotation` (unchanged) continue to convert its outgoing
-messages the same way as before.
-
-### Studio-side axis conversion (new: `foundation`-free, lives in `studio/live_link.hpp`)
-
-Inverse of the existing Blender-side conversion
-(`mosaic.x=blender.x, mosaic.y=blender.z, mosaic.z=-blender.y`):
-
-```
-blender.x =  mosaic.x
-blender.y = -mosaic.z
-blender.z =  mosaic.y
-```
-
-and for the quaternion (inverse of `[q.y, q.w, -q.z, q.x]` → `[x,y,z,w]`... concretely,
-inverting the original slice's `_to_mosaic_rotation`, which mapped Blender `(w,x,y,z)` to
-Mosaic `(x,y,z,w) = (bx, bz, -by, bw)`):
-
-```
-blender.w = mosaic.w
-blender.x = mosaic.x
-blender.y = -mosaic.z
-blender.z = mosaic.y
-```
-
-Scale has no axis-swap asymmetry to invert (Blender's existing send already reorders
-`[scale.x, scale.z, scale.y]` to match Mosaic's `(x,y,z)` layout — Studio's outgoing
-message performs the same reorder in the opposite direction:
-`[mosaic.x, mosaic.z, mosaic.y]` becomes Blender's `(x, y, z)` scale).
-
-This is exactly the kind of arithmetic the original slice flagged as worth a dedicated
-correctness test (a sign error silently mirrors/misrotates rather than crashing) — see
-Testing.
+Values in the wire protocol are always in **Mosaic's own convention** (right-handed,
+Y-up), regardless of direction — true for the original one-way slice, and unchanged
+here. The Blender addon remains the **sole** place any axis conversion happens, in
+either direction: its existing `_to_mosaic_position`/`_to_mosaic_rotation` convert
+Blender's Z-up to Mosaic's Y-up before sending (unchanged by this slice), and new
+`_from_mosaic_position`/`_from_mosaic_rotation` functions (addon-side, not Studio)
+convert Mosaic's Y-up back to Blender's Z-up after receiving. **Studio's C++ code never
+performs axis conversion in either direction** — `format_live_link_transform_message`
+builds raw Mosaic-frame numbers, exactly as `parse_live_link_message` reads raw
+Mosaic-frame numbers back out of an inbound message. This preserves the original
+slice's documented boundary rule ("Studio-side code only ever sees Mosaic-convention
+values") instead of splitting the conversion across two languages, which would require
+both sides' conversions to stay exact inverses of each other forever with no test
+surface spanning both languages in this repo (C++ tests cannot exercise Python; there
+is no Blender in CI). An earlier draft of this design had Studio also convert, which —
+combined with the addon's own conversion — silently doubled it; caught only by a
+whole-branch review that traced a value across both languages, since every per-task
+review checked only one side against its own (then-consistent) brief.
 
 ### `studio/live_link.hpp` additions
 
@@ -163,8 +146,7 @@ for bandwidth with larger scenes, that is a follow-up, not a blocker for this sl
   the one currently sending (i.e. whenever `is_playing()`), so the echo is received,
   parsed, and discarded, never re-applied. It does not compound into a loop because
   Studio's outgoing rate is driven by its own tick, not by what it receives.
-- New `_from_mosaic_position`/`_from_mosaic_rotation` functions mirror the inverse
-  conversion above; `_to_mosaic_*` are unchanged.
+- New `_from_mosaic_position`/`_from_mosaic_rotation` functions are the exact inverse of the existing `_to_mosaic_position`/`_to_mosaic_rotation` (see the original one-way slice's spec, `docs/superpowers/specs/2026-09-13-blender-live-link-design.md`, for the axis-conversion formula); `_to_mosaic_*` themselves are unchanged.
 
 ## Testing (headless & automated, except the addon itself)
 
@@ -174,17 +156,9 @@ for bandwidth with larger scenes, that is a follow-up, not a blocker for this sl
     ahead of the follow-up slice actually implementing it) returns `nullopt`.
   - `format_live_link_transform_message` — a known `Name`+`Transform` produces the exact
     expected JSON string, both for an axis-aligned identity case and a case with all three
-    axes distinct and non-zero (catches a swapped-axis bug that an identity-only test
+    axes distinct and non-zero (catches a field-order mixup (e.g. position/scale swapped) that an identity-only test
     would miss).
-  - **Round-trip axis-conversion test**: take a `Transform` with distinct non-zero
-    position/rotation/scale on every axis, run it through
-    `format_live_link_transform_message` then a **test-local** inverse parse (reusing
-    `parse_live_link_message` on the formatted string, which returns Mosaic-convention
-    values again since the message never left C++) to confirm the Mosaic→Blender→Mosaic
-    round trip is lossless. This exercises the same conversion arithmetic the Blender
-    addon will apply, without needing Blender in CI — the addon's Python-side conversion
-    is verified by inspection (it is the textual inverse of the already-shipped
-    `_to_mosaic_*` functions) plus the manual pass below.
+  - **Round-trip identity test**: take a `Transform` with distinct non-zero position/rotation/scale on every axis, run it through `format_live_link_transform_message` then straight back through `parse_live_link_message` (no inverse-conversion step needed, since neither function performs any axis conversion) to confirm every field survives the JSON round trip unchanged. A second test confirms a name containing a quote and a backslash also survives the round trip (the JSON-escaping fix).
 - **`tests/unit/studio/live_link_server_test.cpp`** (extended): `send()` on a
   `Connected` server delivers the exact bytes (plus trailing `\n`) to the loopback test
   client; `send()` while `Off` or `Listening` (no peer) is a silent no-op (no crash, no
