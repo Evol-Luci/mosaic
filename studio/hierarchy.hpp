@@ -26,7 +26,12 @@ inline std::vector<HierarchyRow> build_hierarchy(mosaic::engine::World& world)
         [&](mosaic::foundation::EntityID id)
         {
             const mosaic::engine::Name* name = world.get_component<mosaic::engine::Name>(id);
-            std::string label = (name != nullptr) ? name->value : "Entity " + std::to_string(id.index());
+            // An empty Name (e.g. freshly added via the Inspector, before typing a value)
+            // falls back too — an empty label reaching ImGui::Selectable with no enclosing
+            // PushID crashes ("Cannot have an empty ID at the root of a window").
+            std::string label = (name != nullptr && !name->value.empty())
+                                     ? name->value
+                                     : "Entity " + std::to_string(id.index());
             rows.push_back(HierarchyRow{id, std::move(label)});
         });
     return rows;

@@ -68,3 +68,18 @@ TEST_CASE("build_hierarchy falls back to Entity <index> for unnamed entities amo
         if (row.id == unnamed) { REQUIRE(row.label == "Entity " + std::to_string(row.id.index())); }
     }
 }
+
+TEST_CASE("build_hierarchy falls back to Entity <index> for a present-but-empty Name", "[studio]")
+{
+    // A freshly-added Name component (via the Inspector's "+ Add Component") default-
+    // constructs to an empty value before the user types anything. An empty label here
+    // would reach ImGui::Selectable("") in draw_hierarchy with no enclosing PushID,
+    // which asserts/crashes ("Cannot have an empty ID at the root of a window").
+    World world;
+    const auto e = world.create_entity();
+    world.add_component<Name>(e, Name{""});
+
+    const std::vector<HierarchyRow> rows = build_hierarchy(world);
+    REQUIRE(rows.size() == 1);
+    REQUIRE(rows[0].label == "Entity " + std::to_string(e.index()));
+}
