@@ -2450,8 +2450,15 @@ private:
         depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
 
         VkPipelineColorBlendAttachmentState blend{};
+        // Alpha is deliberately excluded from the write mask: the effect is a
+        // color-only overlay on an already-opaque scene. Writing its computed
+        // alpha (near 0 at the vignette's clear center, ~vignette at the dark
+        // edges) into the destination is harmless for the swapchain (the OS
+        // ignores its alpha) but corrupts the Studio viewport's offscreen
+        // texture, whose alpha IS respected when ImGui::Image composites it
+        // over the panel background — producing an apparent inverted vignette.
         blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+                               VK_COLOR_COMPONENT_B_BIT;
         blend.blendEnable = VK_TRUE;
         blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
         blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
