@@ -1,8 +1,9 @@
-"""Mosaic Live-Link — streams live transform edits from Blender to Mosaic Studio.
+"""Mosaic Live-Link — streams live transform edits between Blender and Mosaic Studio.
 
-One-way (Blender -> Studio), transform-only. See
-docs/superpowers/specs/2026-09-13-blender-live-link-design.md for the wire protocol
-and axis-conversion rationale.
+Bidirectional, transform-only: Blender drives Studio while Studio is stopped; Studio
+drives Blender (e.g. physics results) while Studio is playing. See
+docs/superpowers/specs/2026-09-13-blender-live-link-bidirectional-transform-design.md
+for the wire protocol and axis-conversion rationale.
 """
 
 bl_info = {
@@ -31,9 +32,21 @@ def _to_mosaic_rotation(q):
     return [q[1], q[3], -q[2], q[0]]  # Blender Quaternion is (w, x, y, z)
 
 
+def _from_mosaic_position(v):
+    # Inverse of _to_mosaic_position: Mosaic (x, y, z) -> Blender (x, y, z).
+    return [v[0], -v[2], v[1]]
+
+
+def _from_mosaic_rotation(q):
+    # Inverse of _to_mosaic_rotation. q is Mosaic (x, y, z, w); returns Blender
+    # Quaternion order (w, x, y, z).
+    return [q[3], q[0], -q[2], q[1]]
+
+
 class MosaicLiveLinkState:
     sock = None
     connected = False
+    recv_buffer = ""
 
 
 _state = MosaicLiveLinkState()
@@ -65,6 +78,58 @@ def _on_depsgraph_update(scene, depsgraph):
             _send_line(obj)
 
 
+def _apply_incoming_transform(msg):
+    obj = bpy.data.objects.get(msg["name"])
+    if obj is None:
+        return
+    pos = _from_mosaic_position(msg["position"])
+    rot = _from_mosaic_rotation(msg["rotation"])
+    scl = msg["scale"]
+    obj.location = pos
+    obj.rotation_mode = 'QUATERNION'
+    obj.rotation_quaternion = rot
+    obj.scale = [scl[0], scl[2], scl[1]]
+
+
+def _poll_incoming():
+    if _state.sock is None:
+        return None
+    try:
+        while True:
+            try:
+                data = _state.sock.recv(4096)
+            except BlockingIOError:
+                break
+            if not data:
+                _state.connected = False
+                _state.sock = None
+                return None
+            _state.recv_buffer += data.decode("utf-8", errors="ignore")
+    except OSError:
+        _state.connected = False
+        _state.sock = None
+        return None
+
+    while "\n" in _state.recv_buffer:
+        line, _state.recv_buffer = _state.recv_buffer.split("\n", 1)
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if msg.get("type", "transform") != "transform":
+            continue
+        try:
+            _apply_incoming_transform(msg)
+        except (KeyError, TypeError, IndexError):
+            # A malformed message (missing/wrong-shaped field) must not kill this
+            # timer permanently — skip it and keep polling.
+            continue
+
+    return 0.05
+
+
 class MOSAIC_OT_live_link_connect(bpy.types.Operator):
     bl_idname = "mosaic.live_link_connect"
     bl_label = "Connect"
@@ -74,10 +139,14 @@ class MOSAIC_OT_live_link_connect(bpy.types.Operator):
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((props.host, props.port))
+            s.setblocking(False)
             _state.sock = s
             _state.connected = True
+            _state.recv_buffer = ""
             if _on_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
                 bpy.app.handlers.depsgraph_update_post.append(_on_depsgraph_update)
+            if not bpy.app.timers.is_registered(_poll_incoming):
+                bpy.app.timers.register(_poll_incoming, first_interval=0.05)
         except OSError as e:
             self.report({'ERROR'}, f"Mosaic Live-Link: {e}")
             _state.connected = False
@@ -91,6 +160,8 @@ class MOSAIC_OT_live_link_disconnect(bpy.types.Operator):
     def execute(self, context):
         if _on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
             bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update)
+        if bpy.app.timers.is_registered(_poll_incoming):
+            bpy.app.timers.unregister(_poll_incoming)
         if _state.sock is not None:
             _state.sock.close()
         _state.sock = None
@@ -138,6 +209,8 @@ def register():
 def unregister():
     if _on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update)
+    if bpy.app.timers.is_registered(_poll_incoming):
+        bpy.app.timers.unregister(_poll_incoming)
     if _state.sock is not None:
         _state.sock.close()
     del bpy.types.Scene.mosaic_live_link

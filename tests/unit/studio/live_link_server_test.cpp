@@ -31,6 +31,13 @@ public:
     ~TestClient() { if (fd_ >= 0) { close(fd_); } }
 
     void send_text(const std::string& s) { send(fd_, s.data(), s.size(), 0); }
+    std::string recv_text()
+    {
+        char buf[4096];
+        const ssize_t n = recv(fd_, buf, sizeof(buf), MSG_DONTWAIT);
+        if (n <= 0) { return {}; }
+        return std::string(buf, static_cast<std::size_t>(n));
+    }
     void close_now() { close(fd_); fd_ = -1; }
 
 private:
@@ -132,4 +139,31 @@ TEST_CASE("LiveLinkServer start() fails on an already-bound port", "[studio]")
     REQUIRE(server1.start(34906));
     LiveLinkServer server2;
     REQUIRE_FALSE(server2.start(34906));
+}
+
+TEST_CASE("LiveLinkServer::send delivers a line to the connected client", "[studio]")
+{
+    LiveLinkServer server;
+    REQUIRE(server.start(34907));
+    TestClient client(34907);
+    poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
+
+    server.send("hello");
+
+    std::string received;
+    for (int i = 0; i < 200 && received.empty(); ++i)
+    {
+        received += client.recv_text();
+        if (received.empty()) { std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+    }
+    REQUIRE(received == "hello\n");
+}
+
+TEST_CASE("LiveLinkServer::send is a silent no-op when there is no connected peer", "[studio]")
+{
+    LiveLinkServer server;
+    server.send("hello"); // Off: must not throw or crash
+    REQUIRE(server.start(34908));
+    server.send("hello"); // Listening, no peer yet: must not throw or crash
+    REQUIRE(server.state() == LiveLinkState::Listening);
 }

@@ -36,6 +36,12 @@ public:
     // the next poll()). Call once per Studio frame. Empty when state() == Off.
     std::vector<std::string> poll();
 
+    // Best-effort non-blocking send on the current connection. A no-op if state()
+    // != Connected. A send that would block, or fails, is silently dropped — this
+    // is a continuous per-tick stream, so a dropped line is superseded by the next
+    // tick's send, never retried or queued.
+    void send(const std::string& line);
+
 private:
     int listen_fd_ = -1;
     int peer_fd_ = -1;

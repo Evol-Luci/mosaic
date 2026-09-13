@@ -129,3 +129,79 @@ TEST_CASE("apply_live_link_update returns false and applies nothing when the nam
     REQUIRE(world.get_component<Transform>(a)->position.x == 1.0f);
     REQUIRE(world.get_component<Transform>(b)->position.x == 2.0f);
 }
+
+TEST_CASE("parse_live_link_message accepts an explicit type:transform", "[studio]")
+{
+    const auto update = parse_live_link_message(
+        R"({"type":"transform","name":"Cube","position":[1,2,3],"rotation":[0,0,0,1],"scale":[1,1,1]})");
+    REQUIRE(update.has_value());
+    REQUIRE(update->name == "Cube");
+}
+
+TEST_CASE("parse_live_link_message rejects an unrecognized type", "[studio]")
+{
+    REQUIRE_FALSE(parse_live_link_message(
+        R"({"type":"mesh","name":"Cube","position":[1,2,3],"rotation":[0,0,0,1],"scale":[1,1,1]})").has_value());
+}
+
+TEST_CASE("format_live_link_transform_message formats an identity transform", "[studio]")
+{
+    Name name{"Cube"};
+    Transform t; // default: position (0,0,0), rotation (0,0,0,1), scale (1,1,1)
+
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+
+    REQUIRE(line ==
+        R"({"type":"transform","name":"Cube","position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]})");
+}
+
+TEST_CASE("format_live_link_transform_message formats distinct nonzero axes", "[studio]")
+{
+    Name name{"Cube"};
+    Transform t;
+    t.position = {2.0f, 3.0f, 4.0f};
+    t.rotation = {0.25f, 0.5f, 0.75f, 1.0f};
+    t.scale = {5.0f, 6.0f, 7.0f};
+
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+
+    REQUIRE(line ==
+        R"({"type":"transform","name":"Cube","position":[2,3,4],"rotation":[0.25,0.5,0.75,1],"scale":[5,6,7]})");
+}
+
+TEST_CASE("format_live_link_transform_message round-trips through parse_live_link_message", "[studio]")
+{
+    Transform original;
+    original.position = {2.0f, 3.0f, 4.0f};
+    original.rotation = {0.25f, 0.5f, 0.75f, 1.0f};
+    original.scale = {5.0f, 6.0f, 7.0f};
+
+    const std::string line =
+        mosaic::studio::format_live_link_transform_message(Name{"Cube"}, original);
+    const auto parsed = parse_live_link_message(line);
+    REQUIRE(parsed.has_value());
+
+    REQUIRE(parsed->position.x == original.position.x);
+    REQUIRE(parsed->position.y == original.position.y);
+    REQUIRE(parsed->position.z == original.position.z);
+    REQUIRE(parsed->rotation.x == original.rotation.x);
+    REQUIRE(parsed->rotation.y == original.rotation.y);
+    REQUIRE(parsed->rotation.z == original.rotation.z);
+    REQUIRE(parsed->rotation.w == original.rotation.w);
+    REQUIRE(parsed->scale.x == original.scale.x);
+    REQUIRE(parsed->scale.y == original.scale.y);
+    REQUIRE(parsed->scale.z == original.scale.z);
+}
+
+TEST_CASE("format_live_link_transform_message escapes special characters in the name", "[studio]")
+{
+    Name name{R"(say "hi"\)"};
+    Transform t;
+
+    const std::string line = mosaic::studio::format_live_link_transform_message(name, t);
+    const auto parsed = parse_live_link_message(line);
+
+    REQUIRE(parsed.has_value());
+    REQUIRE(parsed->name == name.value);
+}
+

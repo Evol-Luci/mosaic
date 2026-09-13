@@ -1,6 +1,8 @@
 #pragma once
 
+#include <iomanip>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -14,6 +16,8 @@
 
 namespace mosaic::studio
 {
+using mosaic::engine::Name;
+
 struct LiveLinkUpdate
 {
     std::string                    name;
@@ -25,6 +29,36 @@ struct LiveLinkUpdate
 namespace detail
 {
 namespace ser = mosaic::foundation::serialization;
+
+// Escapes a string for embedding between double quotes in hand-built JSON (this file
+// builds outgoing messages by direct string concatenation rather than through a JSON
+// encoder, so this is the one place that needs to happen manually).
+inline std::string json_escape(const std::string& s)
+{
+    std::ostringstream out;
+    for (unsigned char c : s)
+    {
+        switch (c)
+        {
+        case '"':  out << "\\\""; break;
+        case '\\': out << "\\\\"; break;
+        case '\n': out << "\\n"; break;
+        case '\r': out << "\\r"; break;
+        case '\t': out << "\\t"; break;
+        default:
+            if (c < 0x20)
+            {
+                out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
+                    << static_cast<int>(c) << std::dec;
+            }
+            else
+            {
+                out << c;
+            }
+        }
+    }
+    return out.str();
+}
 
 // A JSON number may come back as int64, uint64, or double depending on whether the
 // source literal had a fractional part. Normalizes any of the three to float.
@@ -79,6 +113,15 @@ inline std::optional<LiveLinkUpdate> parse_live_link_message(const std::string& 
     if (!root.is<ser::Table>()) { return std::nullopt; }
     const ser::Table& t = root.as<ser::Table>();
 
+    const ser::Value* type_v = t.find("type");
+    if (type_v != nullptr)
+    {
+        if (!type_v->is<std::string>() || type_v->as<std::string>() != "transform")
+        {
+            return std::nullopt;
+        }
+    }
+
     const ser::Value* name_v = t.find("name");
     if (name_v == nullptr || !name_v->is<std::string>()) { return std::nullopt; }
 
@@ -93,6 +136,33 @@ inline std::optional<LiveLinkUpdate> parse_live_link_message(const std::string& 
     update.rotation = *rotation;
     update.scale = *scale;
     return update;
+}
+
+// Builds one outgoing "type":"transform" JSON line (Studio -> Blender) for the given
+// Name + Transform. Values are left in Mosaic's own convention -- Studio never performs
+// axis conversion in either direction; the Blender addon's
+// _from_mosaic_position/_from_mosaic_rotation are the only place any conversion happens
+// on this side of the wire, mirroring how parse_live_link_message reads raw
+// Mosaic-frame numbers back out of an inbound message. No trailing newline — the
+// caller (LiveLinkServer::send) appends it. Hand-formatted rather than routed through
+// foundation::serialization::to_json, which pretty-prints across multiple lines and
+// would break this protocol's one-line-per-message framing. The name is JSON-escaped
+// since it's hand-interpolated rather than encoded.
+inline std::string format_live_link_transform_message(const Name& name,
+                                                       const mosaic::engine::transform::Transform& transform)
+{
+    std::ostringstream out;
+    out << std::setprecision(9);
+
+    const auto& p = transform.position;
+    const auto& q = transform.rotation;
+    const auto& s = transform.scale;
+
+    out << "{\"type\":\"transform\",\"name\":\"" << detail::json_escape(name.value) << "\","
+        << "\"position\":[" << p.x << "," << p.y << "," << p.z << "],"
+        << "\"rotation\":[" << q.x << "," << q.y << "," << q.z << "," << q.w << "],"
+        << "\"scale\":[" << s.x << "," << s.y << "," << s.z << "]}";
+    return out.str();
 }
 
 // Finds the entity whose Name matches update.name and overwrites its Transform in
