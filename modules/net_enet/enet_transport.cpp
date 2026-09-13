@@ -35,9 +35,14 @@ public:
         release_enet();
     }
 
-    void send(ConnectionId /*to*/, Channel /*channel*/, const std::string& /*bytes*/) override
+    void send(ConnectionId to, Channel channel, const std::string& bytes) override
     {
-        // Implemented in Task 2.
+        auto it = id_to_peer_.find(to);
+        if (it == id_to_peer_.end()) { return; } // unknown/stale id: no-op, no crash
+        const bool reliable = channel == Channel::Reliable;
+        ENetPacket* packet = enet_packet_create(
+            bytes.data(), bytes.size(), reliable ? ENET_PACKET_FLAG_RELIABLE : 0);
+        enet_peer_send(it->second, reliable ? 0 : 1, packet);
     }
 
     std::vector<NetEvent> poll() override
@@ -56,7 +61,22 @@ public:
                 out_ev.connection = id;
                 out.push_back(out_ev);
             }
-            // RECEIVE/DISCONNECT handled in Task 2/Task 3.
+            else if (ev.type == ENET_EVENT_TYPE_RECEIVE)
+            {
+                auto it = peer_to_id_.find(ev.peer);
+                if (it != peer_to_id_.end())
+                {
+                    NetEvent out_ev;
+                    out_ev.type = NetEvent::Type::Message;
+                    out_ev.connection = it->second;
+                    out_ev.channel = ev.channelID == 0 ? Channel::Reliable : Channel::Unreliable;
+                    out_ev.data.assign(reinterpret_cast<char*>(ev.packet->data),
+                                       ev.packet->dataLength);
+                    out.push_back(out_ev);
+                }
+                enet_packet_destroy(ev.packet);
+            }
+            // DISCONNECT handled in Task 3.
         }
         return out;
     }
