@@ -115,7 +115,6 @@ public:
                 break;
             }
             case ENET_EVENT_TYPE_DISCONNECT:
-            case ENET_EVENT_TYPE_DISCONNECT_TIMEOUT:
             {
                 auto it = peer_to_id_.find(ev.peer);
                 if (it != peer_to_id_.end())
@@ -202,18 +201,28 @@ tick-count loops over the fully-deterministic in-memory `LoopbackTransport`), N6
 a bounded wait. A small helper local to the test file:
 
 ```cpp
-// Poll `t` up to `max_attempts` times (sleeping `sleep_ms` between) until `pred` returns
-// true. Returns whatever poll() calls collected; the caller checks pred's result afterward.
+// Call pred() up to max_attempts times (sleeping sleep_ms between) until it returns true.
+// pred is responsible for its own polling/event-collection — this helper only paces the
+// retries; it must NEVER poll on its own behalf, since Transport::poll() is drain-once and
+// a helper-side poll would race the caller's pred() and can silently discard an event the
+// very iteration it arrives.
 template <class Pred>
-void poll_until(Transport& t, Pred pred, int max_attempts = 200, int sleep_ms = 5)
+void poll_until(Pred pred, int max_attempts = 200, int sleep_ms = 5)
 {
     for (int i = 0; i < max_attempts && !pred(); ++i)
     {
-        t.poll();
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
     }
 }
 ```
+
+Two related pitfalls surfaced while implementing this (both are load-bearing for every test
+below, not just theoretical): first, `enet_host_connect` and `enet_peer_send` only *queue* —
+actually transmitting requires the *initiator's own* subsequent `poll()` call, so any wait
+loop after a `connect` or a `send` must keep polling the side that just acted, not only the
+side waiting to receive. Second, the pinned ENet `v1.3.18` defines only
+`ENET_EVENT_TYPE_DISCONNECT` (no separate `DISCONNECT_TIMEOUT` variant — that exists only in
+newer/unreleased ENet branches).
 
 (~1s worst case per wait; real runs resolve in a handful of iterations over loopback.)
 
