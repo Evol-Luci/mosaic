@@ -64,6 +64,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(miniaudio)
 
+# --- ENet (real UDP transport backend; pinned) --------------------------------
+FetchContent_Declare(
+  enet
+  GIT_REPOSITORY https://github.com/lsalzman/enet.git
+  GIT_TAG        v1.3.18
+)
+FetchContent_MakeAvailable(enet)
+
 # --- Dear ImGui (docking branch): core + GLFW/Vulkan backends -----------------
 FetchContent_Declare(
   imgui
@@ -105,6 +113,7 @@ add_subdirectory(modules/render_vulkan)
 add_subdirectory(modules/physics_box3d)
 add_subdirectory(modules/script_python)
 add_subdirectory(modules/audio_miniaudio)
+add_subdirectory(modules/net_enet)
 add_subdirectory(app)
 add_subdirectory(studio)
 add_subdirectory(tests)

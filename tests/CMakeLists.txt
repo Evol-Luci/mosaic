@@ -147,6 +147,7 @@ add_executable(mosaic_unit_tests
   unit/app/font_cook_test.cpp
   unit/app/font_asset_test.cpp
   unit/net/loopback_transport_test.cpp
+  unit/net/enet_transport_test.cpp
   unit/net/message_test.cpp
   unit/net/network_system_test.cpp
   unit/net/input_system_test.cpp
@@ -168,6 +169,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_physics_box3d
   mosaic_script_python
   mosaic_audio_miniaudio
+  mosaic_net_enet
   pybind11::embed
   mosaic_studio
   Vulkan::Vulkan
