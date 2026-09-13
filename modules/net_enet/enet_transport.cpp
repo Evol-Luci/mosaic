@@ -76,14 +76,28 @@ public:
                 }
                 enet_packet_destroy(ev.packet);
             }
-            // DISCONNECT handled in Task 3.
+            else if (ev.type == ENET_EVENT_TYPE_DISCONNECT)
+            {
+                auto it = peer_to_id_.find(ev.peer);
+                if (it != peer_to_id_.end())
+                {
+                    NetEvent out_ev;
+                    out_ev.type = NetEvent::Type::Disconnected;
+                    out_ev.connection = it->second;
+                    out.push_back(out_ev);
+                    id_to_peer_.erase(it->second);
+                    peer_to_id_.erase(it);
+                }
+            }
         }
         return out;
     }
 
-    void disconnect(ConnectionId /*who*/) override
+    void disconnect(ConnectionId who) override
     {
-        // Implemented in Task 3.
+        auto it = id_to_peer_.find(who);
+        if (it == id_to_peer_.end()) { return; }
+        enet_peer_disconnect(it->second, 0); // graceful; DISCONNECT event follows via poll()
     }
 
 private:

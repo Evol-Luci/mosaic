@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -133,4 +134,71 @@ TEST_CASE("ENet transport preserves the unreliable channel tag", "[net][enet]")
     REQUIRE(received.size() == 1);
     REQUIRE(received[0].channel == Channel::Unreliable);
     REQUIRE(received[0].data == "u");
+}
+
+TEST_CASE("ENet transport surfaces a Disconnected event on the peer", "[net][enet]")
+{
+    constexpr std::uint16_t port = 34004;
+    auto server = create_enet_server(port, 4);
+    auto client = create_enet_client("127.0.0.1", port);
+
+    ConnectionId server_side_client_id = 0;
+    poll_until([&]
+    {
+        for (auto& e : server->poll())
+        {
+            if (e.type == NetEvent::Type::Connected) { server_side_client_id = e.connection; }
+        }
+        client->poll();
+        return server_side_client_id != 0u;
+    });
+
+    server->disconnect(server_side_client_id);
+
+    std::vector<NetEvent> client_events;
+    poll_until([&]
+    {
+        server->poll(); // flush the queued disconnect command
+        for (auto& e : client->poll()) { client_events.push_back(e); }
+        return std::any_of(client_events.begin(), client_events.end(),
+            [](const NetEvent& e) { return e.type == NetEvent::Type::Disconnected; });
+    });
+
+    REQUIRE(std::any_of(client_events.begin(), client_events.end(),
+        [](const NetEvent& e) { return e.type == NetEvent::Type::Disconnected; }));
+}
+
+TEST_CASE("ENet transport drops a send to an unknown connection id", "[net][enet]")
+{
+    constexpr std::uint16_t port = 34005;
+    auto server = create_enet_server(port, 4);
+    auto client = create_enet_client("127.0.0.1", port);
+
+    client->send(/*never-seen id*/ 999u, Channel::Reliable, "nowhere"); // no crash expected
+
+    poll_until([&] { server->poll(); client->poll(); return true; }, /*max_attempts=*/40);
+    SUCCEED("send to an unknown id did not crash");
+}
+
+TEST_CASE("ENet server assigns distinct ids to multiple clients", "[net][enet]")
+{
+    constexpr std::uint16_t port = 34006;
+    auto server = create_enet_server(port, 4);
+    auto client_a = create_enet_client("127.0.0.1", port);
+    auto client_b = create_enet_client("127.0.0.1", port);
+
+    std::vector<ConnectionId> ids;
+    poll_until([&]
+    {
+        for (auto& e : server->poll())
+        {
+            if (e.type == NetEvent::Type::Connected) { ids.push_back(e.connection); }
+        }
+        client_a->poll();
+        client_b->poll();
+        return ids.size() == 2;
+    }, /*max_attempts=*/400);
+
+    REQUIRE(ids.size() == 2);
+    REQUIRE(ids[0] != ids[1]);
 }
