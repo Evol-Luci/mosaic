@@ -11,6 +11,7 @@
 
 using mosaic::engine::World;
 using mosaic::engine::net::apply_snapshot;
+using mosaic::engine::net::NetIdAllocator;
 using mosaic::engine::net::NetIdMap;
 using mosaic::engine::net::NetReplicated;
 using mosaic::engine::net::snapshot;
@@ -43,7 +44,8 @@ TEST_CASE("single NetReplicated entity replicates to a fresh client", "[net][rep
     sm.base_color = {0.25f, 0.5f, 0.75f};
     server.add_component<Material>(se, sm);
 
-    const std::string blob = snapshot(server, t.types);
+    NetIdAllocator alloc;
+    const std::string blob = snapshot(server, t.types, alloc);
 
     World client;
     NetIdMap ids;
@@ -81,8 +83,9 @@ TEST_CASE("apply_snapshot is idempotent and upserts in place", "[net][replicatio
 
     World client;
     NetIdMap ids;
+    NetIdAllocator alloc;
 
-    const std::string blob1 = snapshot(server, t.types);
+    const std::string blob1 = snapshot(server, t.types, alloc);
     REQUIRE(apply_snapshot(blob1, client, t.types, ids));
     // Re-apply the same blob: still one entity.
     REQUIRE(apply_snapshot(blob1, client, t.types, ids));
@@ -94,7 +97,7 @@ TEST_CASE("apply_snapshot is idempotent and upserts in place", "[net][replicatio
 
     // Move the server entity, re-snapshot, re-apply: same entity updates.
     server.get_component<Transform>(se)->position = {5.0f, 6.0f, 7.0f};
-    const std::string blob2 = snapshot(server, t.types);
+    const std::string blob2 = snapshot(server, t.types, alloc);
     REQUIRE(apply_snapshot(blob2, client, t.types, ids));
 
     count = 0;
@@ -118,7 +121,8 @@ TEST_CASE("only NetReplicated entities are replicated", "[net][replication]")
     const auto c = server.create_entity();
     server.add_component<Transform>(c, Transform{});
 
-    const std::string blob = snapshot(server, t.types);
+    NetIdAllocator alloc;
+    const std::string blob = snapshot(server, t.types, alloc);
 
     World client;
     NetIdMap ids;
@@ -141,7 +145,8 @@ TEST_CASE("apply_snapshot rejects malformed input without throwing", "[net][repl
 
     // A snapshot of an empty server world applies cleanly (zero entities).
     World empty_server;
-    const std::string blob = snapshot(empty_server, t.types);
+    NetIdAllocator alloc;
+    const std::string blob = snapshot(empty_server, t.types, alloc);
     REQUIRE(apply_snapshot(blob, client, t.types, ids));
     int count = 0;
     client.for_each_entity([&](World::EntityID) { ++count; });
@@ -164,7 +169,8 @@ TEST_CASE("absent NetId is despawned on the next snapshot", "[net][replication]"
 
     World client;
     NetIdMap ids;
-    REQUIRE(apply_snapshot(snapshot(server, t.types), client, t.types, ids));
+    NetIdAllocator alloc;
+    REQUIRE(apply_snapshot(snapshot(server, t.types, alloc), client, t.types, ids));
     REQUIRE(ids.map.size() == 2u);
 
     // Server removes entity B; its destruction commits on the server tick.
@@ -172,7 +178,7 @@ TEST_CASE("absent NetId is despawned on the next snapshot", "[net][replication]"
     server.tick(0.016f);
 
     // The new snapshot has only net 1. Applying it despawns net 2 on the client.
-    REQUIRE(apply_snapshot(snapshot(server, t.types), client, t.types, ids));
+    REQUIRE(apply_snapshot(snapshot(server, t.types, alloc), client, t.types, ids));
     REQUIRE(ids.map.size() == 1u);       // map updated immediately (erase is not deferred)
     REQUIRE(ids.map.count(1u) == 1u);
 
@@ -203,7 +209,8 @@ TEST_CASE("re-applying the same snapshot removes nothing", "[net][replication]")
 
     World client;
     NetIdMap ids;
-    const std::string blob = snapshot(server, t.types);
+    NetIdAllocator alloc;
+    const std::string blob = snapshot(server, t.types, alloc);
     REQUIRE(apply_snapshot(blob, client, t.types, ids));
     REQUIRE(apply_snapshot(blob, client, t.types, ids)); // re-apply the identical snapshot
     REQUIRE(ids.map.size() == 2u);
@@ -212,4 +219,70 @@ TEST_CASE("re-applying the same snapshot removes nothing", "[net][replication]")
     int count = 0;
     client.for_each_entity([&](World::EntityID) { ++count; });
     REQUIRE(count == 2); // nothing despawned
+}
+
+TEST_CASE("snapshot assigns a NetId to a zero-id entity", "[net][replication]")
+{
+    Types t;
+    World server;
+    const auto e = server.create_entity();
+    server.add_component<NetReplicated>(e, NetReplicated{0});
+    server.add_component<Transform>(e, Transform{});
+
+    NetIdAllocator alloc;
+    snapshot(server, t.types, alloc);
+
+    REQUIRE(server.get_component<NetReplicated>(e)->id != 0u);
+}
+
+TEST_CASE("snapshot assigns distinct ids to two zero-id entities in one call", "[net][replication]")
+{
+    Types t;
+    World server;
+    const auto a = server.create_entity();
+    server.add_component<NetReplicated>(a, NetReplicated{0});
+    server.add_component<Transform>(a, Transform{});
+    const auto b = server.create_entity();
+    server.add_component<NetReplicated>(b, NetReplicated{0});
+    server.add_component<Transform>(b, Transform{});
+
+    NetIdAllocator alloc;
+    snapshot(server, t.types, alloc);
+
+    const std::uint32_t id_a = server.get_component<NetReplicated>(a)->id;
+    const std::uint32_t id_b = server.get_component<NetReplicated>(b)->id;
+    REQUIRE(id_a != 0u);
+    REQUIRE(id_b != 0u);
+    REQUIRE(id_a != id_b);
+}
+
+TEST_CASE("snapshot leaves an explicitly-set NetId untouched", "[net][replication]")
+{
+    Types t;
+    World server;
+    const auto e = server.create_entity();
+    server.add_component<NetReplicated>(e, NetReplicated{42});
+    server.add_component<Transform>(e, Transform{});
+
+    NetIdAllocator alloc;
+    snapshot(server, t.types, alloc);
+
+    REQUIRE(server.get_component<NetReplicated>(e)->id == 42u);
+}
+
+TEST_CASE("snapshot does not reassign an id it already assigned", "[net][replication]")
+{
+    Types t;
+    World server;
+    const auto e = server.create_entity();
+    server.add_component<NetReplicated>(e, NetReplicated{0});
+    server.add_component<Transform>(e, Transform{});
+
+    NetIdAllocator alloc;
+    snapshot(server, t.types, alloc);
+    const std::uint32_t assigned = server.get_component<NetReplicated>(e)->id;
+    REQUIRE(assigned != 0u);
+
+    snapshot(server, t.types, alloc); // second call, same allocator
+    REQUIRE(server.get_component<NetReplicated>(e)->id == assigned);
 }

@@ -128,3 +128,39 @@ TEST_CASE("client despawns an entity removed on the server", "[net][replication]
     REQUIRE(count == 1);
     REQUIRE(client_world.get_component<Transform>(only)->position.x == 1.0f); // net 1 survived
 }
+
+TEST_CASE("server assigns a NetId for a zero-id entity and the client receives it", "[net][replication]")
+{
+    mosaic::foundation::reflection::TypeRegistry registry;
+    refl::ComponentReflection types;
+    refl::register_builtin_components(registry, types);
+
+    auto [server_tx, client_tx] = make_loopback_pair();
+
+    World server_world;
+    auto& server_net = server_world.add_system<NetworkSystem>(Role::Server, server_tx);
+    server_world.add_system<ReplicationSystem>(Role::Server, &server_net, &types);
+
+    World client_world;
+    auto& client_net = client_world.add_system<NetworkSystem>(Role::Client, client_tx);
+    client_world.add_system<ReplicationSystem>(Role::Client, &client_net, &types);
+
+    // Server entity created with id == 0 — no hand-picked id.
+    const auto se = server_world.create_entity();
+    server_world.add_component<NetReplicated>(se, NetReplicated{0});
+    Transform st; st.position = {9.0f, 0.0f, 0.0f};
+    server_world.add_component<Transform>(se, st);
+
+    for (int i = 0; i < 8; ++i) { client_world.tick(0.016f); server_world.tick(0.016f); }
+
+    // The server assigned a nonzero id in place.
+    const std::uint32_t assigned = server_world.get_component<NetReplicated>(se)->id;
+    REQUIRE(assigned != 0u);
+
+    // The client mirrors exactly one entity, matching the server's Transform.
+    int count = 0;
+    World::EntityID only;
+    client_world.for_each_entity([&](World::EntityID e) { ++count; only = e; });
+    REQUIRE(count == 1);
+    REQUIRE(client_world.get_component<Transform>(only)->position.x == 9.0f);
+}
