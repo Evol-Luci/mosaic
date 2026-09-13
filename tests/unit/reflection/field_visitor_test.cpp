@@ -6,8 +6,10 @@
 
 #include "engine/reflection/field_visitor.hpp"
 #include "engine/transform/transform.hpp"
+#include "engine/world/name.hpp"
 #include "foundation/math/vec3.hpp"
 
+using mosaic::engine::Name;
 using mosaic::engine::reflection::FieldVisitor;
 using mosaic::engine::reflection::FieldVisitorAdapter;
 using mosaic::engine::transform::Transform;
@@ -32,6 +34,34 @@ struct WritingVisitor : FieldVisitor
     explicit WritingVisitor(float v) : value(v) {}
     void field_float(std::string_view, float& f) override { f = value; }
     void field_readonly(std::string_view, const std::string&) override {}
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
+
+// A FieldVisitor that does NOT override field_string, to prove the default
+// implementation falls back to field_readonly (existing visitors keep compiling
+// and behaving as before, matching field_asset's own default-fallback pattern).
+struct NoStringOverrideVisitor : FieldVisitor
+{
+    std::vector<std::string> events;
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view n, const std::string& d) override
+    {
+        events.push_back("ro:" + std::string(n) + "=" + d);
+    }
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
+
+// A FieldVisitor that overrides field_string and writes a new value into the
+// live field, the way ImGuiFieldVisitor's real InputText-backed override does.
+struct StringWritingVisitor : FieldVisitor
+{
+    std::string new_value;
+    explicit StringWritingVisitor(std::string v) : new_value(std::move(v)) {}
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view, const std::string&) override {}
+    void field_string(std::string_view, std::string& value) override { value = new_value; }
     void begin_group(std::string_view) override {}
     void end_group() override {}
 };
@@ -71,4 +101,25 @@ TEST_CASE("FieldVisitorAdapter writes float edits into the live object", "[refle
     REQUIRE(t.position.x == 9.0f);
     REQUIRE(t.position.y == 9.0f);
     REQUIRE(t.scale.z == 9.0f);
+}
+
+TEST_CASE("FieldVisitorAdapter falls back a std::string field to field_readonly when field_string is not overridden", "[reflection]")
+{
+    Name n{"Cube"};
+    NoStringOverrideVisitor v;
+    FieldVisitorAdapter adapter{v};
+    reflect(adapter, n);
+
+    REQUIRE(v.events.size() == 1);
+    REQUIRE(v.events[0] == "ro:value=Cube");
+}
+
+TEST_CASE("FieldVisitorAdapter routes a std::string field to field_string when overridden, and the write lands in the live object", "[reflection]")
+{
+    Name n{"OldName"};
+    StringWritingVisitor v{"NewName"};
+    FieldVisitorAdapter adapter{v};
+    reflect(adapter, n);
+
+    REQUIRE(n.value == "NewName");
 }
