@@ -32,6 +32,14 @@ public:
     {
         field_readonly(name, value.to_string());
     }
+
+    // An editable free-text field. The visitor may reassign it (e.g. from a text
+    // input widget). Default falls back to the read-only display so existing
+    // visitors keep compiling.
+    virtual void field_string(std::string_view name, std::string& value)
+    {
+        field_readonly(name, value);
+    }
 };
 
 // mosaic::foundation::serialization::Handle<R> detection, kept local so this header
@@ -75,7 +83,7 @@ struct FieldVisitorAdapter
         }
         else if constexpr (std::is_same_v<U, std::string>)
         {
-            visitor.field_readonly(name, value);
+            visitor.field_string(name, value);
         }
         else if constexpr (std::is_arithmetic_v<U>)
         {

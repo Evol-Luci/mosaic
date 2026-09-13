@@ -23,6 +23,7 @@ public:
     void field_readonly(std::string_view name, const std::string& display) override;
     void field_asset(std::string_view name,
                      mosaic::foundation::serialization::AssetID& value) override;
+    void field_string(std::string_view name, std::string& value) override;
     void begin_group(std::string_view name) override;
     void end_group() override;
 
