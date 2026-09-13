@@ -54,7 +54,7 @@ public:
     bool                           exit_requested() const { return layout_.exit_requested(); }
 
 private:
-    void draw_hierarchy(const mosaic::engine::World& world);
+    void draw_hierarchy(mosaic::engine::World& world);
     bool draw_inspector(mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection);
     bool draw_controls(mosaic::engine::World& world);
