@@ -203,3 +203,56 @@ TEST_CASE("script-profile flag toggles on_update timing output", "[cli]")
     REQUIRE_FALSE(result.exit_code.has_value());
     REQUIRE(result.options.script_profile == true);
 }
+
+TEST_CASE("--host parses into a port", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--host", "7777"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.host_port.has_value());
+    REQUIRE(*result.options.host_port == std::uint16_t{7777});
+    REQUIRE_FALSE(result.options.connect_address.has_value());
+}
+
+TEST_CASE("--connect parses a valid host:port", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1:7777"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.connect_address.has_value());
+    REQUIRE(*result.options.connect_address == "127.0.0.1:7777");
+    REQUIRE_FALSE(result.options.host_port.has_value());
+}
+
+TEST_CASE("--connect without a port is rejected", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}
+
+TEST_CASE("--connect with a non-numeric port is rejected", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1:abc"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}
+
+TEST_CASE("--host and --connect together are rejected", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--host", "7777", "--connect", "127.0.0.1:7778"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}
+
+TEST_CASE("--host port zero is rejected", "[cli]")
+{
+    auto result = parse_args({"mosaic", "run", "--host", "0"});
+    REQUIRE(result.exit_code.has_value());
+    REQUIRE(*result.exit_code != 0);
+}
+
+TEST_CASE("split_host_port splits a valid address", "[cli]")
+{
+    const auto [host, port] = mosaic::app::split_host_port("127.0.0.1:7777");
+    REQUIRE(host == "127.0.0.1");
+    REQUIRE(port == std::uint16_t{7777});
+}

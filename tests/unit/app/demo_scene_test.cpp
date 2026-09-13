@@ -5,9 +5,14 @@
 #include "engine/audio/audio_backend.hpp"
 #include "modules/audio_miniaudio/miniaudio_backend.hpp"
 #include "engine/assets/asset_registry.hpp"
+#include "engine/net/input_system.hpp"
+#include "engine/net/loopback_transport.hpp"
+#include "engine/net/network_system.hpp"
+#include "engine/net/replication_system.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/render/builtin_meshes.hpp"
 #include "engine/script/script_component.hpp"
+#include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/reflection/type_registry.hpp"
@@ -99,4 +104,41 @@ TEST_CASE("setup_runtime + default scene is silent and safe with a null audio ba
                   nullptr); // no audio backend
     build_default_scene(world);
     REQUIRE_NOTHROW(world.tick(0.0f)); // AudioSystem no-ops; no crash
+}
+
+TEST_CASE("setup_runtime wires NetworkSystem/ReplicationSystem/InputSystem when given a transport",
+          "[app][net]")
+{
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry     reg;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    auto [server_tx, client_tx] = mosaic::engine::net::make_loopback_pair();
+
+    setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); },
+        mosaic::engine::script::ScriptHost{}, false, nullptr, {},
+        mosaic::engine::net::Role::Server, server_tx);
+
+    REQUIRE(world.get_system<mosaic::engine::net::NetworkSystem>() != nullptr);
+    REQUIRE(world.get_system<mosaic::engine::net::ReplicationSystem>() != nullptr);
+    REQUIRE(world.get_system<mosaic::engine::net::InputSystem>() != nullptr);
+}
+
+TEST_CASE("setup_runtime without a transport wires no networking", "[app]")
+{
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry     reg;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); });
+
+    REQUIRE(world.get_system<mosaic::engine::net::NetworkSystem>() == nullptr);
 }

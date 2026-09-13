@@ -1,5 +1,7 @@
 #include "app/cli/options.hpp"
 
+#include <stdexcept>
+
 #include <CLI/CLI.hpp>
 
 namespace mosaic::app
@@ -26,6 +28,34 @@ ParseResult parse(int argc, char** argv)
     CLI::Option* run_scene = run->add_option("--scene", scene, "Scene JSON file to load before running");
     CLI::Option* run_path  = run->add_option("path", open_path, "Project directory or scene file to open");
     run_path->excludes(run_scene);
+    std::uint16_t host_port = 0;
+    std::string   connect_address;
+    CLI::Option* host_opt = run->add_option(
+        "--host", host_port, "Host a server on <port>");
+    host_opt->check(CLI::Range(std::uint16_t{1}, std::uint16_t{65535}));
+    CLI::Option* connect_opt = run->add_option(
+        "--connect", connect_address, "Connect to <host>:<port> as a client");
+    connect_opt->check(
+        [](const std::string& val) -> std::string
+        {
+            const auto colon = val.rfind(':');
+            if (colon == std::string::npos || colon + 1 == val.size())
+            {
+                return "expected <host>:<port>";
+            }
+            try
+            {
+                const int port = std::stoi(val.substr(colon + 1));
+                if (port < 1 || port > 65535) { return "port out of range in <host>:<port>"; }
+            }
+            catch (const std::exception&)
+            {
+                return "invalid port in <host>:<port>";
+            }
+            return "";
+        });
+    host_opt->excludes(connect_opt);
+    connect_opt->excludes(host_opt);
     CLI::Option* duration_opt =
         run->add_option("--duration", duration_s, "Stop after N seconds");
     CLI::Option* ticks_opt =
@@ -122,7 +152,23 @@ ParseResult parse(int argc, char** argv)
     {
         result.options.ticks = ticks;
     }
+    if (host_opt->count() > 0)
+    {
+        result.options.host_port = host_port;
+    }
+    if (connect_opt->count() > 0)
+    {
+        result.options.connect_address = connect_address;
+    }
     return result;
+}
+
+std::pair<std::string, std::uint16_t> split_host_port(const std::string& address)
+{
+    const auto colon = address.rfind(':');
+    const std::string host = address.substr(0, colon);
+    const int port = std::stoi(address.substr(colon + 1));
+    return {host, static_cast<std::uint16_t>(port)};
 }
 
 } // namespace mosaic::app

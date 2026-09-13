@@ -19,12 +19,15 @@
 #include "app/run/create.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
+#include "app/run/net_host_demo.hpp"
 #include "app/run/scene_load.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/status_reporter.hpp"
 #include "engine/assets/asset_metadata.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/ecs/system.hpp"
+#include "engine/net/net_replicated.hpp"
+#include "engine/net/transport.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/render/camera.hpp"
@@ -37,6 +40,7 @@
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/runtime/runtime_loop.hpp"
+#include "engine/script/script_component.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/script/script_system.hpp"
 #include "engine/transform/transform.hpp"
@@ -50,6 +54,7 @@
 #include "modules/script_python/python_script_engine.hpp"
 #include "engine/audio/audio_backend.hpp"
 #include "modules/audio_miniaudio/miniaudio_backend.hpp"
+#include "modules/net_enet/enet_transport.hpp"
 
 namespace
 {
@@ -128,6 +133,29 @@ int main(int argc, char** argv)
         options.json ? std::unique_ptr<StatusReporter>(std::make_unique<JsonStatusReporter>())
                      : std::unique_ptr<StatusReporter>(std::make_unique<TextStatusReporter>());
 
+    mosaic::engine::net::Role net_role = mosaic::engine::net::Role::Client;
+    std::shared_ptr<mosaic::engine::net::Transport> net_transport;
+    if (options.host_port)
+    {
+        net_role = mosaic::engine::net::Role::Server;
+        net_transport = mosaic::net::enet::create_enet_server(*options.host_port, /*max_peers=*/8);
+        if (net_transport == nullptr)
+        {
+            reporter->error("failed to host on port " + std::to_string(*options.host_port));
+            return 1;
+        }
+    }
+    else if (options.connect_address)
+    {
+        const auto [connect_host, connect_port] = split_host_port(*options.connect_address);
+        net_transport = mosaic::net::enet::create_enet_client(connect_host, connect_port);
+        if (net_transport == nullptr)
+        {
+            reporter->error("failed to connect to " + *options.connect_address);
+            return 1;
+        }
+    }
+
     engine::World world;
     world.add_system<engine::transform::TransformSystem>();
 
@@ -135,10 +163,18 @@ int main(int argc, char** argv)
     engine::reflection::ComponentReflection types;
     engine::reflection::register_builtin_components(registry, types);
 
-    if (!populate_world(world, options, types))
+    if (!options.connect_address)
     {
-        reporter->error("failed to load scene: " + options.scene.value_or(std::string{}));
-        return 1;
+        if (!populate_world(world, options, types))
+        {
+            reporter->error("failed to load scene: " + options.scene.value_or(std::string{}));
+            return 1;
+        }
+    }
+    else if (options.scene || options.open_path)
+    {
+        mosaic::foundation::log::info(
+            "net", "--connect starts from an empty world; ignoring the given scene/path");
     }
 
     engine::runtime::RuntimeLoop loop(1.0F / static_cast<float>(options.fixed_hz),
@@ -174,6 +210,23 @@ int main(int argc, char** argv)
         options.window ? mosaic::audio::miniaudio::create_miniaudio_backend() : nullptr;
     mosaic::engine::audio::AudioBackend* audio_raw = audio.get();
 
+    std::function<std::vector<std::string>()> net_input_provider;
+    if (net_role == mosaic::engine::net::Role::Client && net_transport != nullptr)
+    {
+        net_input_provider = [&glfw_window]() -> std::vector<std::string>
+        {
+            if (glfw_window == nullptr) { return {}; }
+            float dx = 0.0f, dz = 0.0f;
+            constexpr float speed = 0.05f;
+            if (glfwGetKey(glfw_window, GLFW_KEY_D) == GLFW_PRESS) { dx += speed; }
+            if (glfwGetKey(glfw_window, GLFW_KEY_A) == GLFW_PRESS) { dx -= speed; }
+            if (glfwGetKey(glfw_window, GLFW_KEY_S) == GLFW_PRESS) { dz += speed; }
+            if (glfwGetKey(glfw_window, GLFW_KEY_W) == GLFW_PRESS) { dz -= speed; }
+            if (dx == 0.0f && dz == 0.0f) { return {}; }
+            return {std::to_string(dx) + "," + std::to_string(dz)};
+        };
+    }
+
     auto render_system =
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
@@ -191,8 +244,25 @@ int main(int argc, char** argv)
                           p.y = std::clamp(static_cast<float>(my / wh), 0.0f, 1.0f);
                           p.down = glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
                           return p;
-                      })
+                      },
+                      net_role, net_transport, net_input_provider)
             .render_system;
+
+    if (net_role == mosaic::engine::net::Role::Server && net_transport != nullptr)
+    {
+        const auto host_entity = world.create_entity();
+        world.add_component<mosaic::engine::net::NetReplicated>(
+            host_entity, mosaic::engine::net::NetReplicated{0});
+        mosaic::engine::transform::Transform ht;
+        ht.position = {0.0f, 3.0f, 0.0f};
+        world.add_component<mosaic::engine::transform::Transform>(host_entity, ht);
+        mosaic::engine::render::Material hm;
+        hm.base_color = {0.9f, 0.7f, 0.2f};
+        world.add_component<mosaic::engine::render::Material>(host_entity, hm);
+        world.add_component<mosaic::engine::script::ScriptComponent>(
+            host_entity, mosaic::engine::script::ScriptComponent{mosaic::app::kOrbitScript});
+        mosaic::app::wire_networked_demo_host(world);
+    }
 
     if (options.assets_dir)
     {
