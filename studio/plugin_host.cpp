@@ -34,9 +34,10 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
     std::error_code ec;
     if (!fs::exists(directory, ec) || !fs::is_directory(directory, ec)) { return errors; }
 
-    for (const auto& entry : fs::directory_iterator(directory))
+    for (const auto& entry : fs::directory_iterator(directory, ec))
     {
-        if (!entry.is_regular_file() || entry.path().extension() != ".py") { continue; }
+        std::error_code file_ec;
+        if (!entry.is_regular_file(file_ec) || file_ec || entry.path().extension() != ".py") { continue; }
 
         const std::string name = entry.path().stem().string();
         std::unique_ptr<mosaic::engine::script::ScriptEngine> engine = factory_();
