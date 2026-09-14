@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 
 #include "engine/reflection/component_reflection.hpp"
@@ -39,6 +40,19 @@ public:
     // the #10 Value DOM.
     virtual void set_global(const std::string& name,
                             const mosaic::foundation::serialization::Value& value) = 0;
+
+    // Reads a global variable's current value out of the script's namespace, marshaled
+    // through the same #10 Value DOM set_global writes with. Returns nullopt if the
+    // name is absent, or if its value isn't representable in the Value DOM (e.g. a
+    // function or class object).
+    virtual std::optional<mosaic::foundation::serialization::Value>
+        get_global(const std::string& name) = 0;
+
+    // Calls an already-defined zero-argument function in this engine's namespace by
+    // name (e.g. one declared by a prior run_string). Returns the same ScriptResult
+    // shape as run_string: ok/error/captured stdout. ok=false with a descriptive error
+    // if name isn't defined or isn't callable.
+    virtual ScriptResult call_function(const std::string& name) = 0;
 
     // Bind an undoable command stack. Once bound, script set_component runs through a
     // SetComponentCommand (undoable via undo()/redo()); entity lifecycle stays direct. Non-owning;
