@@ -245,14 +245,27 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             continue;
         }
 
-        const fs::path blob_path = entry.path().parent_path() / (entry.path().stem().string() + ".image");
-        const std::optional<std::string> blob = load_scene_file(blob_path.string());
-        if (!blob) { mosaic::foundation::log::warn("import", "missing cooked image {}", blob_path.string()); continue; }
-        const std::optional<mosaic::engine::render::Image> img = uncook_image(*blob);
-        if (!img) { mosaic::foundation::log::warn("import", "corrupt cooked image {}", blob_path.string()); continue; }
+        if (meta.type == "texture")
+        {
+            const fs::path blob_path = entry.path().parent_path() / (entry.path().stem().string() + ".image");
+            const std::optional<std::string> blob = load_scene_file(blob_path.string());
+            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked image {}", blob_path.string()); continue; }
+            const std::optional<mosaic::engine::render::Image> img = uncook_image(*blob);
+            if (!img) { mosaic::foundation::log::warn("import", "corrupt cooked image {}", blob_path.string()); continue; }
 
-        registry.register_resource<mosaic::engine::render::Image>(
-            meta, std::make_shared<mosaic::engine::render::Image>(*img));
+            registry.register_resource<mosaic::engine::render::Image>(
+                meta, std::make_shared<mosaic::engine::render::Image>(*img));
+            ++count;
+            continue;
+        }
+
+        // Generic opaque blob -- covers every plugin-imported asset type (anything
+        // not script/audio/font/texture). Only the plugin that produced it
+        // understands the format; register the raw bytes as-is.
+        const fs::path blob_path = entry.path().parent_path() / (entry.path().stem().string() + ".data");
+        const std::optional<std::string> blob = load_scene_file(blob_path.string());
+        if (!blob) { mosaic::foundation::log::warn("import", "missing generic asset blob {}", blob_path.string()); continue; }
+        registry.register_resource<std::string>(meta, std::make_shared<std::string>(*blob));
         ++count;
     }
     return count;

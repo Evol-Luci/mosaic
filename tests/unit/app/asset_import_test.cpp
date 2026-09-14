@@ -310,3 +310,47 @@ TEST_CASE("import_asset reports a plugin importer's error and writes nothing", "
     fs::remove_all(proj); fs::remove(src);
 }
 
+TEST_CASE("load_project_assets registers a generic (plugin-imported) asset as a raw string",
+         "[app]")
+{
+    TypeRegistry reg; ComponentReflection types = make_types(reg);
+    const std::string proj = tmp("gproj");
+    fs::remove_all(proj);
+    REQUIRE(create_project(proj, types));
+
+    write_plugin(proj, "csv_importer.py",
+        "MOSAIC_IMPORTERS = {\".csv\": \"import_csv\"}\n\n"
+        "def import_csv(source_path):\n"
+        "    with open(source_path) as f:\n"
+        "        return f.read().upper()\n");
+
+    const std::string src = tmp("gsrc") + ".csv";
+    REQUIRE(save_scene_file(src, "a,b,c\n"));
+    auto id = import_asset(proj, src);
+    REQUIRE(id.has_value());
+
+    AssetRegistry registry;
+    const int n = load_project_assets(registry, (fs::path(proj) / "assets").string());
+    REQUIRE(n == 1);
+    REQUIRE(registry.contains(*id));
+    auto blob = registry.load<std::string>(*id);
+    REQUIRE(blob != nullptr);
+    REQUIRE(*blob == "A,B,C\n");
+
+    fs::remove_all(proj); fs::remove(src);
+}
+
+TEST_CASE("load_project_assets skips a generic asset with a missing .data blob", "[app]")
+{
+    AssetRegistry registry;
+    const std::string dir = tmp("gdir");
+    fs::remove_all(dir); fs::create_directories(dir);
+    REQUIRE(save_scene_file((fs::path(dir) / "orphan2.toml").string(),
+                            "uuid = \"00000000-0000-0000-0000-000000000002\"\ntype = \"csv\"\n"
+                            "version = 1\nsource = \"x\"\n"));
+    REQUIRE(load_project_assets(registry, dir) == 0);
+
+    fs::remove_all(dir);
+}
+
+
