@@ -1,0 +1,214 @@
+#include "modules/script_python_studio/studio_plugin_script_engine.hpp"
+
+#include <cstdio>
+#include <memory>
+#include <optional>
+#include <string>
+
+#include <imgui.h>
+#include <pybind11/embed.h>
+
+#include "engine/reflection/component_reflection.hpp"
+#include "engine/world/world.hpp"
+#include "foundation/commands/command_stack.hpp"
+#include "modules/script_python/python_script_engine.hpp" // ensure_interpreter
+#include "modules/script_python/value_marshal.hpp"
+#include "modules/script_python/world_globals.hpp"
+
+namespace py = pybind11;
+
+namespace mosaic::script::python_studio
+{
+namespace
+{
+struct InterpreterInit
+{
+    InterpreterInit() { mosaic::script::python::ensure_interpreter(); }
+};
+
+class StudioPluginScriptEngine final
+    : private InterpreterInit // must be first — initializes CPython before py::dict globals_
+    , public mosaic::engine::script::ScriptEngine
+{
+public:
+    StudioPluginScriptEngine()
+    {
+        globals_["__builtins__"] = py::module_::import("builtins");
+    }
+
+    mosaic::engine::script::ScriptResult run_string(const std::string& code) override
+    {
+        mosaic::engine::script::ScriptResult result;
+        try
+        {
+            py::exec(code, globals_);
+            result.ok = true;
+        }
+        catch (py::error_already_set& e)
+        {
+            result.ok = false;
+            result.error = e.what();
+        }
+        catch (const std::exception& e)
+        {
+            result.ok = false;
+            result.error = e.what();
+        }
+        return result;
+    }
+
+    void bind_world(mosaic::engine::World& world,
+                    const mosaic::engine::reflection::ComponentReflection& types) override
+    {
+        world_ = &world;
+        types_ = &types;
+        mosaic::script::python::install_world_globals(globals_, &world_, &types_, &stack_);
+        install_imgui_globals();
+    }
+
+    void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
+    {
+        stack_ = &stack;
+    }
+
+    void set_global(const std::string& name,
+                    const mosaic::foundation::serialization::Value& value) override
+    {
+        globals_[py::str(name)] = mosaic::script::python::value_to_py(value);
+    }
+
+    std::optional<mosaic::foundation::serialization::Value>
+    get_global(const std::string& name) override
+    {
+        if (!globals_.contains(name)) { return std::nullopt; }
+        try
+        {
+            return mosaic::script::python::py_to_value(globals_[py::str(name)]);
+        }
+        catch (const std::exception&)
+        {
+            return std::nullopt;
+        }
+    }
+
+    mosaic::engine::script::ScriptResult call_function(const std::string& name) override
+    {
+        mosaic::engine::script::ScriptResult result;
+        if (!globals_.contains(name) || !py::isinstance<py::function>(globals_[py::str(name)]))
+        {
+            result.error = "'" + name + "' is not a defined function";
+            return result;
+        }
+        child_depth_ = 0;
+        try
+        {
+            py::module_ sys = py::module_::import("sys");
+            py::module_ io = py::module_::import("io");
+            py::object old_out = sys.attr("stdout");
+            py::object old_err = sys.attr("stderr");
+            py::object buffer = io.attr("StringIO")();
+            sys.attr("stdout") = buffer;
+            sys.attr("stderr") = buffer;
+
+            struct StreamGuard
+            {
+                py::module_& sys_;
+                py::object& old_out_;
+                py::object& old_err_;
+                ~StreamGuard() noexcept
+                {
+                    try { sys_.attr("stdout") = old_out_; sys_.attr("stderr") = old_err_; }
+                    catch (...) {}
+                }
+            } guard{sys, old_out, old_err};
+
+            try
+            {
+                globals_[py::str(name)]();
+                result.ok = true;
+            }
+            catch (py::error_already_set& e)
+            {
+                result.ok = false;
+                result.error = e.what();
+            }
+            result.output = buffer.attr("getvalue")().cast<std::string>();
+        }
+        catch (const std::exception& e)
+        {
+            result.ok = false;
+            if (result.error.empty()) { result.error = e.what(); }
+        }
+
+        if (child_depth_ > 0)
+        {
+            const int unclosed = child_depth_;
+            while (child_depth_ > 0) { ImGui::EndChild(); --child_depth_; }
+            result.ok = false;
+            result.error = (result.error.empty() ? std::string() : result.error + "; ") +
+                           std::to_string(unclosed) +
+                           " imgui_begin_child() call(s) were never matched by imgui_end_child()";
+        }
+        return result;
+    }
+
+private:
+    void install_imgui_globals()
+    {
+        globals_["imgui_text"] = py::cpp_function(
+            [](const std::string& text) { ImGui::TextUnformatted(text.c_str()); });
+        globals_["imgui_separator"] = py::cpp_function([]() { ImGui::Separator(); });
+        globals_["imgui_same_line"] = py::cpp_function([]() { ImGui::SameLine(); });
+        globals_["imgui_spacing"] = py::cpp_function([]() { ImGui::Spacing(); });
+        globals_["imgui_button"] = py::cpp_function(
+            [](const std::string& label) -> bool { return ImGui::Button(label.c_str()); });
+        globals_["imgui_checkbox"] = py::cpp_function(
+            [](const std::string& label, bool value) -> bool
+            {
+                ImGui::Checkbox(label.c_str(), &value);
+                return value;
+            });
+        globals_["imgui_input_text"] = py::cpp_function(
+            [](const std::string& label, const std::string& value) -> std::string
+            {
+                char buf[1024];
+                std::snprintf(buf, sizeof(buf), "%s", value.c_str());
+                ImGui::InputText(label.c_str(), buf, sizeof(buf));
+                return std::string(buf);
+            });
+        globals_["imgui_slider_float"] = py::cpp_function(
+            [](const std::string& label, float value, float lo, float hi) -> float
+            {
+                ImGui::SliderFloat(label.c_str(), &value, lo, hi);
+                return value;
+            });
+        globals_["imgui_begin_child"] = py::cpp_function(
+            [this](const std::string& id, float height)
+            {
+                ImGui::BeginChild(id.c_str(), ImVec2(0.0f, height));
+                ++child_depth_;
+            });
+        globals_["imgui_end_child"] = py::cpp_function(
+            [this]()
+            {
+                if (child_depth_ > 0)
+                {
+                    ImGui::EndChild();
+                    --child_depth_;
+                }
+            });
+    }
+
+    py::dict globals_;
+    mosaic::engine::World* world_ = nullptr;
+    const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
+    mosaic::foundation::commands::CommandStack* stack_ = nullptr;
+    int child_depth_ = 0;
+};
+} // namespace
+
+std::unique_ptr<mosaic::engine::script::ScriptEngine> create_studio_plugin_script_engine()
+{
+    return std::make_unique<StudioPluginScriptEngine>();
+}
+} // namespace mosaic::script::python_studio
