@@ -20,8 +20,12 @@ struct PluginImporter
 };
 
 // Discovers and runs project-local plugins/*.py files -- the same directory
-// convention studio::PluginHost uses, but app-tier: neither depends on the other
-// (see docs/architecture/boundaries.md). Unlike PluginHost, an ImportPluginHost's
+// convention studio::PluginHost uses, but deliberately not built on top of it:
+// mosaic_app does privately link mosaic_studio (run/editor.cpp launches the Studio
+// GUI), but that dependency is scoped to the editor launcher only -- app/CMakeLists.txt
+// keeps it (and ImGui) off every other app-tier header on purpose, and asset_io.hpp
+// (this class's only caller) is included widely, including by code that must not pull
+// in Studio/ImGui/pybind11-studio transitively. Unlike PluginHost, an ImportPluginHost's
 // engines are never bound to a World/ComponentReflection/CommandStack -- an importer
 // has no reason to touch entities or undo/redo, so get_component/set_component/etc.
 // simply don't exist as globals here. A plugin registers importers declaratively via

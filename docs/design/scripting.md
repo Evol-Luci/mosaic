@@ -156,11 +156,15 @@ documented below).
 
 This needed a new app-tier plugin loader, `ImportPluginHost`
 (`app/asset/import_plugins.hpp`/`.cpp`), structurally parallel to `studio::PluginHost`
-but never calling `bind_world`/`bind_commands` -- `app` and `studio` are sibling
-tiers (neither depends on the other), so this slice could not reuse `PluginHost`
-directly. No `ScriptEngine` interface changes were needed either: an importer's
-return value is captured by composing `set_global` + `run_string` + `get_global`,
-all of which the interface already exposed.
+but never calling `bind_world`/`bind_commands` and deliberately not built on top of
+`PluginHost` directly -- `mosaic_app` does privately link `mosaic_studio` (for
+`run/editor.cpp`'s Studio launcher), but `app/CMakeLists.txt` keeps that dependency
+(and ImGui/pybind11-studio with it) off every other app-tier header on purpose;
+`asset_io.hpp` is included widely, so pulling `studio::PluginHost` in here would leak
+Studio's dependency chain into code that has no business carrying it. No `ScriptEngine`
+interface changes were needed either: an importer's return value is captured by
+composing `set_global` + `run_string` + `get_global`, all of which the interface
+already exposed.
 
 ### Where the plugins directory lives (and its known gap)
 
