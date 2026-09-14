@@ -106,6 +106,7 @@ add_executable(mosaic_unit_tests
   unit/physics/physics_raycast_test.cpp
   unit/physics/physics_contacts_test.cpp
   unit/script/script_engine_test.cpp
+  unit/script/world_globals_test.cpp
   unit/script/script_world_test.cpp
   unit/script/value_marshal_test.cpp
   unit/script/script_entities_test.cpp

@@ -10,26 +10,26 @@
 #include <pybind11/embed.h>
 #include <pybind11/functional.h>
 
-#include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_debugger.hpp"
-#include "engine/script/script_event.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/script/script_context.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
-#include "foundation/core/entity_id.hpp"
 #include "modules/script_python/value_marshal.hpp"
+#include "modules/script_python/world_globals.hpp"
 
 namespace py = pybind11;
 
 namespace mosaic::script::python
 {
-namespace
-{
 // CPython allows a single interpreter and is fragile across finalize/re-init, so initialize once
 // per process and never finalize (the process reclaims it at exit). After init, the calling
 // (main) thread holds the GIL; v0.1 scripting is single-threaded, so no explicit GIL handoff.
+// Exported (declared in python_script_engine.hpp) so modules/script_python_studio's
+// StudioPluginScriptEngine can share the SAME process-wide std::call_once guard --
+// calling py::initialize_interpreter() from two independent std::call_once flags would
+// double-initialize CPython and assert.
 void ensure_interpreter()
 {
     static std::once_flag flag;
@@ -54,6 +54,8 @@ void ensure_interpreter()
     });
 }
 
+namespace
+{
 // Helper base class: initializes CPython before any pybind11 member objects are
 // constructed. py::dict's default constructor calls PyDict_New() immediately, so
 // the interpreter must be running before the member initializers run.
@@ -144,112 +146,7 @@ public:
     {
         world_ = &world;
         types_ = &types;
-        globals_["get_component"] = py::cpp_function(
-            [this](std::uint64_t eid, const std::string& name) -> py::object
-            {
-                auto v = types_->component_value(*world_, mosaic::foundation::EntityID(eid), name);
-                return v ? value_to_py(*v) : py::none();
-            });
-        globals_["set_component"] = py::cpp_function(
-            [this](std::uint64_t eid, const std::string& name, py::handle value) -> bool
-            {
-                const auto e = mosaic::foundation::EntityID(eid);
-                const mosaic::foundation::serialization::Value v = py_to_value(value);
-                if (stack_ != nullptr)
-                {
-                    auto cmd = std::make_unique<mosaic::engine::commands::SetComponentCommand>(
-                        *world_, *types_, e, name, v);
-                    cmd->execute();
-                    if (!cmd->valid()) { return false; }   // failed set: not recorded
-                    stack_->push_executed(std::move(cmd));
-                    return true;
-                }
-                return types_->set_value(*world_, e, name, v);
-            });
-        globals_["create_entity"] = py::cpp_function(
-            [this]() -> std::uint64_t { return world_->create_entity().value(); });
-        globals_["destroy_entity"] = py::cpp_function(
-            [this](std::uint64_t eid) -> bool
-            {
-                const auto e = mosaic::foundation::EntityID(eid);
-                if (!world_->is_valid(e)) { return false; }
-                world_->destroy_entity(e);
-                return true;
-            });
-        globals_["entity_count"] = py::cpp_function(
-            [this]() -> std::uint64_t { return static_cast<std::uint64_t>(world_->entity_count()); });
-        globals_["entities"] = py::cpp_function(
-            [this]() -> py::list
-            {
-                py::list out;
-                world_->for_each_entity([&](mosaic::foundation::EntityID e)
-                                        { out.append(py::int_(e.value())); });
-                return out;
-            });
-        globals_["is_valid"] = py::cpp_function(
-            [this](std::uint64_t eid) -> bool
-            { return world_->is_valid(mosaic::foundation::EntityID(eid)); });
-        // Component authoring + queries (reflection-driven; inline mode only). These let a
-        // script furnish a freshly created entity and inspect/query composition by name.
-        globals_["add_component"] = py::cpp_function(
-            [this](std::uint64_t eid, const std::string& name) -> bool
-            { return types_->add_default(*world_, mosaic::foundation::EntityID(eid), name); });
-        globals_["remove_component"] = py::cpp_function(
-            [this](std::uint64_t eid, const std::string& name) -> bool
-            { return types_->remove_value(*world_, mosaic::foundation::EntityID(eid), name); });
-        globals_["has_component"] = py::cpp_function(
-            [this](std::uint64_t eid, const std::string& name) -> bool
-            {
-                const auto e = mosaic::foundation::EntityID(eid);
-                for (const std::string& n : types_->components_on(*world_, e))
-                {
-                    if (n == name) { return true; }
-                }
-                return false;
-            });
-        globals_["component_names"] = py::cpp_function(
-            [this](std::uint64_t eid) -> py::list
-            {
-                py::list out;
-                for (const std::string& n :
-                     types_->components_on(*world_, mosaic::foundation::EntityID(eid)))
-                {
-                    out.append(py::str(n));
-                }
-                return out;
-            });
-        globals_["entities_with"] = py::cpp_function(
-            [this](const std::string& name) -> py::list
-            {
-                py::list out;
-                world_->for_each_entity(
-                    [&](mosaic::foundation::EntityID e)
-                    {
-                        for (const std::string& n : types_->components_on(*world_, e))
-                        {
-                            if (n == name) { out.append(py::int_(e.value())); break; }
-                        }
-                    });
-                return out;
-            });
-        // emit(name, payload=None): publish a dynamic ScriptEvent on the world bus. Deferred
-        // subscribers (ScriptSystem) deliver it to on_event(name, payload) one tick later.
-        globals_["emit"] = py::cpp_function(
-            [this](const std::string& name, py::object payload)
-            {
-                world_->events().emit(
-                    mosaic::engine::script::ScriptEvent{name, py_to_value(payload)});
-            },
-            py::arg("name"), py::arg("payload") = py::none());
-        // Guarded undo/redo/undo_depth: functional even before bind_commands — they return
-        // false/0 while stack_ is null, and route to the stack once bind_commands sets it.
-        globals_["undo"] =
-            py::cpp_function([this]() -> bool { return stack_ != nullptr && stack_->undo(); });
-        globals_["redo"] =
-            py::cpp_function([this]() -> bool { return stack_ != nullptr && stack_->redo(); });
-        globals_["undo_depth"] = py::cpp_function(
-            [this]() -> std::uint64_t
-            { return stack_ != nullptr ? static_cast<std::uint64_t>(stack_->undo_depth()) : 0; });
+        install_world_globals(globals_, &world_, &types_, &stack_);
     }
 
     void set_global(const std::string& name,
