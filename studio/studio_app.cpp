@@ -33,6 +33,15 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             });
     }
 
+    if (!plugins_loaded_)
+    {
+        plugins_loaded_ = true;
+        for (const std::string& err : plugin_host_.load("plugins", world, reflection, commands_))
+        {
+            mosaic::foundation::log::error("plugin", "{}", err);
+        }
+    }
+
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
@@ -45,6 +54,32 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             if (ImGui::MenuItem("Exit"))
             {
                 layout_.request_exit();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Plugins"))
+        {
+            if (ImGui::MenuItem("Reload Plugins"))
+            {
+                for (const std::string& err :
+                    plugin_host_.load("plugins", world, reflection, commands_))
+                {
+                    mosaic::foundation::log::error("plugin", "{}", err);
+                }
+            }
+            ImGui::Separator();
+            for (const PluginMenuItem& item : plugin_host_.menu_items())
+            {
+                if (ImGui::MenuItem(item.label.c_str()))
+                {
+                    const auto result = plugin_host_.invoke(item);
+                    if (!result.ok)
+                    {
+                        mosaic::foundation::log::error("plugin", "{}: {}", item.plugin_name,
+                                                       result.error);
+                    }
+                }
             }
             ImGui::EndMenu();
         }

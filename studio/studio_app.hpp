@@ -22,6 +22,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/render/material.hpp"
 #include "studio/live_link_server.hpp"
+#include "studio/plugin_host.hpp"
 
 namespace mosaic::studio
 {
@@ -48,7 +49,8 @@ public:
                        ScriptConsoleModel::EngineFactory script_factory = {})
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
-          script_editor_(script_factory)
+          script_editor_(script_factory),
+          plugin_host_(script_factory)
     {
     }
 
@@ -100,6 +102,8 @@ private:
     int                                         script_bp_line_ = 1;   // breakpoint line input
     ScriptApplyResult                           script_debug_result_;  // outcome of the last Debug run
     LiveLinkServer                              live_link_;            // Blender Live-Link socket
+    PluginHost plugin_host_;       // project-local *.py plugins
+    bool       plugins_loaded_ = false; // true after the first load() this session
 };
 
 } // namespace mosaic::studio

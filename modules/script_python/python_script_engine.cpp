@@ -4,6 +4,7 @@
 #include <exception>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 
 #include <pybind11/embed.h>
@@ -255,6 +256,70 @@ public:
                     const mosaic::foundation::serialization::Value& value) override
     {
         globals_[py::str(name)] = value_to_py(value);
+    }
+
+    std::optional<mosaic::foundation::serialization::Value>
+    get_global(const std::string& name) override
+    {
+        if (!globals_.contains(name)) { return std::nullopt; }
+        try
+        {
+            return py_to_value(globals_[py::str(name)]);
+        }
+        catch (const std::exception&)
+        {
+            return std::nullopt; // e.g. a function/class/other unmarshalable object
+        }
+    }
+
+    mosaic::engine::script::ScriptResult call_function(const std::string& name) override
+    {
+        mosaic::engine::script::ScriptResult result;
+        if (!globals_.contains(name) || !py::isinstance<py::function>(globals_[py::str(name)]))
+        {
+            result.error = "'" + name + "' is not a defined function";
+            return result;
+        }
+        try
+        {
+            py::module_ sys = py::module_::import("sys");
+            py::module_ io = py::module_::import("io");
+            py::object old_out = sys.attr("stdout");
+            py::object old_err = sys.attr("stderr");
+            py::object buffer = io.attr("StringIO")();
+            sys.attr("stdout") = buffer;
+            sys.attr("stderr") = buffer;
+
+            struct StreamGuard
+            {
+                py::module_& sys_;
+                py::object& old_out_;
+                py::object& old_err_;
+                ~StreamGuard() noexcept
+                {
+                    try { sys_.attr("stdout") = old_out_; sys_.attr("stderr") = old_err_; }
+                    catch (...) {}
+                }
+            } guard{sys, old_out, old_err};
+
+            try
+            {
+                globals_[py::str(name)]();
+                result.ok = true;
+            }
+            catch (py::error_already_set& e)
+            {
+                result.ok = false;
+                result.error = e.what();
+            }
+            result.output = buffer.attr("getvalue")().cast<std::string>();
+        }
+        catch (const std::exception& e)
+        {
+            result.ok = false;
+            if (result.error.empty()) { result.error = e.what(); }
+        }
+        return result;
     }
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
