@@ -118,6 +118,50 @@ but the Script Console/Editor (used for ad-hoc gameplay scripting, not panel dra
 keep using the plain one — calling an `imgui_*` global outside an active panel draw
 would corrupt ImGui's internal state.
 
+### Custom asset importers (slice 3)
+
+A plugin can also declare `MOSAIC_IMPORTERS`, the import-registration counterpart to
+`MOSAIC_MENU_ITEMS`/`MOSAIC_PANELS` -- keyed by file extension instead of a UI label,
+since this one has no UI surface (see below):
+
+```python
+import csv
+import json
+
+MOSAIC_IMPORTERS = {".csv": "import_csv"}
+
+def import_csv(source_path):
+    with open(source_path, newline="") as f:
+        rows = list(csv.reader(f))
+    return json.dumps(rows)
+```
+
+`mosaic import <project> <file>` -- the CLI import command, not the editor -- consults
+every plugin's `MOSAIC_IMPORTERS` for the source file's extension whenever that
+extension isn't one of the four built-in kinds (`.py`/`.wav`/`.ttf`/`.otf`, plus the
+PPM image fallback). The matched function receives the source file's path as its one
+argument and does its own file I/O (`open()`, and any stdlib module it imports, are
+both available -- an importer plugin is regular Python, same as any other plugin
+file); its **return value** (a string) becomes the asset's cooked blob, written to
+`assets/<stem>.data` alongside the usual `assets/<stem>.toml` metadata.
+
+This is register-only in v1: an imported asset is loaded back as a raw string via
+`AssetRegistry::load<std::string>(id)`, with no gameplay-script getter yet -- add one
+against real demand, the same "grow later" call slice 2 made for the `imgui_*`
+widget set. There's also no Studio UI trigger: Studio's Assets panel stays
+read-only, and importing only happens through the `mosaic import` CLI command -- a
+project's `plugins/` directory here resolves as `<project_dir>/plugins` (the CLI
+already takes an explicit project directory, unlike the editor's CWD-relative gap
+documented below).
+
+This needed a new app-tier plugin loader, `ImportPluginHost`
+(`app/asset/import_plugins.hpp`/`.cpp`), structurally parallel to `studio::PluginHost`
+but never calling `bind_world`/`bind_commands` -- `app` and `studio` are sibling
+tiers (neither depends on the other), so this slice could not reuse `PluginHost`
+directly. No `ScriptEngine` interface changes were needed either: an importer's
+return value is captured by composing `set_global` + `run_string` + `get_global`,
+all of which the interface already exposed.
+
 ### Where the plugins directory lives (and its known gap)
 
 Today, `plugins/` is resolved as a **literal path relative to the process's current

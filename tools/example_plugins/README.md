@@ -1,7 +1,8 @@
 # Example plugins
 
-Nine small, self-contained Python plugins for Mosaic Studio's Plugin SDK (Phase 5,
-slices 1-2 — discovery/lifecycle + custom menu items + custom Studio panels; see
+Ten small, self-contained Python plugins for Mosaic Studio's Plugin SDK (Phase 5,
+slices 1-3 — discovery/lifecycle + custom menu items + custom Studio panels + custom
+asset importers; see
 [docs/design/scripting.md](../../docs/design/scripting.md)). Together they exercise
 most globals currently available to a plugin (the full `imgui_*` drawing surface for
 panels is documented in scripting.md rather than exhaustively demonstrated here), and
@@ -12,6 +13,7 @@ every one is independently useful as a copy-paste starting point.
 | `hello.py` | Say Hello | `create_entity`, `add_component`, `set_component`, `is_valid` |
 | `world_inspector.py` | Show World Info | `entity_count`, `entities()`, `has_component`, `get_component`, `component_names` — also shows how to lay out a multi-row on-screen list, since `UiText` has no built-in wrapping/scrolling |
 | `world_inspector_panel.py` | (registers a panel, not a menu item) "World Inspector" | `MOSAIC_PANELS`, `imgui_text`, `imgui_separator`, `imgui_begin_child`/`imgui_end_child` -- the panel-API counterpart to `world_inspector.py`, with real scrolling instead of a fixed row cap |
+| `csv_importer.py` | (registers an importer, not a menu item/panel) `.csv` | `MOSAIC_IMPORTERS` -- converts a CSV file into JSON text on import (`mosaic import <project> data.csv`); the CLI-only counterpart to `MOSAIC_MENU_ITEMS`/`MOSAIC_PANELS`, see `docs/design/scripting.md` |
 | `greet_named_entities.py` | Greet Named Entities | `entities_with`, `get_component`, `set_component` on an entity's existing components |
 | `undo_demo.py` | Nudge Marker Right / Undo Last Change / Redo Last Undo | undoable `set_component` (routed through the editor's `CommandStack`), `undo()`, `redo()`, `undo_depth()` — three menu items registered from one file |
 | `spawn_manager.py` | Spawn Debug Cube / Despawn Debug Cube | `create_entity` + multi-component `add_component`, `destroy_entity` |
