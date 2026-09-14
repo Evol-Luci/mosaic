@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 #include <imgui.h>
@@ -100,6 +101,12 @@ public:
             return result;
         }
         child_depth_ = 0;
+        drawing_ = true;
+        struct DrawingGuard
+        {
+            bool& flag;
+            ~DrawingGuard() noexcept { flag = false; }
+        } drawing_guard{drawing_};
         try
         {
             py::module_ sys = py::module_::import("sys");
@@ -153,44 +160,73 @@ public:
     }
 
 private:
+    // Every imgui_* global calls this first: outside an active panel draw (call_function
+    // sets drawing_ only for the duration of the plugin's draw function), there is no
+    // current ImGui window, and calling straight into ImGui would null-deref and crash
+    // Studio instead of reporting a normal plugin error.
+    void require_drawing() const
+    {
+        if (!drawing_)
+        {
+            throw std::runtime_error(
+                "imgui_* functions may only be called from inside a MOSAIC_PANELS draw function");
+        }
+    }
+
     void install_imgui_globals()
     {
         globals_["imgui_text"] = py::cpp_function(
-            [](const std::string& text) { ImGui::TextUnformatted(text.c_str()); });
-        globals_["imgui_separator"] = py::cpp_function([]() { ImGui::Separator(); });
-        globals_["imgui_same_line"] = py::cpp_function([]() { ImGui::SameLine(); });
-        globals_["imgui_spacing"] = py::cpp_function([]() { ImGui::Spacing(); });
-        globals_["imgui_button"] = py::cpp_function(
-            [](const std::string& label) -> bool { return ImGui::Button(label.c_str()); });
-        globals_["imgui_checkbox"] = py::cpp_function(
-            [](const std::string& label, bool value) -> bool
+            [this](const std::string& text)
             {
+                require_drawing();
+                ImGui::TextUnformatted(text.c_str());
+            });
+        globals_["imgui_separator"] = py::cpp_function(
+            [this]() { require_drawing(); ImGui::Separator(); });
+        globals_["imgui_same_line"] = py::cpp_function(
+            [this]() { require_drawing(); ImGui::SameLine(); });
+        globals_["imgui_spacing"] = py::cpp_function(
+            [this]() { require_drawing(); ImGui::Spacing(); });
+        globals_["imgui_button"] = py::cpp_function(
+            [this](const std::string& label) -> bool
+            {
+                require_drawing();
+                return ImGui::Button(label.c_str());
+            });
+        globals_["imgui_checkbox"] = py::cpp_function(
+            [this](const std::string& label, bool value) -> bool
+            {
+                require_drawing();
                 ImGui::Checkbox(label.c_str(), &value);
                 return value;
             });
         globals_["imgui_input_text"] = py::cpp_function(
-            [](const std::string& label, const std::string& value) -> std::string
+            [this](const std::string& label, const std::string& value) -> std::string
             {
+                require_drawing();
                 char buf[1024];
                 std::snprintf(buf, sizeof(buf), "%s", value.c_str());
                 ImGui::InputText(label.c_str(), buf, sizeof(buf));
                 return std::string(buf);
             });
         globals_["imgui_slider_float"] = py::cpp_function(
-            [](const std::string& label, float value, float lo, float hi) -> float
+            [this](const std::string& label, float value, float lo, float hi) -> float
             {
+                require_drawing();
                 ImGui::SliderFloat(label.c_str(), &value, lo, hi);
                 return value;
             });
         globals_["imgui_begin_child"] = py::cpp_function(
             [this](const std::string& id, float height)
             {
+                require_drawing();
                 ImGui::BeginChild(id.c_str(), ImVec2(0.0f, height));
                 ++child_depth_;
             });
         globals_["imgui_end_child"] = py::cpp_function(
             [this]()
             {
+                require_drawing();
                 if (child_depth_ > 0)
                 {
                     ImGui::EndChild();
@@ -204,6 +240,7 @@ private:
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;
     int child_depth_ = 0;
+    bool drawing_ = false;
 };
 } // namespace
 

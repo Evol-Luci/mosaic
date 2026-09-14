@@ -3,8 +3,9 @@
 Nine small, self-contained Python plugins for Mosaic Studio's Plugin SDK (Phase 5,
 slices 1-2 — discovery/lifecycle + custom menu items + custom Studio panels; see
 [docs/design/scripting.md](../../docs/design/scripting.md)). Together they exercise
-every global currently available to a plugin, and every one is independently useful as
-a copy-paste starting point.
+most globals currently available to a plugin (the full `imgui_*` drawing surface for
+panels is documented in scripting.md rather than exhaustively demonstrated here), and
+every one is independently useful as a copy-paste starting point.
 
 | File | Menu item(s) | Demonstrates |
 |---|---|---|

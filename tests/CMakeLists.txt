@@ -174,6 +174,7 @@ target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_render_vulkan
   mosaic_physics_box3d
   mosaic_script_python
+  mosaic_script_python_studio
   mosaic_audio_miniaudio
   mosaic_net_enet
   pybind11::embed

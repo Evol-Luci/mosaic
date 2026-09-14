@@ -11,6 +11,7 @@
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/script_python/python_script_engine.hpp"
+#include "modules/script_python_studio/studio_plugin_script_engine.hpp"
 #include "studio/plugin_host.hpp"
 
 using mosaic::engine::World;
@@ -19,6 +20,7 @@ using mosaic::engine::reflection::register_builtin_components;
 using mosaic::foundation::commands::CommandStack;
 using mosaic::foundation::reflection::TypeRegistry;
 using mosaic::script::python::create_python_script_engine;
+using mosaic::script::python_studio::create_studio_plugin_script_engine;
 using mosaic::studio::PluginHost;
 
 namespace
@@ -271,5 +273,65 @@ TEST_CASE("PluginHost::find_panel returns nullptr for an unknown name", "[studio
 {
     PluginHost host(create_python_script_engine);
     REQUIRE(host.find_panel("Nope") == nullptr);
+}
+
+TEST_CASE("PluginHost with the Studio plugin engine still gives panels the gameplay globals",
+         "[studio]")
+{
+    // No ImGui frame is active in a unit test, so this exercises only the gameplay-global
+    // half of StudioPluginScriptEngine (the same half PluginHost's other tests exercise via
+    // create_python_script_engine) -- proving the switch to the ImGui-aware engine didn't
+    // lose or break get_component/set_component/create_entity/etc. The imgui_* globals
+    // themselves are exercised manually (see docs/design/scripting.md); calling one outside
+    // a panel draw is guarded to fail loudly (require_drawing()) rather than segfault.
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const auto e = world.create_entity();
+    world.add_component<mosaic::engine::Name>(e, mosaic::engine::Name{"before"});
+
+    const fs::path dir = make_plugin_dir("studio_engine_panel");
+    write_plugin(dir, "panel_plugin.py",
+        "MOSAIC_PANELS = {\"My Panel\": \"draw_my_panel\"}\n\n"
+        "def draw_my_panel():\n"
+        "    set_component(" + std::to_string(e.value()) + ", \"Name\", {\"value\": \"drawn\"})\n");
+
+    PluginHost host(create_studio_plugin_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands);
+    REQUIRE(errors.empty());
+    REQUIRE(host.panels().size() == 1);
+
+    const auto* found = host.find_panel("My Panel");
+    REQUIRE(found != nullptr);
+    const auto result = host.invoke_panel(*found);
+    REQUIRE(result.ok);
+    REQUIRE(world.get_component<mosaic::engine::Name>(e)->value == "drawn");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("StudioPluginScriptEngine rejects an imgui_* call outside an active panel draw",
+         "[studio]")
+{
+    // Regression test for the null-GetCurrentWindow() crash: a plugin that calls an
+    // imgui_* global from module-level code (i.e. outside call_function's draw window)
+    // must fail with a normal script error, not corrupt or crash the process.
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const fs::path dir = make_plugin_dir("studio_engine_no_frame");
+    write_plugin(dir, "bad.py", "imgui_text(\"module scope, no panel draw active\")\n");
+
+    PluginHost host(create_studio_plugin_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands);
+    REQUIRE(errors.size() == 1);
+
+    fs::remove_all(dir);
 }
 
