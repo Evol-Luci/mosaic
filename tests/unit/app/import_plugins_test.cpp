@@ -177,3 +177,34 @@ TEST_CASE("ImportPluginHost.load on a missing directory returns no errors and no
     REQUIRE(host.load("/no/such/mosaic_import_plugins_dir").empty());
     REQUIRE(host.importers().empty());
 }
+
+TEST_CASE("ImportPluginHost treats an empty-string MOSAIC_IMPORTERS key as a load error",
+         "[app]")
+{
+    // Regression test: an empty key would previously make find_importer("") match any
+    // extensionless source file, and import_asset's ext.substr(1) on that empty string
+    // threw std::out_of_range uncaught (a real crash reproduced against the CLI).
+    const fs::path dir = make_plugin_dir("emptykey");
+    write_file(dir / "bad.py", "MOSAIC_IMPORTERS = {\"\": \"f\"}\ndef f(p):\n    return \"x\"\n");
+
+    ImportPluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string());
+    REQUIRE(errors.size() == 1);
+    REQUIRE(host.importers().empty());
+    REQUIRE(host.find_importer("") == nullptr);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("ImportPluginHost treats a key without a leading dot as a load error", "[app]")
+{
+    const fs::path dir = make_plugin_dir("nodotkey");
+    write_file(dir / "bad.py", "MOSAIC_IMPORTERS = {\"csv\": \"f\"}\ndef f(p):\n    return \"x\"\n");
+
+    ImportPluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string());
+    REQUIRE(errors.size() == 1);
+    REQUIRE(host.importers().empty());
+
+    fs::remove_all(dir);
+}

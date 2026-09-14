@@ -74,6 +74,17 @@ std::vector<std::string> ImportPluginHost::load(const std::string& directory)
             {
                 for (const auto& [extension, value] : importer_dict->as<ser::Table>())
                 {
+                    // A key that isn't ".<something>" can never match a real source
+                    // file's fs::path::extension() -- silently dead at best, and (for
+                    // an empty key specifically) a crash at import_asset's call site,
+                    // which does ext.substr(1) on whatever find_importer() matched.
+                    if (extension.size() < 2 || extension[0] != '.')
+                    {
+                        errors.push_back(name + ": MOSAIC_IMPORTERS key '" + extension +
+                                         "' must be a file extension starting with '.' (e.g. \".csv\")");
+                        item_error = true;
+                        break;
+                    }
                     if (!value.is<std::string>())
                     {
                         errors.push_back(name + ": MOSAIC_IMPORTERS['" + extension +

@@ -36,6 +36,11 @@ ln -s /path/to/mosaic/tools/example_plugins/hello.py <your-project>/plugins/hell
 Click **Reload Plugins** in Studio's **Plugins** menu after adding or editing a file —
 plugins are scanned once at launch and are not hot-reloaded.
 
+`csv_importer.py` is the one exception to all of the above: it registers `MOSAIC_IMPORTERS`,
+which only the `mosaic import <project> <file>` CLI command consults (never Studio), reading
+`plugins/` as `<project_dir>/plugins` rather than the editor's CWD-relative convention, and
+with no "Reload Plugins" step at all -- each CLI invocation re-scans `plugins/` fresh.
+
 ## A note on component field shapes
 
 Nested reflected types (`Vec2`, `Vec3`, `Quat`, ...) marshal through `get_component`/
