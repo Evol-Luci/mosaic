@@ -13,6 +13,7 @@ _MAX_COMPONENTS_SHOWN = 3
 
 _header_entity = None
 _row_entities = []
+_visible = False
 
 
 def _ensure_text_entity(existing):
@@ -21,6 +22,17 @@ def _ensure_text_entity(existing):
     e = create_entity()
     add_component(e, "UiText")
     return e
+
+
+def _destroy_display_entities():
+    global _header_entity, _row_entities
+    if _header_entity is not None and is_valid(_header_entity):
+        destroy_entity(_header_entity)
+    for e in _row_entities:
+        if is_valid(e):
+            destroy_entity(e)
+    _header_entity = None
+    _row_entities = []
 
 
 def _set_row_text(e, y, text, color):
@@ -48,7 +60,17 @@ def _describe(e):
 
 
 def on_show_world_info():
-    global _header_entity, _row_entities
+    global _header_entity, _row_entities, _visible
+
+    # Second click while the on-screen info is already showing: tear it back down
+    # instead of just redrawing the same text. This leaves the (unrelated) World
+    # Inspector panel and its own info untouched -- only this menu item's own
+    # UiText entities are destroyed.
+    if _visible:
+        _destroy_display_entities()
+        _visible = False
+        return
+    _visible = True
 
     # Ensure our own display entities already exist BEFORE snapshotting the
     # world, so entity_count()/entities() below reflect a stable state and
