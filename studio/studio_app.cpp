@@ -40,6 +40,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
         {
             mosaic::foundation::log::error("plugin", "{}", err);
         }
+        for (const PluginPanel& panel : plugin_host_.panels())
+        {
+            layout_.add_panel(panel.label);
+        }
     }
 
     if (ImGui::BeginMainMenuBar())
@@ -66,6 +70,10 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
                     plugin_host_.load("plugins", world, reflection, commands_))
                 {
                     mosaic::foundation::log::error("plugin", "{}", err);
+                }
+                for (const PluginPanel& panel : plugin_host_.panels())
+                {
+                    layout_.add_panel(panel.label);
                 }
             }
             ImGui::Separator();
@@ -189,6 +197,14 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             else if (panel.name == "Script Editor")
             {
                 draw_script_editor(world, reflection);
+            }
+            else if (const PluginPanel* p = plugin_host_.find_panel(panel.name))
+            {
+                const auto result = plugin_host_.invoke_panel(*p);
+                if (!result.ok)
+                {
+                    mosaic::foundation::log::error("plugin", "{}: {}", p->plugin_name, result.error);
+                }
             }
             else
             {

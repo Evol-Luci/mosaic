@@ -46,11 +46,12 @@ class StudioApp
 {
 public:
     explicit StudioApp(std::string scene_path = "scene.json",
-                       ScriptConsoleModel::EngineFactory script_factory = {})
+                       ScriptConsoleModel::EngineFactory script_factory = {},
+                       PluginHost::EngineFactory plugin_factory = {})
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
           script_editor_(script_factory),
-          plugin_host_(script_factory)
+          plugin_host_(plugin_factory)
     {
     }
 

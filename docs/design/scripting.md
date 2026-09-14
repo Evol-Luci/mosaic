@@ -89,6 +89,35 @@ Studio panels and custom asset importers are separate, later slices; native
 `.so`/`.dll` dynamic-library plugins (the "Dynamic native" tier above) are a much
 heavier, still-later sub-project — this slice is Python-only.
 
+### Custom Studio panels (slice 2)
+
+A plugin can also declare `MOSAIC_PANELS`, the panel-registration counterpart to
+`MOSAIC_MENU_ITEMS`:
+
+```python
+MOSAIC_PANELS = {"My Panel": "draw_my_panel"}
+
+def draw_my_panel():
+    imgui_text("hello from a plugin panel")
+```
+
+Studio adds the panel to its dockable layout (`StudioLayout::add_panel`) and calls the
+named function once per frame while the panel is open, inside the panel's own
+`ImGui::Begin`/`End` — the function's `imgui_*` calls append to that window exactly
+like native ImGui code would. Nine globals are available: `imgui_text`,
+`imgui_separator`, `imgui_same_line`, `imgui_spacing`, `imgui_button`,
+`imgui_checkbox`, `imgui_input_text`, `imgui_slider_float`, and
+`imgui_begin_child`/`imgui_end_child` for scroll regions.
+
+This needed a second, Studio-only `ScriptEngine` implementation
+(`modules/script_python_studio`) — the one place pybind11 and ImGui coexist, the same
+pattern `modules/render_vulkan` uses for Vulkan headers. `modules/script_python`
+itself still has zero ImGui dependency, and `studio/` still has zero pybind11
+dependency; every plugin engine `PluginHost` creates now comes from the richer module,
+but the Script Console/Editor (used for ad-hoc gameplay scripting, not panel drawing)
+keep using the plain one — calling an `imgui_*` global outside an active panel draw
+would corrupt ImGui's internal state.
+
 ### Where the plugins directory lives (and its known gap)
 
 Today, `plugins/` is resolved as a **literal path relative to the process's current
