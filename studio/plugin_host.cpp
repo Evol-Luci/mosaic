@@ -44,7 +44,17 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
         if (!entry.is_regular_file(file_ec) || file_ec || entry.path().extension() != ".py") { continue; }
 
         const std::string name = entry.path().stem().string();
+        if (!factory_)
+        {
+            errors.push_back(name + ": scripting is not available in this build");
+            continue;
+        }
         std::unique_ptr<mosaic::engine::script::ScriptEngine> engine = factory_();
+        if (!engine)
+        {
+            errors.push_back(name + ": failed to create a script engine");
+            continue;
+        }
         engine->bind_world(world, types);
         engine->bind_commands(commands);
 
