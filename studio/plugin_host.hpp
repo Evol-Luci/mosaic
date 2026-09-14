@@ -21,6 +21,17 @@ struct PluginMenuItem
     std::string function_name; // e.g. "on_say_hello"
 };
 
+// One registered panel, read out of a plugin's MOSAIC_PANELS dict. Structurally
+// identical to PluginMenuItem but kept as its own type: a menu item and a panel are
+// different concepts today and may diverge later without disturbing menu-item call
+// sites.
+struct PluginPanel
+{
+    std::string plugin_name;
+    std::string label;
+    std::string function_name;
+};
+
 // Discovers and runs project-local *.py plugins, giving each its own ScriptEngine bound
 // to the current World/reflection/commands (the same globals gameplay ScriptComponents
 // already get: get_component, set_component, entities_with, undo/redo, ...). A plugin
@@ -50,10 +61,24 @@ public:
     // then MOSAIC_MENU_ITEMS declaration order.
     const std::vector<PluginMenuItem>& menu_items() const { return menu_items_; }
 
+    // Every registered panel across all successfully loaded plugins, in load order
+    // then MOSAIC_PANELS declaration order.
+    const std::vector<PluginPanel>& panels() const { return panels_; }
+
+    // Finds a registered panel by its label (the name it was added to StudioLayout
+    // under), or nullptr if none matches.
+    const PluginPanel* find_panel(const std::string& name) const;
+
+    // Invokes item's function on its plugin's engine.
+    mosaic::engine::script::ScriptResult invoke_panel(const PluginPanel& item);
+
     // Invokes item's function on its plugin's engine.
     mosaic::engine::script::ScriptResult invoke(const PluginMenuItem& item);
 
 private:
+    mosaic::engine::script::ScriptResult call_by_name(const std::string& plugin_name,
+                                                       const std::string& function_name);
+
     struct LoadedPlugin
     {
         std::string name;
@@ -63,6 +88,7 @@ private:
     EngineFactory               factory_;
     std::vector<LoadedPlugin>   plugins_;
     std::vector<PluginMenuItem> menu_items_;
+    std::vector<PluginPanel>    panels_;
 };
 
 } // namespace mosaic::studio

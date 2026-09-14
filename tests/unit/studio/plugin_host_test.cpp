@@ -188,3 +188,88 @@ TEST_CASE("PluginHost.load a second time replaces the previous plugin set", "[st
 
     fs::remove_all(dir);
 }
+
+TEST_CASE("PluginHost loads a plugin panel and invoke_panel mutates real World state", "[studio]")
+{
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const auto e = world.create_entity();
+    world.add_component<mosaic::engine::Name>(e, mosaic::engine::Name{"before"});
+
+    const fs::path dir = make_plugin_dir("panel");
+    write_plugin(dir, "panel_plugin.py",
+        "MOSAIC_PANELS = {\"My Panel\": \"draw_my_panel\"}\n\n"
+        "def draw_my_panel():\n"
+        "    set_component(" + std::to_string(e.value()) + ", \"Name\", {\"value\": \"drawn\"})\n");
+
+    PluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands);
+    REQUIRE(errors.empty());
+    REQUIRE(host.panels().size() == 1);
+    REQUIRE(host.panels()[0].label == "My Panel");
+    REQUIRE(host.menu_items().empty());
+
+    const auto* found = host.find_panel("My Panel");
+    REQUIRE(found != nullptr);
+    const auto result = host.invoke_panel(*found);
+    REQUIRE(result.ok);
+    REQUIRE(world.get_component<mosaic::engine::Name>(e)->value == "drawn");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("PluginHost treats a non-table MOSAIC_PANELS as a load error", "[studio]")
+{
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const fs::path dir = make_plugin_dir("badpanel");
+    write_plugin(dir, "bad.py", "MOSAIC_PANELS = 5\n");
+
+    PluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands);
+    REQUIRE(errors.size() == 1);
+    REQUIRE(host.panels().empty());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("PluginHost supports a plugin registering both menu items and panels", "[studio]")
+{
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const fs::path dir = make_plugin_dir("both");
+    write_plugin(dir, "both.py",
+        "MOSAIC_MENU_ITEMS = {\"Do Thing\": \"on_do_thing\"}\n"
+        "MOSAIC_PANELS = {\"My Panel\": \"draw_my_panel\"}\n"
+        "def on_do_thing():\n"
+        "    pass\n"
+        "def draw_my_panel():\n"
+        "    pass\n");
+
+    PluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands);
+    REQUIRE(errors.empty());
+    REQUIRE(host.menu_items().size() == 1);
+    REQUIRE(host.panels().size() == 1);
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("PluginHost::find_panel returns nullptr for an unknown name", "[studio]")
+{
+    PluginHost host(create_python_script_engine);
+    REQUIRE(host.find_panel("Nope") == nullptr);
+}
+

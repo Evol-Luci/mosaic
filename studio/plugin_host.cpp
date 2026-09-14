@@ -29,6 +29,7 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
 {
     plugins_.clear();
     menu_items_.clear();
+    panels_.clear();
     std::vector<std::string> errors;
 
     std::error_code ec;
@@ -65,19 +66,20 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
             continue;
         }
 
-        const auto items = engine->get_global("MOSAIC_MENU_ITEMS");
-        std::vector<PluginMenuItem> plugin_items;
         bool item_error = false;
-        if (items.has_value())
+
+        std::vector<PluginMenuItem> plugin_items;
+        const auto menu_dict = engine->get_global("MOSAIC_MENU_ITEMS");
+        if (menu_dict.has_value())
         {
-            if (!items->is<ser::Table>())
+            if (!menu_dict->is<ser::Table>())
             {
                 errors.push_back(name + ": MOSAIC_MENU_ITEMS must be a dict");
                 item_error = true;
             }
             else
             {
-                for (const auto& [label, value] : items->as<ser::Table>())
+                for (const auto& [label, value] : menu_dict->as<ser::Table>())
                 {
                     if (!value.is<std::string>())
                     {
@@ -90,26 +92,76 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
                 }
             }
         }
+
+        std::vector<PluginPanel> plugin_panels;
+        if (!item_error)
+        {
+            const auto panel_dict = engine->get_global("MOSAIC_PANELS");
+            if (panel_dict.has_value())
+            {
+                if (!panel_dict->is<ser::Table>())
+                {
+                    errors.push_back(name + ": MOSAIC_PANELS must be a dict");
+                    item_error = true;
+                }
+                else
+                {
+                    for (const auto& [label, value] : panel_dict->as<ser::Table>())
+                    {
+                        if (!value.is<std::string>())
+                        {
+                            errors.push_back(name + ": MOSAIC_PANELS['" + label +
+                                             "'] must be a string function name");
+                            item_error = true;
+                            break;
+                        }
+                        plugin_panels.push_back(PluginPanel{name, label, value.as<std::string>()});
+                    }
+                }
+            }
+        }
+
         if (item_error) { continue; }
 
         plugins_.push_back(LoadedPlugin{name, std::move(engine)});
         for (auto& item : plugin_items) { menu_items_.push_back(std::move(item)); }
+        for (auto& panel : plugin_panels) { panels_.push_back(std::move(panel)); }
     }
 
     return errors;
 }
 
-mosaic::engine::script::ScriptResult PluginHost::invoke(const PluginMenuItem& item)
+mosaic::engine::script::ScriptResult PluginHost::call_by_name(const std::string& plugin_name,
+                                                               const std::string& function_name)
 {
     for (const auto& plugin : plugins_)
     {
-        if (plugin.name == item.plugin_name)
+        if (plugin.name == plugin_name)
         {
-            return plugin.engine->call_function(item.function_name);
+            return plugin.engine->call_function(function_name);
         }
     }
     mosaic::engine::script::ScriptResult result;
-    result.error = "plugin '" + item.plugin_name + "' is not loaded";
+    result.error = "plugin '" + plugin_name + "' is not loaded";
     return result;
+}
+
+mosaic::engine::script::ScriptResult PluginHost::invoke(const PluginMenuItem& item)
+{
+    return call_by_name(item.plugin_name, item.function_name);
+}
+
+mosaic::engine::script::ScriptResult PluginHost::invoke_panel(const PluginPanel& item)
+{
+    return call_by_name(item.plugin_name, item.function_name);
+}
+
+const PluginPanel* PluginHost::find_panel(const std::string& name) const
+{
+    for (const auto& panel : panels_)
+    {
+        if (panel.label == name) { return &panel; }
+    }
+    return nullptr;
 }
 } // namespace mosaic::studio
