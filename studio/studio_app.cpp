@@ -92,6 +92,22 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Window"))
+        {
+            // Every panel (built-in and plugin-registered) shows here with a checkmark for
+            // its open state; clicking toggles it. Plugin panels are added closed (see
+            // StudioLayout::add_panel), so this is the only way to ever open one.
+            for (const Panel& panel : layout_.panels())
+            {
+                bool open = panel.open;
+                if (ImGui::MenuItem(panel.name.c_str(), nullptr, &open))
+                {
+                    layout_.toggle(panel.name);
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         // Simulation toolbar: Play/Stop toggles running; Step ticks once while paused.
         if (ImGui::Button(play_.is_playing() ? "Stop" : "Play"))
         {
