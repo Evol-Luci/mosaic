@@ -34,8 +34,12 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
     std::error_code ec;
     if (!fs::exists(directory, ec) || !fs::is_directory(directory, ec)) { return errors; }
 
-    for (const auto& entry : fs::directory_iterator(directory, ec))
+    std::error_code it_ec;
+    for (auto it = fs::directory_iterator(directory, ec); it != fs::directory_iterator();
+        it.increment(it_ec))
     {
+        if (it_ec) { break; }
+        const auto& entry = *it;
         std::error_code file_ec;
         if (!entry.is_regular_file(file_ec) || file_ec || entry.path().extension() != ".py") { continue; }
 
