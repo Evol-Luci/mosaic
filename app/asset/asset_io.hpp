@@ -12,6 +12,8 @@
 #include "app/asset/image_cook.hpp"
 #include "app/asset/audio_cook.hpp"
 #include "app/asset/font_cook.hpp"
+#include "app/asset/import_plugins.hpp"
+#include "modules/script_python/python_script_engine.hpp"
 #include "app/project/project_io.hpp" // load_manifest
 #include "app/run/scene_io.hpp"       // save_scene_file / load_scene_file
 #include "engine/assets/asset_metadata.hpp"
@@ -92,15 +94,45 @@ import_asset(const std::string& project_dir, const std::string& source_file)
     }
     else
     {
-        const std::optional<mosaic::engine::render::Image> img = read_ppm(*src);
-        if (!img)
+        ImportPluginHost import_plugins(mosaic::script::python::create_python_script_engine);
+        for (const std::string& err : import_plugins.load((fs::path(project_dir) / "plugins").string()))
         {
-            mosaic::foundation::log::error("import", "not a valid PPM (P6, maxval 255): {}", source_file);
-            return std::nullopt;
+            mosaic::foundation::log::warn("import", "plugin: {}", err);
         }
-        blob_bytes = cook_image(*img);
-        blob_ext   = ".image";
-        asset_type = "texture";
+        const PluginImporter* importer = import_plugins.find_importer(ext);
+        if (importer != nullptr)
+        {
+            const std::string plugin_asset_type = ext.substr(1); // drop leading '.'
+            if (plugin_asset_type == "script" || plugin_asset_type == "audio" ||
+                plugin_asset_type == "font" || plugin_asset_type == "texture")
+            {
+                mosaic::foundation::log::error(
+                    "import", "extension '{}' would produce a reserved asset type '{}'; rename the plugin's registered extension",
+                    ext, plugin_asset_type);
+                return std::nullopt;
+            }
+            const ImportPluginHost::Result result = import_plugins.invoke(*importer, source_file);
+            if (!result.blob.has_value())
+            {
+                mosaic::foundation::log::error("import", "{}: {}", importer->plugin_name, result.error);
+                return std::nullopt;
+            }
+            blob_bytes = *result.blob;
+            blob_ext   = ".data";
+            asset_type = plugin_asset_type;
+        }
+        else
+        {
+            const std::optional<mosaic::engine::render::Image> img = read_ppm(*src);
+            if (!img)
+            {
+                mosaic::foundation::log::error("import", "not a valid PPM (P6, maxval 255): {}", source_file);
+                return std::nullopt;
+            }
+            blob_bytes = cook_image(*img);
+            blob_ext   = ".image";
+            asset_type = "texture";
+        }
     }
 
     const std::string stem = fs::path(source_file).stem().string();
