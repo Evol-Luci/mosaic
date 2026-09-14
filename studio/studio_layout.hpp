@@ -24,6 +24,10 @@ public:
     bool                      is_open(std::string_view name) const;
     void                      toggle(std::string_view name);
 
+    // Adds a new closed panel named `name` if one doesn't already exist (idempotent --
+    // safe to call every time plugins reload). Used for plugin-registered panels.
+    void add_panel(std::string name);
+
     bool exit_requested() const { return exit_; }
     void request_exit() { exit_ = true; }
 

@@ -33,4 +33,13 @@ void StudioLayout::toggle(std::string_view name)
     }
 }
 
+void StudioLayout::add_panel(std::string name)
+{
+    for (const Panel& p : panels_)
+    {
+        if (p.name == name) { return; }
+    }
+    panels_.push_back(Panel{std::move(name), false});
+}
+
 } // namespace mosaic::studio

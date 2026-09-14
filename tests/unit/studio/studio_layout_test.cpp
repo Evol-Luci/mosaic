@@ -40,3 +40,19 @@ TEST_CASE("StudioLayout is_open is false for an unknown panel", "[studio]")
     StudioLayout layout;
     REQUIRE_FALSE(layout.is_open("Nope"));
 }
+
+TEST_CASE("StudioLayout add_panel appends a new closed panel", "[studio]")
+{
+    StudioLayout layout;
+    layout.add_panel("My Panel");
+    REQUIRE(layout.panels().size() == 9);
+    REQUIRE_FALSE(layout.is_open("My Panel"));
+}
+
+TEST_CASE("StudioLayout add_panel is idempotent", "[studio]")
+{
+    StudioLayout layout;
+    layout.add_panel("My Panel");
+    layout.add_panel("My Panel");
+    REQUIRE(layout.panels().size() == 9);
+}
