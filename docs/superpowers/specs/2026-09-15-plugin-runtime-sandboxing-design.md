@@ -119,15 +119,47 @@ commands. This is a different, much more easily discoverable class of
 gap than the already-accepted `__subclasses__()`-style introspection
 escape — it doesn't require any special knowledge of Python internals,
 just reading one attribute. Fixed by removing all six modules from the
-allowlist and empirically auditing every remaining entry (`dir(module)`
-checked against `os`/`sys`/`subprocess`/`socket`/`ctypes`/related names)
-before keeping it — the 11 modules in the allowlist above are the
-verified-clean subset of the original 17. This check is necessary but
-not proven sufficient (a clean module could still leak something
-transitively through a deeper attribute chain, or a future stdlib
-version could add a new leak) — it narrows the gap, it doesn't close the
-general class of it, consistent with this slice's stated
-defense-in-depth framing throughout.
+allowlist — the 11 remaining (`json`, `csv`, `math`, `re`, `time`,
+`datetime`, `itertools`, `functools`, `string`, `copy`, `textwrap`) were
+checked the same way (`dir(module)` against `os`/`sys`/`subprocess`/
+`socket`/`ctypes`) and are clean at that shallow, one-hop depth.
+
+**A second round of adversarial review found this doesn't fully close
+the gap: `json.codecs.sys` and `re.enum.sys` both reach the real `sys`
+module two attribute-hops deep, with zero import statements** —
+`import json; json.codecs.sys.modules['os'].system(...)` also runs
+arbitrary shell commands, verified directly. This is not a hypothetical:
+it is a second, confirmed instance of the exact same bug class, one hop
+deeper than the first round caught.
+
+**Ruling — stop removing modules, fix the claim instead.** Two rounds of
+"remove the leaky module, re-audit the rest" already found new leaks
+each time; there is no reason to expect a third round (checking every
+remaining module three hops deep) would converge rather than find yet
+another instance — almost every non-trivial stdlib module imports `sys`
+*somewhere* in its own dependency tree, and Python has no module-attribute
+privacy to stop a determined search from finding it. `json` in
+particular is not being removed despite the confirmed leak: it's
+already load-bearing, shipped functionality (the real, checked-in
+`tools/example_plugins/csv_importer.py` importer uses `import csv,
+json` through this exact restricted engine), and the exploit requires a
+specific, deliberate two-hop attribute traversal that no casual or
+accidental misuse would ever produce by accident.
+
+**What this means honestly, stated plainly:** the module allowlist
+blocks the *casual or accidental* case — a plugin that writes `import
+os` directly, or stumbles onto a dangerous name by mistake. It does
+**not** withstand a sophisticated, deliberate attacker willing to walk
+the attribute graph of an allowed module looking for a path to `sys`/
+`os` — for `json` and `re` specifically, such a path is now confirmed to
+exist, and it may exist in some of the other 9 modules too (not
+exhaustively re-checked beyond two hops). This is the same category of
+limitation the "An honest limitation" section already opened with — a
+second, concrete, now-verified instance of it, not a new category that
+invalidates the slice's premise. No further allowlist-narrowing rounds
+are planned; the actual hard boundary for a genuinely adversarial plugin
+remains the unscheduled "dynamic sandboxed execution" (OS-level
+isolation) layer named in `docs/design/marketplace.md`.
 
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some

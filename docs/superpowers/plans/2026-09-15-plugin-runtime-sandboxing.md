@@ -761,6 +761,21 @@ pipeline. This slice raises the bar for the common case — blocks
 `compile()` outright, and blocks `open()` too for Studio plugins
 specifically — without claiming more than that.
 
+**A second, concrete instance of this limitation, found during review,
+not just theorized:** the module allowlist below blocks *direct*
+`import os`/`sys`/etc., but several stdlib modules reach the real `os`/
+`sys` module via their own attribute graph with zero further import
+statements — `uuid.os`, `json.codecs.sys`, `re.enum.sys` all work.
+Modules with a *direct* (one-hop) leak were removed from the allowlist;
+`json`/`re` were kept despite a confirmed *two-hop* leak, because `json`
+is load-bearing shipped functionality and two rounds of "remove the
+leaky module, re-check the rest" already failed to converge — there is
+no reason a third round wouldn't find a leak two hops deeper somewhere
+else. The allowlist blocks casual/accidental misuse; it does not
+withstand a sophisticated, deliberate attacker walking an allowed
+module's attribute graph. See `docs/design/plugin-sandboxing.md`'s
+extended treatment of this below.
+
 ## What's restricted, and where
 
 `install_restricted_builtins()` (`modules/script_python/
@@ -769,9 +784,8 @@ restricted_builtins.hpp`) removes these builtins entirely: `eval`,
 `help`, `vars`, `globals`, `locals` — plus `open`, unless the caller
 passes `allow_open = true`. It then reinstalls `__import__` as a wrapper
 checking the requested module against an allowlist — `json`, `csv`,
-`math`, `re`, `random`, `time`, `datetime`, `collections`, `itertools`,
-`functools`, `string`, `copy`, `enum`, `dataclasses`, `typing`,
-`textwrap`, `uuid` — raising `ImportError` for anything else, including
+`math`, `re`, `time`, `datetime`, `itertools`, `functools`, `string`,
+`copy`, `textwrap` — raising `ImportError` for anything else, including
 `sys` (deliberately excluded — powerful enough on its own, via
 `sys.modules`/`sys._getframe`, to defeat the point).
 

@@ -20,19 +20,24 @@ constexpr const char* kBlockedBuiltins[] = {
     "breakpoint", "exit", "quit", "help", "vars", "globals", "locals",
 };
 
-// A small, conservative set of stdlib modules verified (empirically -- see
-// docs/design/plugin-sandboxing.md) to not expose os/sys/subprocess/socket/
-// ctypes as a direct top-level attribute of their own module object. This
-// matters because a module's *own* top-level code always runs with the real,
-// unrestricted builtins (see docs/design/plugin-sandboxing.md's "attribute
-// leak" section) -- many common stdlib modules (random, collections, enum,
-// dataclasses, typing, uuid, all deliberately excluded here) do `import os`/
-// `import sys` themselves and the resulting module ends up reachable as e.g.
-// `uuid.os`, completely bypassing the __import__ restriction below via plain
-// attribute access, which was found and fixed by removing those modules.
-// Extend this list only after the same empirical check (grep the module's own
-// exported attribute names for os/sys/subprocess/socket/ctypes) -- don't
-// re-add on the assumption that "it's stdlib, it's probably fine".
+// A small, conservative set of stdlib modules, NOT a claim of exhaustively
+// verified safety -- see docs/design/plugin-sandboxing.md. A module's *own*
+// top-level code always runs with the real, unrestricted builtins, so any
+// module that itself does `import os`/`import sys` ends up leaking the real
+// module as a plain, reachable attribute (e.g. `uuid.os`), completely
+// bypassing the __import__ restriction below via ordinary attribute access --
+// no further `import` statement needed. Six originally-allowlisted modules
+// (random, collections, enum, dataclasses, typing, uuid) were removed after
+// being caught this way at one hop; a second pass then found the SAME class
+// of leak two hops deep in two of the modules kept here (json.codecs.sys,
+// re.enum.sys) -- those were deliberately NOT removed (json especially is
+// load-bearing, shipped functionality), because two rounds of "remove and
+// re-check" already failed to converge and a third would very likely just
+// find another instance rather than close the class of bug. This allowlist
+// blocks casual/accidental misuse (`import os` directly); it does not
+// withstand a sophisticated, deliberate attacker willing to walk an allowed
+// module's attribute graph for a path to sys/os -- that remains an accepted,
+// documented limitation, not a solved problem.
 const std::unordered_set<std::string>& allowed_modules()
 {
     static const std::unordered_set<std::string> kAllowed = {
