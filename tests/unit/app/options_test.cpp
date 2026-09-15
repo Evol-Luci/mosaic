@@ -311,3 +311,27 @@ TEST_CASE("plugin remove subcommand parses name and project", "[cli]")
     REQUIRE(result.options.plugin_project == "/tmp/myproj");
 }
 
+TEST_CASE("plugin source add subcommand parses name and path", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "source", "add", "mine", "/tmp/mysources"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginSourceAdd);
+    REQUIRE(result.options.source_name == "mine");
+    REQUIRE(result.options.source_path == "/tmp/mysources");
+}
+
+TEST_CASE("plugin source list subcommand parses with no options", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "source", "list"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginSourceList);
+}
+
+TEST_CASE("plugin source remove subcommand parses name", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "source", "remove", "mine"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginSourceRemove);
+    REQUIRE(result.options.source_name == "mine");
+}
+
