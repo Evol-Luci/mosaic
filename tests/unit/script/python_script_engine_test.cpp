@@ -89,3 +89,63 @@ TEST_CASE("install_restricted_builtins does not mutate the real builtins module"
     REQUIRE_NOTHROW(py::exec("open", unrestricted_globals));
     REQUIRE_NOTHROW(py::exec("import os", unrestricted_globals));
 }
+
+#include "engine/script/script_engine.hpp"
+
+using mosaic::engine::script::ScriptResult;
+
+TEST_CASE("create_python_script_engine() stays fully unrestricted", "[script]")
+{
+    auto engine = mosaic::script::python::create_python_script_engine();
+    const ScriptResult r = engine->run_string("import os\nx = 1");
+    REQUIRE(r.ok);
+}
+
+TEST_CASE("create_restricted_python_script_engine() blocks os/subprocess/socket/ctypes", "[script]")
+{
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    for (const char* mod : {"os", "subprocess", "socket", "ctypes", "sys"})
+    {
+        const ScriptResult r = engine->run_string(std::string("import ") + mod);
+        REQUIRE_FALSE(r.ok);
+    }
+}
+
+TEST_CASE("create_restricted_python_script_engine() blocks eval/exec", "[script]")
+{
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    REQUIRE_FALSE(engine->run_string("eval('1+1')").ok);
+    REQUIRE_FALSE(engine->run_string("exec('x=1')").ok);
+}
+
+TEST_CASE("create_restricted_python_script_engine() allows open (asset importers read their source file)", "[script]")
+{
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    const ScriptResult r = engine->run_string(
+        "with open('/dev/null') as f:\n    f.read()\n");
+    REQUIRE(r.ok);
+}
+
+TEST_CASE("create_restricted_python_script_engine() still runs safe code", "[script]")
+{
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    ScriptResult r = engine->run_string("import json\nprint(json.dumps({'a': 1}))");
+    REQUIRE(r.ok);
+    REQUIRE(r.output.find("\"a\": 1") != std::string::npos);
+}
+
+TEST_CASE("create_restricted_python_script_engine() blocks the 'import builtins' bypass", "[script]")
+{
+    // A real gap found during implementation: CPython's own internals call
+    // __import__('builtins') during some stdlib operations (observed via
+    // json.dumps()), so "builtins" can't simply be treated as just another
+    // disallowed module name -- it must resolve to *something*. But if that
+    // something were the real, unrestricted builtins module, a plugin could
+    // trivially defeat every other restriction via
+    // `import builtins; builtins.eval(...)`. Confirm neither attribute nor
+    // subscript access on whatever "import builtins" resolves to exposes eval.
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    REQUIRE_FALSE(engine->run_string("import builtins\nbuiltins.eval('1+1')").ok);
+    REQUIRE_FALSE(engine->run_string("import builtins\nbuiltins['eval']('1+1')").ok);
+}
+
