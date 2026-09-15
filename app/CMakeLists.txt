@@ -26,7 +26,8 @@ target_compile_features(mosaic_app PUBLIC cxx_std_20)
 
 target_compile_definitions(mosaic_app PUBLIC
   MOSAIC_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
-  MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates")
+  MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates"
+  MOSAIC_PACKAGES_DIR="${CMAKE_SOURCE_DIR}/packages")
 
 add_executable(mosaic main.cpp)
 target_link_libraries(mosaic PRIVATE mosaic_app mosaic_audio_miniaudio mosaic_net_enet)
