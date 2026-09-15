@@ -1,0 +1,679 @@
+{
+  "entities": [
+    {
+      "components": {
+        "Collider": {
+          "half_extents": {
+            "x": 5.0,
+            "y": 0.5,
+            "z": 5.0
+          }
+        },
+        "Material": {
+          "base_color": {
+            "x": 0.6000000238418579,
+            "y": 0.6000000238418579,
+            "z": 0.6000000238418579
+          },
+          "texture": "00000000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "cbe00000-0000-0000-0000-000000000000"
+        },
+        "RigidBody": {
+          "density": 1.0,
+          "dynamic": false
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 10.0,
+            "y": 1.0,
+            "z": 10.0
+          }
+        }
+      },
+      "id": "4294967296"
+    },
+    {
+      "components": {
+        "Decal": {
+          "alpha": 0.8500000238418579,
+          "color": {
+            "x": 1.0,
+            "y": 0.8999999761581421,
+            "z": 0.6000000238418579
+          },
+          "texture": "b2000000-0000-0000-0000-000000000000"
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 0.0,
+            "y": 0.019999999552965164,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 0.7071068286895752,
+            "x": -0.7071067690849304,
+            "y": -0.0,
+            "z": -0.0
+          },
+          "scale": {
+            "x": 3.0,
+            "y": 3.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967297"
+    },
+    {
+      "components": {
+        "Collider": {
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          }
+        },
+        "Material": {
+          "base_color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "texture": "c0de0000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "cbe00000-0000-0000-0000-000000000000"
+        },
+        "RigidBody": {
+          "density": 1.0,
+          "dynamic": true
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 0.0,
+            "y": 4.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967298"
+    },
+    {
+      "components": {
+        "Material": {
+          "base_color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "texture": "c0de0000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "5be00000-0000-0000-0000-000000000000"
+        },
+        "RigidBody": {
+          "density": 1.0,
+          "dynamic": true
+        },
+        "SphereCollider": {
+          "radius": 0.5
+        },
+        "TrailRenderer": {
+          "color": {
+            "x": 0.4000000059604645,
+            "y": 0.699999988079071,
+            "z": 1.0
+          },
+          "max_points": 40,
+          "sample_interval": 0.019999999552965164,
+          "size": 0.18000000715255737
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": -2.0,
+            "y": 4.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967299"
+    },
+    {
+      "components": {
+        "CapsuleCollider": {
+          "half_height": 0.5,
+          "radius": 0.5
+        },
+        "Material": {
+          "base_color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "texture": "c0de0000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "cab50000-0000-0000-0000-000000000000"
+        },
+        "RigidBody": {
+          "density": 1.0,
+          "dynamic": true
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 2.0,
+            "y": 4.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967300"
+    },
+    {
+      "components": {
+        "Collider": {
+          "half_extents": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          }
+        },
+        "Material": {
+          "base_color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "texture": "c0de0000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "cbe00000-0000-0000-0000-000000000000"
+        },
+        "RigidBody": {
+          "density": 1.0,
+          "dynamic": true
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 0.0,
+            "y": 6.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967301"
+    },
+    {
+      "components": {
+        "DirectionalLight": {
+          "color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "direction": {
+            "x": -0.5,
+            "y": -1.0,
+            "z": -0.30000001192092896
+          }
+        }
+      },
+      "id": "4294967302"
+    },
+    {
+      "components": {
+        "PointLight": {
+          "color": {
+            "x": 1.0,
+            "y": 0.8500000238418579,
+            "z": 0.6000000238418579
+          },
+          "intensity": 3.0,
+          "range": 8.0
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 2.0,
+            "y": 3.0,
+            "z": 2.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967303"
+    },
+    {
+      "components": {
+        "AudioListener": {},
+        "Camera": {
+          "far_z": 100.0,
+          "fov_y_radians": 1.0471999645233154,
+          "near_z": 0.10000000149011612
+        },
+        "ScreenEffect": {
+          "tint": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "tint_strength": 0.0,
+          "vignette": 0.4000000059604645
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 0.0,
+            "y": 2.5,
+            "z": 9.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "UiButton": {
+          "anchor": 0,
+          "event": "hud_click",
+          "pos": {
+            "x": 0.019999999552965164,
+            "y": 0.019999999552965164
+          },
+          "size": {
+            "x": 0.25,
+            "y": 0.05999999865889549
+          }
+        },
+        "UiImage": {
+          "alpha": 1.0,
+          "anchor": 2,
+          "order": 0,
+          "pos": {
+            "x": 0.029999999329447746,
+            "y": 0.029999999329447746
+          },
+          "size": {
+            "x": 0.11999999731779099,
+            "y": 0.11999999731779099
+          },
+          "texture": "c0de0000-0000-0000-0000-000000000000",
+          "tint": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        },
+        "UiPanel": {
+          "alpha": 0.6000000238418579,
+          "anchor": 0,
+          "color": {
+            "x": 0.10000000149011612,
+            "y": 0.6000000238418579,
+            "z": 0.8999999761581421
+          },
+          "order": 0,
+          "pos": {
+            "x": 0.019999999552965164,
+            "y": 0.019999999552965164
+          },
+          "size": {
+            "x": 0.25,
+            "y": 0.05999999865889549
+          }
+        },
+        "UiText": {
+          "alpha": 1.0,
+          "anchor": 0,
+          "color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "font": "f0000000-0000-0000-0000-000000000000",
+          "height": 0.05999999865889549,
+          "order": 1,
+          "pos": {
+            "x": 0.029999999329447746,
+            "y": 0.10000000149011612
+          },
+          "text": "MOSAIC"
+        }
+      },
+      "id": "4294967304"
+    },
+    {
+      "components": {
+        "UiParent": {
+          "parent": "4294967304"
+        },
+        "UiText": {
+          "alpha": 1.0,
+          "anchor": 0,
+          "color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "font": "f0000000-0000-0000-0000-000000000000",
+          "height": 0.5,
+          "order": 3,
+          "pos": {
+            "x": 0.05000000074505806,
+            "y": 0.15000000596046448
+          },
+          "text": "HP"
+        }
+      },
+      "id": "4294967305"
+    },
+    {
+      "components": {
+        "AudioSource": {
+          "clip": "a0d10000-0000-0000-0000-000000000000",
+          "gain": 0.5,
+          "looping": true,
+          "pitch": 1.0,
+          "playing": true,
+          "spatial": true
+        },
+        "Material": {
+          "base_color": {
+            "x": 0.20000000298023224,
+            "y": 0.8999999761581421,
+            "z": 0.30000001192092896
+          },
+          "texture": "00000000-0000-0000-0000-000000000000"
+        },
+        "MeshRenderer": {
+          "mesh": "cbe00000-0000-0000-0000-000000000000"
+        },
+        "ParticleEmitter": {
+          "acceleration": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "alpha": 1.0,
+          "alpha_easing": 2,
+          "burst": 0,
+          "burst_trigger": 0,
+          "color": {
+            "x": 0.20000000298023224,
+            "y": 0.8999999761581421,
+            "z": 0.30000001192092896
+          },
+          "color_easing": 0,
+          "emitting": true,
+          "end_alpha": 0.0,
+          "end_color": {
+            "x": 0.8999999761581421,
+            "y": 0.8999999761581421,
+            "z": 0.20000000298023224
+          },
+          "end_size": 0.009999999776482582,
+          "initial_velocity": {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "lifetime": 0.800000011920929,
+          "max_particles": 1000,
+          "rate": 40.0,
+          "seed": 1,
+          "size": 0.07999999821186066,
+          "size_easing": 0,
+          "spread": 0.20000000298023224
+        },
+        "ScriptComponent": {
+          "path": "",
+          "script": "00000000-0000-0000-0000-000000000000",
+          "source": "\nimport math\n_t = 0.0\ndef on_update(dt):\n    global _t\n    _t += dt\n    tr = get_component(entity, 'Transform')\n    tr['position']['x'] = 3.0 * math.cos(_t)\n    tr['position']['z'] = 3.0 * math.sin(_t)\n    tr['position']['y'] = 2.0\n    set_component(entity, 'Transform', tr)\n"
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 3.0,
+            "y": 2.0,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 0.5,
+            "y": 0.5,
+            "z": 0.5
+          }
+        },
+        "WorldLabel": {
+          "alpha": 1.0,
+          "color": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          },
+          "font": "f0000000-0000-0000-0000-000000000000",
+          "offset": {
+            "x": 0.0,
+            "y": 0.800000011920929,
+            "z": 0.0
+          },
+          "size": 0.4000000059604645,
+          "text": "Orbiter"
+        }
+      },
+      "id": "4294967306"
+    },
+    {
+      "components": {
+        "ParticleEmitter": {
+          "acceleration": {
+            "x": 0.0,
+            "y": -9.8100004196167,
+            "z": 0.0
+          },
+          "alpha": 1.0,
+          "alpha_easing": 2,
+          "burst": 0,
+          "burst_trigger": 0,
+          "color": {
+            "x": 1.0,
+            "y": 0.5,
+            "z": 0.10000000149011612
+          },
+          "color_easing": 0,
+          "emitting": true,
+          "end_alpha": 0.0,
+          "end_color": {
+            "x": 0.699999988079071,
+            "y": 0.10000000149011612,
+            "z": 0.4000000059604645
+          },
+          "end_size": 0.029999999329447746,
+          "initial_velocity": {
+            "x": 0.0,
+            "y": 4.0,
+            "z": 0.0
+          },
+          "lifetime": 2.0,
+          "max_particles": 1000,
+          "rate": 60.0,
+          "seed": 1,
+          "size": 0.15000000596046448,
+          "size_easing": 0,
+          "spread": 1.0
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": -3.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967307"
+    },
+    {
+      "components": {
+        "ParticleEmitter": {
+          "acceleration": {
+            "x": 0.0,
+            "y": -9.8100004196167,
+            "z": 0.0
+          },
+          "alpha": 1.0,
+          "alpha_easing": 2,
+          "burst": 40,
+          "burst_trigger": 0,
+          "color": {
+            "x": 0.30000001192092896,
+            "y": 0.800000011920929,
+            "z": 1.0
+          },
+          "color_easing": 0,
+          "emitting": false,
+          "end_alpha": 0.0,
+          "end_color": {
+            "x": 0.10000000149011612,
+            "y": 0.20000000298023224,
+            "z": 0.6000000238418579
+          },
+          "end_size": 0.019999999552965164,
+          "initial_velocity": {
+            "x": 0.0,
+            "y": 5.0,
+            "z": 0.0
+          },
+          "lifetime": 1.2000000476837158,
+          "max_particles": 1000,
+          "rate": 10.0,
+          "seed": 1,
+          "size": 0.11999999731779099,
+          "size_easing": 0,
+          "spread": 2.0
+        },
+        "ScriptComponent": {
+          "path": "",
+          "script": "00000000-0000-0000-0000-000000000000",
+          "source": "\n_t = 0.0\ndef on_update(dt):\n    global _t\n    _t += dt\n    if _t >= 1.2:\n        _t -= 1.2\n        c = get_component(entity, 'ParticleEmitter')\n        c['burst_trigger'] += 1\n        set_component(entity, 'ParticleEmitter', c)\n"
+        },
+        "Transform": {
+          "parent": "0",
+          "position": {
+            "x": 3.0,
+            "y": 0.5,
+            "z": 0.0
+          },
+          "rotation": {
+            "w": 1.0,
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0
+          },
+          "scale": {
+            "x": 1.0,
+            "y": 1.0,
+            "z": 1.0
+          }
+        }
+      },
+      "id": "4294967308"
+    }
+  ],
+  "version": 1
+}
