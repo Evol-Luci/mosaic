@@ -13,6 +13,7 @@
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "modules/script_python/python_script_engine.hpp" // ensure_interpreter
+#include "modules/script_python/restricted_builtins.hpp"
 #include "modules/script_python/value_marshal.hpp"
 #include "modules/script_python/world_globals.hpp"
 
@@ -34,7 +35,7 @@ class StudioPluginScriptEngine final
 public:
     StudioPluginScriptEngine()
     {
-        globals_["__builtins__"] = py::module_::import("builtins");
+        mosaic::script::python::install_restricted_builtins(globals_);
     }
 
     mosaic::engine::script::ScriptResult run_string(const std::string& code) override
