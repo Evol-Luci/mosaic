@@ -35,6 +35,55 @@ importers keep it, since reading their source file is their whole job)
 without claiming to solve the general problem. Documented here so it's
 never mistaken for more than it is.
 
+**A second, equally fundamental escape, found and deliberately not
+chased further: any function, method, or closure reachable from an
+allowed module carries a real `__globals__` back to that module's
+unrestricted namespace.** This was found in stages — a module-level
+function accessed directly (`json.dumps.__globals__`), a class's own
+methods (`json.JSONDecodeError.__init__.__globals__`), and a factory
+function's return value (`functools.lru_cache(...).__globals__`) — and
+each stage was investigated for a real fix, not just documented away
+on first sight (see `modules/script_python/restricted_builtins.cpp`
+for the full round-by-round history: `CallableProxy` genuinely closes
+the first and third shapes). What remains open — a class's methods,
+and the bound methods of any instance a class's constructor
+returns — was investigated as a candidate for the same treatment and
+found to be **not** a bounded extension of the same mechanism, for
+reasons verified live against the interpreter, not merely argued:
+- `except SomeAllowedException:` uses CPython's hard `PyType_Check`
+  and does not honor `__instancecheck__` — a non-type class proxy can
+  never be caught by an `except` clause at all.
+- Making the proxy a literal subclass of the real exception type
+  doesn't fix this either: a subclass proxy does not catch instances
+  of the real type a module raises internally, which would silently
+  stop existing plugin exception-handling code from working — a
+  correctness regression masquerading as a security fix.
+- Instances a class's constructor returns would need their own proxy
+  layer, and Python's special-method dispatch (operators, `str()`,
+  `isinstance()`, hashing) bypasses `__getattr__` entirely and
+  resolves via the type, not the instance — a forwarding instance
+  proxy silently loses arithmetic, string conversion, and type
+  identity for exactly the kind of value a plugin most needs to use
+  normally.
+- This cascades rather than terminating: a correct class proxy would
+  still only relocate the leak to the instances it constructs, which
+  need their own (impossible, per above) proxy layer in turn.
+
+This is the same category of limitation as the `__subclasses__()`
+escape above, not a new one — both require CPython-internals literacy
+an attacker exploiting the *first* limitation already has, so closing
+this second one buys no marginal deterrence against a determined
+attacker while risking real correctness regressions for honest plugin
+code. The actual mechanism that *would* close this at its root is a
+[PEP 578](https://peps.python.org/pep-0578/) audit hook
+(`sys.addaudithook`) with a thread-local "restricted frame" flag,
+denying `exec`/`compile`/`import`/`subprocess.Popen`/`os.system`/
+`open` while the flag is set — indifferent to which attribute path a
+plugin used to reach the dangerous call, since every path found so far
+terminates in one of those. That belongs to the same distinct, harder,
+unscheduled "dynamic sandboxed execution" / OS-level isolation layer
+already named above, not this slice.
+
 ## Scope: plugins/importers only, not gameplay scripts
 
 Gameplay `ScriptComponent` code is first-party — the project's own
