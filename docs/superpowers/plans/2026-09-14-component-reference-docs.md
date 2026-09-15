@@ -601,11 +601,11 @@ int run_docs(const Options&)
     std::ofstream out(out_file, std::ios::trunc);
     if (!out)
     {
-        mosaic::foundation::log::error("docs", "docs: failed to open " + out_file.string() + " for writing");
+        mosaic::foundation::log::error("docs", "docs: failed to open {} for writing", out_file.string());
         return 1;
     }
     out << markdown;
-    mosaic::foundation::log::info("docs", "docs: wrote " + out_file.string());
+    mosaic::foundation::log::info("docs", "docs: wrote {}", out_file.string());
     return 0;
 }
 } // namespace mosaic::app
