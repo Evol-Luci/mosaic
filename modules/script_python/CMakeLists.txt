@@ -1,4 +1,4 @@
-add_library(mosaic_script_python STATIC python_script_engine.cpp world_globals.cpp)
+add_library(mosaic_script_python STATIC python_script_engine.cpp world_globals.cpp restricted_builtins.cpp)
 target_include_directories(mosaic_script_python PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(mosaic_script_python
   PUBLIC  mosaic_engine
