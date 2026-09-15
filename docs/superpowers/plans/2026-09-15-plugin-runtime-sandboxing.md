@@ -35,13 +35,22 @@ one of its callers is already plugin code).
   `locals`, plus `open` unless `allow_open = true` — Studio plugins get
   `allow_open = false`, asset importers get `allow_open = true`, since
   reading their source file is their whole job), allowlist for modules
-  (`json`, `csv`, `math`, `re`, `time`, `datetime`, `itertools`,
-  `functools`, `string`, `copy`, `textwrap` — final review found and
-  fixed a real bypass where `random`/`collections`/`enum`/`dataclasses`/
-  `typing`/`uuid` each leak the real `os`/`sys` module as a direct
-  attribute, e.g. `uuid.os`; those six were removed from the allowlist
-  entirely, see the spec's final section for the empirical audit) —
-  exact values from the spec, copied verbatim into code, not re-derived.
+  (`json`, `csv`, `math`, `re`, `random`, `time`, `datetime`,
+  `collections`, `itertools`, `functools`, `string`, `copy`, `enum`,
+  `dataclasses`, `typing`, `textwrap`, `uuid` — full 17-module set. Two
+  earlier review rounds found modules that leak the real `os`/`sys`
+  module through their own attribute graph (`uuid.os`, then
+  `json.codecs.sys`/`re.enum.sys` two hops deep); rather than keep
+  narrowing the allowlist, every returned module is now wrapped in a
+  proxy (`make_module_proxy`) that denies any attribute resolving to
+  another module object, at any depth — this closed the whole bug class,
+  so all six originally-removed modules were restored. A follow-up round
+  then found the proxy's OWN first implementation leaked the wrapped
+  module via a plain instance attribute (`self._mod`); fixed by storing
+  the mapping in a `weakref.WeakKeyDictionary` keyed by the proxy object
+  instead of on the instance at all. See the spec's final sections for
+  the full history) — exact values from the spec, copied verbatim into
+  code, not re-derived.
 
 ---
 
@@ -775,7 +784,24 @@ the whole class of bug in one change: all six originally-removed modules
 (`random`, `collections`, `enum`, `dataclasses`, `typing`, `uuid`) were
 restored to the allowlist, since the specific leaky attribute they each
 had is now blocked by the proxy regardless of which module carries it.
-See `docs/design/plugin-sandboxing.md`'s extended treatment below.
+
+**A fourth review round found the proxy's own first implementation
+leaked the real module through its own storage.** The wrapped module was
+originally stored as a plain instance attribute (`self._mod`, via
+`object.__setattr__`) — but `__getattr__` is only a *fallback* for
+attributes absent from the instance, so `proxy._mod` resolved through
+ordinary attribute lookup and handed back the real, completely unwrapped
+module, undoing every check above in one guessable step. Fixed by never
+storing the module as an instance attribute at all: a
+`weakref.WeakKeyDictionary` keyed by the proxy object itself (auto-cleared
+when the proxy is garbage collected) holds the mapping instead, so every
+attribute name — including `_mod` — now genuinely falls through to
+`__getattr__` uniformly, and `object.__getattribute__(proxy, '_mod')` (the
+lower-level bypass a plugin could try next) fails the same way, since
+there is truly nothing there to find.
+
+See `docs/superpowers/specs/2026-09-15-plugin-runtime-sandboxing-design.md`'s
+extended treatment for the full review history.
 
 ## What's restricted, and where
 
