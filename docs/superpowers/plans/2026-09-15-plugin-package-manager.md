@@ -724,8 +724,10 @@ namespace mosaic::app
 {
 
 // Write `manifest` to <project_dir>/mosaic.toml. Returns false (and logs) on
-// write failure.
-inline bool save_manifest(const std::string& project_dir, const ProjectManifest& manifest)
+// write failure. Takes a non-const reference because to_value()/reflect() are
+// generically non-const throughout this codebase's serialization stack (matching
+// every other to_value(manifest) call site, e.g. create_project in project_io.hpp).
+inline bool save_manifest(const std::string& project_dir, ProjectManifest& manifest)
 {
     namespace fs = std::filesystem;
     const std::string manifest_toml =
