@@ -62,6 +62,31 @@ JSON, e.g. saved from Studio). Add `assets/` and/or `plugins/` if the template
 needs them. No other registration step exists -- `create_project` discovers
 templates by directory listing, not a manifest.
 
+## Planned templates
+
+Only `default` ships today. A second template — a 3rd-person adventure starter —
+was scoped during this mechanism's design and deliberately deferred to its own,
+later spec/plan rather than folded into this one, since it's real gameplay
+content authoring, not a mechanism change:
+
+- A controllable capsule character (`CapsuleCollider` + `RigidBody` already exist
+  in `engine/physics/`) supporting move, run, jump, attack, and sneak.
+- A life/death state for both the player and enemies, with a simple on-screen
+  health bar (`engine/ui/` has `UiText`/`UiRect` to build one from; there is no
+  dedicated health-bar widget yet).
+- At least one basic enemy that can damage and kill the player, and can itself be
+  killed by the player's attack.
+
+None of this exists in the engine yet — there is no character controller (beyond
+the raw physics primitives above), no health/damage/combat framework, and no
+enemy AI beyond the general-purpose `engine/navigation/` nav-agent system, which
+was never built with combat in mind. Building it needs, at minimum, a new
+reusable `Health` component (current/max HP, alive/dead) and basic combat/AI
+scripting patterns — real design and implementation work, tracked as explicit
+future work rather than silently dropped. Full rationale for deferring it:
+`docs/superpowers/specs/2026-09-14-project-templates-mechanism-design.md`'s
+Non-goals section.
+
 ## `create_project`'s `types` parameter
 
 `create_project(dir, types, template_name, templates_root)` still takes a
