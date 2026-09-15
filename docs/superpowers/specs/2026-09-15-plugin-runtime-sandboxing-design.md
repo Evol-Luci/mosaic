@@ -253,6 +253,33 @@ sandboxed plugin has any legitimate reason to touch. The incorrect
 assertion was removed and replaced with a dedicated test confirming all
 four are blocked and legitimate use (`json.dumps(...)`) is unaffected.
 
+**A seventh round found a fourth leak, different in kind from the first
+three: `getattr()` only ever guarded attribute access performed on the
+proxy itself — never the values it legitimately returns.** `json.dumps`
+is a real, unwrapped CPython function object (not a module, so every
+prior check let it straight through), and every plain Python function
+carries `__globals__` — the real module's actual namespace dict,
+including its genuine, unrestricted `__builtins__` entry:
+`json.dumps.__globals__['__builtins__']['eval'](...)` reaches the real
+`eval` with zero further imports and none of the four
+previously-blocked names involved at all, a full sandbox escape,
+verified live against the actual built binary. This generalizes the
+same lesson the `WeakKeyDictionary` failure taught two rounds earlier:
+naming one attribute at a time never converges, because *any* function
+pulled from an allowed module carries the same unrestricted
+`__globals__`/`__code__`. Fixed structurally: `CallableProxy` wraps any
+value `ModuleProxy::getattr` resolves that turns out to be callable
+(detected via `hasattr(value, "__globals__")` or `hasattr(value,
+"__code__")`), forwarding `__call__` to the real function unchanged
+while denying the same reflection-attribute set on the function object
+itself. A shared `guard_returned_value()` helper applies this policy
+recursively in both proxies, so an attribute of a wrapped callable that
+itself resolves to a module or another callable is guarded the same
+way at any depth — matching the "close the whole class" approach
+already used for the module-attribute-graph bug, rather than the
+"block a fifth name" approach that had already failed to converge
+three times in a row.
+
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some
 stdlib operations — observed via `json.dumps()`, which triggers it even
