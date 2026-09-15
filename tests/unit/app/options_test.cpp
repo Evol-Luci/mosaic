@@ -272,3 +272,11 @@ TEST_CASE("create subcommand without --template leaves it unset", "[cli]")
     REQUIRE_FALSE(pr.exit_code.has_value());
     REQUIRE_FALSE(pr.options.template_name.has_value());
 }
+
+TEST_CASE("docs subcommand parses with no options", "[cli]")
+{
+    auto result = parse_args({"mosaic", "docs"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::Docs);
+}
+

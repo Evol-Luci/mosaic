@@ -9,7 +9,7 @@ namespace mosaic::app
 {
 
 // Which subcommand the user invoked.
-enum class Command { Run, Editor, Create, Build, Import };
+enum class Command { Run, Editor, Create, Build, Import, Docs };
 
 // Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value
 // type: no CLI11 in this header.

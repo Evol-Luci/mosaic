@@ -12,7 +12,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, or `import`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, `import`, or `docs`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
@@ -92,6 +92,8 @@ ParseResult parse(int argc, char** argv)
     import->add_option("project", import_project_name, "Project directory")->required();
     import->add_option("file", import_file_name, "Source asset file (PPM image)")->required();
 
+    CLI::App* docs = app.add_subcommand("docs", "Generate the built-in component reference (docs/reference/components.md)");
+
     try
     {
         app.parse(argc, argv);
@@ -125,6 +127,10 @@ ParseResult parse(int argc, char** argv)
     if (import->parsed())
     {
         result.options.command = Command::Import;
+    }
+    if (docs->parsed())
+    {
+        result.options.command = Command::Docs;
     }
     if (!import_project_name.empty())
     {
