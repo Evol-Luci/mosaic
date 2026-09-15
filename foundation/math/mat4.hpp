@@ -69,6 +69,15 @@ struct Mat4
     // Defined out-of-line below (needs operator*).
     static Mat4 trs(const Vec3& t, const Quat& r, const Vec3& s);
 
+    // World-space forward/up of this matrix's own orientation (e.g. an object's
+    // WorldTransform), matching the engine's camera convention: local +Z maps to
+    // "backward", so forward is the negated 3rd column; up is the un-negated 2nd
+    // column. Identity yields forward{0,0,-1}, up{0,1,0} -- matching
+    // ListenerState's own defaults. Normalized so a non-unit scale on the matrix
+    // doesn't leak into direction magnitude.
+    Vec3 forward() const;
+    Vec3 up() const;
+
     static Mat4 perspective(float fovy_radians, float aspect, float near_z, float far_z);
     static Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up);
     static Mat4 inverse_affine(const Mat4& m);
@@ -124,6 +133,16 @@ inline Mat4 Mat4::perspective(float fovy_radians, float aspect, float near_z, fl
     out.m[11] = -1.0f;                                      // [2][3]
     out.m[14] = -(far_z * near_z) / (far_z - near_z);       // [3][2]
     return out;
+}
+
+inline Vec3 Mat4::forward() const
+{
+    return normalize(Vec3{-m[8], -m[9], -m[10]});
+}
+
+inline Vec3 Mat4::up() const
+{
+    return normalize(Vec3{m[4], m[5], m[6]});
 }
 
 inline Mat4 Mat4::look_at(const Vec3& eye, const Vec3& center, const Vec3& up)

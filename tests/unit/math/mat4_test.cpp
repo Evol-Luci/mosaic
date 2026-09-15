@@ -1,3 +1,5 @@
+#include <cmath>
+
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
@@ -37,6 +39,43 @@ TEST_CASE("transform_point of the origin equals the translation", "[math]")
     REQUIRE(p.x == Approx(7.0f));
     REQUIRE(p.y == Approx(8.0f));
     REQUIRE(p.z == Approx(9.0f));
+}
+
+TEST_CASE("identity Mat4 forward/up match the engine's -Z-forward, +Y-up convention", "[math]")
+{
+    const Mat4 m = Mat4::identity();
+    const Vec3 f = m.forward();
+    const Vec3 u = m.up();
+    REQUIRE(f.x == Approx(0.0f));
+    REQUIRE(f.y == Approx(0.0f));
+    REQUIRE(f.z == Approx(-1.0f));
+    REQUIRE(u.x == Approx(0.0f));
+    REQUIRE(u.y == Approx(1.0f));
+    REQUIRE(u.z == Approx(0.0f));
+}
+
+TEST_CASE("Mat4 forward/up rotate with a 90 degree yaw about world up", "[math]")
+{
+    // Yaw +90 degrees about +Y: -Z (forward) rotates to -X.
+    const Quat yaw90 = from_axis_angle(Vec3{0.0f, 1.0f, 0.0f}, 1.57079632679f);
+    const Mat4 m = Mat4::rotation(yaw90);
+    const Vec3 f = m.forward();
+    REQUIRE(f.x == Approx(-1.0f).margin(0.001));
+    REQUIRE(f.y == Approx(0.0f).margin(0.001));
+    REQUIRE(f.z == Approx(0.0f).margin(0.001));
+    // Up is unaffected by a pure yaw about the up axis itself.
+    const Vec3 u = m.up();
+    REQUIRE(u.x == Approx(0.0f).margin(0.001));
+    REQUIRE(u.y == Approx(1.0f).margin(0.001));
+    REQUIRE(u.z == Approx(0.0f).margin(0.001));
+}
+
+TEST_CASE("Mat4 forward is normalized even under a non-unit scale", "[math]")
+{
+    const Mat4 m = Mat4::scale(Vec3{2.0f, 2.0f, 2.0f});
+    const Vec3 f = m.forward();
+    const float len = std::sqrt(f.x * f.x + f.y * f.y + f.z * f.z);
+    REQUIRE(len == Approx(1.0f).margin(0.001));
 }
 
 TEST_CASE("trs applies scale, then rotation, then translation", "[math]")
