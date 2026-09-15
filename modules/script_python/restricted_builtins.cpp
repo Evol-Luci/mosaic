@@ -96,10 +96,60 @@ const std::unordered_set<std::string>& allowed_modules()
 // worse in a different way: they're real importlib objects (not dicts),
 // but importlib loaders expose methods (e.g. exec_module) capable of
 // executing arbitrary code, so handing one back -- even wrapped, since its
-// own methods aren't modules either -- is its own escape. All three are
-// denied outright, by name, before the isinstance<> check ever runs, since
-// none of them are attributes a Studio plugin or asset importer has any
-// legitimate reason to touch.
+// own methods aren't modules either -- is its own escape.
+//
+// A FOURTH leak was then found, in the same review pass as the third but a
+// different vector: getattr() only guards attribute access performed
+// directly ON THE PROXY -- it never touches the VALUES it returns for
+// ordinary, legitimate attributes. `json.dumps` is a real, unwrapped
+// CPython function object (not a module, not blocked, passes straight
+// through), and every plain Python function carries `__globals__` -- the
+// REAL module's actual namespace dict, not filtered by anything above:
+//     json.dumps.__globals__['__builtins__']['eval'](...)
+// reaches the genuine, unrestricted eval with zero further imports and
+// none of the four names blocked above. This generalizes the same lesson
+// as the WeakKeyDictionary failure earlier in this history: patching one
+// named attribute at a time (__dict__, __loader__, __spec__, and now
+// __globals__) never converges, because ANY function object pulled from an
+// allowed module carries the same unrestricted __globals__. The structural
+// fix: wrap every returned value that could itself carry a reference back
+// to unrestricted state, not just modules -- CallableProxy below does for
+// functions/methods what ModuleProxy does for modules. shared_attr_guard()
+// centralizes the "deny these names outright, then deny anything that
+// resolves to a module, then wrap anything callable" policy so both
+// proxies enforce it identically and a future addition only needs to
+// change one place.
+constexpr const char* kBlockedReflectionAttrs[] = {
+    "__dict__", "__loader__", "__spec__", "__builtins__",
+    "__globals__", "__code__", "__closure__", "__self__", "__func__",
+};
+
+py::object make_callable_proxy(py::object callable_obj);
+py::object make_module_proxy(py::object module_obj);
+
+// Applies the shared policy to one resolved attribute value: deny outright
+// if `name` is on the reflection blocklist (checked by the caller before
+// even fetching the value; kept here too as a second layer in case a
+// caller is added later that skips the by-name check), deny if the value
+// is itself a module, or wrap it if it is callable (and therefore may
+// carry its own `__globals__`/`__code__`/etc. straight back to unrestricted
+// state). Anything else -- data (str, int, dict of plain values the
+// plugin's own code produced, a compiled regex object, ...) -- passes
+// through unchanged.
+py::object guard_returned_value(const std::string& name, py::object value)
+{
+    if (py::isinstance<py::module_>(value))
+    {
+        throw py::attribute_error(
+            "access to '" + name + "' is not permitted here");
+    }
+    if (py::hasattr(value, "__globals__") || py::hasattr(value, "__code__"))
+    {
+        return make_callable_proxy(std::move(value));
+    }
+    return value;
+}
+
 class ModuleProxy
 {
 public:
@@ -107,34 +157,67 @@ public:
 
     py::object getattr(const std::string& name) const
     {
-        static const std::unordered_set<std::string> kBlockedModuleAttrs = {
-            "__dict__", "__loader__", "__spec__", "__builtins__",
-        };
-        if (kBlockedModuleAttrs.count(name) != 0)
+        for (const char* blocked : kBlockedReflectionAttrs)
         {
-            throw py::attribute_error(
-                "access to '" + name + "' is not permitted here");
+            if (name == blocked)
+            {
+                throw py::attribute_error(
+                    "access to '" + name + "' is not permitted here");
+            }
         }
-        py::object value = module_.attr(py::str(name));
-        if (py::isinstance<py::module_>(value))
-        {
-            throw py::attribute_error(
-                "access to '" + name + "' is not permitted here");
-        }
-        return value;
+        return guard_returned_value(name, module_.attr(py::str(name)));
     }
 
 private:
     py::object module_;
 };
 
-py::object make_module_proxy(py::object module_obj)
+// Wraps a callable (a plain function, bound method, or similar) pulled from
+// an allowed module so its own reflective attributes -- __globals__ above
+// all, the fourth leak found -- are denied the same way ModuleProxy denies
+// them on modules. __call__ forwards to the real callable unchanged, since
+// invoking json.dumps(...) must still work exactly as before; only
+// attribute access on the returned function object itself is guarded.
+class CallableProxy
 {
-    // A private class, registered once per process into a module that is
-    // never inserted into sys.modules and never exposed to plugin globals
-    // -- pybind11 needs SOME module scope to attach a class definition to,
-    // but nothing about this module is reachable from restricted code.
-    static py::object proxy_class = []
+public:
+    explicit CallableProxy(py::object callable_obj) : callable_(std::move(callable_obj)) {}
+
+    py::object call(py::args args, py::kwargs kwargs) const
+    {
+        return callable_(*args, **kwargs);
+    }
+
+    py::object getattr(const std::string& name) const
+    {
+        for (const char* blocked : kBlockedReflectionAttrs)
+        {
+            if (name == blocked)
+            {
+                throw py::attribute_error(
+                    "access to '" + name + "' is not permitted here");
+            }
+        }
+        return guard_returned_value(name, callable_.attr(py::str(name)));
+    }
+
+private:
+    py::object callable_;
+};
+
+// Both proxy classes are registered once per process into a private module
+// that is never inserted into sys.modules and never exposed to plugin
+// globals -- pybind11 needs SOME module scope to attach class definitions
+// to, but nothing about this module is reachable from restricted code.
+struct ProxyClasses
+{
+    py::object module_proxy_class;
+    py::object callable_proxy_class;
+};
+
+const ProxyClasses& proxy_classes()
+{
+    static const ProxyClasses classes = []
     {
         PyObject* raw_module = PyModule_New("_mosaic_sandbox_internal");
         if (raw_module == nullptr) { throw py::error_already_set(); }
@@ -143,9 +226,27 @@ py::object make_module_proxy(py::object module_obj)
         py::class_<ModuleProxy>(internal_module, "_RestrictedModuleProxy")
             .def(py::init<py::object>())
             .def("__getattr__", &ModuleProxy::getattr);
-        return internal_module.attr("_RestrictedModuleProxy");
+        py::class_<CallableProxy>(internal_module, "_RestrictedCallableProxy")
+            .def(py::init<py::object>())
+            .def("__call__", &CallableProxy::call)
+            .def("__getattr__", &CallableProxy::getattr);
+
+        return ProxyClasses{
+            internal_module.attr("_RestrictedModuleProxy"),
+            internal_module.attr("_RestrictedCallableProxy"),
+        };
     }();
-    return proxy_class(module_obj);
+    return classes;
+}
+
+py::object make_module_proxy(py::object module_obj)
+{
+    return proxy_classes().module_proxy_class(std::move(module_obj));
+}
+
+py::object make_callable_proxy(py::object callable_obj)
+{
+    return proxy_classes().callable_proxy_class(std::move(callable_obj));
 }
 } // namespace
 

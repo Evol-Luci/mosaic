@@ -161,6 +161,38 @@ TEST_CASE("the module proxy blocks __dict__/__loader__/__spec__, which leak real
     REQUIRE_NOTHROW(py::exec("import json\njson.dumps({'a': 1})", globals));
 }
 
+TEST_CASE("functions returned from allowed modules don't leak the real module via __globals__/__code__",
+         "[script]")
+{
+    // A fourth leak, found in the same review pass as the third: getattr()
+    // only guards attribute access performed ON THE PROXY -- it never
+    // touched the VALUES it legitimately returns. json.dumps is a real,
+    // unwrapped CPython function (not a module, so it passed straight
+    // through every prior check), and every plain Python function carries
+    // __globals__ -- the REAL module's actual namespace dict, including
+    // its real, unrestricted __builtins__ entry:
+    //   json.dumps.__globals__['__builtins__']['eval'](...)
+    // reached the genuine eval with none of __dict__/__loader__/__spec__/
+    // __builtins__ involved at all. Closed by wrapping any callable value
+    // returned from an allowed module (functions, bound methods) in
+    // CallableProxy, which forwards __call__ but denies the same
+    // reflection-attribute set on the callable itself.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    REQUIRE_THROWS(py::exec("import json\njson.dumps.__globals__", globals));
+    REQUIRE_THROWS(py::exec("import json\njson.dumps.__code__", globals));
+    REQUIRE_THROWS(py::exec("import uuid\nuuid.uuid4.__globals__", globals));
+    // Calling the wrapped function through the proxy must still work
+    // exactly as before -- only attribute access on the function itself is
+    // guarded, not invocation.
+    py::exec("import json\nresult = json.dumps({'a': 1})", globals, globals);
+    REQUIRE(globals["result"].cast<std::string>().find("\"a\": 1") != std::string::npos);
+    REQUIRE_NOTHROW(py::exec("import uuid\nuuid.uuid4()", globals));
+}
+
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
