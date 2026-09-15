@@ -81,6 +81,25 @@ const std::unordered_set<std::string>& allowed_modules()
 // a ModuleProxy instance to the underlying module short of the already-
 // disclosed, out-of-scope, language-fundamental __subclasses__()-style
 // object-graph escape (see the design doc's "honest limitation" section).
+//
+// A THIRD leak was then found in this same fix, one layer removed from the
+// first two: getattr()'s isinstance<py::module_> check only rejects the
+// attribute VALUE when it is itself a module -- but a CONTAINER attribute
+// can still hand back real, unwrapped submodules as its own contents
+// without the container itself being a module. `__dict__` is exactly this:
+// `module_.attr("__dict__")` returns the wrapped module's REAL namespace
+// dict (not a module, so isinstance<> lets it straight through), and that
+// dict's values include every submodule the module imported internally --
+// `json.__dict__['decoder']` reaches the real `json.decoder` module (which
+// itself reaches `re`, etc.) with plain dict subscripting, no attribute
+// access and no further reflection needed. `__loader__`/`__spec__` are
+// worse in a different way: they're real importlib objects (not dicts),
+// but importlib loaders expose methods (e.g. exec_module) capable of
+// executing arbitrary code, so handing one back -- even wrapped, since its
+// own methods aren't modules either -- is its own escape. All three are
+// denied outright, by name, before the isinstance<> check ever runs, since
+// none of them are attributes a Studio plugin or asset importer has any
+// legitimate reason to touch.
 class ModuleProxy
 {
 public:
@@ -88,6 +107,14 @@ public:
 
     py::object getattr(const std::string& name) const
     {
+        static const std::unordered_set<std::string> kBlockedModuleAttrs = {
+            "__dict__", "__loader__", "__spec__", "__builtins__",
+        };
+        if (kBlockedModuleAttrs.count(name) != 0)
+        {
+            throw py::attribute_error(
+                "access to '" + name + "' is not permitted here");
+        }
         py::object value = module_.attr(py::str(name));
         if (py::isinstance<py::module_>(value))
         {

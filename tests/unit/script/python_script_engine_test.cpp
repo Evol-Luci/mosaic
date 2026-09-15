@@ -127,15 +127,38 @@ TEST_CASE("the module proxy itself does not leak the real module via its own sto
     REQUIRE_THROWS(py::exec("import json\njson._mod", globals));
     REQUIRE_THROWS(py::exec(
         "import json\nobject.__getattribute__(json, '_mod')", globals));
-    // The proxy's own instance state carries nothing useful to probe.
-    py::exec("import json\nresult = json.__dict__", globals, globals);
-    REQUIRE(globals["result"].cast<py::dict>().size() == 0);
     // A pybind11-registered method has no __globals__ (that's a
     // CPython-Python-function-only attribute) -- confirm the attribute
     // itself is simply absent, not merely empty or unreadable some other
     // way.
     REQUIRE_THROWS(py::exec(
         "import json\ntype(json).__getattr__.__globals__", globals));
+}
+
+TEST_CASE("the module proxy blocks __dict__/__loader__/__spec__, which leak real submodules or code-execution capability",
+         "[script]")
+{
+    // A third leak, found in the same review pass as the __globals__ one
+    // above but distinct from it: __dict__ is not itself a module, so the
+    // isinstance<py::module_> check let it through -- but it IS the
+    // wrapped module's real namespace dict, and its values include every
+    // submodule that module imported internally (json.__dict__['decoder']
+    // reaches the real json.decoder module with plain subscripting, no
+    // further attribute access needed). __loader__/__spec__ are real
+    // importlib objects whose own methods (e.g. exec_module) can execute
+    // arbitrary code -- a different kind of escape, not a module leak at
+    // all. All three are denied by name now, before the isinstance<> check
+    // even runs.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    REQUIRE_THROWS(py::exec("import json\njson.__dict__", globals));
+    REQUIRE_THROWS(py::exec("import json\njson.__loader__", globals));
+    REQUIRE_THROWS(py::exec("import json\njson.__spec__", globals));
+    // Legitimate use is still unaffected.
+    REQUIRE_NOTHROW(py::exec("import json\njson.dumps({'a': 1})", globals));
 }
 
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
