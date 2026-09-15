@@ -54,10 +54,23 @@ void install_restricted_builtins(py::dict& globals, bool allow_open)
     }
 
     restricted["__import__"] = py::cpp_function(
-        [](py::args args, py::kwargs kwargs) -> py::object
+        [restricted](py::args args, py::kwargs kwargs) -> py::object
         {
             const std::string name = args.size() > 0 ? args[0].cast<std::string>() : std::string();
             const std::string top_level = name.substr(0, name.find('.'));
+            if (top_level == "builtins")
+            {
+                // CPython's own internals legitimately call __import__('builtins')
+                // during some stdlib operations (observed via json.dumps()), not
+                // just from a plugin's own explicit "import builtins" statement --
+                // returning ImportError here breaks those internals. But the real,
+                // unrestricted `builtins` module must never be handed back (that
+                // would trivially defeat every restriction above via
+                // `import builtins; builtins.eval(...)`): return THIS restricted
+                // dict instead, satisfying whichever caller needs the name to
+                // resolve without exposing anything beyond what's already allowed.
+                return restricted;
+            }
             if (allowed_modules().count(top_level) == 0)
             {
                 throw py::import_error("import of '" + name + "' is not permitted here");

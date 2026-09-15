@@ -19,5 +19,12 @@ namespace mosaic::script::python
 // `with open(source_path) as f: ...`) -- blocking open() for them would break
 // the feature, not secure it. Studio plugins have no such need, so their caller
 // leaves allow_open at its default false.
+//
+// "import builtins" specifically: CPython's own internals legitimately call
+// __import__('builtins') during some stdlib operations (observed via
+// json.dumps() -- blocking it outright breaks otherwise-safe code that never
+// itself writes "import builtins"). It resolves to THIS restricted dict, never
+// the real module -- returning the real module would let
+// `import builtins; builtins.eval(...)` trivially defeat everything above.
 void install_restricted_builtins(pybind11::dict& globals, bool allow_open = false);
 } // namespace mosaic::script::python
