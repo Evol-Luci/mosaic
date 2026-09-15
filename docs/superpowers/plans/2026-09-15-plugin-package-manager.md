@@ -50,6 +50,10 @@ serialization-layer code needed).
 - Create: `packages/hello-plugin/package.toml`, `packages/hello-plugin/hello.py`
 - Create: `tests/unit/app/package_source_test.cpp`
 - Modify: `tests/CMakeLists.txt`
+- Modify: `app/CMakeLists.txt` (add `MOSAIC_PACKAGES_DIR` — this task's own
+  test, "the bundled hello-plugin example package is discoverable", calls
+  `default_package_source()`, so the define must exist before this task's
+  tests can even compile; Task 4 does NOT re-add it)
 
 **Interfaces:**
 - Consumes: `foundation::serialization::from_toml`/`to_toml`,
@@ -332,6 +336,18 @@ def on_say_hello():
     print("Hello from the hello-plugin package!")
 ```
 
+Add `MOSAIC_PACKAGES_DIR` to `app/CMakeLists.txt`'s existing
+`target_compile_definitions` block (this task's own
+`default_package_source()`/its test need this define to exist to compile at
+all — it cannot wait for Task 4):
+
+```cmake
+target_compile_definitions(mosaic_app PUBLIC
+  MOSAIC_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
+  MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates"
+  MOSAIC_PACKAGES_DIR="${CMAKE_SOURCE_DIR}/packages")
+```
+
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `cmake --build build/debug --target mosaic_unit_tests && ./build/debug/tests/mosaic_unit_tests "[app]" -c "list_packages*"`
@@ -346,7 +362,7 @@ Expected: PASS — all 4 new cases green.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add app/plugin/package_source.hpp packages/hello-plugin/package.toml packages/hello-plugin/hello.py tests/unit/app/package_source_test.cpp tests/CMakeLists.txt
+git add app/plugin/package_source.hpp packages/hello-plugin/package.toml packages/hello-plugin/hello.py tests/unit/app/package_source_test.cpp tests/CMakeLists.txt app/CMakeLists.txt
 git commit -m "feat(app): add package source discovery (list_packages, find_package)"
 ```
 
@@ -1195,14 +1211,9 @@ add_library(mosaic_app STATIC
 )
 ```
 
-Add `MOSAIC_PACKAGES_DIR` to the existing `target_compile_definitions` block:
-
-```cmake
-target_compile_definitions(mosaic_app PUBLIC
-  MOSAIC_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
-  MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates"
-  MOSAIC_PACKAGES_DIR="${CMAKE_SOURCE_DIR}/packages")
-```
+`MOSAIC_PACKAGES_DIR` was already added to `target_compile_definitions` in
+Task 1 (needed there for that task's own tests to compile) — nothing further
+to do to that block in this task.
 
 - [ ] **Step 9: Build the full binary and unit tests**
 
