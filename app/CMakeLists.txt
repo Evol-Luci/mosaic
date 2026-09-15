@@ -6,6 +6,7 @@ add_library(mosaic_app STATIC
   run/docs.cpp
   run/build.cpp
   run/import.cpp
+  run/plugin.cpp
   asset/font_cook.cpp
   asset/import_plugins.cpp
 )
@@ -28,7 +29,8 @@ target_compile_features(mosaic_app PUBLIC cxx_std_20)
 target_compile_definitions(mosaic_app PUBLIC
   MOSAIC_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
   MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates"
-  MOSAIC_DOCS_DIR="${CMAKE_SOURCE_DIR}/docs")
+  MOSAIC_DOCS_DIR="${CMAKE_SOURCE_DIR}/docs"
+  MOSAIC_PACKAGES_DIR="${CMAKE_SOURCE_DIR}/packages")
 
 add_executable(mosaic main.cpp)
 target_link_libraries(mosaic PRIVATE mosaic_app mosaic_audio_miniaudio mosaic_net_enet)

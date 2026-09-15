@@ -12,7 +12,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, `import`, or `docs`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, `import`, `docs`, or `plugin`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
@@ -94,6 +94,29 @@ ParseResult parse(int argc, char** argv)
 
     CLI::App* docs = app.add_subcommand("docs", "Generate the built-in component reference (docs/reference/components.md)");
 
+    CLI::App* plugin = app.add_subcommand("plugin", "Manage plugin packages in a project");
+    plugin->require_subcommand(1);
+
+    CLI::App* plugin_list = plugin->add_subcommand("list", "List packages available from a source");
+    std::string plugin_list_source;
+    plugin_list->add_option("--source", plugin_list_source,
+                            "Package source directory (default: bundled packages/)");
+
+    CLI::App* plugin_install = plugin->add_subcommand("install", "Install a package into a project");
+    std::string plugin_install_name;
+    std::string plugin_install_project;
+    std::string plugin_install_source;
+    plugin_install->add_option("name", plugin_install_name, "Package name")->required();
+    plugin_install->add_option("project", plugin_install_project, "Project directory")->required();
+    plugin_install->add_option("--source", plugin_install_source,
+                               "Package source directory (default: bundled packages/)");
+
+    CLI::App* plugin_remove = plugin->add_subcommand("remove", "Remove an installed package from a project");
+    std::string plugin_remove_name;
+    std::string plugin_remove_project;
+    plugin_remove->add_option("name", plugin_remove_name, "Package name")->required();
+    plugin_remove->add_option("project", plugin_remove_project, "Project directory")->required();
+
     try
     {
         app.parse(argc, argv);
@@ -131,6 +154,42 @@ ParseResult parse(int argc, char** argv)
     if (docs->parsed())
     {
         result.options.command = Command::Docs;
+    }
+    if (plugin_list->parsed())
+    {
+        result.options.command = Command::PluginList;
+    }
+    if (plugin_install->parsed())
+    {
+        result.options.command = Command::PluginInstall;
+    }
+    if (plugin_remove->parsed())
+    {
+        result.options.command = Command::PluginRemove;
+    }
+    if (!plugin_list_source.empty())
+    {
+        result.options.package_source = plugin_list_source;
+    }
+    if (!plugin_install_source.empty())
+    {
+        result.options.package_source = plugin_install_source;
+    }
+    if (!plugin_install_name.empty())
+    {
+        result.options.plugin_name = plugin_install_name;
+    }
+    if (!plugin_remove_name.empty())
+    {
+        result.options.plugin_name = plugin_remove_name;
+    }
+    if (!plugin_install_project.empty())
+    {
+        result.options.plugin_project = plugin_install_project;
+    }
+    if (!plugin_remove_project.empty())
+    {
+        result.options.plugin_project = plugin_remove_project;
     }
     if (!import_project_name.empty())
     {

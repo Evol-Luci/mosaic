@@ -73,6 +73,8 @@ add_executable(mosaic_unit_tests
   unit/app/image_cook_test.cpp
   unit/app/asset_import_test.cpp
   unit/app/import_plugins_test.cpp
+  unit/app/package_source_test.cpp
+  unit/app/package_install_test.cpp
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/render_system_test.cpp
