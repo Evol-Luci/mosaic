@@ -21,6 +21,7 @@ struct Options
     std::optional<std::uint16_t> host_port;      // --host <port>
     std::optional<std::string>   connect_address; // --connect <host>:<port>
     std::optional<std::string>   create_path;  // positional: project dir to create (create)
+    std::optional<std::string>   template_name; // --template <name> (create)
     std::optional<std::string>   build_project; // positional: project dir to package (build)
     std::optional<std::string>   build_out;     // -o/--output: bundle output dir (build)
     std::optional<std::string>   import_project; // positional 1: project dir (import)

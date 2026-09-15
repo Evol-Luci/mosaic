@@ -256,3 +256,19 @@ TEST_CASE("split_host_port splits a valid address", "[cli]")
     REQUIRE(host == "127.0.0.1");
     REQUIRE(port == std::uint16_t{7777});
 }
+
+TEST_CASE("create subcommand accepts an optional --template", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "create", "mygame", "--template", "adventure"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Create);
+    REQUIRE(pr.options.template_name.has_value());
+    REQUIRE(*pr.options.template_name == "adventure");
+}
+
+TEST_CASE("create subcommand without --template leaves it unset", "[cli]")
+{
+    auto pr = parse_args({"mosaic", "create", "mygame"});
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE_FALSE(pr.options.template_name.has_value());
+}

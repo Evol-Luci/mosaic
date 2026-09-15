@@ -20,6 +20,7 @@ int run_create(const Options& options)
     mosaic::engine::reflection::ComponentReflection  types;
     mosaic::engine::reflection::register_builtin_components(registry, types);
 
-    return create_project(*options.create_path, types) ? 0 : 1;
+    return create_project(*options.create_path, types,
+                          options.template_name.value_or("default")) ? 0 : 1;
 }
 } // namespace mosaic::app

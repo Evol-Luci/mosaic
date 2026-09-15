@@ -80,6 +80,9 @@ ParseResult parse(int argc, char** argv)
 
     CLI::App* create = app.add_subcommand("create", "Scaffold a new project directory");
     create->add_option("name", create_name, "Project directory to create")->required();
+    std::string template_name;
+    create->add_option("--template", template_name,
+                       "Named template to scaffold from (default: \"default\")");
 
     CLI::App* build = app.add_subcommand("build", "Package a project into a standalone bundle");
     build->add_option("project", build_project_name, "Project directory to package")->required();
@@ -138,6 +141,10 @@ ParseResult parse(int argc, char** argv)
     if (!create_name.empty())
     {
         result.options.create_path = create_name;
+    }
+    if (!template_name.empty())
+    {
+        result.options.template_name = template_name;
     }
 
     if (!scene.empty())
