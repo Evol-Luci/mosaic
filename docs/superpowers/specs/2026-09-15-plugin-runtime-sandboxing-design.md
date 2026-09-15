@@ -188,6 +188,47 @@ now genuinely falls through to `__getattr__` uniformly, and
 plugin could try next) fails the same way, since there is truly nothing
 there to find.
 
+**A fifth round found the `WeakKeyDictionary` fix moved the leak rather
+than closing it.** `_module_store` lived as a Python-level global inside
+the same `py::exec`'d namespace as the proxy class, referenced from
+inside `__getattr__`'s closure. Review found this is still reachable —
+with no blocked builtin needed at all — via
+`type(proxy).__getattr__.__globals__['_module_store']`:
+`__class__`/`type()`, `__getattr__` (a plain class attribute, found via
+normal MRO lookup, not "missing" — so the proxy's own override never
+even intercepts the read), and `__globals__` (unrestricted on any plain
+Python function object) are all ordinary attribute reads that resolve
+before any instance-level override runs, and `type` was never on the
+builtins blocklist to begin with. Worse than the fourth round's bug:
+iterating `_module_store.items()` recovers every module wrapped by any
+proxy created anywhere in the interpreter, not just the one instance
+being probed. The root cause generalizes past this specific attempt: any
+Python function's `__globals__` is unrestricted reflection, independent
+of what storage scheme it closes over — the third attempt needed to stop
+using a Python-level function as the thing holding the real module at
+all.
+
+**Fixed by moving the module reference into actual C++ state.**
+`ModuleProxy` (`modules/script_python/restricted_builtins.cpp`) is a
+plain C++ class holding the wrapped `py::object` as a private member,
+registered as a Python type via `py::class_<ModuleProxy>` on a private,
+never-`sys.modules`-registered internal module (pybind11 needs some
+module scope to attach a class definition to; nothing about this module
+is exposed to plugin code). `__getattr__` is bound as a C++ method
+(`&ModuleProxy::getattr`) rather than a Python function, so it has no
+`__globals__` at all (that attribute exists only on CPython Python
+-function objects), and the instance carries no `__dict__` (pybind11
+objects have none unless `py::dynamic_attr()` is requested, which this
+type does not) — closing both the instance-attribute path (round 4) and
+the closure/`__globals__` path (round 5) at the language level, not by
+patching the specific probe found. What remains reachable is only the
+already-disclosed, out-of-scope, language-fundamental
+`__subclasses__()`-style object-graph escape, unrelated to this proxy's
+implementation. Verified via a new assertion in the existing regression
+test that `type(json).__getattr__.__globals__` itself raises
+(`AttributeError`: the attribute is simply absent), not just that its
+contents are empty.
+
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some
 stdlib operations — observed via `json.dumps()`, which triggers it even

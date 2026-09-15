@@ -108,15 +108,17 @@ TEST_CASE("install_restricted_builtins closes the module-attribute-graph bug cla
 
 TEST_CASE("the module proxy itself does not leak the real module via its own storage", "[script]")
 {
-    // A real bug found during review of the proxy fix above: an earlier
-    // version stored the wrapped module as a plain instance attribute
-    // (`self._mod`, via object.__setattr__), which __getattr__ never even
-    // sees -- __getattr__ is only a fallback for attributes *absent* from
-    // the instance, so `proxy._mod` resolved through ordinary attribute
-    // lookup and returned the real, completely unwrapped module, undoing
-    // every check the proxy exists to enforce. Confirm this specific path,
-    // and the lower-level object.__getattribute__ bypass a plugin could try
-    // once it knows the implementation, both fail to reach the real module.
+    // Two real bugs found during review of the proxy fix above, both fixed
+    // by moving the wrapped module into actual C++ state instead of any
+    // Python-visible attribute, dict, or closure (see the long comment on
+    // ModuleProxy/make_module_proxy in restricted_builtins.cpp for the
+    // full history): a first version stored `self._mod` as a plain
+    // instance attribute (found via ordinary attribute lookup, since
+    // __getattr__ only fires for attributes absent from the instance); a
+    // second version moved the module into a module-level
+    // WeakKeyDictionary referenced from the __getattr__ closure, but that
+    // dict was still reachable via ordinary reflection independent of
+    // storage scheme: type(proxy).__getattr__.__globals__['_module_store'].
     mosaic::script::python::ensure_interpreter();
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
@@ -128,6 +130,12 @@ TEST_CASE("the module proxy itself does not leak the real module via its own sto
     // The proxy's own instance state carries nothing useful to probe.
     py::exec("import json\nresult = json.__dict__", globals, globals);
     REQUIRE(globals["result"].cast<py::dict>().size() == 0);
+    // A pybind11-registered method has no __globals__ (that's a
+    // CPython-Python-function-only attribute) -- confirm the attribute
+    // itself is simply absent, not merely empty or unreadable some other
+    // way.
+    REQUIRE_THROWS(py::exec(
+        "import json\ntype(json).__getattr__.__globals__", globals));
 }
 
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")

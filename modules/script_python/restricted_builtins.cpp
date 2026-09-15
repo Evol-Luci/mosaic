@@ -49,50 +49,76 @@ const std::unordered_set<std::string>& allowed_modules()
 // paths (which two rounds of allowlist-narrowing already showed doesn't
 // converge), refuse the FIRST hop into any submodule at all, at any depth --
 // a legitimate attribute (a function, class, or constant) still passes
-// through unchanged. Defined once (the class body + backing store), reused
-// for every allowed-module import.
+// through unchanged.
 //
-// The wrapped module is deliberately NOT stored as a normal instance
-// attribute (a first version of this fix used `self._mod`, storing it via
-// object.__setattr__ directly into the instance's own __dict__) -- a real,
-// found-during-review bug: __getattr__ is only a FALLBACK for attributes
-// absent from the instance, so `proxy._mod` resolved through ordinary
-// attribute lookup and returned the real, completely unwrapped module,
-// bypassing every check below in one step. Fixed by keeping no module
-// reference on the proxy instance at all: a WeakKeyDictionary keyed by the
-// proxy object itself (auto-cleared when the proxy is garbage collected)
-// holds the mapping instead, so there is no attribute name on the instance
-// for `proxy._mod`-style probing to find -- every name, including ones an
-// attacker might guess, falls through to __getattr__ uniformly. Verified:
-// `proxy._mod`, `proxy.__dict__` (empty), and calling
-// `object.__getattribute__(proxy, '_mod')` directly all correctly fail to
-// reach the real module.
+// TWO Python-level storage schemes were tried and broken before this one:
+//
+// 1. `self._mod` via object.__setattr__ -- __getattr__ is only a FALLBACK
+//    for attributes absent from the instance, so `proxy._mod` resolved
+//    through ordinary attribute lookup and returned the real, unwrapped
+//    module directly.
+// 2. A module-level `weakref.WeakKeyDictionary` (`_module_store`) keyed by
+//    the proxy, referenced from inside the __getattr__ *closure* -- fixed
+//    (1), but review found `type(proxy).__getattr__.__globals__` reaches
+//    the SAME dict via ordinary, always-available reflection
+//    (`__class__`/`__getattr__`/`__globals__` are all plain attribute
+//    reads that resolve via `object`'s own slots before any override ever
+//    runs, and none of `type`, `__class__`, `__globals__` are on the
+//    builtins blocklist) -- worse than (1), since it recovers every
+//    wrapped module ever created, not just the one instance being probed.
+//    Root cause: ANY Python function's `__globals__` is unrestricted
+//    reflection, independent of what storage scheme it closes over --
+//    moving the reference from an instance attribute to a shared dict
+//    changed *where* it lived, not *whether* a Python-level function could
+//    still be walked back to it.
+//
+// The actual fix: the module reference lives in real C++ state (ModuleProxy
+// below, a pybind11-registered type), not in any Python-visible attribute,
+// dict, or closure. A pybind11-generated method has no __globals__ (that's
+// a CPython-function-object-only attribute), and a plain py::class_
+// instance carries no per-instance __dict__ unless py::dynamic_attr() is
+// requested (it is not, here) -- so there is no Python-reachable path from
+// a ModuleProxy instance to the underlying module short of the already-
+// disclosed, out-of-scope, language-fundamental __subclasses__()-style
+// object-graph escape (see the design doc's "honest limitation" section).
+class ModuleProxy
+{
+public:
+    explicit ModuleProxy(py::object module_obj) : module_(std::move(module_obj)) {}
+
+    py::object getattr(const std::string& name) const
+    {
+        py::object value = module_.attr(py::str(name));
+        if (py::isinstance<py::module_>(value))
+        {
+            throw py::attribute_error(
+                "access to '" + name + "' is not permitted here");
+        }
+        return value;
+    }
+
+private:
+    py::object module_;
+};
+
 py::object make_module_proxy(py::object module_obj)
 {
-    static py::object wrap_fn = []
+    // A private class, registered once per process into a module that is
+    // never inserted into sys.modules and never exposed to plugin globals
+    // -- pybind11 needs SOME module scope to attach a class definition to,
+    // but nothing about this module is reachable from restricted code.
+    static py::object proxy_class = []
     {
-        py::dict ns;
-        py::exec(
-            "import types, weakref\n"
-            "_module_store = weakref.WeakKeyDictionary()\n"
-            "class _RestrictedModuleProxy:\n"
-            "    def __getattr__(self, name):\n"
-            "        mod = _module_store[self]\n"
-            "        value = getattr(mod, name)\n"
-            "        if isinstance(value, types.ModuleType):\n"
-            "            raise AttributeError(\n"
-            "                'access to ' + repr(name) + ' is not permitted here')\n"
-            "        return value\n"
-            "    def __setattr__(self, name, value):\n"
-            "        raise AttributeError('this module is read-only here')\n"
-            "def _wrap(mod):\n"
-            "    proxy = _RestrictedModuleProxy()\n"
-            "    _module_store[proxy] = mod\n"
-            "    return proxy\n",
-            ns);
-        return ns["_wrap"];
+        PyObject* raw_module = PyModule_New("_mosaic_sandbox_internal");
+        if (raw_module == nullptr) { throw py::error_already_set(); }
+        py::module_ internal_module = py::reinterpret_steal<py::module_>(raw_module);
+
+        py::class_<ModuleProxy>(internal_module, "_RestrictedModuleProxy")
+            .def(py::init<py::object>())
+            .def("__getattr__", &ModuleProxy::getattr);
+        return internal_module.attr("_RestrictedModuleProxy");
     }();
-    return wrap_fn(module_obj);
+    return proxy_class(module_obj);
 }
 } // namespace
 
