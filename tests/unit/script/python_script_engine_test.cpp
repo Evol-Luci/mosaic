@@ -106,6 +106,30 @@ TEST_CASE("install_restricted_builtins closes the module-attribute-graph bug cla
     REQUIRE_NOTHROW(py::exec("import re\nre.compile('a+')", globals));
 }
 
+TEST_CASE("the module proxy itself does not leak the real module via its own storage", "[script]")
+{
+    // A real bug found during review of the proxy fix above: an earlier
+    // version stored the wrapped module as a plain instance attribute
+    // (`self._mod`, via object.__setattr__), which __getattr__ never even
+    // sees -- __getattr__ is only a fallback for attributes *absent* from
+    // the instance, so `proxy._mod` resolved through ordinary attribute
+    // lookup and returned the real, completely unwrapped module, undoing
+    // every check the proxy exists to enforce. Confirm this specific path,
+    // and the lower-level object.__getattribute__ bypass a plugin could try
+    // once it knows the implementation, both fail to reach the real module.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    REQUIRE_THROWS(py::exec("import json\njson._mod", globals));
+    REQUIRE_THROWS(py::exec(
+        "import json\nobject.__getattribute__(json, '_mod')", globals));
+    // The proxy's own instance state carries nothing useful to probe.
+    py::exec("import json\nresult = json.__dict__", globals, globals);
+    REQUIRE(globals["result"].cast<py::dict>().size() == 0);
+}
+
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
 {
     mosaic::script::python::ensure_interpreter();

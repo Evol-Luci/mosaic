@@ -49,30 +49,50 @@ const std::unordered_set<std::string>& allowed_modules()
 // paths (which two rounds of allowlist-narrowing already showed doesn't
 // converge), refuse the FIRST hop into any submodule at all, at any depth --
 // a legitimate attribute (a function, class, or constant) still passes
-// through unchanged. Defined once (the class body), reused for every
-// allowed-module import.
+// through unchanged. Defined once (the class body + backing store), reused
+// for every allowed-module import.
+//
+// The wrapped module is deliberately NOT stored as a normal instance
+// attribute (a first version of this fix used `self._mod`, storing it via
+// object.__setattr__ directly into the instance's own __dict__) -- a real,
+// found-during-review bug: __getattr__ is only a FALLBACK for attributes
+// absent from the instance, so `proxy._mod` resolved through ordinary
+// attribute lookup and returned the real, completely unwrapped module,
+// bypassing every check below in one step. Fixed by keeping no module
+// reference on the proxy instance at all: a WeakKeyDictionary keyed by the
+// proxy object itself (auto-cleared when the proxy is garbage collected)
+// holds the mapping instead, so there is no attribute name on the instance
+// for `proxy._mod`-style probing to find -- every name, including ones an
+// attacker might guess, falls through to __getattr__ uniformly. Verified:
+// `proxy._mod`, `proxy.__dict__` (empty), and calling
+// `object.__getattribute__(proxy, '_mod')` directly all correctly fail to
+// reach the real module.
 py::object make_module_proxy(py::object module_obj)
 {
-    static py::object proxy_class = []
+    static py::object wrap_fn = []
     {
         py::dict ns;
         py::exec(
-            "import types\n"
+            "import types, weakref\n"
+            "_module_store = weakref.WeakKeyDictionary()\n"
             "class _RestrictedModuleProxy:\n"
-            "    def __init__(self, mod):\n"
-            "        object.__setattr__(self, '_mod', mod)\n"
             "    def __getattr__(self, name):\n"
-            "        value = getattr(self._mod, name)\n"
+            "        mod = _module_store[self]\n"
+            "        value = getattr(mod, name)\n"
             "        if isinstance(value, types.ModuleType):\n"
             "            raise AttributeError(\n"
             "                'access to ' + repr(name) + ' is not permitted here')\n"
             "        return value\n"
             "    def __setattr__(self, name, value):\n"
-            "        raise AttributeError('this module is read-only here')\n",
+            "        raise AttributeError('this module is read-only here')\n"
+            "def _wrap(mod):\n"
+            "    proxy = _RestrictedModuleProxy()\n"
+            "    _module_store[proxy] = mod\n"
+            "    return proxy\n",
             ns);
-        return ns["_RestrictedModuleProxy"];
+        return ns["_wrap"];
     }();
-    return proxy_class(module_obj);
+    return wrap_fn(module_obj);
 }
 } // namespace
 

@@ -171,6 +171,23 @@ much more easily discoverable module-attribute-graph class this section
 describes — no special Python-internals knowledge required, just reading
 one or two attributes — is now closed, not merely narrowed.
 
+**A fourth round of review found the proxy's own first implementation
+leaked the real module through its own storage.** The wrapped module was
+originally stored as a plain instance attribute (`self._mod`, via
+`object.__setattr__`) — but `__getattr__` is only a *fallback* for
+attributes absent from the instance, so `proxy._mod` resolved through
+ordinary attribute lookup and handed back the real, completely unwrapped
+module, undoing every check above in one guessable step (`json._mod`
+required no cleverness, just reading the implementation or guessing a
+common internal-storage name). Fixed by never storing the module as an
+instance attribute at all: a `weakref.WeakKeyDictionary` keyed by the
+proxy object itself (auto-cleared when the proxy is garbage collected)
+holds the mapping instead, so every attribute name — including `_mod` —
+now genuinely falls through to `__getattr__` uniformly, and
+`object.__getattribute__(proxy, '_mod')` (the lower-level bypass a
+plugin could try next) fails the same way, since there is truly nothing
+there to find.
+
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some
 stdlib operations — observed via `json.dumps()`, which triggers it even
