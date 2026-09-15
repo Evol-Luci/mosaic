@@ -151,3 +151,32 @@ TEST_CASE("remove_package on a package that was never installed succeeds as a no
     const std::filesystem::path project = make_fixture_project("remove_noop");
     REQUIRE(remove_package(project.string(), "never-installed"));
 }
+
+TEST_CASE("remove_package ignores a hand-edited manifest entry that tries to escape plugins/", "[app]")
+{
+    // mosaic.toml is user-editable -- install_package never records anything but a
+    // plain filename, but remove_package must not trust `files` blindly. Simulate a
+    // maliciously/accidentally hand-edited manifest naming a path outside plugins/.
+    const std::filesystem::path project = make_fixture_project("remove_escape");
+    std::ofstream victim(project.parent_path() / "mosaic_pkginstall_test_remove_escape_victim.txt",
+                         std::ios::binary | std::ios::trunc);
+    victim << "do not delete me\n";
+    victim.close();
+
+    std::ofstream manifest(project / "mosaic.toml", std::ios::binary | std::ios::trunc);
+    manifest << "name = \"testproj\"\n"
+                "default_scene = \"scenes/main.json\"\n"
+                "[[installed_plugins]]\n"
+                "name = \"evil\"\n"
+                "version = \"1.0.0\"\n"
+                "files = [\"../mosaic_pkginstall_test_remove_escape_victim.txt\"]\n";
+    manifest.close();
+
+    REQUIRE(remove_package(project.string(), "evil"));
+
+    REQUIRE(std::filesystem::exists(
+        project.parent_path() / "mosaic_pkginstall_test_remove_escape_victim.txt"));
+
+    const auto after = load_manifest(project.string());
+    REQUIRE(after->installed_plugins.empty()); // the manifest entry is still removed
+}

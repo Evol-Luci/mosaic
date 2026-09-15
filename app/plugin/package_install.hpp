@@ -162,6 +162,18 @@ inline bool remove_package(const std::string& project_dir, const std::string& na
     const fs::path plugins_dir = fs::path(project_dir) / kPluginsDir;
     for (const std::string& file : it->files)
     {
+        // `files` comes from mosaic.toml, which a project's owner can hand-edit --
+        // never trust it as a path. install_package only ever records plain
+        // filenames (from a real directory_iterator, which can't contain a
+        // separator), so a `file` that isn't already its own filename() can only
+        // be a hand-crafted manifest entry trying to delete outside plugins/;
+        // skip it rather than following it.
+        if (fs::path(file).filename().string() != file)
+        {
+            mosaic::foundation::log::warn(
+                "plugin", "skipping suspicious tracked file '{}' for package '{}'", file, name);
+            continue;
+        }
         std::error_code rm_ec;
         fs::remove(plugins_dir / file, rm_ec);
     }
