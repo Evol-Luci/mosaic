@@ -19,6 +19,7 @@ GROUPS = [
     ("updates", "updates", "newest-first"),
     ("architecture", "architecture", "alphabetical"),
     ("design", "design", "alphabetical"),
+    ("reference", "reference", "alphabetical"),
     ("rfcs", "rfcs", "alphabetical"),
     ("specs", "superpowers/specs", "oldest-first"),
     ("plans", "superpowers/plans", "oldest-first"),
