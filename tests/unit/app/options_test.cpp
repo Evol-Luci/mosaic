@@ -272,3 +272,35 @@ TEST_CASE("create subcommand without --template leaves it unset", "[cli]")
     REQUIRE_FALSE(pr.exit_code.has_value());
     REQUIRE_FALSE(pr.options.template_name.has_value());
 }
+
+TEST_CASE("plugin list subcommand parses with an optional --source", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "list"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginList);
+    REQUIRE_FALSE(result.options.package_source.has_value());
+
+    auto with_source = parse_args({"mosaic", "plugin", "list", "--source", "/tmp/mypkgs"});
+    REQUIRE(with_source.options.command == mosaic::app::Command::PluginList);
+    REQUIRE(with_source.options.package_source == "/tmp/mypkgs");
+}
+
+TEST_CASE("plugin install subcommand parses name, project, and optional --source", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "install", "widget", "/tmp/myproj"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginInstall);
+    REQUIRE(result.options.plugin_name == "widget");
+    REQUIRE(result.options.plugin_project == "/tmp/myproj");
+    REQUIRE_FALSE(result.options.package_source.has_value());
+}
+
+TEST_CASE("plugin remove subcommand parses name and project", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "remove", "widget", "/tmp/myproj"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginRemove);
+    REQUIRE(result.options.plugin_name == "widget");
+    REQUIRE(result.options.plugin_project == "/tmp/myproj");
+}
+

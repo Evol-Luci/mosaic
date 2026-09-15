@@ -16,6 +16,7 @@
 #include "app/project/project_io.hpp"
 #include "app/run/build.hpp"
 #include "app/run/import.hpp"
+#include "app/run/plugin.hpp"
 #include "app/run/create.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/editor.hpp"
@@ -99,6 +100,21 @@ int main(int argc, char** argv)
     if (pr.options.command == Command::Import)
     {
         return run_import(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginList)
+    {
+        return run_plugin_list(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginInstall)
+    {
+        return run_plugin_install(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginRemove)
+    {
+        return run_plugin_remove(pr.options);
     }
 
     // Smart positional: resolve a project dir / scene file into the scene to load, so run and

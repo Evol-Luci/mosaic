@@ -1256,8 +1256,13 @@ ls /tmp/mosaic_pkgtest_manual/plugins
 Expected: `plugin list` prints `hello-plugin 0.1.0 - A minimal example
 plugin package for mosaic plugin install.`; after `install`, `mosaic.toml`
 shows an `[[installed_plugins]]` table with `name = "hello-plugin"` and
-`plugins/hello.py` exists; after `remove`, the `installed_plugins` table is
-gone from `mosaic.toml` and `plugins/hello.py` no longer exists.
+`plugins/hello.py` exists; after `remove`, `mosaic.toml` shows
+`installed_plugins = []` (an empty array, not an absent key — this is the
+TOML backend's normal empty-vector serialization, verified by hand: it
+still round-trips correctly, matching Task 2's "no installed_plugins key
+deserializes to an empty vector" test, which covers the separate case of a
+manifest written before this feature existed) and `plugins/hello.py` no
+longer exists.
 
 - [ ] **Step 12: Write `docs/design/plugin-packages.md`**
 

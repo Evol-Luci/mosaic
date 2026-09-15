@@ -5,6 +5,7 @@ add_library(mosaic_app STATIC
   run/create.cpp
   run/build.cpp
   run/import.cpp
+  run/plugin.cpp
   asset/font_cook.cpp
   asset/import_plugins.cpp
 )
