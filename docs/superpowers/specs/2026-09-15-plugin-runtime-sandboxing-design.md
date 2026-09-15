@@ -229,6 +229,30 @@ test that `type(json).__getattr__.__globals__` itself raises
 (`AttributeError`: the attribute is simply absent), not just that its
 contents are empty.
 
+**A sixth round found a third leak, one layer removed from the first
+two: a container attribute can hand back real, unwrapped submodules as
+its own contents without the container ITSELF being a module.**
+`getattr()`'s `isinstance<py::module_>` check only rejected the
+attribute value when the value itself was a module — but `__dict__`
+returns the wrapped module's actual namespace dict, which is not a
+module, so it passed straight through; that dict's values include every
+submodule the module imported internally, so `json.__dict__['decoder']`
+reached the real `json.decoder` module (chaining onward to `re`, `sys`,
+etc.) via plain dict subscripting, no attribute access or reflection
+required at all — the exact same bug class the proxy exists to close,
+reached one different way. `__loader__`/`__spec__` are a different kind
+of escape: real importlib objects whose own methods (`exec_module`) can
+execute arbitrary code, not a module leak but no less dangerous. An
+existing regression test's own assertion (`json.__dict__` has size 0)
+was itself wrong — reproduced live, it returned the real dict with 26
+entries, not an empty one; the assertion was checking a property that
+never actually held. Fixed by denying `__dict__`, `__loader__`,
+`__spec__`, and `__builtins__` by name, checked before the
+`isinstance<>` check ever runs — none of the four are attributes a
+sandboxed plugin has any legitimate reason to touch. The incorrect
+assertion was removed and replaced with a dedicated test confirming all
+four are blocked and legitimate use (`json.dumps(...)`) is unaffected.
+
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some
 stdlib operations — observed via `json.dumps()`, which triggers it even
