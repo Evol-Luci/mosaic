@@ -6,17 +6,38 @@
 #include <unordered_map>
 #include <vector>
 
+#include "engine/audio/audio_components.hpp" // AttenuationModel
 #include "modules/audio_miniaudio/miniaudio_backend.hpp"
 
 namespace mosaic::audio::miniaudio
 {
 namespace
 {
+using mosaic::engine::audio::AttenuationExponential;
+using mosaic::engine::audio::AttenuationInverse;
+using mosaic::engine::audio::AttenuationLinear;
+using mosaic::engine::audio::AttenuationNone;
 using mosaic::engine::audio::AudioBackend;
 using mosaic::engine::audio::ListenerState;
 using mosaic::engine::audio::VoiceId;
 using mosaic::foundation::math::Vec3;
 using mosaic::foundation::serialization::AssetID;
+
+// audio::AttenuationModel (int) -> miniaudio's own enum. Values were chosen to
+// match ma_attenuation_model 1:1 (see engine/audio/audio_components.hpp), but this
+// explicit mapping is the single place that contract is load-bearing -- an unknown
+// value falls back to the engine's own default (inverse), never undefined behavior.
+ma_attenuation_model to_ma_attenuation_model(int model)
+{
+    switch (model)
+    {
+        case AttenuationNone:        return ma_attenuation_model_none;
+        case AttenuationLinear:      return ma_attenuation_model_linear;
+        case AttenuationExponential: return ma_attenuation_model_exponential;
+        case AttenuationInverse:
+        default:                     return ma_attenuation_model_inverse;
+    }
+}
 
 class MiniaudioBackend : public AudioBackend
 {
@@ -128,6 +149,18 @@ public:
     {
         auto it = voices_.find(voice);
         return it != voices_.end() && ma_sound_is_playing(&it->second->sound) == MA_TRUE;
+    }
+
+    void set_attenuation(VoiceId voice, int model, float min_distance, float max_distance,
+                         float rolloff) override
+    {
+        if (Voice* v = find(voice))
+        {
+            ma_sound_set_attenuation_model(&v->sound, to_ma_attenuation_model(model));
+            ma_sound_set_min_distance(&v->sound, min_distance);
+            ma_sound_set_max_distance(&v->sound, max_distance);
+            ma_sound_set_rolloff(&v->sound, rolloff);
+        }
     }
 
     void set_listener(const ListenerState& l) override

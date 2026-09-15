@@ -75,6 +75,13 @@ public:
                     st.id    = backend_->play(src.clip, src.gain, src.pitch, src.looping, src.spatial);
                     st.gain  = src.gain;
                     st.pitch = src.pitch;
+                    // Distance attenuation only means something for a positioned voice;
+                    // set once at play time (not re-checked live, unlike gain/pitch above).
+                    if (st.id != 0 && src.spatial)
+                    {
+                        backend_->set_attenuation(st.id, src.attenuation_model, src.min_distance,
+                                                  src.max_distance, src.rolloff);
+                    }
                 }
                 else if (!src.playing && st.was_playing)
                 {

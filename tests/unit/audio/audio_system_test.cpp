@@ -43,6 +43,8 @@ public:
     std::vector<std::pair<VoiceId, Vec3>>  positions;
     bool                                   listener_set = false;
     ListenerState                          listener{};
+    struct AttenuationCall { VoiceId voice; int model; float min_distance; float max_distance; float rolloff; };
+    std::vector<AttenuationCall> attenuations;
 
     VoiceId play(AssetID clip, float gain, float pitch, bool looping, bool spatial) override
     {
@@ -66,6 +68,11 @@ public:
     }
     bool is_playing(VoiceId) const override { return true; }
     void set_listener(const ListenerState& l) override { listener_set = true; listener = l; }
+    void set_attenuation(VoiceId voice, int model, float min_distance, float max_distance,
+                         float rolloff) override
+    {
+        attenuations.push_back(AttenuationCall{voice, model, min_distance, max_distance, rolloff});
+    }
 
 private:
     VoiceId next_voice_ = 1;
@@ -147,6 +154,48 @@ TEST_CASE("AudioSystem pushes a spatial source's position each active tick", "[a
     REQUIRE(fake->positions.back().second.x == Approx(1.0f));
     REQUIRE(fake->positions.back().second.y == Approx(2.0f));
     REQUIRE(fake->positions.back().second.z == Approx(3.0f));
+}
+
+TEST_CASE("AudioSystem sets attenuation for a spatial source on the start edge", "[audio]")
+{
+    World world;
+    auto  backend = std::make_unique<FakeAudioBackend>();
+    auto* fake    = backend.get();
+    world.add_system<AudioSystem>(std::move(backend));
+
+    const auto e = world.create_entity();
+    Transform tf; tf.position = Vec3{1.0f, 2.0f, 3.0f};
+    world.add_component<Transform>(e, tf);
+    AudioSource s;
+    s.playing          = true;
+    s.spatial          = true;
+    s.attenuation_model = mosaic::engine::audio::AttenuationLinear;
+    s.min_distance      = 2.0f;
+    s.max_distance       = 40.0f;
+    s.rolloff            = 1.5f;
+    world.add_component<AudioSource>(e, s);
+
+    world.tick(0.0f);
+    REQUIRE(fake->attenuations.size() == 1);
+    REQUIRE(fake->attenuations[0].model == mosaic::engine::audio::AttenuationLinear);
+    REQUIRE(fake->attenuations[0].min_distance == Approx(2.0f));
+    REQUIRE(fake->attenuations[0].max_distance == Approx(40.0f));
+    REQUIRE(fake->attenuations[0].rolloff == Approx(1.5f));
+}
+
+TEST_CASE("AudioSystem does not set attenuation for a non-spatial source", "[audio]")
+{
+    World world;
+    auto  backend = std::make_unique<FakeAudioBackend>();
+    auto* fake    = backend.get();
+    world.add_system<AudioSystem>(std::move(backend));
+
+    const auto e = world.create_entity();
+    AudioSource s; s.playing = true; s.spatial = false;
+    world.add_component<AudioSource>(e, s);
+
+    world.tick(0.0f);
+    REQUIRE(fake->attenuations.empty());
 }
 
 TEST_CASE("AudioSystem does not position a non-spatial source", "[audio]")
