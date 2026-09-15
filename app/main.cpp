@@ -146,7 +146,9 @@ int main(int argc, char** argv)
 
     if (pr.options.command == Command::Editor)
     {
-        return mosaic::app::run_editor(pr.options);
+        // Real audio device for the editor too -- it's always an interactive window,
+        // the same condition `mosaic run` uses to decide whether to construct one.
+        return mosaic::app::run_editor(pr.options, mosaic::audio::miniaudio::create_miniaudio_backend());
     }
 
     const Options& options = pr.options;
