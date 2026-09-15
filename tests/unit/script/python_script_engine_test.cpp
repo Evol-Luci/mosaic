@@ -60,24 +60,50 @@ TEST_CASE("install_restricted_builtins blocks everything not on the module allow
     }
 }
 
-TEST_CASE("install_restricted_builtins excludes modules that leak os/sys as an attribute", "[script]")
+TEST_CASE("install_restricted_builtins allows random/collections/enum/dataclasses/typing/uuid, but blocks their os/sys attribute leak", "[script]")
 {
-    // A real bug found during final review: random, collections, enum,
+    // A real bug found during review: random, collections, enum,
     // dataclasses, typing, and uuid each do `import os`/`import sys`
     // themselves, so once imported they expose the real, unrestricted os/sys
     // module as a plain attribute (uuid.os, random._os, collections._sys,
-    // enum.sys, dataclasses.sys, typing.sys) -- reachable via attribute
-    // access, which the __import__ restriction below can't intercept at all.
-    // These are excluded from the allowlist entirely rather than trusted.
+    // enum.sys, dataclasses.sys, typing.sys). An earlier fix removed these
+    // modules from the allowlist entirely; the actual fix (make_module_proxy,
+    // see the next test) closes the whole class of leak instead, so these
+    // modules were restored to the allowlist -- useful functionality that
+    // was unnecessarily lost is now safe again.
     mosaic::script::python::ensure_interpreter();
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
 
-    for (const char* mod : {"random", "collections", "enum", "dataclasses", "typing", "uuid"})
-    {
-        REQUIRE_THROWS(py::exec(std::string("import ") + mod, globals));
-    }
+    REQUIRE_NOTHROW(py::exec("import uuid\nuuid.uuid4()", globals));
+    REQUIRE_THROWS(py::exec("import uuid\nuuid.os", globals));
+    REQUIRE_THROWS(py::exec("import random\nrandom._os", globals));
+    REQUIRE_THROWS(py::exec("import collections\ncollections._sys", globals));
+    REQUIRE_THROWS(py::exec("import enum\nenum.sys", globals));
+    REQUIRE_THROWS(py::exec("import dataclasses\ndataclasses.sys", globals));
+    REQUIRE_THROWS(py::exec("import typing\ntyping.sys", globals));
+}
+
+TEST_CASE("install_restricted_builtins closes the module-attribute-graph bug class at any depth", "[script]")
+{
+    // The actual fix for the deeper problem behind both prior findings: an
+    // allowed module is wrapped so any attribute that resolves to another
+    // module object is denied, not just the two specific paths already found
+    // (json.codecs.sys, re.enum.sys). This closes one-hop, two-hop, and any
+    // n-hop variant of the same bug class, since the FIRST hop into any
+    // submodule is refused regardless of how deep a dangerous name sits
+    // beyond it.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    REQUIRE_THROWS(py::exec("import json\njson.codecs", globals));
+    REQUIRE_THROWS(py::exec("import re\nre.enum", globals));
+    // Legitimate, non-module attributes on the same modules must still work.
+    REQUIRE_NOTHROW(py::exec("import json\njson.dumps({'a': 1})", globals));
+    REQUIRE_NOTHROW(py::exec("import re\nre.compile('a+')", globals));
 }
 
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")

@@ -761,20 +761,21 @@ pipeline. This slice raises the bar for the common case — blocks
 `compile()` outright, and blocks `open()` too for Studio plugins
 specifically — without claiming more than that.
 
-**A second, concrete instance of this limitation, found during review,
-not just theorized:** the module allowlist below blocks *direct*
-`import os`/`sys`/etc., but several stdlib modules reach the real `os`/
-`sys` module via their own attribute graph with zero further import
-statements — `uuid.os`, `json.codecs.sys`, `re.enum.sys` all work.
-Modules with a *direct* (one-hop) leak were removed from the allowlist;
-`json`/`re` were kept despite a confirmed *two-hop* leak, because `json`
-is load-bearing shipped functionality and two rounds of "remove the
-leaky module, re-check the rest" already failed to converge — there is
-no reason a third round wouldn't find a leak two hops deeper somewhere
-else. The allowlist blocks casual/accidental misuse; it does not
-withstand a sophisticated, deliberate attacker walking an allowed
-module's attribute graph. See `docs/design/plugin-sandboxing.md`'s
-extended treatment of this below.
+**A second, concrete instance of this limitation was found during
+review, then actually closed (not just documented):** several stdlib
+modules reach the real `os`/`sys` module via their own attribute
+graph with zero further import statements — `uuid.os`, `json.codecs.sys`,
+`re.enum.sys` all worked before the fix below. Rather than keep removing
+individually-discovered leaky modules from the allowlist (two rounds
+already failed to converge — each "clean" subset turned out to have a
+leak one hop deeper), the real fix wraps every module the restricted
+`__import__` hands back in a proxy (`make_module_proxy`) that denies any
+attribute resolving to another module object, at any depth. This closes
+the whole class of bug in one change: all six originally-removed modules
+(`random`, `collections`, `enum`, `dataclasses`, `typing`, `uuid`) were
+restored to the allowlist, since the specific leaky attribute they each
+had is now blocked by the proxy regardless of which module carries it.
+See `docs/design/plugin-sandboxing.md`'s extended treatment below.
 
 ## What's restricted, and where
 
@@ -784,10 +785,16 @@ restricted_builtins.hpp`) removes these builtins entirely: `eval`,
 `help`, `vars`, `globals`, `locals` — plus `open`, unless the caller
 passes `allow_open = true`. It then reinstalls `__import__` as a wrapper
 checking the requested module against an allowlist — `json`, `csv`,
-`math`, `re`, `time`, `datetime`, `itertools`, `functools`, `string`,
-`copy`, `textwrap` — raising `ImportError` for anything else, including
+`math`, `re`, `random`, `time`, `datetime`, `collections`, `itertools`,
+`functools`, `string`, `copy`, `enum`, `dataclasses`, `typing`,
+`textwrap`, `uuid` — raising `ImportError` for anything else, including
 `sys` (deliberately excluded — powerful enough on its own, via
-`sys.modules`/`sys._getframe`, to defeat the point).
+`sys.modules`/`sys._getframe`, to defeat the point). Every allowed
+module is also wrapped in a proxy (`make_module_proxy`) before being
+handed back to the plugin: any attribute access that would resolve to
+another module object is denied, closing the "reach a dangerous module
+via an allowed module's own attribute" bug class at any depth, not just
+the specific paths already found.
 
 This is applied to:
 - **Studio plugins**, unconditionally, `open` blocked

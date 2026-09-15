@@ -132,34 +132,44 @@ arbitrary shell commands, verified directly. This is not a hypothetical:
 it is a second, confirmed instance of the exact same bug class, one hop
 deeper than the first round caught.
 
-**Ruling — stop removing modules, fix the claim instead.** Two rounds of
-"remove the leaky module, re-audit the rest" already found new leaks
-each time; there is no reason to expect a third round (checking every
-remaining module three hops deep) would converge rather than find yet
-another instance — almost every non-trivial stdlib module imports `sys`
-*somewhere* in its own dependency tree, and Python has no module-attribute
-privacy to stop a determined search from finding it. `json` in
-particular is not being removed despite the confirmed leak: it's
-already load-bearing, shipped functionality (the real, checked-in
+**Ruling — stop removing modules one leak at a time; close the whole
+class instead.** Two rounds of "remove the leaky module, re-audit the
+rest" already found new leaks each time, with no reason to expect a
+third round (checking every remaining module three hops deep) would
+converge rather than find yet another instance — almost every
+non-trivial stdlib module imports `sys` *somewhere* in its own
+dependency tree, and Python has no module-attribute privacy to stop a
+determined search from finding it. Removing `json` specifically was
+also unattractive on its own merits: it's load-bearing, shipped
+functionality (the real, checked-in
 `tools/example_plugins/csv_importer.py` importer uses `import csv,
-json` through this exact restricted engine), and the exploit requires a
-specific, deliberate two-hop attribute traversal that no casual or
-accidental misuse would ever produce by accident.
+json` through this exact restricted engine).
 
-**What this means honestly, stated plainly:** the module allowlist
-blocks the *casual or accidental* case — a plugin that writes `import
-os` directly, or stumbles onto a dangerous name by mistake. It does
-**not** withstand a sophisticated, deliberate attacker willing to walk
-the attribute graph of an allowed module looking for a path to `sys`/
-`os` — for `json` and `re` specifically, such a path is now confirmed to
-exist, and it may exist in some of the other 9 modules too (not
-exhaustively re-checked beyond two hops). This is the same category of
-limitation the "An honest limitation" section already opened with — a
-second, concrete, now-verified instance of it, not a new category that
-invalidates the slice's premise. No further allowlist-narrowing rounds
-are planned; the actual hard boundary for a genuinely adversarial plugin
-remains the unscheduled "dynamic sandboxed execution" (OS-level
-isolation) layer named in `docs/design/marketplace.md`.
+**The actual fix: any module handed back by the restricted `__import__`
+is wrapped in a thin proxy (`make_module_proxy`,
+`modules/script_python/restricted_builtins.cpp`) whose `__getattr__`
+denies any attribute that itself resolves to another module object.**
+This closes the *entire class* of bug at any depth in one change,
+rather than patching individual discovered paths: `json.codecs`,
+`re.enum`, and any other submodule-shaped attribute are refused at the
+first hop, so `json.codecs.sys` (or any n-hop variant not yet
+specifically found) can never be reached — the dangerous name is never
+even one attribute away from being blocked. Legitimate, non-module
+attributes (`json.dumps`, `re.compile`, ...) pass through the proxy
+unchanged. Verified: both previously-confirmed exploit paths
+(`json.codecs`, `re.enum`) now raise `AttributeError` at the first hop,
+while `json.dumps({'a': 1})` and `re.compile('a+')` still work normally.
+
+This does **not** close the separately-documented `__subclasses__()`-style
+introspection escape (a different mechanism entirely — reaching a
+dangerous class via the live object graph, not via a module's own
+attributes) — that remains the accepted, out-of-scope limitation this
+slice opened with; real isolation for a genuinely adversarial plugin
+still needs the unscheduled "dynamic sandboxed execution" (OS-level
+isolation) layer named in `docs/design/marketplace.md`. But the specific,
+much more easily discoverable module-attribute-graph class this section
+describes — no special Python-internals knowledge required, just reading
+one or two attributes — is now closed, not merely narrowed.
 
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some

@@ -20,31 +20,59 @@ constexpr const char* kBlockedBuiltins[] = {
     "breakpoint", "exit", "quit", "help", "vars", "globals", "locals",
 };
 
-// A small, conservative set of stdlib modules, NOT a claim of exhaustively
-// verified safety -- see docs/design/plugin-sandboxing.md. A module's *own*
-// top-level code always runs with the real, unrestricted builtins, so any
-// module that itself does `import os`/`import sys` ends up leaking the real
-// module as a plain, reachable attribute (e.g. `uuid.os`), completely
-// bypassing the __import__ restriction below via ordinary attribute access --
-// no further `import` statement needed. Six originally-allowlisted modules
+// A small, conservative set of stdlib modules. A module's *own* top-level
+// code always runs with the real, unrestricted builtins, so a module that
+// itself does `import os`/`import sys` leaks the real module as a plain,
+// reachable attribute (e.g. `uuid.os`) -- six originally-allowlisted modules
 // (random, collections, enum, dataclasses, typing, uuid) were removed after
-// being caught this way at one hop; a second pass then found the SAME class
-// of leak two hops deep in two of the modules kept here (json.codecs.sys,
-// re.enum.sys) -- those were deliberately NOT removed (json especially is
-// load-bearing, shipped functionality), because two rounds of "remove and
-// re-check" already failed to converge and a third would very likely just
-// find another instance rather than close the class of bug. This allowlist
-// blocks casual/accidental misuse (`import os` directly); it does not
-// withstand a sophisticated, deliberate attacker willing to walk an allowed
-// module's attribute graph for a path to sys/os -- that remains an accepted,
-// documented limitation, not a solved problem.
+// being caught this way. A second, deeper instance of the SAME bug class
+// (json.codecs.sys, re.enum.sys, two hops instead of one) was found next --
+// rather than keep narrowing this list one discovered path at a time (which
+// two rounds already showed doesn't converge), the actual fix is
+// make_module_proxy() below: it closes the whole class of "reach a
+// dangerous module via an allowed module's attribute graph" bug at any
+// depth, so this list only needs to name modules worth exposing at all, not
+// modules individually proven leak-free.
 const std::unordered_set<std::string>& allowed_modules()
 {
     static const std::unordered_set<std::string> kAllowed = {
-        "json", "csv", "math", "re", "time", "datetime",
-        "itertools", "functools", "string", "copy", "textwrap",
+        "json",       "csv",        "math",     "re",     "random",
+        "time",       "datetime",   "collections", "itertools", "functools",
+        "string",     "copy",       "enum",     "dataclasses", "typing",
+        "textwrap",   "uuid",
     };
     return kAllowed;
+}
+// Wraps `module` so attribute access that would resolve to ANOTHER module
+// object is denied, closing the whole class of bug found via uuid.os,
+// json.codecs.sys, and re.enum.sys: rather than chase individual dangerous
+// paths (which two rounds of allowlist-narrowing already showed doesn't
+// converge), refuse the FIRST hop into any submodule at all, at any depth --
+// a legitimate attribute (a function, class, or constant) still passes
+// through unchanged. Defined once (the class body), reused for every
+// allowed-module import.
+py::object make_module_proxy(py::object module_obj)
+{
+    static py::object proxy_class = []
+    {
+        py::dict ns;
+        py::exec(
+            "import types\n"
+            "class _RestrictedModuleProxy:\n"
+            "    def __init__(self, mod):\n"
+            "        object.__setattr__(self, '_mod', mod)\n"
+            "    def __getattr__(self, name):\n"
+            "        value = getattr(self._mod, name)\n"
+            "        if isinstance(value, types.ModuleType):\n"
+            "            raise AttributeError(\n"
+            "                'access to ' + repr(name) + ' is not permitted here')\n"
+            "        return value\n"
+            "    def __setattr__(self, name, value):\n"
+            "        raise AttributeError('this module is read-only here')\n",
+            ns);
+        return ns["_RestrictedModuleProxy"];
+    }();
+    return proxy_class(module_obj);
 }
 } // namespace
 
@@ -89,7 +117,7 @@ void install_restricted_builtins(py::dict& globals, bool allow_open)
             }
             py::module_ builtins_mod = py::module_::import("builtins");
             py::object  real_import  = builtins_mod.attr("__import__");
-            return real_import(*args, **kwargs);
+            return make_module_proxy(real_import(*args, **kwargs));
         });
 
     globals["__builtins__"] = restricted;
