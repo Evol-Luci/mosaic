@@ -42,7 +42,8 @@ std::atomic<bool> g_editor_stop{false};
 void on_editor_sigint(int) { g_editor_stop.store(true); }
 } // namespace
 
-int run_editor(const Options& options)
+int run_editor(const Options& options,
+               std::unique_ptr<mosaic::engine::audio::AudioBackend> audio_backend)
 {
     std::unique_ptr<StatusReporter> reporter =
         options.json ? std::unique_ptr<StatusReporter>(std::make_unique<JsonStatusReporter>())
@@ -123,7 +124,8 @@ int run_editor(const Options& options)
     }
     auto render_system =
         setup_runtime(world, asset_registry, reflection,
-                      [] { return mosaic::script::python::create_python_script_engine(); })
+                      [] { return mosaic::script::python::create_python_script_engine(); },
+                      /*host=*/{}, /*script_thread=*/false, std::move(audio_backend))
             .render_system;
 
     if (options.assets_dir)

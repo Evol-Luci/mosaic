@@ -39,5 +39,9 @@ public:
     virtual void    set_voice_position(VoiceId voice, const Vec3& position) = 0;
     virtual bool    is_playing(VoiceId voice) const = 0;
     virtual void    set_listener(const ListenerState& listener) = 0;
+    // Distance-attenuation config for a spatial voice. `model` is an
+    // audio::AttenuationModel value (int, not enum class -- see audio_components.hpp).
+    virtual void    set_attenuation(VoiceId voice, int model, float min_distance,
+                                    float max_distance, float rolloff) = 0;
 };
 } // namespace mosaic::engine::audio

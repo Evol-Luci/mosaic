@@ -82,9 +82,11 @@ TEST_CASE("miniaudio backend voice ops and unknown-voice calls are safe", "[audi
     backend->set_gain(v, 0.5f);
     backend->set_pitch(v, 1.5f);
     backend->set_voice_position(v, Vec3{1.0f, 2.0f, 3.0f});
+    backend->set_attenuation(v, mosaic::engine::audio::AttenuationLinear, 2.0f, 50.0f, 1.5f);
 
     // Unknown / zero voice must be safe.
     backend->set_gain(0, 0.5f);
+    backend->set_attenuation(0, mosaic::engine::audio::AttenuationInverse, 1.0f, 100.0f, 1.0f);
     backend->stop(0);
     REQUIRE_FALSE(backend->is_playing(0));
     REQUIRE_FALSE(backend->is_playing(999999));
