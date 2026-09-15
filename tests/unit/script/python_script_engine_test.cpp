@@ -193,6 +193,47 @@ TEST_CASE("functions returned from allowed modules don't leak the real module vi
     REQUIRE_NOTHROW(py::exec("import uuid\nuuid.uuid4()", globals));
 }
 
+TEST_CASE("a callable's return value is guarded too, closing the factory-function shape of the same leak",
+         "[script]")
+{
+    // A fifth leak, found in the same review pass as the fourth:
+    // CallableProxy::call forwarded its return value completely
+    // unguarded. functools.lru_cache(maxsize=1) is a real, allowed-module
+    // function that returns a fresh, unwrapped closure -- that closure's
+    // __globals__ reaches the real functools namespace exactly the way
+    // json.dumps.__globals__ did before CallableProxy existed. Closed by
+    // running call()'s return value through the same guard_returned_value
+    // used for ordinary attribute access.
+    //
+    // NOT closed by this fix, and not attempted further (see the "honest,
+    // deliberate stopping point" comment above kBlockedReflectionAttrs in
+    // restricted_builtins.cpp): a function that returns a CLASS (e.g.
+    // collections.namedtuple(...)) is unaffected, since a class has
+    // neither __globals__ nor __code__ and so isn't detected as
+    // needing a wrap. Proxying classes was investigated and rejected --
+    // CPython's `except` semantics and operator dispatch make a correct
+    // class/instance proxy impossible, not merely expensive.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    REQUIRE_THROWS(py::exec(
+        "import functools\n"
+        "cached = functools.lru_cache(maxsize=1)\n"
+        "cached.__globals__",
+        globals));
+    // The returned closure must still be usable as a decorator/callable.
+    py::exec(
+        "import functools\n"
+        "@functools.lru_cache(maxsize=1)\n"
+        "def add_one(x):\n"
+        "    return x + 1\n"
+        "result = add_one(41)\n",
+        globals, globals);
+    REQUIRE(globals["result"].cast<int>() == 42);
+}
+
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
 {
     mosaic::script::python::ensure_interpreter();

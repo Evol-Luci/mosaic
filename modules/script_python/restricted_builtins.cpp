@@ -124,6 +124,38 @@ constexpr const char* kBlockedReflectionAttrs[] = {
     "__globals__", "__code__", "__closure__", "__self__", "__func__",
 };
 
+// AN HONEST, DELIBERATE STOPPING POINT, reached after this exact mechanism
+// (wrap the returned value, deny its reflective attributes) converged for
+// modules (leak #1-3 above) but did NOT converge for callables: leak #4 was
+// closed by CallableProxy, leak #5 (this function's return-value guard,
+// see CallableProxy::call) closes the "a callable returns another
+// callable" shape -- but a CLASS returned from an allowed module (e.g.
+// collections.namedtuple(...), which returns a fresh class) has neither
+// __globals__ nor __code__, so it is NOT wrapped, and its methods are real
+// bound methods carrying the same unrestricted __globals__ one hop
+// further out. Proxying classes too was investigated and rejected, not
+// for lack of effort but because CPython makes it impossible to do
+// correctly: `except SomeAllowedException:` uses a hard PyType_Check that
+// does not honor __instancecheck__ (a non-type proxy can never be caught
+// by an except clause -- verified), and making the proxy a literal
+// subclass of the real exception type does not catch instances of the
+// REAL type either (a module that raises the real, un-proxied exception
+// internally would then silently stop being catchable by plugin code --
+// a correctness regression masquerading as a security fix). Proxying the
+// INSTANCES a class constructor returns is separately impossible: Python's
+// special-method dispatch (operators, str(), isinstance(), hashing, ...)
+// bypasses __getattr__ entirely and looks up dunder methods on the type,
+// not the instance, so a forwarding instance proxy silently loses
+// arithmetic, string conversion, and type identity for exactly the kind of
+// object (a real stdlib value) a plugin most needs to use normally. This
+// is the same category of language-fundamental limitation already
+// disclosed for the `__subclasses__()` object-graph escape -- see the
+// design doc's "honest limitation" section for the full disclosure and
+// the audit-hook-based mechanism named as the actual future lever for
+// closing this, which belongs to a larger, distinct, not-yet-scheduled
+// sandboxing slice (OS-level isolation / PEP 578 audit hooks), not this
+// one.
+
 py::object make_callable_proxy(py::object callable_obj);
 py::object make_module_proxy(py::object module_obj);
 
@@ -178,6 +210,15 @@ private:
 // them on modules. __call__ forwards to the real callable unchanged, since
 // invoking json.dumps(...) must still work exactly as before; only
 // attribute access on the returned function object itself is guarded.
+//
+// call()'s RETURN VALUE is guarded too (a fifth leak, found in the same
+// review pass as the fourth): a factory function like
+// functools.lru_cache(maxsize=1) returns a fresh, unwrapped closure whose
+// __globals__ reaches the real module namespace exactly like json.dumps
+// did before this class existed -- guard_returned_value() catches this
+// the same way it catches an ordinary attribute access, since call() sites
+// and getattr() sites both ultimately hand a plugin a value that needs the
+// same scrutiny.
 class CallableProxy
 {
 public:
@@ -185,7 +226,7 @@ public:
 
     py::object call(py::args args, py::kwargs kwargs) const
     {
-        return callable_(*args, **kwargs);
+        return guard_returned_value("<return value>", callable_(*args, **kwargs));
     }
 
     py::object getattr(const std::string& name) const
