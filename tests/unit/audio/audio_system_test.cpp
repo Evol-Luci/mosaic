@@ -7,8 +7,11 @@
 #include "engine/audio/audio_backend.hpp"
 #include "engine/audio/audio_components.hpp"
 #include "engine/audio/audio_system.hpp"
+#include "engine/render/camera.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/math/mat4.hpp"
+#include "foundation/math/quat.hpp"
 #include "foundation/math/vec3.hpp"
 
 using Catch::Approx;
@@ -19,7 +22,12 @@ using mosaic::engine::audio::AudioSource;
 using mosaic::engine::audio::AudioSystem;
 using mosaic::engine::audio::ListenerState;
 using mosaic::engine::audio::VoiceId;
+using mosaic::engine::render::Camera;
 using mosaic::engine::transform::Transform;
+using mosaic::engine::transform::WorldTransform;
+using mosaic::foundation::math::from_axis_angle;
+using mosaic::foundation::math::Mat4;
+using mosaic::foundation::math::Quat;
 using mosaic::foundation::math::Vec3;
 using mosaic::foundation::serialization::AssetID;
 
@@ -193,6 +201,59 @@ TEST_CASE("AudioSystem sets the listener from an AudioListener entity's Transfor
     REQUIRE(fake->listener.position.x == Approx(4.0f));
     REQUIRE(fake->listener.position.y == Approx(5.0f));
     REQUIRE(fake->listener.position.z == Approx(6.0f));
+}
+
+TEST_CASE("AudioSystem defaults listener orientation to -Z-forward/+Y-up with no Camera", "[audio]")
+{
+    World world;
+    auto  backend = std::make_unique<FakeAudioBackend>();
+    auto* fake    = backend.get();
+    world.add_system<AudioSystem>(std::move(backend));
+
+    const auto e = world.create_entity();
+    Transform tf; tf.position = Vec3{0.0f, 0.0f, 0.0f};
+    world.add_component<Transform>(e, tf);
+    world.add_component<AudioListener>(e, AudioListener{});
+
+    world.tick(0.0f);
+    REQUIRE(fake->listener_set == true);
+    REQUIRE(fake->listener.forward.x == Approx(0.0f));
+    REQUIRE(fake->listener.forward.y == Approx(0.0f));
+    REQUIRE(fake->listener.forward.z == Approx(-1.0f));
+    REQUIRE(fake->listener.up.x == Approx(0.0f));
+    REQUIRE(fake->listener.up.y == Approx(1.0f));
+    REQUIRE(fake->listener.up.z == Approx(0.0f));
+}
+
+TEST_CASE("AudioSystem derives listener orientation from the active camera", "[audio]")
+{
+    World world;
+    auto  backend = std::make_unique<FakeAudioBackend>();
+    auto* fake    = backend.get();
+    world.add_system<AudioSystem>(std::move(backend));
+
+    const auto listener_e = world.create_entity();
+    Transform ltf; ltf.position = Vec3{9.0f, 9.0f, 9.0f}; // listener position stays its own Transform
+    world.add_component<Transform>(listener_e, ltf);
+    world.add_component<AudioListener>(listener_e, AudioListener{});
+
+    // A camera yawed 90 degrees about world up: forward rotates from -Z to -X.
+    const auto camera_e = world.create_entity();
+    const Quat yaw90 = from_axis_angle(Vec3{0.0f, 1.0f, 0.0f}, 1.57079632679f);
+    WorldTransform cam_wt; cam_wt.matrix = Mat4::rotation(yaw90);
+    world.add_component<WorldTransform>(camera_e, cam_wt);
+    world.add_component<Camera>(camera_e, Camera{});
+
+    world.tick(0.0f);
+    REQUIRE(fake->listener_set == true);
+    // Position still comes from the listener entity's own Transform, unchanged.
+    REQUIRE(fake->listener.position.x == Approx(9.0f));
+    REQUIRE(fake->listener.position.y == Approx(9.0f));
+    REQUIRE(fake->listener.position.z == Approx(9.0f));
+    // Orientation comes from the camera.
+    REQUIRE(fake->listener.forward.x == Approx(-1.0f).margin(0.001));
+    REQUIRE(fake->listener.forward.y == Approx(0.0f).margin(0.001));
+    REQUIRE(fake->listener.forward.z == Approx(0.0f).margin(0.001));
 }
 
 TEST_CASE("AudioSystem stops a voice when its entity is destroyed", "[audio]")

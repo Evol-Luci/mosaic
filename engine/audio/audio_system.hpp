@@ -8,6 +8,7 @@
 #include "engine/audio/audio_backend.hpp"
 #include "engine/audio/audio_components.hpp"
 #include "engine/ecs/system.hpp"
+#include "engine/render/camera.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -28,7 +29,27 @@ public:
     {
         if (backend_ == nullptr) { return; }
 
-        // Listener: the first entity with AudioListener + Transform.
+        // Orientation: the first entity with a Camera + WorldTransform (same "first
+        // wins" selection RenderSystem::find_active_camera uses); falls back to the
+        // engine's -Z-forward/+Y-up default when no camera exists yet.
+        Vec3 forward{0.0f, 0.0f, -1.0f};
+        Vec3 up{0.0f, 1.0f, 0.0f};
+        bool camera_done = false;
+        world.for_each<render::Camera>(
+            [&](mosaic::foundation::EntityID e, render::Camera&)
+            {
+                if (camera_done) { return; }
+                if (auto* wt = world.get_component<transform::WorldTransform>(e))
+                {
+                    forward     = wt->matrix.forward();
+                    up          = wt->matrix.up();
+                    camera_done = true;
+                }
+            });
+
+        // Listener: the first entity with AudioListener + Transform. Position stays
+        // the listener entity's own (not the camera's); orientation comes from the
+        // active camera above.
         bool listener_done = false;
         world.for_each<AudioListener>(
             [&](mosaic::foundation::EntityID e, AudioListener&)
@@ -36,8 +57,7 @@ public:
                 if (listener_done) { return; }
                 if (auto* tf = world.get_component<transform::Transform>(e))
                 {
-                    backend_->set_listener(ListenerState{tf->position, Vec3{0.0f, 0.0f, -1.0f},
-                                                         Vec3{0.0f, 1.0f, 0.0f}});
+                    backend_->set_listener(ListenerState{tf->position, forward, up});
                     listener_done = true;
                 }
             });
