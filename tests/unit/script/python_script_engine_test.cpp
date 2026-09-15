@@ -60,6 +60,26 @@ TEST_CASE("install_restricted_builtins blocks everything not on the module allow
     }
 }
 
+TEST_CASE("install_restricted_builtins excludes modules that leak os/sys as an attribute", "[script]")
+{
+    // A real bug found during final review: random, collections, enum,
+    // dataclasses, typing, and uuid each do `import os`/`import sys`
+    // themselves, so once imported they expose the real, unrestricted os/sys
+    // module as a plain attribute (uuid.os, random._os, collections._sys,
+    // enum.sys, dataclasses.sys, typing.sys) -- reachable via attribute
+    // access, which the __import__ restriction below can't intercept at all.
+    // These are excluded from the allowlist entirely rather than trusted.
+    mosaic::script::python::ensure_interpreter();
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_restricted_builtins(globals);
+
+    for (const char* mod : {"random", "collections", "enum", "dataclasses", "typing", "uuid"})
+    {
+        REQUIRE_THROWS(py::exec(std::string("import ") + mod, globals));
+    }
+}
+
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
 {
     mosaic::script::python::ensure_interpreter();

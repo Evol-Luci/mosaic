@@ -35,10 +35,13 @@ one of its callers is already plugin code).
   `locals`, plus `open` unless `allow_open = true` — Studio plugins get
   `allow_open = false`, asset importers get `allow_open = true`, since
   reading their source file is their whole job), allowlist for modules
-  (`json`, `csv`, `math`, `re`, `random`,
-  `time`, `datetime`, `collections`, `itertools`, `functools`, `string`,
-  `copy`, `enum`, `dataclasses`, `typing`, `textwrap`, `uuid`) — exact
-  values from the spec, copied verbatim into code, not re-derived.
+  (`json`, `csv`, `math`, `re`, `time`, `datetime`, `itertools`,
+  `functools`, `string`, `copy`, `textwrap` — final review found and
+  fixed a real bypass where `random`/`collections`/`enum`/`dataclasses`/
+  `typing`/`uuid` each leak the real `os`/`sys` module as a direct
+  attribute, e.g. `uuid.os`; those six were removed from the allowlist
+  entirely, see the spec's final section for the empirical audit) —
+  exact values from the spec, copied verbatim into code, not re-derived.
 
 ---
 

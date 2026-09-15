@@ -20,17 +20,24 @@ constexpr const char* kBlockedBuiltins[] = {
     "breakpoint", "exit", "quit", "help", "vars", "globals", "locals",
 };
 
-// A small, conservative set of stdlib modules with no meaningful attack surface
-// on their own. Extend this list (see docs/design/plugin-sandboxing.md) if a real
-// plugin needs something more -- don't work around it by widening the blocklist
-// approach above instead.
+// A small, conservative set of stdlib modules verified (empirically -- see
+// docs/design/plugin-sandboxing.md) to not expose os/sys/subprocess/socket/
+// ctypes as a direct top-level attribute of their own module object. This
+// matters because a module's *own* top-level code always runs with the real,
+// unrestricted builtins (see docs/design/plugin-sandboxing.md's "attribute
+// leak" section) -- many common stdlib modules (random, collections, enum,
+// dataclasses, typing, uuid, all deliberately excluded here) do `import os`/
+// `import sys` themselves and the resulting module ends up reachable as e.g.
+// `uuid.os`, completely bypassing the __import__ restriction below via plain
+// attribute access, which was found and fixed by removing those modules.
+// Extend this list only after the same empirical check (grep the module's own
+// exported attribute names for os/sys/subprocess/socket/ctypes) -- don't
+// re-add on the assumption that "it's stdlib, it's probably fine".
 const std::unordered_set<std::string>& allowed_modules()
 {
     static const std::unordered_set<std::string> kAllowed = {
-        "json",       "csv",        "math",     "re",     "random",
-        "time",       "datetime",   "collections", "itertools", "functools",
-        "string",     "copy",       "enum",     "dataclasses", "typing",
-        "textwrap",   "uuid",
+        "json", "csv", "math", "re", "time", "datetime",
+        "itertools", "functools", "string", "copy", "textwrap",
     };
     return kAllowed;
 }

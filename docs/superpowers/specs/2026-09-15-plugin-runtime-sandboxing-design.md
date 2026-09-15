@@ -94,14 +94,40 @@ for that path, not a claim that file-read access itself is being removed.
 
 `__import__` is then reinstalled as a restricted wrapper: it checks the
 requested top-level module name against a small allowlist (`json`, `csv`,
-`math`, `re`, `random`, `time`, `datetime`, `collections`, `itertools`,
-`functools`, `string`, `copy`, `enum`, `dataclasses`, `typing`,
-`textwrap`, `uuid`) and raises a real Python `ImportError` naming the
+`math`, `re`, `time`, `datetime`, `itertools`, `functools`, `string`,
+`copy`, `textwrap`) and raises a real Python `ImportError` naming the
 blocked module for anything else, otherwise forwarding to the real
 `__import__` unchanged (so `from json import dumps` and `import json`
 both work normally for anything on the allowlist). `sys` is deliberately
 **not** on the allowlist — it's powerful enough (`sys.modules`
 manipulation, `sys._getframe`) to defeat the restriction on its own.
+
+**A real, verified bypass found during final review, not just a
+theoretical concern: several stdlib modules leak `os`/`sys` as a direct
+attribute of themselves.** `random`, `collections`, `enum`, `dataclasses`,
+`typing`, and `uuid` were all originally on the allowlist and all do
+`import os`/`import sys` in their own top-level code — since a module's
+*own* code always runs with the real, unrestricted builtins (this is
+standard CPython behavior: only the *calling* frame's builtins are
+restricted, not an imported module's), the resulting `os`/`sys` module
+object ends up reachable as a plain attribute — `uuid.os`,
+`random._os`, `collections._sys`, `enum.sys`, `dataclasses.sys`,
+`typing.sys` — with **zero further `import` statements**, completely
+bypassing the `__import__` gate via ordinary attribute access. Verified
+directly: `import uuid; uuid.os.system(...)` executes arbitrary shell
+commands. This is a different, much more easily discoverable class of
+gap than the already-accepted `__subclasses__()`-style introspection
+escape — it doesn't require any special knowledge of Python internals,
+just reading one attribute. Fixed by removing all six modules from the
+allowlist and empirically auditing every remaining entry (`dir(module)`
+checked against `os`/`sys`/`subprocess`/`socket`/`ctypes`/related names)
+before keeping it — the 11 modules in the allowlist above are the
+verified-clean subset of the original 17. This check is necessary but
+not proven sufficient (a clean module could still leak something
+transitively through a deeper attribute chain, or a future stdlib
+version could add a new leak) — it narrows the gap, it doesn't close the
+general class of it, consistent with this slice's stated
+defense-in-depth framing throughout.
 
 **`"builtins"` is special-cased, found the hard way during implementation:**
 CPython's own internals call `__import__('builtins', ...)` during some
