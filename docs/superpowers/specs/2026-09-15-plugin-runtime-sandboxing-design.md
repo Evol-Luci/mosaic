@@ -103,6 +103,20 @@ both work normally for anything on the allowlist). `sys` is deliberately
 **not** on the allowlist — it's powerful enough (`sys.modules`
 manipulation, `sys._getframe`) to defeat the restriction on its own.
 
+**`"builtins"` is special-cased, found the hard way during implementation:**
+CPython's own internals call `__import__('builtins', ...)` during some
+stdlib operations — observed via `json.dumps()`, which triggers it even
+though the plugin code never writes `import builtins` itself. Blocking it
+outright breaks otherwise-safe allowlisted code. But the naive fix (let
+`"builtins"` through to the real `__import__`) reopens a trivial full
+bypass: `import builtins; builtins.eval(...)`. The actual fix: `"builtins"`
+resolves to the restricted dict itself (not the real module) — this
+satisfies whatever internal need triggers the call, while both attribute
+access (`builtins.eval`) and subscript access (`builtins['eval']`) on the
+result fail cleanly, since `eval` was already removed from the restricted
+copy. Verified with a permanent regression test asserting both bypass
+shapes fail.
+
 Blocklist over hand-curated allowlist for builtins specifically (as
 opposed to modules, which use an allowlist): CPython ships ~150 builtin
 names: hand-allowlisting risks silently omitting something a legitimate
