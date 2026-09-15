@@ -113,3 +113,35 @@ TEST_CASE("create_project still writes assets/.gitkeep when a template has no as
 
     fs::remove_all(root); fs::remove_all(dir);
 }
+
+TEST_CASE("create_project creates missing parent directories", "[app]")
+{
+    // Regression test: fs::copy only creates the single leaf directory, not the
+    // full chain -- `mosaic create ~/games/mygame` must still work when ~/games
+    // doesn't exist yet, matching the pre-template-mechanism behavior.
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    const std::string top = temp_project_dir("parentmissing");
+    fs::remove_all(top);
+    const std::string dir = (fs::path(top) / "nested" / "project").string();
+
+    REQUIRE_FALSE(fs::exists(top));
+    REQUIRE(create_project(dir, types));
+    REQUIRE(fs::exists(fs::path(dir) / "mosaic.toml"));
+
+    fs::remove_all(top);
+}
+
+TEST_CASE("create_project rejects a template name that would escape templates_root",
+         "[app]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    const std::string dir = temp_project_dir("escape1");
+    fs::remove_all(dir);
+    REQUIRE_FALSE(create_project(dir, types, "../assets"));
+    REQUIRE_FALSE(fs::exists(dir));
+
+    const std::string dir2 = temp_project_dir("escape2");
+    fs::remove_all(dir2);
+    REQUIRE_FALSE(create_project(dir2, types, ""));
+    REQUIRE_FALSE(fs::exists(dir2));
+}

@@ -66,6 +66,18 @@ inline bool create_project(const std::string& dir,
         return false;
     }
 
+    // Reject anything that isn't a plain directory-entry name: an empty name would
+    // resolve to templates_root itself (copying every template in), and a name
+    // containing a path separator or ".."/"." would let --template escape
+    // templates_root entirely (e.g. "--template ../assets").
+    if (template_name.empty() || template_name == "." || template_name == ".." ||
+        template_name.find('/') != std::string::npos ||
+        template_name.find('\\') != std::string::npos)
+    {
+        mosaic::foundation::log::error("project", "invalid template name '{}'", template_name);
+        return false;
+    }
+
     const fs::path template_dir = fs::path(templates_root) / template_name;
     std::error_code exists_ec;
     if (!fs::is_directory(template_dir, exists_ec))
@@ -80,6 +92,19 @@ inline bool create_project(const std::string& dir,
         }
         mosaic::foundation::log::error(
             "project", "unknown template '{}' (available: {})", template_name, available);
+        return false;
+    }
+
+    // Create `dir` (and any missing parent directories -- fs::copy below only
+    // creates the single leaf directory, not the full chain, which is a real
+    // regression from the previous fs::create_directories-based implementation:
+    // `mosaic create ~/games/mygame` must still work when ~/games doesn't exist yet).
+    std::error_code dir_ec;
+    fs::create_directories(dir, dir_ec);
+    if (dir_ec)
+    {
+        mosaic::foundation::log::error("project", "could not create {}: {}", dir, dir_ec.message());
+        std::error_code rmec; fs::remove_all(dir, rmec);
         return false;
     }
 
