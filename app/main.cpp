@@ -123,6 +123,21 @@ int main(int argc, char** argv)
         return run_plugin_remove(pr.options);
     }
 
+    if (pr.options.command == Command::PluginSourceAdd)
+    {
+        return run_plugin_source_add(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginSourceList)
+    {
+        return run_plugin_source_list(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginSourceRemove)
+    {
+        return run_plugin_source_remove(pr.options);
+    }
+
     // Smart positional: resolve a project dir / scene file into the scene to load, so run and
     // editor both feed T2's populate_world through options.scene.
     if (pr.options.open_path)

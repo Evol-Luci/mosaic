@@ -53,6 +53,19 @@ will then refuse to overwrite them as "untracked." This requires a
 mid-install I/O failure to trigger and needs manual cleanup to recover
 from; no rollback/temp-dir-then-rename mechanism exists yet.
 
+## Named sources: `mosaic plugin source {add, list, remove}`
+
+Typing `--source <dir>` every time gets old once a user has their own
+collection of packages. `mosaic plugin source add <name> <path>` registers
+a friendly name for a local directory in a personal registry
+(`~/.config/mosaic/sources.toml` — see
+`docs/design/user-config-directory.md`); `mosaic plugin list --source
+<name>` / `install --source <name>` then resolve that name through the
+registry, falling back to treating the value as a literal path when no
+name matches. `mosaic plugin source list`/`remove` manage the registry.
+Mosaic never runs git itself here — the user clones/pulls their own source
+directory however they like; the registry only remembers where it is.
+
 ## CLI naming: `mosaic plugin`, not `mosaic package`
 
 `mosaic build`'s help text already reads "Package a project into a

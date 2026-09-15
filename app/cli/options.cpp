@@ -117,6 +117,24 @@ ParseResult parse(int argc, char** argv)
     plugin_remove->add_option("name", plugin_remove_name, "Package name")->required();
     plugin_remove->add_option("project", plugin_remove_project, "Project directory")->required();
 
+    CLI::App* plugin_source = plugin->add_subcommand("source", "Manage named local package sources");
+    plugin_source->require_subcommand(1);
+
+    CLI::App* plugin_source_add =
+        plugin_source->add_subcommand("add", "Register a named local package source");
+    std::string plugin_source_add_name;
+    std::string plugin_source_add_path;
+    plugin_source_add->add_option("name", plugin_source_add_name, "Source name")->required();
+    plugin_source_add->add_option("path", plugin_source_add_path, "Local directory path")->required();
+
+    CLI::App* plugin_source_list =
+        plugin_source->add_subcommand("list", "List registered package sources");
+
+    CLI::App* plugin_source_remove =
+        plugin_source->add_subcommand("remove", "Remove a registered package source");
+    std::string plugin_source_remove_name;
+    plugin_source_remove->add_option("name", plugin_source_remove_name, "Source name")->required();
+
     try
     {
         app.parse(argc, argv);
@@ -190,6 +208,30 @@ ParseResult parse(int argc, char** argv)
     if (!plugin_remove_project.empty())
     {
         result.options.plugin_project = plugin_remove_project;
+    }
+    if (plugin_source_add->parsed())
+    {
+        result.options.command = Command::PluginSourceAdd;
+    }
+    if (plugin_source_list->parsed())
+    {
+        result.options.command = Command::PluginSourceList;
+    }
+    if (plugin_source_remove->parsed())
+    {
+        result.options.command = Command::PluginSourceRemove;
+    }
+    if (!plugin_source_add_name.empty())
+    {
+        result.options.source_name = plugin_source_add_name;
+    }
+    if (!plugin_source_remove_name.empty())
+    {
+        result.options.source_name = plugin_source_remove_name;
+    }
+    if (!plugin_source_add_path.empty())
+    {
+        result.options.source_path = plugin_source_add_path;
     }
     if (!import_project_name.empty())
     {
