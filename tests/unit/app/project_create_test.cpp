@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 #include <unistd.h> // ::getpid (unique temp dirs under parallel ctest)
@@ -60,4 +61,55 @@ TEST_CASE("create_project refuses to overwrite an existing directory", "[app]")
     REQUIRE_FALSE(fs::exists(fs::path(dir) / "mosaic.toml")); // nothing written
 
     fs::remove_all(dir);
+}
+
+TEST_CASE("create_project fails cleanly for an unknown template name", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    const std::string dir = temp_project_dir("badtemplate");
+    fs::remove_all(dir);
+
+    REQUIRE_FALSE(create_project(dir, types, "does-not-exist"));
+    REQUIRE_FALSE(fs::exists(dir));
+}
+
+TEST_CASE("create_project copies a template's assets/ and plugins/ content", "[app]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    const std::string root = temp_project_dir("tmplroot");
+    fs::remove_all(root);
+    fs::create_directories(fs::path(root) / "mine" / "scenes");
+    fs::create_directories(fs::path(root) / "mine" / "assets");
+    fs::create_directories(fs::path(root) / "mine" / "plugins");
+    std::ofstream(fs::path(root) / "mine" / "scenes" / "main.json") << "{\"entities\":[]}";
+    std::ofstream(fs::path(root) / "mine" / "assets" / "note.txt") << "hello";
+    std::ofstream(fs::path(root) / "mine" / "plugins" / "hook.py") << "MOSAIC_MENU_ITEMS = {}\n";
+
+    const std::string dir = temp_project_dir("fromtmpl");
+    fs::remove_all(dir);
+    REQUIRE(create_project(dir, types, "mine", root));
+
+    REQUIRE(fs::exists(fs::path(dir) / "scenes" / "main.json"));
+    REQUIRE(fs::exists(fs::path(dir) / "assets" / "note.txt"));
+    REQUIRE(fs::exists(fs::path(dir) / "plugins" / "hook.py"));
+    REQUIRE(fs::exists(fs::path(dir) / "mosaic.toml")); // always freshly generated
+
+    fs::remove_all(root); fs::remove_all(dir);
+}
+
+TEST_CASE("create_project still writes assets/.gitkeep when a template has no assets/",
+         "[app]")
+{
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    const std::string root = temp_project_dir("tmplroot2");
+    fs::remove_all(root);
+    fs::create_directories(fs::path(root) / "bare" / "scenes");
+    std::ofstream(fs::path(root) / "bare" / "scenes" / "main.json") << "{\"entities\":[]}";
+
+    const std::string dir = temp_project_dir("fromtmpl2");
+    fs::remove_all(dir);
+    REQUIRE(create_project(dir, types, "bare", root));
+    REQUIRE(fs::exists(fs::path(dir) / "assets" / ".gitkeep"));
+
+    fs::remove_all(root); fs::remove_all(dir);
 }
