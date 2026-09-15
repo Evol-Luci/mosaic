@@ -29,9 +29,11 @@ similar) — this is exactly the "dynamic sandboxed execution" layer
 `docs/design/marketplace.md` already named as a distinct, harder,
 unscheduled piece of the future marketplace review pipeline. This slice
 raises the bar for the common case (blocks the obvious `import os;
-os.system(...)` attack, blocks accidental misuse, blocks `open()`/`eval()`
-outright) without claiming to solve the general problem. Documented here so
-it's never mistaken for more than it is.
+os.system(...)` attack, blocks accidental misuse, blocks `eval()`/`exec()`
+outright, and blocks `open()` too for Studio plugins specifically — asset
+importers keep it, since reading their source file is their whole job)
+without claiming to solve the general problem. Documented here so it's
+never mistaken for more than it is.
 
 ## Scope: plugins/importers only, not gameplay scripts
 
@@ -59,7 +61,7 @@ production and test code.
 ## Mechanism: `install_restricted_builtins`
 
 A new function, `mosaic::script::python::install_restricted_builtins(
-pybind11::dict& globals)` (new file
+pybind11::dict& globals, bool allow_open = false)` (new file
 `modules/script_python/restricted_builtins.hpp`/`.cpp`, in the existing
 `mosaic_script_python` module — no new module needed, both
 `PythonScriptEngine` and `StudioPluginScriptEngine` already depend on this
@@ -67,10 +69,28 @@ one), replaces `globals["__builtins__"]` with a **copy** of the real
 builtins dict (via Python's own `.copy()` — never alias the live
 `builtins.__dict__`, which would mutate it process-wide for every other
 engine including gameplay scripts) with a small blocklist removed:
-`open`, `eval`, `exec`, `compile`, `__import__`, `input`, `breakpoint`,
-`exit`, `quit`, `help`, `vars`, `globals`, `locals`. Everything else stays
-— including exception types (needed for `try`/`except` to work at all) and
-`__build_class__` (needed for `class Foo:` statements to compile and run).
+`eval`, `exec`, `compile`, `__import__`, `input`, `breakpoint`, `exit`,
+`quit`, `help`, `vars`, `globals`, `locals`, and — unless `allow_open` is
+set — `open`. Everything else stays — including exception types (needed
+for `try`/`except` to work at all) and `__build_class__` (needed for
+`class Foo:` statements to compile and run).
+
+**`allow_open` exists because asset importers' entire purpose is reading
+their source file.** `MOSAIC_IMPORTERS` functions receive a source path
+and are expected to do their own file I/O — the real, already-shipped
+`tools/example_plugins/csv_importer.py` does exactly
+`with open(source_path) as f: ...`. Blocking `open()` for import plugins
+wouldn't secure anything; it would break the feature entirely. Studio
+plugins (menu items/panels) have no such legitimate need — their job is
+UI/gameplay manipulation via `get_component`/`set_component`/`imgui_*`,
+never reading arbitrary files — so `open` stays blocked for them
+(`allow_open` defaults to `false`, used unconditionally in
+`StudioPluginScriptEngine`; `PythonScriptEngine`'s restricted mode passes
+`allow_open = true`, since it's used only for import plugins — see
+Scope). This is not a new gap: import plugins can already read arbitrary
+files today (unrestricted); this slice's `os`/`subprocess`/`socket`/
+`ctypes`/`eval`/`exec` restrictions are the actual security improvement
+for that path, not a claim that file-read access itself is being removed.
 
 `__import__` is then reinstalled as a restricted wrapper: it checks the
 requested top-level module name against a small allowlist (`json`, `csv`,
@@ -133,14 +153,17 @@ every safe name.
 
 - **`python_script_engine_test.cpp`**: an unrestricted engine
   (`create_python_script_engine()`) can `import os`/`open`/`eval` — a
-  regression guard proving gameplay scripts are genuinely untouched. A
-  restricted engine (`create_restricted_python_script_engine()`) fails
-  (`ok=false`, error mentions the module name) on `import os`,
-  `import subprocess`, `import socket`, `import ctypes`, `import sys`,
-  bare `open(...)`, bare `eval(...)`, bare `exec(...)` — each its own
-  case, asserting the specific attempted operation and error content, not
-  a single blanket check. A restricted engine can still: `print`,
-  raise/catch a built-in exception (`try: 1/0 \n except
+  regression guard proving gameplay scripts are genuinely untouched. The
+  import-plugin-restricted engine (`create_restricted_python_script_engine()`,
+  `allow_open = true`) fails (`ok=false`, error mentions the module name)
+  on `import os`, `import subprocess`, `import socket`, `import ctypes`,
+  `import sys`, bare `eval(...)`, bare `exec(...)` — each its own case —
+  but **can** still call `open(...)` (that's the whole point of
+  `allow_open`). A regression case confirms this explicitly: `open`
+  succeeds on the import-restricted engine but is confirmed blocked on the
+  Studio-plugin-restricted engine (`allow_open = false`), so the two
+  profiles aren't accidentally identical. Both restricted profiles can
+  still: `print`, raise/catch a built-in exception (`try: 1/0 \n except
   ZeroDivisionError: ...`), define a class (`class Foo: pass` —
   regression guard on `__build_class__`), and `import json`/`import math`
   and use them successfully.
