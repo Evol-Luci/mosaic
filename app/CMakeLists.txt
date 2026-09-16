@@ -9,6 +9,7 @@ add_library(mosaic_app STATIC
   run/plugin.cpp
   asset/font_cook.cpp
   asset/import_plugins.cpp
+  plugin/git.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine

@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "app/plugin/git.hpp"
 #include "app/run/scene_io.hpp" // load_scene_file / save_scene_file
 #include "foundation/logging/log.hpp"
 #include "foundation/serialization/reference.hpp"     // SerializationError
@@ -17,13 +18,17 @@ namespace mosaic::app
 {
 
 // One registered named source: a friendly name -> a local filesystem path holding
-// packages (see app/plugin/package_source.hpp's list_packages/find_package). Mosaic
-// never runs git itself -- the user clones/pulls that path however they like; this
-// registry only remembers where it is.
+// packages (see app/plugin/package_source.hpp's list_packages/find_package). When
+// git_url is non-empty, this is a git-backed source and Mosaic runs git itself
+// (clone on add, pull on demand -- see app/plugin/git.hpp/.cpp); when git_url is
+// empty, this is a plain local-path source and Mosaic never touches it with git --
+// the user clones/pulls that path however they like, and this registry only
+// remembers where it is.
 struct NamedSource
 {
     std::string name;
     std::string path;
+    std::string git_url; // empty = a plain local-path source (today's behavior)
 };
 
 template <class V>
@@ -31,6 +36,7 @@ void reflect(V& v, NamedSource& s)
 {
     v.member("name", s.name);
     v.member("path", s.path);
+    v.member("git_url", s.git_url);
 }
 
 // The persisted contents of <user_config_dir>/sources.toml.
@@ -145,8 +151,91 @@ inline bool add_named_source(const std::string& name, const std::string& path,
     return save_sources_registry(registry, registry_path);
 }
 
-// Removes `name` if present. Not registered is not an error -- returns true, a no-op
-// (matches remove_package's precedent).
+// True if `name` is safe to use as a single path component under
+// user_config_dir()/sources/ -- rejects anything empty, containing a path
+// separator or "..", or starting with "." or "-" (the latter to avoid a name
+// that could be mistaken for a flag by some downstream tool). This is the
+// only thing standing between a hostile --name value and a
+// std::filesystem::remove_all() call outside ~/.config/mosaic/sources/, so it
+// must run before `dest` is ever constructed.
+inline bool is_safe_source_name(const std::string& name)
+{
+    if (name.empty())
+    {
+        return false;
+    }
+    if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos)
+    {
+        return false;
+    }
+    if (name.find("..") != std::string::npos)
+    {
+        return false;
+    }
+    if (name.front() == '.' || name.front() == '-')
+    {
+        return false;
+    }
+    return true;
+}
+
+// Clones `url` into user_config_dir()/sources/<name>/ and registers it. Fails
+// (nothing written to the registry, nothing left on disk) if `name` isn't a
+// safe single path component, is already registered, or the clone
+// destination already exists, or the clone itself fails, or the registry
+// write itself fails (in which case the fresh clone is deleted too, on a
+// best-effort basis).
+inline bool add_named_source_from_git(
+    const std::string& name, const std::string& url,
+    const std::filesystem::path& registry_path = sources_registry_path())
+{
+    if (!is_safe_source_name(name))
+    {
+        mosaic::foundation::log::error(
+            "plugin", "'{}' is not a valid source name (must not be empty, contain '/' or "
+                      "'..', or start with '.' or '-')",
+            name);
+        return false;
+    }
+
+    SourcesRegistry registry = load_sources_registry(registry_path);
+    for (const NamedSource& s : registry.sources)
+    {
+        if (s.name == name)
+        {
+            mosaic::foundation::log::error(
+                "plugin", "source '{}' is already registered (path: {})", name, s.path);
+            return false;
+        }
+    }
+
+    const std::filesystem::path dest = user_config_dir() / "sources" / name;
+    const GitResult             result = git_clone(url, dest);
+    if (!result.ok)
+    {
+        mosaic::foundation::log::error("plugin", "git clone of '{}' failed: {}", url, result.output);
+        return false;
+    }
+
+    registry.sources.push_back(NamedSource{name, dest.string(), url});
+    if (!save_sources_registry(registry, registry_path))
+    {
+        // Best-effort cleanup: don't leave the fresh clone orphaned on disk when
+        // we can't record it in the registry.
+        std::error_code ec;
+        std::filesystem::remove_all(dest, ec);
+        return false;
+    }
+    return true;
+}
+
+// Removes `name` if present. Not registered is not an error -- returns true, a
+// no-op. For a git-backed source, also deletes its clone directory (Mosaic's
+// own artifact, not the user's data -- see docs/superpowers/specs/
+// 2026-09-15-git-backed-package-sources-design.md for why this differs from a
+// plain local-path source, whose directory is never touched). A deletion
+// failure only logs a warning -- the registry write is the operation that
+// matters, matching add_named_source's existing precedent.
 inline bool remove_named_source(const std::string& name,
                                 const std::filesystem::path& registry_path = sources_registry_path())
 {
@@ -158,8 +247,51 @@ inline bool remove_named_source(const std::string& name,
         mosaic::foundation::log::info("plugin", "source '{}' is not registered", name);
         return true;
     }
+    const bool        is_git_backed = !it->git_url.empty();
+    const std::string clone_path    = it->path;
     registry.sources.erase(it);
-    return save_sources_registry(registry, registry_path);
+    const bool saved = save_sources_registry(registry, registry_path);
+    if (is_git_backed)
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(clone_path, ec);
+        if (ec)
+        {
+            mosaic::foundation::log::warn(
+                "plugin", "could not remove clone directory {}: {}", clone_path, ec.message());
+        }
+    }
+    return saved;
+}
+
+// Runs `git pull` on the named source's clone directory. Fails if `name`
+// isn't registered, or is registered but not git-backed (git_url empty -- a
+// plain local-path source has nothing to pull).
+inline bool pull_named_source(
+    const std::string& name, const std::filesystem::path& registry_path = sources_registry_path())
+{
+    const SourcesRegistry registry = load_sources_registry(registry_path);
+    auto it = std::find_if(registry.sources.begin(), registry.sources.end(),
+                           [&](const NamedSource& s) { return s.name == name; });
+    if (it == registry.sources.end())
+    {
+        mosaic::foundation::log::error("plugin", "source '{}' is not registered", name);
+        return false;
+    }
+    if (it->git_url.empty())
+    {
+        mosaic::foundation::log::error(
+            "plugin", "source '{}' is not git-backed (path: {})", name, it->path);
+        return false;
+    }
+    const GitResult result = git_pull(it->path);
+    if (!result.ok)
+    {
+        mosaic::foundation::log::error(
+            "plugin", "git pull for source '{}' failed: {}", name, result.output);
+        return false;
+    }
+    return true;
 }
 
 // Every registered named source, in registration order.

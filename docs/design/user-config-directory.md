@@ -35,14 +35,16 @@ would naturally live here rather than reinventing a location each time:
   (`docs/design/marketplace.md`, still planning-only) exists, a personal
   API token or similar credential for submitting packages would belong
   here, not in any project file.
-- **A local cache of pulled repositories** — if a future slice teaches
-  Mosaic to actually run `git clone`/`git pull` itself (today it
-  deliberately doesn't — `mosaic plugin source add` only registers a path
-  the user already manages themselves), the cloned working copies
-  themselves would sensibly live under `~/.cache/mosaic/` (the sibling XDG
-  cache directory, `$XDG_CACHE_HOME` — a separate resolution rule from
-  `user_config_dir()`, not proposed as work here, just noted as the
-  natural pairing).
+- **A local cache of pulled repositories** — this has since shipped:
+  `mosaic plugin source add <name> <git-url>` now has Mosaic run `git
+  clone`/`git pull` itself (see `app/plugin/git.hpp`/`.cpp`). Rather than the
+  sibling XDG cache directory (`$XDG_CACHE_HOME`, e.g. `~/.cache/mosaic/`)
+  speculated here, the clones live under `~/.config/mosaic/sources/<name>/`
+  — a subdirectory of this same user-config directory. See the design
+  spec's "Cache location" section for the rationale: this codebase has no
+  existing cache-dir concept, so introducing one as a side effect would
+  have meant two new user-level directory concepts riding in on one
+  feature instead of one.
 - **License/registration state** — this repo ships both an open license
   and `LICENSE.commercial.md`; if commercial-licensed features ever need a
   local activation record, this is the natural place, not a project file.

@@ -96,6 +96,13 @@ inline std::vector<PackageInfo> list_packages(const std::string& source_dir)
         {
             continue;
         }
+        // Skip dotfile/dotdir entries silently -- a git-backed source always
+        // has a ".git" subdirectory, which isn't a package and shouldn't warn
+        // on every listing.
+        if (entry.path().filename().string().starts_with('.'))
+        {
+            continue;
+        }
         const std::optional<PackageManifest> m = load_package_manifest(entry.path());
         if (!m)
         {
