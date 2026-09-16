@@ -12,7 +12,7 @@ ParseResult parse(int argc, char** argv)
     ParseResult result;
 
     CLI::App app{"Mosaic engine runner"};
-    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, `import`, `docs`, or `plugin`)
+    app.require_subcommand(1); // exactly one subcommand (`run`, `editor`, `create`, `build`, `import`, `docs`, `plugin`, or `mcp`)
 
     CLI::App* run = app.add_subcommand("run", "Run a world in real time");
 
@@ -91,6 +91,10 @@ ParseResult parse(int argc, char** argv)
     CLI::App* import = app.add_subcommand("import", "Import an asset file into a project");
     import->add_option("project", import_project_name, "Project directory")->required();
     import->add_option("file", import_file_name, "Source asset file (PPM image)")->required();
+
+    CLI::App* mcp = app.add_subcommand("mcp", "Run an MCP (Model Context Protocol) server for a project");
+    std::string mcp_project_name;
+    mcp->add_option("project", mcp_project_name, "Project directory to open")->required();
 
     CLI::App* docs = app.add_subcommand("docs", "Generate the built-in component reference (docs/reference/components.md)");
 
@@ -175,6 +179,14 @@ ParseResult parse(int argc, char** argv)
     if (import->parsed())
     {
         result.options.command = Command::Import;
+    }
+    if (mcp->parsed())
+    {
+        result.options.command = Command::Mcp;
+    }
+    if (!mcp_project_name.empty())
+    {
+        result.options.mcp_project = mcp_project_name;
     }
     if (docs->parsed())
     {

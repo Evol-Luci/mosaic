@@ -1,0 +1,64 @@
+#include "app/run/mcp.hpp"
+
+#include <filesystem>
+#include <iostream>
+#include <optional>
+#include <string>
+
+#include "app/mcp/mcp_protocol.hpp"
+#include "app/mcp/mcp_tools.hpp"
+#include "app/project/project.hpp"
+#include "app/project/project_io.hpp"
+#include "app/run/scene_load.hpp"
+#include "engine/reflection/builtin_components.hpp"
+#include "engine/reflection/component_reflection.hpp"
+#include "engine/world/world.hpp"
+#include "foundation/commands/command_stack.hpp"
+#include "foundation/logging/log.hpp"
+#include "foundation/reflection/type_registry.hpp"
+
+namespace mosaic::app
+{
+int run_mcp(const Options& options)
+{
+    if (!options.mcp_project)
+    {
+        mosaic::foundation::log::error("mcp", "no project directory given");
+        return 1;
+    }
+    const std::string& project_dir = *options.mcp_project;
+
+    const std::optional<ProjectManifest> manifest = load_manifest(project_dir);
+    if (!manifest)
+    {
+        mosaic::foundation::log::error("mcp", "not a Mosaic project (no mosaic.toml): {}", project_dir);
+        return 1;
+    }
+    const std::string scene_path =
+        (std::filesystem::path(project_dir) / manifest->default_scene).string();
+
+    mosaic::foundation::reflection::TypeRegistry registry;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(registry, types);
+
+    mosaic::engine::World world;
+    mosaic::foundation::commands::CommandStack stack;
+
+    Options load_options;
+    load_options.scene = scene_path;
+    if (!populate_world(world, load_options, types))
+    {
+        mosaic::foundation::log::error("mcp", "failed to load scene: {}", scene_path);
+        return 1;
+    }
+
+    const mcp::ToolDispatch dispatch =
+        [&](const std::string& tool_name, const nlohmann::json& arguments) -> nlohmann::json
+    { return mcp::handle_tool_call(world, types, stack, scene_path, tool_name, arguments); };
+
+    mosaic::foundation::log::info("mcp", "serving project {} ({} entities)", project_dir,
+                                  world.entity_count());
+    mcp::run_stdio_loop(std::cin, std::cout, dispatch);
+    return 0;
+}
+} // namespace mosaic::app

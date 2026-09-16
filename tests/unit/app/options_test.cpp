@@ -343,3 +343,20 @@ TEST_CASE("plugin source pull subcommand parses name", "[cli]")
     REQUIRE(result.options.source_name == "mine");
 }
 
+TEST_CASE("mcp parses project directory into Command::Mcp", "[cli]")
+{
+    const char* argv[] = {"mosaic", "mcp", "/tmp/some-project"};
+    mosaic::app::ParseResult pr = mosaic::app::parse(3, const_cast<char**>(argv));
+    REQUIRE_FALSE(pr.exit_code.has_value());
+    REQUIRE(pr.options.command == mosaic::app::Command::Mcp);
+    REQUIRE(pr.options.mcp_project.has_value());
+    REQUIRE(*pr.options.mcp_project == "/tmp/some-project");
+}
+
+TEST_CASE("mcp without a project directory is rejected", "[cli]")
+{
+    const char* argv[] = {"mosaic", "mcp"};
+    mosaic::app::ParseResult pr = mosaic::app::parse(2, const_cast<char**>(argv));
+    REQUIRE(pr.exit_code.has_value());
+}
+

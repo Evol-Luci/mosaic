@@ -16,6 +16,7 @@
 #include "app/project/project_io.hpp"
 #include "app/run/build.hpp"
 #include "app/run/import.hpp"
+#include "app/run/mcp.hpp"
 #include "app/run/plugin.hpp"
 #include "app/run/create.hpp"
 #include "app/run/docs.hpp"
@@ -141,6 +142,11 @@ int main(int argc, char** argv)
     if (pr.options.command == Command::PluginSourcePull)
     {
         return run_plugin_source_pull(pr.options);
+    }
+
+    if (pr.options.command == Command::Mcp)
+    {
+        return run_mcp(pr.options);
     }
 
     // Smart positional: resolve a project dir / scene file into the scene to load, so run and
