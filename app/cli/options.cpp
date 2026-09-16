@@ -117,7 +117,7 @@ ParseResult parse(int argc, char** argv)
     plugin_remove->add_option("name", plugin_remove_name, "Package name")->required();
     plugin_remove->add_option("project", plugin_remove_project, "Project directory")->required();
 
-    CLI::App* plugin_source = plugin->add_subcommand("source", "Manage named local package sources");
+    CLI::App* plugin_source = plugin->add_subcommand("source", "Manage named package sources");
     plugin_source->require_subcommand(1);
 
     CLI::App* plugin_source_add = plugin_source->add_subcommand(
