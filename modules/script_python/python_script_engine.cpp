@@ -16,6 +16,7 @@
 #include "engine/script/script_context.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
+#include "modules/script_python/restricted_builtins.hpp"
 #include "modules/script_python/value_marshal.hpp"
 #include "modules/script_python/world_globals.hpp"
 
@@ -71,11 +72,21 @@ class PythonScriptEngine final
     , public mosaic::engine::script::ScriptEngine
 {
 public:
-    PythonScriptEngine()
+    explicit PythonScriptEngine(bool restricted = false)
     {
         // Interpreter is already running (InterpreterInit ran first).
-        // Give the namespace access to builtins (print, etc.).
-        globals_["__builtins__"] = py::module_::import("builtins");
+        if (restricted)
+        {
+            // allow_open=true: this constructor path is only ever reached via
+            // create_restricted_python_script_engine(), used exclusively for asset
+            // importers, whose entire purpose is reading their own source file.
+            install_restricted_builtins(globals_, /*allow_open=*/true);
+        }
+        else
+        {
+            // Give the namespace access to builtins (print, etc.).
+            globals_["__builtins__"] = py::module_::import("builtins");
+        }
     }
 
     mosaic::engine::script::ScriptResult run_string(const std::string& code) override
@@ -343,5 +354,10 @@ private:
 std::unique_ptr<mosaic::engine::script::ScriptEngine> create_python_script_engine()
 {
     return std::make_unique<PythonScriptEngine>();
+}
+
+std::unique_ptr<mosaic::engine::script::ScriptEngine> create_restricted_python_script_engine()
+{
+    return std::make_unique<PythonScriptEngine>(/*restricted=*/true);
 }
 } // namespace mosaic::script::python

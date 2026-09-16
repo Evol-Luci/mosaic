@@ -94,7 +94,7 @@ import_asset(const std::string& project_dir, const std::string& source_file)
     }
     else
     {
-        ImportPluginHost import_plugins(mosaic::script::python::create_python_script_engine);
+        ImportPluginHost import_plugins(mosaic::script::python::create_restricted_python_script_engine);
         for (const std::string& err : import_plugins.load((fs::path(project_dir) / "plugins").string()))
         {
             mosaic::foundation::log::warn("import", "plugin: {}", err);

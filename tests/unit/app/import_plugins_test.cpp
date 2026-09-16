@@ -11,6 +11,7 @@
 using mosaic::app::ImportPluginHost;
 using mosaic::app::PluginImporter;
 using mosaic::script::python::create_python_script_engine;
+using mosaic::script::python::create_restricted_python_script_engine;
 
 namespace
 {
@@ -86,6 +87,59 @@ TEST_CASE("ImportPluginHost treats a non-string function name as a load error", 
     REQUIRE(host.importers().empty());
 
     fs::remove_all(dir);
+}
+
+TEST_CASE("ImportPluginHost with the restricted factory rejects os but still allows reading its own source file",
+         "[app]")
+{
+    // Regression coverage that the sandboxing restriction (Task 1-2 of
+    // this plan) behaves correctly when driven through ImportPluginHost
+    // specifically -- real plugin file discovery + invoke(), not just
+    // run_string() directly (already covered at that lower level by
+    // tests/unit/script/python_script_engine_test.cpp). asset_io.hpp's
+    // production construction site uses this same restricted factory.
+    const fs::path dir = make_plugin_dir("restricted_ok");
+    write_file(dir / "csv_importer.py",
+        "MOSAIC_IMPORTERS = {\".csv\": \"import_csv\"}\n\n"
+        "def import_csv(source_path):\n"
+        "    with open(source_path) as f:\n"
+        "        return f.read().upper()\n");
+    const fs::path source = make_plugin_dir("restricted_ok_src") / "data.csv";
+    write_file(source, "a,b,c\n");
+
+    ImportPluginHost host(create_restricted_python_script_engine);
+    REQUIRE(host.load(dir.string()).empty());
+    const auto* found = host.find_importer(".csv");
+    REQUIRE(found != nullptr);
+    const auto result = host.invoke(*found, source.string());
+    REQUIRE(result.blob.has_value());
+    REQUIRE(*result.blob == "A,B,C\n");
+
+    fs::remove_all(dir);
+    fs::remove_all(source.parent_path());
+}
+
+TEST_CASE("ImportPluginHost with the restricted factory rejects an os import", "[app]")
+{
+    const fs::path dir = make_plugin_dir("restricted_evil");
+    write_file(dir / "evil.py",
+        "MOSAIC_IMPORTERS = {\".evil\": \"do_evil\"}\n\n"
+        "def do_evil(source_path):\n"
+        "    import os\n"
+        "    return os.listdir('.')\n");
+    const fs::path source = make_plugin_dir("restricted_evil_src") / "data.evil";
+    write_file(source, "x\n");
+
+    ImportPluginHost host(create_restricted_python_script_engine);
+    REQUIRE(host.load(dir.string()).empty()); // the file itself loads fine -- only the os usage fails
+    const auto* found = host.find_importer(".evil");
+    REQUIRE(found != nullptr);
+    const auto result = host.invoke(*found, source.string());
+    REQUIRE_FALSE(result.blob.has_value());
+    REQUIRE_FALSE(result.error.empty());
+
+    fs::remove_all(dir);
+    fs::remove_all(source.parent_path());
 }
 
 TEST_CASE("ImportPluginHost invoke fails when the function raises", "[app]")

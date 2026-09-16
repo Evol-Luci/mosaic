@@ -130,6 +130,8 @@ add_executable(mosaic_unit_tests
   unit/script/script_profiler_test.cpp
   unit/script/script_debugger_test.cpp
   unit/script/script_debug_engine_test.cpp
+  unit/script/python_script_engine_test.cpp
+  unit/script/studio_plugin_script_engine_test.cpp
   unit/animation/animation_clip_test.cpp
   unit/animation/animation_player_test.cpp
   unit/animation/animation_system_test.cpp
