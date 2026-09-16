@@ -56,6 +56,7 @@ add_executable(mosaic_unit_tests
   unit/logging/log_thread_safety_test.cpp
   unit/app/options_test.cpp
   unit/app/component_reference_test.cpp
+  unit/app/scripting_globals_reference_test.cpp
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
   unit/app/demo_scene_test.cpp
@@ -133,6 +134,7 @@ add_executable(mosaic_unit_tests
   unit/script/script_debug_engine_test.cpp
   unit/script/python_script_engine_test.cpp
   unit/script/studio_plugin_script_engine_test.cpp
+  unit/script/imgui_globals_test.cpp
   unit/animation/animation_clip_test.cpp
   unit/animation/animation_player_test.cpp
   unit/animation/animation_system_test.cpp

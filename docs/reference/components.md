@@ -26,6 +26,10 @@ Every built-in engine component, with its fields and their default values. Field
 - `looping`: false
 - `playing`: false
 - `spatial`: true
+- `attenuation_model`: 1
+- `min_distance`: 1.000000
+- `max_distance`: 100.000000
+- `rolloff`: 1.000000
 
 ## Camera
 

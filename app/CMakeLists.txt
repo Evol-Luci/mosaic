@@ -4,6 +4,7 @@ add_library(mosaic_app STATIC
   run/editor.cpp
   run/create.cpp
   run/docs.cpp
+  docs/scripting_globals_reference.cpp
   run/build.cpp
   run/import.cpp
   run/plugin.cpp
@@ -23,7 +24,7 @@ target_link_libraries(mosaic_app PUBLIC
 )
 # mosaic_studio is an implementation detail of run/editor.cpp; nothing in mosaic_app's
 # public headers exposes mosaic::studio types, so keep it (and ImGui) off the interface.
-target_link_libraries(mosaic_app PRIVATE mosaic_studio mosaic_script_python mosaic_script_python_studio)
+target_link_libraries(mosaic_app PRIVATE mosaic_studio mosaic_script_python mosaic_script_python_studio pybind11::embed)
 target_include_directories(mosaic_app PUBLIC ${CMAKE_SOURCE_DIR})
 target_compile_features(mosaic_app PUBLIC cxx_std_20)
 
