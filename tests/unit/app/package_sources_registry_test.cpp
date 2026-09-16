@@ -134,6 +134,34 @@ TEST_CASE("remove_named_source on an unregistered name succeeds as a no-op", "[a
     REQUIRE(remove_named_source("never-registered", path));
 }
 
+TEST_CASE("remove_named_source deletes a git-backed source's clone directory", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("remove_git");
+    const std::filesystem::path bare = make_fixture_bare_repo("remove_git");
+    const std::filesystem::path config_home = make_fixture_source_dir("remove_git_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE(add_named_source_from_git("mine", bare.string(), path));
+    const std::filesystem::path clone_dir = list_named_sources(path)[0].path;
+    REQUIRE(std::filesystem::exists(clone_dir));
+
+    REQUIRE(remove_named_source("mine", path));
+    REQUIRE(list_named_sources(path).empty());
+    REQUIRE_FALSE(std::filesystem::exists(clone_dir));
+
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST_CASE("remove_named_source on a plain local source never touches the source directory", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("remove_plain_untouched");
+    const std::filesystem::path dir  = make_fixture_source_dir("remove_plain_untouched");
+    REQUIRE(add_named_source("mine", dir.string(), path));
+
+    REQUIRE(remove_named_source("mine", path));
+    REQUIRE(std::filesystem::exists(dir)); // unchanged -- this is the user's own directory
+}
+
 TEST_CASE("resolve_source returns the registered path for a known name", "[app]")
 {
     const std::filesystem::path path = make_fixture_registry_path("resolve_hit");

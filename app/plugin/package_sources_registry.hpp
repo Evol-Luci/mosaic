@@ -179,8 +179,13 @@ inline bool add_named_source_from_git(
     return save_sources_registry(registry, registry_path);
 }
 
-// Removes `name` if present. Not registered is not an error -- returns true, a no-op
-// (matches remove_package's precedent).
+// Removes `name` if present. Not registered is not an error -- returns true, a
+// no-op. For a git-backed source, also deletes its clone directory (Mosaic's
+// own artifact, not the user's data -- see docs/superpowers/specs/
+// 2026-09-15-git-backed-package-sources-design.md for why this differs from a
+// plain local-path source, whose directory is never touched). A deletion
+// failure only logs a warning -- the registry write is the operation that
+// matters, matching add_named_source's existing precedent.
 inline bool remove_named_source(const std::string& name,
                                 const std::filesystem::path& registry_path = sources_registry_path())
 {
@@ -192,8 +197,21 @@ inline bool remove_named_source(const std::string& name,
         mosaic::foundation::log::info("plugin", "source '{}' is not registered", name);
         return true;
     }
+    const bool        is_git_backed = !it->git_url.empty();
+    const std::string clone_path    = it->path;
     registry.sources.erase(it);
-    return save_sources_registry(registry, registry_path);
+    const bool saved = save_sources_registry(registry, registry_path);
+    if (is_git_backed)
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(clone_path, ec);
+        if (ec)
+        {
+            mosaic::foundation::log::warn(
+                "plugin", "could not remove clone directory {}: {}", clone_path, ec.message());
+        }
+    }
+    return saved;
 }
 
 // Runs `git pull` on the named source's clone directory. Fails if `name`
