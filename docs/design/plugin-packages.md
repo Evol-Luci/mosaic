@@ -63,8 +63,12 @@ a friendly name for a local directory in a personal registry
 <name>` / `install --source <name>` then resolve that name through the
 registry, falling back to treating the value as a literal path when no
 name matches. `mosaic plugin source list`/`remove` manage the registry.
-Mosaic never runs git itself here — the user clones/pulls their own source
-directory however they like; the registry only remembers where it is.
+For a plain local-path source, Mosaic never runs git itself here — the user
+clones/pulls their own source directory however they like; the registry only
+remembers where it is. Git-backed named sources (added via
+`docs/superpowers/specs/2026-09-15-git-backed-package-sources-design.md`) are
+the exception: Mosaic runs `git clone`/`git pull` itself for those, via
+`app/plugin/git.hpp`/`.cpp`.
 
 ## CLI naming: `mosaic plugin`, not `mosaic package`
 
