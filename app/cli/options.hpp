@@ -10,7 +10,7 @@ namespace mosaic::app
 
 // Which subcommand the user invoked.
 enum class Command { Run, Editor, Create, Build, Import, Docs, PluginList, PluginInstall, PluginRemove,
-                    PluginSourceAdd, PluginSourceList, PluginSourceRemove, PluginSourcePull };
+                    PluginSourceAdd, PluginSourceList, PluginSourceRemove, PluginSourcePull, Mcp };
 
 // Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value
 // type: no CLI11 in this header.
@@ -24,6 +24,7 @@ struct Options
     std::optional<std::string>   create_path;  // positional: project dir to create (create)
     std::optional<std::string>   template_name; // --template <name> (create)
     std::optional<std::string>   build_project; // positional: project dir to package (build)
+    std::optional<std::string>   mcp_project;  // positional: project dir to serve (mcp)
     std::optional<std::string>   build_out;     // -o/--output: bundle output dir (build)
     std::optional<std::string>   import_project; // positional 1: project dir (import)
     std::optional<std::string>   import_file;    // positional 2: source asset file (import)
