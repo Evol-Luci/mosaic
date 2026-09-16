@@ -335,3 +335,11 @@ TEST_CASE("plugin source remove subcommand parses name", "[cli]")
     REQUIRE(result.options.source_name == "mine");
 }
 
+TEST_CASE("plugin source pull subcommand parses name", "[cli]")
+{
+    auto result = parse_args({"mosaic", "plugin", "source", "pull", "mine"});
+    REQUIRE_FALSE(result.exit_code.has_value());
+    REQUIRE(result.options.command == mosaic::app::Command::PluginSourcePull);
+    REQUIRE(result.options.source_name == "mine");
+}
+
