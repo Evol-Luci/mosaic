@@ -12,6 +12,7 @@ using mosaic::app::add_named_source_from_git;
 using mosaic::app::list_named_sources;
 using mosaic::app::load_sources_registry;
 using mosaic::app::NamedSource;
+using mosaic::app::pull_named_source;
 using mosaic::app::remove_named_source;
 using mosaic::app::resolve_source;
 using mosaic::app::save_sources_registry;
@@ -212,6 +213,51 @@ TEST_CASE("add_named_source_from_git leaves the registry untouched when the clon
 
     REQUIRE_FALSE(add_named_source_from_git("mine", "/nonexistent/mosaic/bare.git", path));
     REQUIRE(list_named_sources(path).empty());
+
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST_CASE("pull_named_source errors for an unregistered name", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("pull_missing");
+    REQUIRE_FALSE(pull_named_source("never-registered", path));
+}
+
+TEST_CASE("pull_named_source errors for a registered but non-git source", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("pull_not_git");
+    const std::filesystem::path dir  = make_fixture_source_dir("pull_not_git");
+    REQUIRE(add_named_source("mine", dir.string(), path));
+
+    REQUIRE_FALSE(pull_named_source("mine", path));
+}
+
+TEST_CASE("pull_named_source pulls a new commit into a git-backed source's clone", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("pull_ok");
+    const std::filesystem::path bare = make_fixture_bare_repo("pull_ok");
+    const std::filesystem::path config_home = make_fixture_source_dir("pull_ok_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE(add_named_source_from_git("mine", bare.string(), path));
+    const std::filesystem::path clone_dir = list_named_sources(path)[0].path;
+
+    // Push a second commit to the bare repo from a separate working clone.
+    const std::filesystem::path work2 = make_fixture_source_dir("pull_ok_work2");
+    run_fixture_command("git clone -q \"" + bare.string() + "\" \"" + work2.string() + "\"");
+    {
+        std::ofstream f(work2 / "extra.txt", std::ios::binary | std::ios::trunc);
+        f << "hello\n";
+    }
+    run_fixture_command("git -C \"" + work2.string() +
+                       "\" -c user.email=test@example.com -c user.name=test add -A");
+    run_fixture_command("git -C \"" + work2.string() +
+                       "\" -c user.email=test@example.com -c user.name=test commit -q -m second");
+    run_fixture_command("git -C \"" + work2.string() + "\" push -q origin HEAD:refs/heads/main");
+
+    REQUIRE_FALSE(std::filesystem::exists(clone_dir / "extra.txt"));
+    REQUIRE(pull_named_source("mine", path));
+    REQUIRE(std::filesystem::exists(clone_dir / "extra.txt"));
 
     unsetenv("XDG_CONFIG_HOME");
 }

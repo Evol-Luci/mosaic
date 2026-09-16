@@ -196,6 +196,36 @@ inline bool remove_named_source(const std::string& name,
     return save_sources_registry(registry, registry_path);
 }
 
+// Runs `git pull` on the named source's clone directory. Fails if `name`
+// isn't registered, or is registered but not git-backed (git_url empty -- a
+// plain local-path source has nothing to pull).
+inline bool pull_named_source(
+    const std::string& name, const std::filesystem::path& registry_path = sources_registry_path())
+{
+    const SourcesRegistry registry = load_sources_registry(registry_path);
+    auto it = std::find_if(registry.sources.begin(), registry.sources.end(),
+                           [&](const NamedSource& s) { return s.name == name; });
+    if (it == registry.sources.end())
+    {
+        mosaic::foundation::log::error("plugin", "source '{}' is not registered", name);
+        return false;
+    }
+    if (it->git_url.empty())
+    {
+        mosaic::foundation::log::error(
+            "plugin", "source '{}' is not git-backed (path: {})", name, it->path);
+        return false;
+    }
+    const GitResult result = git_pull(it->path);
+    if (!result.ok)
+    {
+        mosaic::foundation::log::error(
+            "plugin", "git pull for source '{}' failed: {}", name, result.output);
+        return false;
+    }
+    return true;
+}
+
 // Every registered named source, in registration order.
 inline std::vector<NamedSource> list_named_sources(
     const std::filesystem::path& registry_path = sources_registry_path())
