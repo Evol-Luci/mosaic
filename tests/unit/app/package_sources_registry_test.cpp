@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -7,6 +8,7 @@
 #include "app/plugin/package_sources_registry.hpp"
 
 using mosaic::app::add_named_source;
+using mosaic::app::add_named_source_from_git;
 using mosaic::app::list_named_sources;
 using mosaic::app::load_sources_registry;
 using mosaic::app::NamedSource;
@@ -35,6 +37,42 @@ std::filesystem::path make_fixture_source_dir(const std::string& tag)
     fs::remove_all(dir, ec);
     fs::create_directories(dir, ec);
     return dir;
+}
+
+// A throwaway bare git repo with one commit, for exercising the git-backed
+// registry functions without any real remote host. Duplicated here rather
+// than shared with tests/unit/app/git_test.cpp's identical helper, matching
+// this file's own existing per-file fixture-helper convention.
+void run_fixture_command(const std::string& cmd)
+{
+    const int rc = std::system(cmd.c_str());
+    REQUIRE(rc == 0);
+}
+
+std::filesystem::path make_fixture_bare_repo(const std::string& tag)
+{
+    namespace fs = std::filesystem;
+    const fs::path bare = fs::temp_directory_path() / ("mosaic_sources_bare_" + tag);
+    std::error_code ec;
+    fs::remove_all(bare, ec);
+    fs::create_directories(bare, ec);
+    run_fixture_command("git init --bare -q \"" + bare.string() + "\"");
+
+    const fs::path work = fs::temp_directory_path() / ("mosaic_sources_work_" + tag);
+    fs::remove_all(work, ec);
+    run_fixture_command("git clone -q \"" + bare.string() + "\" \"" + work.string() + "\"");
+    run_fixture_command("git -C \"" + work.string() + "\" checkout -q -b main");
+    {
+        std::ofstream f(work / "package.toml", std::ios::binary | std::ios::trunc);
+        f << "name = \"fixture\"\nversion = \"1.0.0\"\ndescription = \"fixture\"\n";
+    }
+    run_fixture_command("git -C \"" + work.string() +
+                       "\" -c user.email=test@example.com -c user.name=test add -A");
+    run_fixture_command("git -C \"" + work.string() +
+                       "\" -c user.email=test@example.com -c user.name=test commit -q -m init");
+    run_fixture_command("git -C \"" + work.string() + "\" push -q origin HEAD:refs/heads/main");
+    run_fixture_command("git --git-dir=\"" + bare.string() + "\" symbolic-ref HEAD refs/heads/main");
+    return bare;
 }
 } // namespace
 
@@ -129,4 +167,51 @@ TEST_CASE("NamedSource decodes git_url as empty when the field is absent from an
     REQUIRE(sources.size() == 1);
     REQUIRE(sources[0].name == "mine");
     REQUIRE(sources[0].git_url.empty());
+}
+
+TEST_CASE("add_named_source_from_git clones and registers a git-backed source", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("git_add_ok");
+    const std::filesystem::path bare = make_fixture_bare_repo("git_add_ok");
+
+    // Point user_config_dir()'s clone destination somewhere test-local by
+    // overriding XDG_CONFIG_HOME for the duration of this call.
+    const std::filesystem::path config_home = make_fixture_source_dir("git_add_ok_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE(add_named_source_from_git("mine", bare.string(), path));
+
+    const std::vector<NamedSource> sources = list_named_sources(path);
+    REQUIRE(sources.size() == 1);
+    REQUIRE(sources[0].name == "mine");
+    REQUIRE(sources[0].git_url == bare.string());
+    REQUIRE(std::filesystem::exists(std::filesystem::path(sources[0].path) / "package.toml"));
+
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST_CASE("add_named_source_from_git refuses a duplicate name without cloning", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("git_add_dup");
+    const std::filesystem::path dir  = make_fixture_source_dir("git_add_dup");
+    const std::filesystem::path bare = make_fixture_bare_repo("git_add_dup");
+
+    REQUIRE(add_named_source("mine", dir.string(), path));
+    REQUIRE_FALSE(add_named_source_from_git("mine", bare.string(), path));
+
+    const std::vector<NamedSource> sources = list_named_sources(path);
+    REQUIRE(sources.size() == 1);
+    REQUIRE(sources[0].path == dir.string()); // unchanged, still the original local source
+}
+
+TEST_CASE("add_named_source_from_git leaves the registry untouched when the clone fails", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("git_add_bad_url");
+    const std::filesystem::path config_home = make_fixture_source_dir("git_add_bad_url_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE_FALSE(add_named_source_from_git("mine", "/nonexistent/mosaic/bare.git", path));
+    REQUIRE(list_named_sources(path).empty());
+
+    unsetenv("XDG_CONFIG_HOME");
 }

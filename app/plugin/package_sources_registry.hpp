@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "app/plugin/git.hpp"
 #include "app/run/scene_io.hpp" // load_scene_file / save_scene_file
 #include "foundation/logging/log.hpp"
 #include "foundation/serialization/reference.hpp"     // SerializationError
@@ -144,6 +145,37 @@ inline bool add_named_source(const std::string& name, const std::string& path,
         }
     }
     registry.sources.push_back(NamedSource{name, path});
+    return save_sources_registry(registry, registry_path);
+}
+
+// Clones `url` into user_config_dir()/sources/<name>/ and registers it. Fails
+// (nothing written to the registry, nothing left on disk) if `name` is
+// already registered, or the clone destination already exists, or the clone
+// itself fails.
+inline bool add_named_source_from_git(
+    const std::string& name, const std::string& url,
+    const std::filesystem::path& registry_path = sources_registry_path())
+{
+    SourcesRegistry registry = load_sources_registry(registry_path);
+    for (const NamedSource& s : registry.sources)
+    {
+        if (s.name == name)
+        {
+            mosaic::foundation::log::error(
+                "plugin", "source '{}' is already registered (path: {})", name, s.path);
+            return false;
+        }
+    }
+
+    const std::filesystem::path dest = user_config_dir() / "sources" / name;
+    const GitResult             result = git_clone(url, dest);
+    if (!result.ok)
+    {
+        mosaic::foundation::log::error("plugin", "git clone of '{}' failed: {}", url, result.output);
+        return false;
+    }
+
+    registry.sources.push_back(NamedSource{name, dest.string(), url});
     return save_sources_registry(registry, registry_path);
 }
 
