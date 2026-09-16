@@ -1,4 +1,4 @@
-add_library(mosaic_script_python_studio STATIC studio_plugin_script_engine.cpp)
+add_library(mosaic_script_python_studio STATIC studio_plugin_script_engine.cpp imgui_globals.cpp)
 target_include_directories(mosaic_script_python_studio PUBLIC ${CMAKE_SOURCE_DIR})
 target_link_libraries(mosaic_script_python_studio
   PUBLIC  mosaic_engine
