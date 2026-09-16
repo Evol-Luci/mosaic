@@ -16,4 +16,6 @@ int run_plugin_source_add(const Options& options);
 int run_plugin_source_list(const Options& options);
 // Handle `mosaic plugin source remove <name>`. Returns a process exit code.
 int run_plugin_source_remove(const Options& options);
+// Handle `mosaic plugin source pull <name>`. Returns a process exit code.
+int run_plugin_source_pull(const Options& options);
 } // namespace mosaic::app

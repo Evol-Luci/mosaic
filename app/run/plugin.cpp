@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+#include "app/plugin/git.hpp"
 #include "app/plugin/package_install.hpp"
 #include "app/plugin/package_source.hpp"
 #include "app/plugin/package_sources_registry.hpp"
@@ -68,8 +69,13 @@ int run_plugin_source_add(const Options& options)
 {
     if (!options.source_name || !options.source_path)
     {
-        mosaic::foundation::log::error("plugin", "usage: mosaic plugin source add <name> <path>");
+        mosaic::foundation::log::error(
+            "plugin", "usage: mosaic plugin source add <name> <path-or-git-url>");
         return 1;
+    }
+    if (is_git_url(*options.source_path))
+    {
+        return add_named_source_from_git(*options.source_name, *options.source_path) ? 0 : 1;
     }
     return add_named_source(*options.source_name, *options.source_path) ? 0 : 1;
 }
@@ -84,7 +90,12 @@ int run_plugin_source_list(const Options&)
     }
     for (const NamedSource& s : sources)
     {
-        std::cout << s.name << " -> " << s.path << "\n";
+        std::cout << s.name << " -> " << s.path;
+        if (!s.git_url.empty())
+        {
+            std::cout << " (git: " << s.git_url << ")";
+        }
+        std::cout << "\n";
     }
     return 0;
 }
@@ -97,5 +108,15 @@ int run_plugin_source_remove(const Options& options)
         return 1;
     }
     return remove_named_source(*options.source_name) ? 0 : 1;
+}
+
+int run_plugin_source_pull(const Options& options)
+{
+    if (!options.source_name)
+    {
+        mosaic::foundation::log::error("plugin", "usage: mosaic plugin source pull <name>");
+        return 1;
+    }
+    return pull_named_source(*options.source_name) ? 0 : 1;
 }
 } // namespace mosaic::app
