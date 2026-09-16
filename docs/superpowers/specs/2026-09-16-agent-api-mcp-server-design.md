@@ -154,11 +154,21 @@ JSON-RPC:
 runtime-tick/gameplay-event-specific, not meaningful for an agent editing
 project state outside a running simulation.
 
-Bad input (an unknown entity id, an unregistered component name) returns an
-MCP tool error result (`isError: true` with a message) — never throws,
-matching this codebase's consistent boundary-safety convention
-(`ScriptEngine::run_string`, `PluginHost`, `ImportPluginHost` all follow the
-same never-throw-across-the-boundary rule).
+An unknown entity id or unregistered component name is **not** a protocol
+error — it's reported in the successful result payload exactly like the
+existing Python scripting surface already does (`get_component` returns
+`{"value": null}`, `set_component`/`add_component`/`remove_component`/
+`has_component` return `{"ok": false}`), since the underlying
+`ComponentReflection` methods (`component_value`, `set_value`, `add_default`,
+`remove_value`) already fail gracefully — no exception to catch. An MCP tool
+error result (`isError: true` with a message) is reserved for malformed or
+missing *request* parameters (e.g. `set_component` called without an
+`"entity"` field, or with `"entity"` not a JSON number) and an unrecognized
+tool name — protocol-level misuse, not ordinary "not found" outcomes. Either
+way the server process itself never crashes on bad input, matching this
+codebase's consistent boundary-safety convention (`ScriptEngine::run_string`,
+`PluginHost`, `ImportPluginHost` all follow the same
+never-throw-across-the-boundary rule).
 
 ## Explicitly deferred (v1 scope boundary)
 
