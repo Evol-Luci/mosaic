@@ -11,6 +11,7 @@
 
 #include "app/mcp/mcp_tools.hpp"
 #include "engine/reflection/builtin_components.hpp"
+#include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
@@ -164,12 +165,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 15 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 16 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 15);
+    REQUIRE(tools.size() == 16);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -178,4 +179,125 @@ TEST_CASE("mcp_tools: tools_list_schema lists all 15 v1 tools with a description
         REQUIRE(tool.contains("inputSchema"));
         REQUIRE(tool.at("inputSchema").at("type").get<std::string>() == "object");
     }
+}
+
+TEST_CASE("mcp_tools: describe_scene on an empty world", "[app][mcp]")
+{
+    Fixture f;
+    const nlohmann::json result = f.call("describe_scene");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 0);
+    REQUIRE(result.at("component_counts").empty());
+    REQUIRE(result.at("hierarchy").empty());
+}
+
+TEST_CASE("mcp_tools: describe_scene lists every Transform-having entity with no parent as a root", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID a = f.world.create_entity();
+    const World::EntityID b = f.world.create_entity();
+    f.world.add_component(a, Transform{});
+    f.world.add_component(b, Transform{});
+
+    const nlohmann::json result = f.call("describe_scene");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("component_counts").at("Transform").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("hierarchy").size() == 2);
+    for (const auto& node : result.at("hierarchy"))
+    {
+        REQUIRE(node.at("children").empty());
+        REQUIRE(node.at("name").is_null());
+    }
+}
+
+TEST_CASE("mcp_tools: describe_scene nests a parent-child-grandchild Transform chain", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID root = f.world.create_entity();
+    const World::EntityID child = f.world.create_entity();
+    const World::EntityID grandchild = f.world.create_entity();
+
+    Transform root_t;
+    f.world.add_component(root, root_t);
+    Transform child_t;
+    child_t.parent = root;
+    f.world.add_component(child, child_t);
+    Transform grandchild_t;
+    grandchild_t.parent = child;
+    f.world.add_component(grandchild, grandchild_t);
+
+    const nlohmann::json result = f.call("describe_scene");
+    REQUIRE(result.at("hierarchy").size() == 1);
+    const nlohmann::json& root_node = result.at("hierarchy").at(0);
+    REQUIRE(root_node.at("entity").get<std::uint64_t>() == root.value());
+    REQUIRE(root_node.at("children").size() == 1);
+    const nlohmann::json& child_node = root_node.at("children").at(0);
+    REQUIRE(child_node.at("entity").get<std::uint64_t>() == child.value());
+    REQUIRE(child_node.at("children").size() == 1);
+    REQUIRE(child_node.at("children").at(0).at("entity").get<std::uint64_t>() == grandchild.value());
+}
+
+TEST_CASE("mcp_tools: describe_scene reports a Name-labeled entity's name, null otherwise", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    using mosaic::engine::Name;
+    const World::EntityID labeled = f.world.create_entity();
+    const World::EntityID unlabeled = f.world.create_entity();
+    f.world.add_component(labeled, Transform{});
+    f.world.add_component(labeled, Name{"Player"});
+    f.world.add_component(unlabeled, Transform{});
+
+    const nlohmann::json result = f.call("describe_scene");
+    bool found_labeled = false;
+    bool found_unlabeled = false;
+    for (const auto& node : result.at("hierarchy"))
+    {
+        if (node.at("entity").get<std::uint64_t>() == labeled.value())
+        {
+            REQUIRE(node.at("name").get<std::string>() == "Player");
+            found_labeled = true;
+        }
+        if (node.at("entity").get<std::uint64_t>() == unlabeled.value())
+        {
+            REQUIRE(node.at("name").is_null());
+            found_unlabeled = true;
+        }
+    }
+    REQUIRE(found_labeled);
+    REQUIRE(found_unlabeled);
+}
+
+TEST_CASE("mcp_tools: describe_scene excludes Transform-less entities from hierarchy but counts them", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::Name;
+    const World::EntityID loose = f.world.create_entity();
+    f.world.add_component(loose, Name{"Loose"});
+
+    const nlohmann::json result = f.call("describe_scene");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 1);
+    REQUIRE(result.at("component_counts").at("Name").get<std::uint64_t>() == 1);
+    REQUIRE_FALSE(result.at("component_counts").contains("Transform"));
+    REQUIRE(result.at("hierarchy").empty());
+}
+
+TEST_CASE("mcp_tools: describe_scene silently omits a Transform cycle from hierarchy without hanging", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID a = f.world.create_entity();
+    const World::EntityID b = f.world.create_entity();
+    Transform ta;
+    ta.parent = b;
+    Transform tb;
+    tb.parent = a;
+    f.world.add_component(a, ta);
+    f.world.add_component(b, tb);
+
+    const nlohmann::json result = f.call("describe_scene");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("component_counts").at("Transform").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("hierarchy").empty());
 }
