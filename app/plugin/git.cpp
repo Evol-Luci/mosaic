@@ -2,9 +2,11 @@
 
 #include <array>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -43,7 +45,27 @@ GitResult run_git(const std::vector<std::string>& args)
         dup2(pipe_fds[1], STDERR_FILENO);
         close(pipe_fds[1]);
 
+        // Redirect stdin from /dev/null: an ssh:// or git@ URL can shell out to
+        // ssh, which prompts for host-key confirmation or a passphrase by
+        // opening /dev/tty directly -- unaffected by GIT_TERMINAL_PROMPT, and
+        // otherwise this child would inherit the parent's stdin (potentially a
+        // real terminal) and hang silently. Best-effort: if /dev/null can't be
+        // opened, just proceed without redirecting rather than crash the child.
+        const int devnull = open("/dev/null", O_RDONLY);
+        if (devnull >= 0)
+        {
+            dup2(devnull, STDIN_FILENO);
+            close(devnull);
+        }
+
         setenv("GIT_TERMINAL_PROMPT", "0", 1);
+        // Force ssh itself to be non-interactive too, unless the user already
+        // set their own GIT_SSH_COMMAND (e.g. for their own SSH config) -- don't
+        // clobber that.
+        if (getenv("GIT_SSH_COMMAND") == nullptr)
+        {
+            setenv("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new", 1);
+        }
 
         std::vector<char*> argv;
         argv.reserve(args.size() + 1);
@@ -78,6 +100,13 @@ GitResult run_git(const std::vector<std::string>& args)
 
 bool is_git_url(const std::string& value)
 {
+    // A leading dash is never a URL, even if it happens to match one of the
+    // patterns below (e.g. "-x.git") -- such a value must never be handed to
+    // git as a positional argument that could be misread as a flag.
+    if (!value.empty() && value.front() == '-')
+    {
+        return false;
+    }
     static constexpr std::array<const char*, 4> kSchemes = {"https://", "http://", "ssh://", "git@"};
     for (const char* scheme : kSchemes)
     {
@@ -96,12 +125,16 @@ GitResult git_clone(const std::string& url, const std::filesystem::path& dest)
     {
         return GitResult{false, "destination already exists: " + dest.string()};
     }
-    return run_git({"git", "clone", url, dest.string()});
+    return run_git({"git", "clone", "--", url, dest.string()});
 }
 
 GitResult git_pull(const std::filesystem::path& repo_dir)
 {
-    return run_git({"git", "-C", repo_dir.string(), "pull"});
+    // --ff-only: the design spec promises "pull always fast-forwards it" --
+    // a plain `git pull` against a diverged/rebased upstream can instead fail
+    // with git's "divergent branches" error, or (depending on the user's git
+    // config) create an unwanted merge commit in Mosaic's managed clone.
+    return run_git({"git", "-C", repo_dir.string(), "pull", "--ff-only"});
 }
 
 } // namespace mosaic::app

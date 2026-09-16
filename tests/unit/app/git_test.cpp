@@ -75,6 +75,25 @@ TEST_CASE("is_git_url classifies URLs and paths", "[app]")
     REQUIRE_FALSE(is_git_url("packages"));
 }
 
+TEST_CASE("is_git_url rejects a leading dash even if it otherwise looks like a URL", "[app]")
+{
+    REQUIRE_FALSE(is_git_url("-x.git"));
+    REQUIRE_FALSE(is_git_url("--upload-pack=evil"));
+    REQUIRE_FALSE(is_git_url("-ssh://example.com/repo.git"));
+}
+
+TEST_CASE("git_clone rejects a URL that looks like a git flag", "[app]")
+{
+    const fs::path dest = make_fixture_dir("clone_flag_like_url_dest");
+    std::error_code ec;
+    fs::remove_all(dest, ec);
+
+    // "--" before the URL in git_clone's argv means this always fails as a bad
+    // remote rather than being interpreted as a git option.
+    const GitResult r = git_clone("--upload-pack=touch /tmp/pwned", dest);
+    REQUIRE_FALSE(r.ok);
+}
+
 TEST_CASE("git_clone clones a real local repo into a fresh destination", "[app]")
 {
     const fs::path bare = make_fixture_bare_repo("clone_ok");

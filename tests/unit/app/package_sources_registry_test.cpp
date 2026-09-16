@@ -245,6 +245,51 @@ TEST_CASE("add_named_source_from_git leaves the registry untouched when the clon
     unsetenv("XDG_CONFIG_HOME");
 }
 
+TEST_CASE("add_named_source_from_git rejects a name that looks like a path", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("git_add_bad_name");
+    const std::filesystem::path bare = make_fixture_bare_repo("git_add_bad_name");
+    const std::filesystem::path config_home =
+        make_fixture_source_dir("git_add_bad_name_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE_FALSE(add_named_source_from_git("../evil", bare.string(), path));
+    REQUIRE_FALSE(add_named_source_from_git("a/b", bare.string(), path));
+    REQUIRE(list_named_sources(path).empty());
+
+    unsetenv("XDG_CONFIG_HOME");
+}
+
+TEST_CASE("add_named_source_from_git deletes the fresh clone when the registry write fails",
+         "[app]")
+{
+    namespace fs = std::filesystem;
+
+    // Force save_sources_registry() to fail: make registry_path's PARENT a
+    // plain file, so create_directories() on it can't succeed.
+    const fs::path parent_as_file =
+        fs::temp_directory_path() / "mosaic_sources_test_git_add_save_fail_parent";
+    std::error_code ec;
+    fs::remove_all(parent_as_file, ec);
+    {
+        std::ofstream f(parent_as_file, std::ios::binary | std::ios::trunc);
+        f << "not a directory";
+    }
+    const fs::path registry_path = parent_as_file / "sources.toml";
+
+    const fs::path bare = make_fixture_bare_repo("git_add_save_fail");
+    const fs::path config_home = make_fixture_source_dir("git_add_save_fail_config_home");
+    setenv("XDG_CONFIG_HOME", config_home.string().c_str(), 1);
+
+    REQUIRE_FALSE(add_named_source_from_git("mine", bare.string(), registry_path));
+
+    const fs::path expected_clone_dir = config_home / "mosaic" / "sources" / "mine";
+    REQUIRE_FALSE(fs::exists(expected_clone_dir));
+
+    unsetenv("XDG_CONFIG_HOME");
+    fs::remove_all(parent_as_file, ec);
+}
+
 TEST_CASE("pull_named_source errors for an unregistered name", "[app]")
 {
     const std::filesystem::path path = make_fixture_registry_path("pull_missing");
