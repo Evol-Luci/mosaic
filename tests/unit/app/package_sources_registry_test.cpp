@@ -109,3 +109,24 @@ TEST_CASE("resolve_source returns its input unchanged for an unregistered name",
     const std::filesystem::path path = make_fixture_registry_path("resolve_miss");
     REQUIRE(resolve_source("/some/literal/path", path) == "/some/literal/path");
 }
+
+TEST_CASE("NamedSource decodes git_url as empty when the field is absent from an older sources.toml", "[app]")
+{
+    const std::filesystem::path path = make_fixture_registry_path("legacy_no_git_url");
+    const std::filesystem::path dir  = make_fixture_source_dir("legacy_no_git_url");
+
+    // Write a sources.toml in the pre-git_url shape (as PR #161 shipped it) directly,
+    // bypassing add_named_source, to prove decode tolerates the missing key.
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f << "[[sources]]\n"
+             "name = \"mine\"\n"
+             "path = \""
+          << dir.string() << "\"\n";
+    }
+
+    const std::vector<NamedSource> sources = list_named_sources(path);
+    REQUIRE(sources.size() == 1);
+    REQUIRE(sources[0].name == "mine");
+    REQUIRE(sources[0].git_url.empty());
+}

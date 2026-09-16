@@ -24,6 +24,7 @@ struct NamedSource
 {
     std::string name;
     std::string path;
+    std::string git_url; // empty = a plain local-path source (today's behavior)
 };
 
 template <class V>
@@ -31,6 +32,7 @@ void reflect(V& v, NamedSource& s)
 {
     v.member("name", s.name);
     v.member("path", s.path);
+    v.member("git_url", s.git_url);
 }
 
 // The persisted contents of <user_config_dir>/sources.toml.
