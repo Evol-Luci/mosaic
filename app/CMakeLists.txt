@@ -12,6 +12,7 @@ add_library(mosaic_app STATIC
   asset/import_plugins.cpp
   plugin/git.cpp
   mcp/mcp_tools.cpp
+  mcp/mcp_protocol.cpp
 )
 target_link_libraries(mosaic_app PUBLIC
   mosaic_engine

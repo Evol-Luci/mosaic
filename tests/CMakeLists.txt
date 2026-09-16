@@ -57,6 +57,7 @@ add_executable(mosaic_unit_tests
   unit/app/options_test.cpp
   unit/app/component_reference_test.cpp
   unit/app/mcp_tools_test.cpp
+  unit/app/mcp_protocol_test.cpp
   unit/app/scripting_globals_reference_test.cpp
   unit/app/status_reporter_test.cpp
   unit/app/frame_pump_test.cpp
