@@ -135,10 +135,18 @@ extension point.
 
 ## Review history
 
-This mechanism went through 9 adversarial review rounds (escalating
-from sonnet to opus for the final two) before being considered closed
-for this slice, finding 8 real, distinct, verified bugs in sequence —
-each fixed, none dismissed without investigation. The full narrative
+This mechanism went through 10 adversarial review rounds (escalating
+from sonnet to opus for the last three) before being considered closed
+for this slice, finding 9 real, distinct, verified bugs in sequence —
+each fixed, none dismissed without investigation. The tenth: a
+C-implemented builtin function (e.g. `math.sqrt`) has neither
+`__globals__` nor `__code__`, so `guard_returned_value`'s original
+callable check missed it entirely, letting it cross the boundary
+unwrapped — from there, `math.sqrt.__self__` hands back the raw `math`
+module, and `.__loader__.load_module('sys').modules['os'].system` is a
+clean escape. Fixed by checking callability directly
+(`PyCallable_Check`) rather than by which reflection attributes a value
+happens to expose. The full narrative
 (what broke, how it was found, why the eventual fix is structurally
 sound rather than another point patch) lives in
 `docs/superpowers/specs/2026-09-15-plugin-runtime-sandboxing-design.md`

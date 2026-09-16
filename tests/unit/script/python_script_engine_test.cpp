@@ -323,3 +323,33 @@ TEST_CASE("create_restricted_python_script_engine() blocks the 'import builtins'
     REQUIRE_FALSE(engine->run_string("import builtins\nbuiltins['eval']('1+1')").ok);
 }
 
+TEST_CASE("create_restricted_python_script_engine() blocks the built-in-function __self__ escape",
+          "[script]")
+{
+    // Round 10: guard_returned_value() previously only wrapped a returned
+    // callable in CallableProxy if it exposed __globals__ or __code__ --
+    // true of ordinary Python functions, but not of C-implemented builtins
+    // like math.sqrt, which carry neither attribute. That let a builtin
+    // function sail through unwrapped, and its __self__ hands back the raw,
+    // unproxied module object: math.sqrt.__self__.__loader__.load_module
+    // ('sys').modules['os'].system is a clean escape to arbitrary command
+    // execution. Fixed by wrapping anything callable (PyCallable_Check),
+    // not just things that happen to expose __globals__/__code__.
+    auto engine = mosaic::script::python::create_restricted_python_script_engine();
+    REQUIRE_FALSE(engine->run_string(
+                            "import math\n"
+                            "m = math.sqrt.__self__\n"
+                            "s = m.__loader__.load_module('sys')\n"
+                            "osmod = s.modules['os']\n"
+                            "osmod.getcwd()\n")
+                      .ok);
+
+    auto engine2 = mosaic::script::python::create_restricted_python_script_engine();
+    REQUIRE_FALSE(
+        engine2
+            ->run_string(
+                "import math\n"
+                "g = math.sqrt.__self__.__loader__.load_module('sys').modules['os'].system\n")
+            .ok);
+}
+

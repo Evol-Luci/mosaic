@@ -168,6 +168,18 @@ py::object make_module_proxy(py::object module_obj);
 // state). Anything else -- data (str, int, dict of plain values the
 // plugin's own code produced, a compiled regex object, ...) -- passes
 // through unchanged.
+//
+// The callable check is PyCallable_Check(), not hasattr(__globals__) or
+// hasattr(__code__) -- a later leak (round 10 of review): those two
+// attributes only exist on ordinary Python-level functions. A C-implemented
+// builtin like
+// math.sqrt has neither, so it sailed through this guard completely
+// unwrapped, and math.sqrt.__self__ hands back the raw, unproxied math
+// module -- from there, .__loader__.load_module('sys').modules['os'].system
+// is a clean escape. Checking callability directly (excluding types, which
+// must stay unwrapped per the class discussion above) closes this for any
+// callable, builtin or not, regardless of which reflection attributes it
+// happens to expose.
 py::object guard_returned_value(const std::string& name, py::object value)
 {
     if (py::isinstance<py::module_>(value))
@@ -175,7 +187,7 @@ py::object guard_returned_value(const std::string& name, py::object value)
         throw py::attribute_error(
             "access to '" + name + "' is not permitted here");
     }
-    if (py::hasattr(value, "__globals__") || py::hasattr(value, "__code__"))
+    if (PyCallable_Check(value.ptr()) != 0 && PyType_Check(value.ptr()) == 0)
     {
         return make_callable_proxy(std::move(value));
     }
