@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <string>
 
 #include <catch2/catch_test_macros.hpp>
 #include <pybind11/embed.h>
@@ -105,4 +106,37 @@ TEST_CASE("install_world_globals: undo/redo/undo_depth read *stack_ptr at call t
     py::exec("undone = undo()", globals);
     REQUIRE(globals["undone"].cast<bool>());
     REQUIRE(world.get_component<mosaic::engine::Name>(e)->value == "before");
+}
+
+TEST_CASE("install_world_globals: every global has a non-empty docstring", "[script]")
+{
+    mosaic::script::python::ensure_interpreter();
+
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+
+    World* world_ptr = &world;
+    const ComponentReflection* types_ptr = &types;
+    CommandStack* stack_ptr = nullptr;
+
+    py::dict globals;
+    globals["__builtins__"] = py::module_::import("builtins");
+    mosaic::script::python::install_world_globals(globals, &world_ptr, &types_ptr, &stack_ptr);
+
+    const char* names[] = {"get_component", "set_component", "create_entity", "destroy_entity",
+                           "entity_count", "entities", "is_valid", "add_component",
+                           "remove_component", "has_component", "component_names",
+                           "entities_with", "emit", "undo", "redo", "undo_depth"};
+    for (const char* name : names)
+    {
+        REQUIRE(globals.contains(name));
+        const std::string doc = globals[name].attr("__doc__").cast<std::string>();
+        INFO("global: " << name);
+        REQUIRE_FALSE(doc.empty());
+        // The auto-generated signature line is always present; a real docstring
+        // means there's a second, non-whitespace line after it.
+        REQUIRE(doc.find('\n') != std::string::npos);
+    }
 }
