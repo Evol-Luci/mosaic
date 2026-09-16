@@ -3,12 +3,15 @@
 **Status: design-only.** This document records decisions made while
 thinking through a future public package marketplace and its review
 pipeline. Nothing here is being built yet — it exists so the decisions
-aren't lost before the team is ready to build it. Two pieces that fell out
-of this conversation *are* scheduled now, as their own separate backlog
-items (not part of this doc's scope): git-backed package sources (a
-convenience layer over the existing local `mosaic plugin` source
-mechanism), and plugin runtime sandboxing (restricting what *any* plugin
-can do, local or marketplace-sourced, independent of review).
+aren't lost before the team is ready to build it. One piece that fell out
+of this conversation *was* scheduled separately and has since shipped:
+plugin runtime sandboxing (restricting what *any* plugin can do, local or
+marketplace-sourced, independent of review; see
+`docs/design/plugin-sandboxing.md`). A second, git-backed package sources
+(a convenience layer over the existing local `mosaic plugin` source
+mechanism), has also since shipped — `mosaic plugin source add` now
+clones a git URL directly; see
+`docs/superpowers/specs/2026-09-15-git-backed-package-sources-design.md`.
 
 ## Goal
 
@@ -106,11 +109,10 @@ repo with no remote), pointed to via the existing `--source <dir>`
 mechanism — `list_packages`/`install_package` only ever look at files on
 disk, so a source directory that happens to be a git repo already works
 today. The personal repo could later become, or fork into, the public one,
-since the format is already shared. The one missing convenience —
-`mosaic plugin source add/pull <name> <git-url>` style named-source
-management, instead of manually tracking clone paths — is scheduled
-separately as "git-backed package sources," independent of this
-marketplace's timeline.
+since the format is already shared. That convenience —
+`mosaic plugin source add <name> <git-url>` clones directly, and
+`mosaic plugin source pull <name>` refreshes it — has since shipped,
+independent of this marketplace's (still-unscheduled) timeline.
 
 ## Non-goals (for this planning pass)
 
