@@ -2,10 +2,13 @@
 
 #include <cstdint>
 #include <memory>
+#include <functional>
 #include <unordered_map>
 
 #include "app/run/scene_io.hpp"
 #include "engine/commands/set_component_command.hpp"
+#include "engine/transform/transform.hpp"
+#include "engine/world/name.hpp"
 #include "engine/scene/scene.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
@@ -200,6 +203,60 @@ nlohmann::json tool_save_scene(World& world, const ComponentReflection& types, C
     return {{"path", scene_path}};
 }
 
+nlohmann::json tool_describe_scene(World& world, const ComponentReflection& types, CommandStack&,
+                                   const std::string&, const nlohmann::json&)
+{
+    // component_counts: one pass, tallying components_on() per entity -- avoids
+    // O(registered_names x entities) that a per-name re-scan would cost.
+    std::unordered_map<std::string, std::uint64_t> counts;
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            for (const std::string& name : types.components_on(world, e)) { ++counts[name]; }
+        });
+    nlohmann::json component_counts = nlohmann::json::object();
+    for (const auto& [name, count] : counts) { component_counts[name] = count; }
+
+    // hierarchy: one pass collecting a parent -> children map and the root set, then a
+    // depth-first walk from roots only. A cycle among non-root entities is never
+    // reached from any root, so it's simply absent here -- no depth guard needed for
+    // this walk (unlike TransformSystem::compute_world's own kMaxDepth, which guards a
+    // different code path: walking UP the parent chain to compute a world matrix).
+    std::unordered_map<std::uint64_t, std::vector<EntityID>> children_by_parent;
+    std::vector<EntityID> roots;
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            const auto* t = world.get_component<mosaic::engine::transform::Transform>(e);
+            if (t == nullptr) { return; }
+            if (t->parent) { children_by_parent[t->parent.value()].push_back(e); }
+            else { roots.push_back(e); }
+        });
+
+    std::function<nlohmann::json(EntityID)> build_node = [&](EntityID e) -> nlohmann::json
+    {
+        nlohmann::json node;
+        node["entity"] = e.value();
+        const auto* name = world.get_component<mosaic::engine::Name>(e);
+        node["name"] = name != nullptr ? nlohmann::json(name->value) : nlohmann::json(nullptr);
+        nlohmann::json children = nlohmann::json::array();
+        const auto it = children_by_parent.find(e.value());
+        if (it != children_by_parent.end())
+        {
+            for (EntityID child : it->second) { children.push_back(build_node(child)); }
+        }
+        node["children"] = children;
+        return node;
+    };
+
+    nlohmann::json hierarchy = nlohmann::json::array();
+    for (EntityID root : roots) { hierarchy.push_back(build_node(root)); }
+
+    return {{"entity_count", static_cast<std::uint64_t>(world.entity_count())},
+           {"component_counts", component_counts},
+           {"hierarchy", hierarchy}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -211,6 +268,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"entity_count", &tool_entity_count},     {"undo", &tool_undo},
         {"redo", &tool_redo},                     {"undo_depth", &tool_undo_depth},
         {"save_scene", &tool_save_scene},
+        {"describe_scene", &tool_describe_scene},
     };
     return handlers;
 }
@@ -300,6 +358,11 @@ nlohmann::json tools_list_schema()
     tools.push_back({{"name", "save_scene"},
                      {"description", "Write the current World back to the project's scene file. "
                                      "Returns the path written."},
+                     {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "describe_scene"},
+                     {"description", "Return a snapshot of the scene's shape: entity count, a "
+                                     "component-type histogram, and the Transform parent-child "
+                                     "hierarchy as a tree."},
                      {"inputSchema", schema_none()}});
     return {{"tools", tools}};
 }

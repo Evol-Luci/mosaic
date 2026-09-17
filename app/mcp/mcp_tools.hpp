@@ -25,7 +25,7 @@ struct McpToolError : std::runtime_error
 };
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 15 v1 tools (entity/component CRUD + undo/redo/save_scene).
+// for all 16 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene).
 nlohmann::json tools_list_schema();
 
 // Dispatches one tool call by name. `scene_path` is the manifest's default_scene path,
