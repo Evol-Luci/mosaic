@@ -5,6 +5,7 @@
 #include <functional>
 #include <unordered_map>
 
+#include "app/asset/asset_io.hpp"
 #include "app/run/scene_io.hpp"
 #include "engine/commands/set_component_command.hpp"
 #include "engine/transform/transform.hpp"
@@ -324,6 +325,18 @@ nlohmann::json schema_entity_source()
             {{"entity", {{"type", "integer"}, {"minimum", 0}}}, {"source", {{"type", "string"}}}}},
            {"required", {"entity", "source"}}};
 }
+
+nlohmann::json schema_source()
+{
+    return {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", {"source"}}};
+}
+
+nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string source = require_string(args, "source");
+    const auto asset_id = mosaic::app::import_asset(project_dir, source);
+    return {{"asset_id", asset_id ? nlohmann::json(asset_id->to_string()) : nlohmann::json(nullptr)}};
+}
 } // namespace
 
 nlohmann::json tools_list_schema()
@@ -390,16 +403,30 @@ nlohmann::json tools_list_schema()
                                      "(not an error) on a compile failure or a missing component -- "
                                      "see message for details."},
                      {"inputSchema", schema_entity_source()}});
+    tools.push_back({{"name", "import_asset"},
+                     {"description", "Import a file into the project's asset pipeline (images, "
+                                     ".py scripts, .wav audio, .ttf/.otf fonts, or a project's "
+                                     "MOSAIC_IMPORTERS plugin extensions), cooked and registered "
+                                     "exactly like `mosaic import`. asset_id is null on failure "
+                                     "(unsupported format, missing source, or a stem collision) -- "
+                                     "the specific reason is only visible in the server's own log "
+                                     "output, not returned here."},
+                     {"inputSchema", schema_source()}});
     return {{"tools", tools}};
 }
 
 nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
-                                const nlohmann::json& arguments, const ScriptEngineFactory& script_factory)
+                                const nlohmann::json& arguments, const ScriptEngineFactory& script_factory,
+                                const std::string& project_dir)
 {
     if (tool_name == "set_script")
     {
         return tool_set_script(world, types, arguments, script_factory);
+    }
+    if (tool_name == "import_asset")
+    {
+        return tool_import_asset(project_dir, arguments);
     }
     const auto& handlers = tool_handlers();
     const auto it = handlers.find(tool_name);
