@@ -16,6 +16,7 @@
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/reflection/type_registry.hpp"
+#include "modules/script_python/python_script_engine.hpp"
 
 namespace mosaic::app
 {
@@ -52,9 +53,14 @@ int run_mcp(const Options& options)
         return 1;
     }
 
+    const mcp::ScriptEngineFactory script_factory =
+        [] { return mosaic::script::python::create_python_script_engine(); };
+
     const mcp::ToolDispatch dispatch =
         [&](const std::string& tool_name, const nlohmann::json& arguments) -> nlohmann::json
-    { return mcp::handle_tool_call(world, types, stack, scene_path, tool_name, arguments); };
+    {
+        return mcp::handle_tool_call(world, types, stack, scene_path, tool_name, arguments, script_factory);
+    };
 
     mosaic::foundation::log::info("mcp", "serving project {} ({} entities)", project_dir,
                                   world.entity_count());

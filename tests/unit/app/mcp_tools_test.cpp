@@ -13,12 +13,14 @@
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
+#include "modules/script_python/python_script_engine.hpp" // ensure_interpreter, create_python_script_engine
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
 #include "foundation/reflection/type_registry.hpp"
 
 using mosaic::app::mcp::handle_tool_call;
 using mosaic::app::mcp::McpToolError;
+using mosaic::app::mcp::ScriptEngineFactory;
 using mosaic::app::mcp::tools_list_schema;
 using mosaic::engine::World;
 using mosaic::engine::reflection::ComponentReflection;
@@ -40,6 +42,12 @@ struct Fixture
     nlohmann::json call(const std::string& tool, const nlohmann::json& args = nlohmann::json::object())
     {
         return handle_tool_call(world, types, stack, "", tool, args);
+    }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args,
+                        const mosaic::app::mcp::ScriptEngineFactory& script_factory)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, script_factory);
     }
 };
 } // namespace
@@ -165,12 +173,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 16 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 17 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 16);
+    REQUIRE(tools.size() == 17);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -300,4 +308,55 @@ TEST_CASE("mcp_tools: describe_scene silently omits a Transform cycle from hiera
     REQUIRE(result.at("entity_count").get<std::uint64_t>() == 2);
     REQUIRE(result.at("component_counts").at("Transform").get<std::uint64_t>() == 2);
     REQUIRE(result.at("hierarchy").empty());
+}
+
+TEST_CASE("mcp_tools: set_script test-compiles and writes a valid script into an existing ScriptComponent", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+    const nlohmann::json result =
+        f.call("set_script", {{"entity", eid}, {"source", "def on_update(dt):\n    pass\n"}}, factory);
+    REQUIRE(result.at("ok").get<bool>() == true);
+
+    const nlohmann::json component = f.call("get_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+    REQUIRE(component.at("value").at("source").get<std::string>() == "def on_update(dt):\n    pass\n");
+}
+
+TEST_CASE("mcp_tools: set_script leaves the component unchanged on a compile error", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+    const nlohmann::json result = f.call("set_script", {{"entity", eid}, {"source", "def on_update(dt:\n"}}, factory);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE_FALSE(result.at("message").get<std::string>().empty());
+
+    const nlohmann::json component = f.call("get_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+    REQUIRE(component.at("value").at("source").get<std::string>().empty());
+}
+
+TEST_CASE("mcp_tools: set_script reports failure for an entity with no ScriptComponent", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+    const nlohmann::json result = f.call("set_script", {{"entity", eid}, {"source", "pass"}}, factory);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE(result.at("message").get<std::string>().find("ScriptComponent") != std::string::npos);
+}
+
+TEST_CASE("mcp_tools: set_script throws McpToolError for malformed arguments", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("set_script", {{"source", "pass"}}), McpToolError);
+    REQUIRE_THROWS_AS(f.call("set_script", {{"entity", 1}}), McpToolError);
 }

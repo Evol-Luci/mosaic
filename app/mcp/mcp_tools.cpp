@@ -12,6 +12,7 @@
 #include "engine/scene/scene.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
+#include "studio/script_editor.hpp"
 
 namespace mosaic::app::mcp
 {
@@ -257,6 +258,16 @@ nlohmann::json tool_describe_scene(World& world, const ComponentReflection& type
            {"hierarchy", hierarchy}};
 }
 
+nlohmann::json tool_set_script(World& world, const ComponentReflection& types,
+                               const nlohmann::json& args, const ScriptEngineFactory& script_factory)
+{
+    const EntityID e(require_uint64(args, "entity"));
+    const std::string source = require_string(args, "source");
+    mosaic::studio::ScriptEditorModel model(script_factory);
+    const mosaic::studio::ScriptApplyResult result = model.apply(source, world, types, e);
+    return {{"ok", result.kind == mosaic::studio::ScriptApplyResult::Kind::Ok}, {"message", result.message}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -304,6 +315,14 @@ nlohmann::json schema_entity_component_value()
 nlohmann::json schema_component()
 {
     return {{"type", "object"}, {"properties", {{"component", {{"type", "string"}}}}}, {"required", {"component"}}};
+}
+
+nlohmann::json schema_entity_source()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"entity", {{"type", "integer"}, {"minimum", 0}}}, {"source", {{"type", "string"}}}}},
+           {"required", {"entity", "source"}}};
 }
 } // namespace
 
@@ -364,13 +383,24 @@ nlohmann::json tools_list_schema()
                                      "component-type histogram, and the Transform parent-child "
                                      "hierarchy as a tree."},
                      {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "set_script"},
+                     {"description", "Test-compile a Python script against the live World and, on "
+                                     "success, write it into the entity's existing ScriptComponent. "
+                                     "Attach a ScriptComponent first via add_component. ok is false "
+                                     "(not an error) on a compile failure or a missing component -- "
+                                     "see message for details."},
+                     {"inputSchema", schema_entity_source()}});
     return {{"tools", tools}};
 }
 
 nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
-                                const nlohmann::json& arguments)
+                                const nlohmann::json& arguments, const ScriptEngineFactory& script_factory)
 {
+    if (tool_name == "set_script")
+    {
+        return tool_set_script(world, types, arguments, script_factory);
+    }
     const auto& handlers = tool_handlers();
     const auto it = handlers.find(tool_name);
     if (it == handlers.end())
