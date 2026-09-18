@@ -33,21 +33,24 @@ struct McpToolError : std::runtime_error
 using ScriptEngineFactory = std::function<std::unique_ptr<mosaic::engine::script::ScriptEngine>()>;
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 17 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene + set_script).
+// for all 18 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
+// set_script + import_asset).
 nlohmann::json tools_list_schema();
 
 // Dispatches one tool call by name. `scene_path` is the manifest's default_scene path,
-// used only by `save_scene`. `script_factory` is used only by `set_script` (both unused
-// by every other tool, threaded through uniformly -- the same "every closure takes
-// everything it might need" shape world_globals.cpp uses for
-// world_ptr/types_ptr/stack_ptr). Defaulted to an empty factory so every existing call
-// site keeps compiling unchanged; `set_script` reports a graceful failure (not a crash)
-// if no factory was actually supplied at the call site. Throws McpToolError for an
+// used only by `save_scene`. `script_factory` is used only by `set_script`.
+// `project_dir` is used only by `import_asset` (all three unused by every other tool,
+// threaded through uniformly -- the same "every closure takes everything it might
+// need" shape world_globals.cpp uses for world_ptr/types_ptr/stack_ptr). Both
+// `script_factory` and `project_dir` default to empty so every existing call site
+// keeps compiling unchanged; the affected tool reports a graceful failure (not a
+// crash) if the relevant one wasn't actually supplied. Throws McpToolError for an
 // unknown tool name or malformed arguments; otherwise never throws.
 nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const mosaic::engine::reflection::ComponentReflection& types,
                                 mosaic::foundation::commands::CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
                                 const nlohmann::json& arguments,
-                                const ScriptEngineFactory& script_factory = ScriptEngineFactory{});
+                                const ScriptEngineFactory& script_factory = ScriptEngineFactory{},
+                                const std::string& project_dir = std::string{});
 } // namespace mosaic::app::mcp

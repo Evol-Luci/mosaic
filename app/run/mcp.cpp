@@ -59,7 +59,8 @@ int run_mcp(const Options& options)
     const mcp::ToolDispatch dispatch =
         [&](const std::string& tool_name, const nlohmann::json& arguments) -> nlohmann::json
     {
-        return mcp::handle_tool_call(world, types, stack, scene_path, tool_name, arguments, script_factory);
+        return mcp::handle_tool_call(world, types, stack, scene_path, tool_name, arguments,
+                                     script_factory, project_dir);
     };
 
     mosaic::foundation::log::info("mcp", "serving project {} ({} entities)", project_dir,

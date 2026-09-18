@@ -10,6 +10,9 @@
 #include <nlohmann/json.hpp>
 
 #include "app/mcp/mcp_tools.hpp"
+#include "app/asset/asset_io.hpp"
+#include "app/project/project_io.hpp"
+#include "app/run/scene_io.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
@@ -48,6 +51,11 @@ struct Fixture
                         const mosaic::app::mcp::ScriptEngineFactory& script_factory)
     {
         return handle_tool_call(world, types, stack, "", tool, args, script_factory);
+    }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, {}, project_dir);
     }
 };
 } // namespace
@@ -173,12 +181,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 17 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 18 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 17);
+    REQUIRE(tools.size() == 18);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -359,4 +367,91 @@ TEST_CASE("mcp_tools: set_script throws McpToolError for malformed arguments", "
     Fixture f;
     REQUIRE_THROWS_AS(f.call("set_script", {{"source", "pass"}}), McpToolError);
     REQUIRE_THROWS_AS(f.call("set_script", {{"entity", 1}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: import_asset cooks a PPM into the project and returns an asset_id", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_import_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const std::string src = (std::filesystem::temp_directory_path() /
+                             (std::string("mosaic_mcp_import_src_") + std::to_string(::getpid()) + ".ppm")).string();
+    std::string ppm = "P6\n2 1\n255\n";
+    const unsigned char px[] = {255, 0, 0, 0, 255, 0};
+    ppm.append(reinterpret_cast<const char*>(px), sizeof(px));
+    REQUIRE(mosaic::app::save_scene_file(src, ppm));
+
+    const nlohmann::json result = f.call("import_asset", {{"source", src}}, proj);
+    REQUIRE_FALSE(result.at("asset_id").is_null());
+    REQUIRE_FALSE(result.at("asset_id").get<std::string>().empty());
+
+    const std::string stem = std::filesystem::path(src).stem().string();
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "assets" / (stem + ".image")));
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "assets" / (stem + ".toml")));
+
+    std::filesystem::remove_all(proj);
+    std::filesystem::remove(src);
+}
+
+TEST_CASE("mcp_tools: import_asset returns a null asset_id for a missing source file", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_import_missing_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const nlohmann::json result = f.call("import_asset", {{"source", "/no/such/file.ppm"}}, proj);
+    REQUIRE(result.at("asset_id").is_null());
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: import_asset throws McpToolError for malformed arguments", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("import_asset", nlohmann::json::object(), std::string("/tmp")), McpToolError);
+}
+
+TEST_CASE("mcp_tools: import_asset refuses to overwrite on a stem collision", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_import_collide_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const std::string dir_a = (std::filesystem::temp_directory_path() /
+                               (std::string("mosaic_mcp_import_cola_") + std::to_string(::getpid()))).string();
+    const std::string dir_b = (std::filesystem::temp_directory_path() /
+                               (std::string("mosaic_mcp_import_colb_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(dir_a);
+    std::filesystem::remove_all(dir_b);
+    std::filesystem::create_directories(dir_a);
+    std::filesystem::create_directories(dir_b);
+
+    std::string ppm = "P6\n2 1\n255\n";
+    const unsigned char px[] = {255, 0, 0, 0, 255, 0};
+    ppm.append(reinterpret_cast<const char*>(px), sizeof(px));
+    const std::string src_a = (std::filesystem::path(dir_a) / "tex.ppm").string();
+    const std::string src_b = (std::filesystem::path(dir_b) / "tex.ppm").string();
+    REQUIRE(mosaic::app::save_scene_file(src_a, ppm));
+    REQUIRE(mosaic::app::save_scene_file(src_b, ppm));
+
+    REQUIRE_FALSE(f.call("import_asset", {{"source", src_a}}, proj).at("asset_id").is_null());
+    const std::filesystem::path meta = std::filesystem::path(proj) / "assets" / "tex.toml";
+    const std::optional<std::string> before = mosaic::app::load_scene_file(meta.string());
+    REQUIRE(before.has_value());
+
+    REQUIRE(f.call("import_asset", {{"source", src_b}}, proj).at("asset_id").is_null());
+    const std::optional<std::string> after = mosaic::app::load_scene_file(meta.string());
+    REQUIRE(after.has_value());
+    REQUIRE(*after == *before);
+
+    std::filesystem::remove_all(proj);
+    std::filesystem::remove_all(dir_a);
+    std::filesystem::remove_all(dir_b);
 }
