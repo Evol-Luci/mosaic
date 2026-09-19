@@ -1,8 +1,10 @@
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include <unistd.h> // ::getpid (unique temp file under parallel ctest)
 
@@ -218,12 +220,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 25 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 26 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 25);
+    REQUIRE(tools.size() == 26);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -1062,4 +1064,85 @@ TEST_CASE("mcp_tools: bulk_set_field throws McpToolError for missing required ar
     REQUIRE_THROWS_AS(f.call("bulk_set_field",
         {{"component", "Name"}, {"where", {{"field", "value"}, {"op", "regex"}, {"value", "X"}}}, {"set", {{"field", "value"}, {"value", "Y"}}}}),
         McpToolError); // unknown where.op
+}
+
+TEST_CASE("mcp_tools: entities_referencing reports an entity whose AssetID field matches", "[app][mcp]")
+{
+    Fixture f;
+    const auto target = mosaic::app::random_asset_id();
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = target.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("entities_referencing", {{"asset_id", target.to_string()}});
+    REQUIRE(result.at("matches").size() == 1);
+    const nlohmann::json entry = result.at("matches").at(0);
+    REQUIRE(entry.at("entity").get<std::uint64_t>() == eid);
+    REQUIRE(entry.at("component").get<std::string>() == "Material");
+    REQUIRE(entry.at("field").get<std::string>() == "texture");
+}
+
+TEST_CASE("mcp_tools: entities_referencing does not report a different or nil AssetID", "[app][mcp]")
+{
+    Fixture f;
+    const auto target = mosaic::app::random_asset_id();
+    const auto other = mosaic::app::random_asset_id();
+
+    const std::uint64_t with_other = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", with_other}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", with_other}, {"component", "Material"}}).at("value");
+    mat["texture"] = other.to_string();
+    REQUIRE(f.call("set_component", {{"entity", with_other}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const std::uint64_t with_nil = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", with_nil}, {"component", "Material"}}); // texture defaults to nil
+
+    const nlohmann::json result = f.call("entities_referencing", {{"asset_id", target.to_string()}});
+    REQUIRE(result.at("matches").empty());
+}
+
+TEST_CASE("mcp_tools: entities_referencing reports every match across multiple entities/components", "[app][mcp]")
+{
+    Fixture f;
+    const auto target = mosaic::app::random_asset_id();
+
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    for (std::uint64_t eid : {a, b})
+    {
+        f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+        nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+        mat["texture"] = target.to_string();
+        REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+    }
+
+    const nlohmann::json result = f.call("entities_referencing", {{"asset_id", target.to_string()}});
+    REQUIRE(result.at("matches").size() == 2);
+    std::vector<std::uint64_t> ids;
+    for (const auto& entry : result.at("matches")) { ids.push_back(entry.at("entity").get<std::uint64_t>()); }
+    REQUIRE(std::find(ids.begin(), ids.end(), a) != ids.end());
+    REQUIRE(std::find(ids.begin(), ids.end(), b) != ids.end());
+}
+
+TEST_CASE("mcp_tools: entities_referencing returns an empty array for an asset id nothing references", "[app][mcp]")
+{
+    Fixture f;
+    f.call("create_entity");
+    const auto target = mosaic::app::random_asset_id();
+    const nlohmann::json result = f.call("entities_referencing", {{"asset_id", target.to_string()}});
+    REQUIRE(result.at("matches").empty());
+}
+
+TEST_CASE("mcp_tools: entities_referencing throws McpToolError for a malformed asset_id", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("entities_referencing", {{"asset_id", "not-a-real-uuid"}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: entities_referencing throws McpToolError for a missing asset_id", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("entities_referencing", nlohmann::json::object()), McpToolError);
 }
