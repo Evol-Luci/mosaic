@@ -61,6 +61,12 @@ struct Fixture
     {
         return handle_tool_call(world, types, stack, "", tool, args, {}, project_dir);
     }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir,
+                        mosaic::engine::assets::AssetRegistry& live_registry)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, {}, project_dir, live_registry, &live_registry);
+    }
 };
 
 struct RuntimeFixture
@@ -493,6 +499,57 @@ TEST_CASE("mcp_tools: import_asset refuses to overwrite on a stem collision", "[
     std::filesystem::remove_all(proj);
     std::filesystem::remove_all(dir_a);
     std::filesystem::remove_all(dir_b);
+}
+
+TEST_CASE("mcp_tools: import_asset hot-reloads the new asset into the live AssetRegistry", "[app][mcp]")
+{
+    Fixture f;
+    mosaic::engine::assets::AssetRegistry registry;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_import_hotreload_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const std::string src = (std::filesystem::temp_directory_path() /
+                             (std::string("mosaic_mcp_import_hotreload_src_") + std::to_string(::getpid()) + ".ppm")).string();
+    std::string ppm = "P6\n2 1\n255\n";
+    const unsigned char px[] = {255, 0, 0, 0, 255, 0};
+    ppm.append(reinterpret_cast<const char*>(px), sizeof(px));
+    REQUIRE(mosaic::app::save_scene_file(src, ppm));
+
+    const nlohmann::json result = f.call("import_asset", {{"source", src}}, proj, registry);
+    REQUIRE_FALSE(result.at("asset_id").is_null());
+    const auto asset_id = mosaic::foundation::serialization::AssetID::from_string(result.at("asset_id").get<std::string>());
+
+    // Same session, no restart: the just-imported asset is immediately visible in the registry
+    // that was passed in by reference -- this is the whole point of hot-reload.
+    REQUIRE(registry.contains(asset_id));
+
+    std::filesystem::remove_all(proj);
+    std::filesystem::remove(src);
+}
+
+TEST_CASE("mcp_tools: import_asset without a live registry does not crash (default nullptr)", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_import_norefresh_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const std::string src = (std::filesystem::temp_directory_path() /
+                             (std::string("mosaic_mcp_import_norefresh_src_") + std::to_string(::getpid()) + ".ppm")).string();
+    std::string ppm = "P6\n2 1\n255\n";
+    const unsigned char px[] = {255, 0, 0, 0, 255, 0};
+    ppm.append(reinterpret_cast<const char*>(px), sizeof(px));
+    REQUIRE(mosaic::app::save_scene_file(src, ppm));
+
+    // No live registry supplied (matches every pre-existing import_asset call site) -- must
+    // still succeed exactly as before, simply skipping the refresh.
+    REQUIRE_FALSE(f.call("import_asset", {{"source", src}}, proj).at("asset_id").is_null());
+
+    std::filesystem::remove_all(proj);
+    std::filesystem::remove(src);
 }
 
 TEST_CASE("mcp_tools: tick advances a script's state across multiple ticks", "[app][mcp]")

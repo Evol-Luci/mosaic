@@ -63,9 +63,12 @@ view that was actually used to pick what to build next as of this writing.
   `orphaned_assets`, `bulk_set_field` all set `Material.texture` to a
   literal `AssetID` string via `set_component` against a real `mosaic mcp`
   session) — confirmed working, no gap remains.
-- **Hot-reload imported assets into the live `AssetRegistry` mid-session**
-  — currently only loaded once at `mosaic mcp` startup. *Source:*
-  `2026-09-18-automated-testing-tick-design.md`
+- ~~**Hot-reload imported assets into the live `AssetRegistry` mid-session**~~
+  — **SHIPPED**. `import_asset` now reruns `load_project_assets()` on
+  success, threaded through a new `handle_tool_call` pointer parameter.
+  `broken_references`/`orphaned_assets`/`entities_referencing` see a
+  same-session import immediately, no restart. *Source:*
+  `2026-09-18-automated-testing-tick-design.md`.
 - **"Tick until condition met" tool** — vs. today's fixed-count `tick`.
   *Source:* same
 - **Broader per-system profiling** — physics/animation/particles timing,
@@ -219,7 +222,6 @@ rather than trusting the ratings below forever.
 |---|---|
 | CI/pre-commit wiring for `mosaic docs` + nav regen | Medium — closes a doc-staleness gap that's already bitten this project twice |
 | Remove unused `types` param from `create_project` | Low |
-| Hot-reload imported assets into live `AssetRegistry` | Medium — **now higher-confidence to scope**, hit and worked around 3 times this arc with the exact failure mode well understood |
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 | "Tick until condition met" tool | Medium |

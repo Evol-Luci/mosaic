@@ -49,8 +49,15 @@ nlohmann::json tools_list_schema();
 // graceful failure (not a crash) if the relevant one wasn't actually supplied -- for
 // `broken_references`/`orphaned_assets`, a default-constructed empty `AssetRegistry`
 // simply makes every non-nil AssetID look unresolved / every registered asset look
-// orphaned. Throws McpToolError for an unknown tool name or malformed arguments;
-// otherwise never throws.
+// orphaned. `live_asset_registry` is used only by `import_asset`: when non-null (and
+// pointing at the SAME object `asset_registry` refers to, as `app/run/mcp.cpp`'s dispatch
+// always arranges), a successful import re-registers the new asset into it immediately,
+// via a fresh `load_project_assets` rescan -- so a same-session `broken_references`/
+// `orphaned_assets` call afterward sees it right away, no `mosaic mcp` restart needed
+// (`entities_referencing` never consulted `asset_registry` at all -- it was never affected
+// by the staleness gap this fixes). Defaults to nullptr (no refresh attempted), matching
+// every existing call site's behavior unchanged. Throws McpToolError for an unknown tool
+// name or malformed arguments; otherwise never throws.
 nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const mosaic::engine::reflection::ComponentReflection& types,
                                 mosaic::foundation::commands::CommandStack& stack,
@@ -59,5 +66,6 @@ nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const ScriptEngineFactory& script_factory = ScriptEngineFactory{},
                                 const std::string& project_dir = std::string{},
                                 const mosaic::engine::assets::AssetRegistry& asset_registry =
-                                    mosaic::engine::assets::AssetRegistry{});
+                                    mosaic::engine::assets::AssetRegistry{},
+                                mosaic::engine::assets::AssetRegistry* live_asset_registry = nullptr);
 } // namespace mosaic::app::mcp
