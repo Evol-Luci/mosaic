@@ -430,9 +430,9 @@ nlohmann::json tool_build_project(const ComponentReflection& types, const std::s
 class AssetRefCollector final : public mosaic::engine::reflection::FieldVisitor
 {
 public:
-    AssetRefCollector(const AssetRegistry& registry, nlohmann::json& out, EntityID entity,
-                      const std::string& component)
-        : registry_(registry), out_(out), entity_(entity), component_(component)
+    AssetRefCollector(const World& world, const AssetRegistry& registry, nlohmann::json& out,
+                      EntityID entity, const std::string& component)
+        : world_(world), registry_(registry), out_(out), entity_(entity), component_(component)
     {
     }
 
@@ -440,7 +440,8 @@ public:
     {
         if (value.is_nil()) { return; }
         if (registry_.contains(value)) { return; }
-        out_.push_back({{"entity", entity_.value()},
+        out_.push_back({{"kind", "asset"},
+                        {"entity", entity_.value()},
                         {"component", component_},
                         {"field", path_with(name)},
                         {"asset_id", value.to_string()}});
@@ -450,10 +451,22 @@ public:
     {
         if (value.is_nil()) { return; }
         if (registry_.contains(value)) { return; }
-        out_.push_back({{"entity", entity_.value()},
+        out_.push_back({{"kind", "asset"},
+                        {"entity", entity_.value()},
                         {"component", component_},
                         {"field", path_with(name)},
                         {"asset_id", value.to_string()}});
+    }
+
+    void field_entity(std::string_view name, mosaic::foundation::EntityID value) override
+    {
+        if (!value) { return; } // nil -- no reference set
+        if (world_.is_valid(value)) { return; }
+        out_.push_back({{"kind", "entity"},
+                        {"entity", entity_.value()},
+                        {"component", component_},
+                        {"field", path_with(name)},
+                        {"entity_id", value.value()}});
     }
 
     void field_float(std::string_view, float&) override {}
@@ -470,6 +483,7 @@ private:
         return result;
     }
 
+    const World& world_;
     const AssetRegistry& registry_;
     nlohmann::json& out_;
     EntityID entity_;
@@ -486,7 +500,7 @@ nlohmann::json tool_broken_references(World& world, const ComponentReflection& t
         {
             for (const std::string& name : types.components_on(world, e))
             {
-                AssetRefCollector collector(asset_registry, broken, e, name);
+                AssetRefCollector collector(world, asset_registry, broken, e, name);
                 types.inspect(world, e, name, collector);
             }
         });
@@ -969,14 +983,17 @@ nlohmann::json tools_list_schema()
                                      "ticked yet, or if no ScriptSystem is wired."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "broken_references"},
-                     {"description", "Scan every entity's every component for AssetID fields "
-                                     "(bare or inside a Handle<R>) that are set (non-nil) but "
-                                     "don't resolve in the live AssetRegistry. EntityID reference "
-                                     "fields aren't distinguishable from other scalar fields yet, "
-                                     "so those aren't checked. The AssetRegistry stays live "
-                                     "across the whole session -- import_asset refreshes it "
-                                     "immediately, so an asset imported earlier this session is "
-                                     "already resolvable here, not a false positive."},
+                     {"description", "Scan every entity's every component for two kinds of "
+                                     "broken reference, each entry tagged with a 'kind' field: "
+                                     "'asset' -- an AssetID field (bare or inside a Handle<R>) "
+                                     "that is set (non-nil) but doesn't resolve in the live "
+                                     "AssetRegistry (entry has 'asset_id'); 'entity' -- an "
+                                     "EntityID field that is set (non-nil) but doesn't name a "
+                                     "currently-valid entity (entry has 'entity_id'). The "
+                                     "AssetRegistry stays live across the whole session -- "
+                                     "import_asset refreshes it immediately, so an asset imported "
+                                     "earlier this session is already resolvable here, not a "
+                                     "false positive."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "orphaned_assets"},
                      {"description", "Return every registered asset that no entity's component "
