@@ -218,12 +218,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 24 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 25 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 24);
+    REQUIRE(tools.size() == 25);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -925,4 +925,125 @@ TEST_CASE("mcp_tools: orphaned_assets still reports an asset orphaned when a dif
 
     const nlohmann::json result = f.call("orphaned_assets");
     REQUIRE(orphaned_contains(result.at("orphaned"), orphan.uuid.to_string()));
+}
+
+TEST_CASE("mcp_tools: bulk_set_field updates only entities matching the where filter", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t c = f.call("create_entity").at("id").get<std::uint64_t>();
+    for (std::uint64_t eid : {a, b, c})
+    {
+        f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+    }
+    f.call("set_component", {{"entity", a}, {"component", "Name"}, {"value", {{"value", "OldName"}}}});
+    f.call("set_component", {{"entity", b}, {"component", "Name"}, {"value", {{"value", "OldName"}}}});
+    f.call("set_component", {{"entity", c}, {"component", "Name"}, {"value", {{"value", "Untouched"}}}});
+
+    const nlohmann::json result = f.call("bulk_set_field",
+        {{"component", "Name"},
+         {"where", {{"field", "value"}, {"op", "eq"}, {"value", "OldName"}}},
+         {"set", {{"field", "value"}, {"value", "NewName"}}}});
+    REQUIRE(result.at("updated").get<std::uint64_t>() == 2);
+    const nlohmann::json entities = result.at("entities");
+    REQUIRE(entities.size() == 2);
+
+    REQUIRE(f.call("get_component", {{"entity", a}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "NewName");
+    REQUIRE(f.call("get_component", {{"entity", b}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "NewName");
+    REQUIRE(f.call("get_component", {{"entity", c}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Untouched");
+}
+
+TEST_CASE("mcp_tools: bulk_set_field with no where updates every entity with the component", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", a}, {"component", "Name"}});
+    f.call("add_component", {{"entity", b}, {"component", "Name"}});
+
+    const nlohmann::json result = f.call("bulk_set_field",
+        {{"component", "Name"}, {"set", {{"field", "value"}, {"value", "Renamed"}}}});
+    REQUIRE(result.at("updated").get<std::uint64_t>() == 2);
+
+    REQUIRE(f.call("get_component", {{"entity", a}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Renamed");
+    REQUIRE(f.call("get_component", {{"entity", b}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Renamed");
+}
+
+TEST_CASE("mcp_tools: bulk_set_field with zero matches returns updated:0 and touches no undo stack", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+    f.call("set_component", {{"entity", eid}, {"component", "Name"}, {"value", {{"value", "Something"}}}});
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1);
+
+    const nlohmann::json result = f.call("bulk_set_field",
+        {{"component", "Name"},
+         {"where", {{"field", "value"}, {"op", "eq"}, {"value", "NoSuchValue"}}},
+         {"set", {{"field", "value"}, {"value", "NewName"}}}});
+    REQUIRE(result.at("updated").get<std::uint64_t>() == 0);
+    REQUIRE(result.at("entities").empty());
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1); // unchanged -- no command pushed
+}
+
+TEST_CASE("mcp_tools: bulk_set_field throws for an unresolvable set.field and mutates nothing", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+    f.call("set_component", {{"entity", eid}, {"component", "Name"}, {"value", {{"value", "Original"}}}});
+
+    REQUIRE_THROWS_AS(f.call("bulk_set_field",
+        {{"component", "Name"}, {"set", {{"field", "not_a_real_field"}, {"value", "X"}}}}), McpToolError);
+
+    // Nothing mutated: value unchanged, no command pushed.
+    REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Original");
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1); // only the earlier set_component
+}
+
+TEST_CASE("mcp_tools: bulk_set_field is a single atomic undo step across multiple entities", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t c = f.call("create_entity").at("id").get<std::uint64_t>();
+    for (std::uint64_t eid : {a, b, c})
+    {
+        f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+        f.call("set_component", {{"entity", eid}, {"component", "Name"}, {"value", {{"value", "Before"}}}});
+    }
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 3);
+
+    const nlohmann::json result = f.call("bulk_set_field",
+        {{"component", "Name"}, {"set", {{"field", "value"}, {"value", "After"}}}});
+    REQUIRE(result.at("updated").get<std::uint64_t>() == 3);
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 4); // 3 prior sets + 1 composite
+
+    REQUIRE(f.call("undo").at("ok").get<bool>() == true); // one undo call
+    for (std::uint64_t eid : {a, b, c})
+    {
+        REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Before");
+    }
+
+    REQUIRE(f.call("redo").at("ok").get<bool>() == true); // one redo call re-applies the whole batch
+    for (std::uint64_t eid : {a, b, c})
+    {
+        REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "After");
+    }
+}
+
+TEST_CASE("mcp_tools: bulk_set_field throws McpToolError for missing required arguments", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("bulk_set_field", {{"set", {{"field", "value"}, {"value", "X"}}}}), McpToolError); // missing component
+    REQUIRE_THROWS_AS(f.call("bulk_set_field", {{"component", "Name"}}), McpToolError); // missing set
+    REQUIRE_THROWS_AS(f.call("bulk_set_field", {{"component", "Name"}, {"set", {{"value", "X"}}}}), McpToolError); // missing set.field
+    REQUIRE_THROWS_AS(f.call("bulk_set_field", {{"component", "Name"}, {"set", {{"field", "value"}}}}), McpToolError); // missing set.value
+    REQUIRE_THROWS_AS(f.call("bulk_set_field",
+        {{"component", "Name"}, {"where", {{"field", "value"}, {"value", "X"}}}, {"set", {{"field", "value"}, {"value", "Y"}}}}),
+        McpToolError); // missing where.op
+    REQUIRE_THROWS_AS(f.call("bulk_set_field",
+        {{"component", "Name"}, {"where", {{"field", "value"}, {"op", "regex"}, {"value", "X"}}}, {"set", {{"field", "value"}, {"value", "Y"}}}}),
+        McpToolError); // unknown where.op
 }

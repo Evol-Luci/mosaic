@@ -18,6 +18,7 @@
 #include "engine/scene/scene.hpp"
 #include "engine/script/script_system.hpp"
 #include "engine/animation/animation_system.hpp"
+#include "foundation/commands/composite_command.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
 #include "studio/script_editor.hpp"
@@ -30,7 +31,9 @@ using mosaic::engine::World;
 using mosaic::engine::assets::AssetRegistry;
 using mosaic::engine::reflection::ComponentReflection;
 using mosaic::foundation::EntityID;
+using mosaic::foundation::commands::Command;
 using mosaic::foundation::commands::CommandStack;
+using mosaic::foundation::commands::CompositeCommand;
 using mosaic::foundation::serialization::AssetID;
 using mosaic::foundation::serialization::Value;
 
@@ -207,6 +210,19 @@ std::optional<nlohmann::json> json_at_path(const nlohmann::json& root,
         cur = &cur->at(seg);
     }
     return *cur;
+}
+
+bool json_set_at(nlohmann::json& root, const std::vector<std::string>& path, const nlohmann::json& value)
+{
+    nlohmann::json* cur = &root;
+    for (std::size_t i = 0; i + 1 < path.size(); ++i)
+    {
+        if (!cur->is_object() || !cur->contains(path[i])) { return false; }
+        cur = &cur->at(path[i]);
+    }
+    if (path.empty() || !cur->is_object() || !cur->contains(path.back())) { return false; }
+    (*cur)[path.back()] = value;
+    return true;
 }
 
 bool compare(const nlohmann::json& lhs, const std::string& op, const nlohmann::json& rhs)
@@ -510,6 +526,89 @@ nlohmann::json tool_orphaned_assets(World& world, const ComponentReflection& typ
     return {{"orphaned", orphaned}};
 }
 
+nlohmann::json tool_bulk_set_field(World& world, const ComponentReflection& types, CommandStack& stack,
+                                   const std::string&, const nlohmann::json& args)
+{
+    const std::string component = require_string(args, "component");
+    if (!args.contains("set") || !args.at("set").is_object())
+    {
+        throw McpToolError("missing or invalid 'set' (expected an object with 'field' and 'value')");
+    }
+    const nlohmann::json& set_args = args.at("set");
+    const std::string set_field = require_string(set_args, "field");
+    if (!set_args.contains("value"))
+    {
+        throw McpToolError("missing 'set.value'");
+    }
+    const nlohmann::json set_value = set_args.at("value");
+    const std::vector<std::string> set_path = mosaic::engine::animation::split_path(set_field, '.');
+
+    std::optional<std::string> where_op;
+    nlohmann::json where_value;
+    std::vector<std::string> where_path;
+    const bool has_where = args.contains("where");
+    if (has_where)
+    {
+        if (!args.at("where").is_object())
+        {
+            throw McpToolError("invalid 'where' (expected an object with 'field', 'op', 'value')");
+        }
+        const nlohmann::json& where_args = args.at("where");
+        const std::string where_field = require_string(where_args, "field");
+        where_op = require_string(where_args, "op");
+        if (!where_args.contains("value"))
+        {
+            throw McpToolError("missing 'where.value'");
+        }
+        static const std::unordered_set<std::string> kValidOps = {"eq", "ne", "gt", "gte", "lt", "lte"};
+        if (kValidOps.find(*where_op) == kValidOps.end())
+        {
+            throw McpToolError("unknown where.op: " + *where_op + " (expected one of eq, ne, gt, gte, lt, lte)");
+        }
+        where_value = where_args.at("value");
+        where_path = mosaic::engine::animation::split_path(where_field, '.');
+    }
+
+    std::vector<EntityID> matched;
+    std::vector<Value> patched;
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            const auto v = types.component_value(world, e, component);
+            if (!v) { return; }
+            nlohmann::json component_json = value_to_json(*v);
+            if (has_where)
+            {
+                const auto field_value = json_at_path(component_json, where_path);
+                if (!field_value) { return; }
+                if (!compare(*field_value, *where_op, where_value)) { return; }
+            }
+            if (!json_set_at(component_json, set_path, set_value))
+            {
+                throw McpToolError("'set.field' does not resolve on component '" + component + "': " + set_field);
+            }
+            matched.push_back(e);
+            patched.push_back(json_to_value(component_json));
+        });
+
+    if (matched.empty())
+    {
+        return {{"updated", 0}, {"entities", nlohmann::json::array()}};
+    }
+
+    std::vector<std::unique_ptr<Command>> commands;
+    nlohmann::json updated_entities = nlohmann::json::array();
+    for (std::size_t i = 0; i < matched.size(); ++i)
+    {
+        commands.push_back(std::make_unique<mosaic::engine::commands::SetComponentCommand>(
+            world, types, matched[i], component, patched[i]));
+        updated_entities.push_back(matched[i].value());
+    }
+    stack.execute(std::make_unique<CompositeCommand>("mcp.bulk_set_field", std::move(commands)));
+
+    return {{"updated", static_cast<std::uint64_t>(matched.size())}, {"entities", updated_entities}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -525,6 +624,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"describe_scene", &tool_describe_scene},
         {"tick", &tool_tick},
         {"script_profile", &tool_script_profile},
+        {"bulk_set_field", &tool_bulk_set_field},
     };
     return handlers;
 }
@@ -572,6 +672,30 @@ nlohmann::json schema_entities_where()
              {"op", {{"type", "string"}, {"enum", {"eq", "ne", "gt", "gte", "lt", "lte"}}}},
              {"value", {{"description", "The value to compare against"}}}}},
            {"required", {"component", "field", "op", "value"}}};
+}
+
+nlohmann::json schema_bulk_set_field()
+{
+    nlohmann::json where_schema = {
+        {"type", "object"},
+        {"properties",
+         {{"field", {{"type", "string"}}},
+          {"op", {{"type", "string"}, {"enum", {"eq", "ne", "gt", "gte", "lt", "lte"}}}},
+          {"value", {{"description", "The value to compare against"}}}}},
+        {"required", {"field", "op", "value"}}};
+    nlohmann::json set_schema = {
+        {"type", "object"},
+        {"properties",
+         {{"field", {{"type", "string"},
+                    {"description", "Dotted path into the component's fields, e.g. \"value\" or \"position.x\""}}},
+          {"value", {{"description", "The new value to write at that field"}}}}},
+        {"required", {"field", "value"}}};
+    return {{"type", "object"},
+           {"properties",
+            {{"component", {{"type", "string"}}},
+             {"where", where_schema},
+             {"set", set_schema}}},
+           {"required", {"component", "set"}}};
 }
 
 nlohmann::json schema_entity_source()
@@ -732,6 +856,18 @@ nlohmann::json tools_list_schema()
                                      "neither falsely flagged nor falsely cleared -- until the "
                                      "mosaic mcp process restarts."},
                      {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "bulk_set_field"},
+                     {"description", "Set one field to a new value on every entity matching an "
+                                     "optional filter (reusing entities_where's exact "
+                                     "where.field/op/value shape; omit 'where' to target every "
+                                     "entity with 'component'). Applied atomically as one "
+                                     "undoable step -- a single undo call reverts every entity "
+                                     "this touched, not just the last one. Covers bulk renames "
+                                     "(e.g. set field \"value\" on Name) as the common case. A "
+                                     "'set.field' that doesn't resolve on the matched component "
+                                     "throws before anything is mutated; zero matches returns "
+                                     "updated:0 without touching the undo stack."},
+                     {"inputSchema", schema_bulk_set_field()}});
     return {{"tools", tools}};
 }
 
