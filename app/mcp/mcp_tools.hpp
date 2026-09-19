@@ -53,10 +53,11 @@ nlohmann::json tools_list_schema();
 // pointing at the SAME object `asset_registry` refers to, as `app/run/mcp.cpp`'s dispatch
 // always arranges), a successful import re-registers the new asset into it immediately,
 // via a fresh `load_project_assets` rescan -- so a same-session `broken_references`/
-// `orphaned_assets`/`entities_referencing` call afterward sees it right away, no `mosaic
-// mcp` restart needed. Defaults to nullptr (no refresh attempted), matching every existing
-// call site's behavior unchanged. Throws McpToolError for an unknown tool name or
-// malformed arguments; otherwise never throws.
+// `orphaned_assets` call afterward sees it right away, no `mosaic mcp` restart needed
+// (`entities_referencing` never consulted `asset_registry` at all -- it was never affected
+// by the staleness gap this fixes). Defaults to nullptr (no refresh attempted), matching
+// every existing call site's behavior unchanged. Throws McpToolError for an unknown tool
+// name or malformed arguments; otherwise never throws.
 nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const mosaic::engine::reflection::ComponentReflection& types,
                                 mosaic::foundation::commands::CommandStack& stack,

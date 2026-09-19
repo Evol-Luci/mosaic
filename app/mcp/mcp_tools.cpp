@@ -919,9 +919,9 @@ nlohmann::json tools_list_schema()
                                      "(unsupported format, missing source, or a stem collision) -- "
                                      "the specific reason is only visible in the server's own log "
                                      "output, not returned here. On success the new asset is "
-                                     "immediately live: broken_references/orphaned_assets/"
-                                     "entities_referencing all see it right away in the same "
-                                     "session, no mosaic mcp restart needed."},
+                                     "immediately live: broken_references/orphaned_assets see it "
+                                     "right away in the same session, no mosaic mcp restart "
+                                     "needed."},
                      {"inputSchema", schema_source()}});
     tools.push_back({{"name", "tick"},
                      {"description", "Advance the simulation by `count` ticks (default 1, max "
