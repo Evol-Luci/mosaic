@@ -205,12 +205,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 19 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 20 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 19);
+    REQUIRE(tools.size() == 20);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -522,4 +522,58 @@ TEST_CASE("mcp_tools: tick throws McpToolError for malformed count or dt", "[app
     RuntimeFixture f;
     REQUIRE_THROWS_AS(f.call("tick", {{"count", "not-a-number"}}), McpToolError);
     REQUIRE_THROWS_AS(f.call("tick", {{"dt", "not-a-number"}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: build_project packages a project into a standalone bundle", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_build_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const nlohmann::json result = f.call("build_project", nlohmann::json::object(), proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "dist"));
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: build_project honors a custom out_dir argument", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_build_custom_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+    const std::string out = (std::filesystem::temp_directory_path() /
+                             (std::string("mosaic_mcp_build_out_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(out);
+
+    const nlohmann::json result = f.call("build_project", {{"out_dir", out}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE(std::filesystem::exists(out));
+
+    std::filesystem::remove_all(proj);
+    std::filesystem::remove_all(out);
+}
+
+TEST_CASE("mcp_tools: build_project returns ok:false for a non-project directory", "[app][mcp]")
+{
+    Fixture f;
+    const std::string notproj = (std::filesystem::temp_directory_path() /
+                                 (std::string("mosaic_mcp_build_notproj_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(notproj);
+    std::filesystem::create_directories(notproj);
+
+    const nlohmann::json result = f.call("build_project", nlohmann::json::object(), notproj);
+    REQUIRE(result.at("ok").get<bool>() == false);
+
+    std::filesystem::remove_all(notproj);
+}
+
+TEST_CASE("mcp_tools: build_project throws McpToolError for a malformed out_dir", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("build_project", {{"out_dir", 123}}, std::string("/tmp")), McpToolError);
 }

@@ -1,11 +1,14 @@
 #include "app/mcp/mcp_tools.hpp"
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <functional>
+#include <system_error>
 #include <unordered_map>
 
 #include "app/asset/asset_io.hpp"
+#include "app/project/bundle.hpp"
 #include "app/run/scene_io.hpp"
 #include "engine/commands/set_component_command.hpp"
 #include "engine/transform/transform.hpp"
@@ -77,6 +80,12 @@ double optional_double(const nlohmann::json& args, const char* key, double defau
         throw McpToolError(std::string("invalid '") + key + "' (expected a number)");
     }
     return args.at(key).get<double>();
+}
+
+std::string optional_string(const nlohmann::json& args, const char* key, const std::string& default_value)
+{
+    if (!args.contains(key)) { return default_value; }
+    return require_string(args, key);
 }
 
 using ToolHandler = nlohmann::json (*)(World&, const ComponentReflection&, CommandStack&,
@@ -304,6 +313,17 @@ nlohmann::json tool_tick(World& world, const ComponentReflection&, CommandStack&
     return {{"ticks", count}};
 }
 
+nlohmann::json tool_build_project(const ComponentReflection& types, const std::string& project_dir,
+                                  const nlohmann::json& args)
+{
+    const std::string out_dir = optional_string(args, "out_dir",
+                                                (std::filesystem::path(project_dir) / "dist").string());
+    std::error_code ec;
+    const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) { return {{"ok", false}}; }
+    return {{"ok", mosaic::app::build_bundle(project_dir, out_dir, exe.string(), types)}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -373,6 +393,11 @@ nlohmann::json schema_tick()
            {"properties",
             {{"count", {{"type", "integer"}, {"minimum", 0}}}, {"dt", {{"type", "number"}}}}},
            {"required", nlohmann::json::array()}};
+}
+
+nlohmann::json schema_build()
+{
+    return {{"type", "object"}, {"properties", {{"out_dir", {{"type", "string"}}}}}, {"required", nlohmann::json::array()}};
 }
 
 nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args)
@@ -463,6 +488,14 @@ nlohmann::json tools_list_schema()
                                      "mosaic run/editor use at play time. Returns the number of "
                                      "ticks actually run."},
                      {"inputSchema", schema_tick()}});
+    tools.push_back({{"name", "build_project"},
+                     {"description", "Package the project into a standalone bundle (default "
+                                     "output <project>/dist, or a given out_dir), embedding this "
+                                     "running mosaic binary as the runtime -- the same operation "
+                                     "`mosaic build` performs. ok is false on any failure (the "
+                                     "specific reason is only visible in the server's own log "
+                                     "output, matching import_asset's same convention)."},
+                     {"inputSchema", schema_build()}});
     return {{"tools", tools}};
 }
 
@@ -478,6 +511,10 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "import_asset")
     {
         return tool_import_asset(project_dir, arguments);
+    }
+    if (tool_name == "build_project")
+    {
+        return tool_build_project(types, project_dir, arguments);
     }
     const auto& handlers = tool_handlers();
     const auto it = handlers.find(tool_name);
