@@ -11,6 +11,7 @@
 #include "app/asset/asset_io.hpp"
 #include "app/project/bundle.hpp"
 #include "app/run/scene_io.hpp"
+#include "engine/assets/asset_registry.hpp"
 #include "engine/commands/set_component_command.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
@@ -26,9 +27,11 @@ namespace mosaic::app::mcp
 namespace
 {
 using mosaic::engine::World;
+using mosaic::engine::assets::AssetRegistry;
 using mosaic::engine::reflection::ComponentReflection;
 using mosaic::foundation::EntityID;
 using mosaic::foundation::commands::CommandStack;
+using mosaic::foundation::serialization::AssetID;
 using mosaic::foundation::serialization::Value;
 
 nlohmann::json value_to_json(const Value& v)
@@ -401,6 +404,62 @@ nlohmann::json tool_build_project(const ComponentReflection& types, const std::s
     return {{"ok", mosaic::app::build_bundle(project_dir, out_dir, exe.string(), types)}};
 }
 
+class AssetRefCollector final : public mosaic::engine::reflection::FieldVisitor
+{
+public:
+    AssetRefCollector(const AssetRegistry& registry, nlohmann::json& out, EntityID entity,
+                      const std::string& component)
+        : registry_(registry), out_(out), entity_(entity), component_(component)
+    {
+    }
+
+    void field_asset(std::string_view name, AssetID& value) override
+    {
+        if (value.is_nil()) { return; }
+        if (registry_.contains(value)) { return; }
+        out_.push_back({{"entity", entity_.value()},
+                        {"component", component_},
+                        {"field", path_with(name)},
+                        {"asset_id", value.to_string()}});
+    }
+
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view, const std::string&) override {}
+    void begin_group(std::string_view name) override { path_.push_back(std::string(name)); }
+    void end_group() override { path_.pop_back(); }
+
+private:
+    std::string path_with(std::string_view leaf) const
+    {
+        std::string result;
+        for (const std::string& seg : path_) { result += seg + "."; }
+        result += leaf;
+        return result;
+    }
+
+    const AssetRegistry& registry_;
+    nlohmann::json& out_;
+    EntityID entity_;
+    std::string component_;
+    std::vector<std::string> path_;
+};
+
+nlohmann::json tool_broken_references(World& world, const ComponentReflection& types,
+                                      const AssetRegistry& asset_registry)
+{
+    nlohmann::json broken = nlohmann::json::array();
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            for (const std::string& name : types.components_on(world, e))
+            {
+                AssetRefCollector collector(asset_registry, broken, e, name);
+                types.inspect(world, e, name, collector);
+            }
+        });
+    return {{"broken", broken}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -601,13 +660,23 @@ nlohmann::json tools_list_schema()
                                      "total_ms, and max_ms per entity. Empty if nothing has "
                                      "ticked yet, or if no ScriptSystem is wired."},
                      {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "broken_references"},
+                     {"description", "Scan every entity's every component for AssetID fields "
+                                     "that are set (non-nil) but don't resolve in the live "
+                                     "AssetRegistry. Only AssetID references are checked -- "
+                                     "EntityID references aren't distinguishable from other "
+                                     "scalar fields yet. Caveat: the AssetRegistry snapshot is "
+                                     "loaded once at server startup and never refreshed, so an "
+                                     "asset imported via import_asset earlier this session will "
+                                     "false-positive here until the mosaic mcp process restarts."},
+                     {"inputSchema", schema_none()}});
     return {{"tools", tools}};
 }
 
 nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
                                 const nlohmann::json& arguments, const ScriptEngineFactory& script_factory,
-                                const std::string& project_dir)
+                                const std::string& project_dir, const AssetRegistry& asset_registry)
 {
     if (tool_name == "set_script")
     {
@@ -620,6 +689,10 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "build_project")
     {
         return tool_build_project(types, project_dir, arguments);
+    }
+    if (tool_name == "broken_references")
+    {
+        return tool_broken_references(world, types, asset_registry);
     }
     const auto& handlers = tool_handlers();
     const auto it = handlers.find(tool_name);

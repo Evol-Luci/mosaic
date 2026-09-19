@@ -79,7 +79,7 @@ struct RuntimeFixture
 
     nlohmann::json call(const std::string& tool, const nlohmann::json& args = nlohmann::json::object())
     {
-        return handle_tool_call(world, types, stack, "", tool, args, script_factory);
+        return handle_tool_call(world, types, stack, "", tool, args, script_factory, "", asset_registry);
     }
 };
 } // namespace
@@ -205,12 +205,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 22 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 23 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 22);
+    REQUIRE(tools.size() == 23);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -727,4 +727,78 @@ TEST_CASE("mcp_tools: entities_where throws McpToolError for missing required ar
     REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"op", "eq"}, {"value", 0.0}}), McpToolError);
     REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"field", "position.x"}, {"value", 0.0}}), McpToolError);
     REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"field", "position.x"}, {"op", "eq"}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: broken_references reports a Material.texture AssetID that doesn't resolve", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    const auto stray_id = mosaic::app::random_asset_id();
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = stray_id.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("broken_references");
+    REQUIRE(result.at("broken").size() == 1);
+    const nlohmann::json entry = result.at("broken").at(0);
+    REQUIRE(entry.at("entity").get<std::uint64_t>() == eid);
+    REQUIRE(entry.at("component").get<std::string>() == "Material");
+    REQUIRE(entry.at("field").get<std::string>() == "texture");
+    REQUIRE(entry.at("asset_id").get<std::string>() == stray_id.to_string());
+}
+
+TEST_CASE("mcp_tools: broken_references does not report an AssetID that resolves in the registry", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata meta;
+    meta.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = meta.uuid.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("broken_references");
+    REQUIRE(result.at("broken").empty());
+}
+
+TEST_CASE("mcp_tools: broken_references does not report a nil (unset) AssetID field", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}}); // texture defaults to nil
+    const nlohmann::json result = f.call("broken_references");
+    REQUIRE(result.at("broken").empty());
+}
+
+TEST_CASE("mcp_tools: broken_references reports every broken reference across multiple entities", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", a}, {"component", "Material"}});
+    f.call("add_component", {{"entity", b}, {"component", "Material"}});
+    const auto stray_a = mosaic::app::random_asset_id();
+    const auto stray_b = mosaic::app::random_asset_id();
+    for (const auto& [eid, stray] : std::vector<std::pair<std::uint64_t, mosaic::foundation::serialization::AssetID>>{
+             {a, stray_a}, {b, stray_b}})
+    {
+        nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+        mat["texture"] = stray.to_string();
+        REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+    }
+
+    const nlohmann::json result = f.call("broken_references");
+    REQUIRE(result.at("broken").size() == 2);
+}
+
+TEST_CASE("mcp_tools: broken_references returns an empty array for a world with nothing to report", "[app][mcp]")
+{
+    RuntimeFixture f;
+    f.call("create_entity");
+    const nlohmann::json result = f.call("broken_references");
+    REQUIRE(result.at("broken").empty());
 }

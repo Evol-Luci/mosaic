@@ -8,6 +8,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_engine.hpp"
 #include "engine/world/world.hpp"
@@ -33,24 +34,29 @@ struct McpToolError : std::runtime_error
 using ScriptEngineFactory = std::function<std::unique_ptr<mosaic::engine::script::ScriptEngine>()>;
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 22 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
-// set_script + import_asset + tick + build_project + script_profile + entities_where).
+// for all 23 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
+// set_script + import_asset + tick + build_project + script_profile + entities_where +
+// broken_references).
 nlohmann::json tools_list_schema();
 
 // Dispatches one tool call by name. `scene_path` is the manifest's default_scene path,
 // used only by `save_scene`. `script_factory` is used only by `set_script`.
-// `project_dir` is used only by `import_asset` (all three unused by every other tool,
-// threaded through uniformly -- the same "every closure takes everything it might
-// need" shape world_globals.cpp uses for world_ptr/types_ptr/stack_ptr). Both
-// `script_factory` and `project_dir` default to empty so every existing call site
-// keeps compiling unchanged; the affected tool reports a graceful failure (not a
-// crash) if the relevant one wasn't actually supplied. Throws McpToolError for an
-// unknown tool name or malformed arguments; otherwise never throws.
+// `project_dir` is used only by `import_asset` and `build_project`. `asset_registry` is
+// used only by `broken_references` (all four unused by every other tool, threaded
+// through uniformly -- the same "every closure takes everything it might need" shape
+// world_globals.cpp uses for world_ptr/types_ptr/stack_ptr). All four default so every
+// existing call site keeps compiling unchanged; the affected tool reports a graceful
+// failure (not a crash) if the relevant one wasn't actually supplied -- for
+// `broken_references`, a default-constructed empty `AssetRegistry` simply makes every
+// non-nil AssetID look unresolved. Throws McpToolError for an unknown tool name or
+// malformed arguments; otherwise never throws.
 nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const mosaic::engine::reflection::ComponentReflection& types,
                                 mosaic::foundation::commands::CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
                                 const nlohmann::json& arguments,
                                 const ScriptEngineFactory& script_factory = ScriptEngineFactory{},
-                                const std::string& project_dir = std::string{});
+                                const std::string& project_dir = std::string{},
+                                const mosaic::engine::assets::AssetRegistry& asset_registry =
+                                    mosaic::engine::assets::AssetRegistry{});
 } // namespace mosaic::app::mcp
