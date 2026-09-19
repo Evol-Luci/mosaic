@@ -887,7 +887,7 @@ TEST_CASE("mcp_tools: broken_references reports a Transform.parent EntityID that
     RuntimeFixture f;
     const std::uint64_t holder = f.call("create_entity").at("id").get<std::uint64_t>();
     f.call("add_component", {{"entity", holder}, {"component", "Transform"}});
-    const mosaic::foundation::EntityID stray(999999, 1); // never created
+    const mosaic::foundation::EntityID stray(999999, 1); // index far above anything this test allocates
     nlohmann::json t = f.call("get_component", {{"entity", holder}, {"component", "Transform"}}).at("value");
     t["parent"] = std::to_string(stray.value());
     REQUIRE(f.call("set_component", {{"entity", holder}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
@@ -949,7 +949,7 @@ TEST_CASE("mcp_tools: broken_references's kind discriminator distinguishes asset
 
     const std::uint64_t entity_holder = f.call("create_entity").at("id").get<std::uint64_t>();
     f.call("add_component", {{"entity", entity_holder}, {"component", "Transform"}});
-    const mosaic::foundation::EntityID stray_entity(888888, 1);
+    const mosaic::foundation::EntityID stray_entity(888888, 1); // index far above anything this test allocates
     nlohmann::json t = f.call("get_component", {{"entity", entity_holder}, {"component", "Transform"}}).at("value");
     t["parent"] = std::to_string(stray_entity.value());
     REQUIRE(f.call("set_component", {{"entity", entity_holder}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
