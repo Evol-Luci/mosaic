@@ -882,6 +882,100 @@ TEST_CASE("mcp_tools: broken_references reports every broken reference across mu
     REQUIRE(result.at("broken").size() == 2);
 }
 
+TEST_CASE("mcp_tools: broken_references reports a Transform.parent EntityID that isn't valid", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t holder = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", holder}, {"component", "Transform"}});
+    const mosaic::foundation::EntityID stray(999999, 1); // index far above anything this test allocates
+    nlohmann::json t = f.call("get_component", {{"entity", holder}, {"component", "Transform"}}).at("value");
+    t["parent"] = std::to_string(stray.value());
+    REQUIRE(f.call("set_component", {{"entity", holder}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("broken_references");
+    bool found = false;
+    for (const auto& entry : result.at("broken"))
+    {
+        if (entry.at("entity").get<std::uint64_t>() == holder)
+        {
+            REQUIRE(entry.at("kind").get<std::string>() == "entity");
+            REQUIRE(entry.at("component").get<std::string>() == "Transform");
+            REQUIRE(entry.at("field").get<std::string>() == "parent");
+            REQUIRE(entry.at("entity_id").get<std::uint64_t>() == stray.value());
+            found = true;
+        }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("mcp_tools: broken_references does not report an EntityID field pointing at a valid entity", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t parent_id = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t child_id = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", child_id}, {"component", "Transform"}});
+    nlohmann::json t = f.call("get_component", {{"entity", child_id}, {"component", "Transform"}}).at("value");
+    t["parent"] = std::to_string(parent_id);
+    REQUIRE(f.call("set_component", {{"entity", child_id}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("broken_references");
+    for (const auto& entry : result.at("broken"))
+    {
+        REQUIRE(entry.at("entity").get<std::uint64_t>() != child_id);
+    }
+}
+
+TEST_CASE("mcp_tools: broken_references does not report a nil (unset) EntityID field", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}}); // parent defaults to nil
+    const nlohmann::json result = f.call("broken_references");
+    for (const auto& entry : result.at("broken"))
+    {
+        REQUIRE(entry.at("entity").get<std::uint64_t>() != eid);
+    }
+}
+
+TEST_CASE("mcp_tools: broken_references's kind discriminator distinguishes asset and entity entries", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t asset_holder = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", asset_holder}, {"component", "Material"}});
+    const auto stray_asset = mosaic::app::random_asset_id();
+    nlohmann::json mat = f.call("get_component", {{"entity", asset_holder}, {"component", "Material"}}).at("value");
+    mat["texture"] = stray_asset.to_string();
+    REQUIRE(f.call("set_component", {{"entity", asset_holder}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const std::uint64_t entity_holder = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", entity_holder}, {"component", "Transform"}});
+    const mosaic::foundation::EntityID stray_entity(888888, 1); // index far above anything this test allocates
+    nlohmann::json t = f.call("get_component", {{"entity", entity_holder}, {"component", "Transform"}}).at("value");
+    t["parent"] = std::to_string(stray_entity.value());
+    REQUIRE(f.call("set_component", {{"entity", entity_holder}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("broken_references");
+    bool saw_asset_kind = false;
+    bool saw_entity_kind = false;
+    for (const auto& entry : result.at("broken"))
+    {
+        if (entry.at("entity").get<std::uint64_t>() == asset_holder)
+        {
+            REQUIRE(entry.at("kind").get<std::string>() == "asset");
+            REQUIRE(entry.contains("asset_id"));
+            saw_asset_kind = true;
+        }
+        if (entry.at("entity").get<std::uint64_t>() == entity_holder)
+        {
+            REQUIRE(entry.at("kind").get<std::string>() == "entity");
+            REQUIRE(entry.contains("entity_id"));
+            saw_entity_kind = true;
+        }
+    }
+    REQUIRE(saw_asset_kind);
+    REQUIRE(saw_entity_kind);
+}
+
 TEST_CASE("mcp_tools: broken_references returns an empty array for a world with nothing to report", "[app][mcp]")
 {
     RuntimeFixture f;

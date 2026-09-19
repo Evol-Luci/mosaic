@@ -86,18 +86,18 @@ view that was actually used to pick what to build next as of this writing.
   `2026-09-16-agent-api-mcp-server-design.md`
 
 **Refresh notes (2026-09-19, post-arc):**
-- ~~The `FieldVisitor` extension~~ — **PARTIALLY SHIPPED**. `field_entity`/
-  `field_handle_asset` now exist (`engine/reflection/field_visitor.hpp`),
-  both read-only, both defaulting to the exact prior `field_readonly`
-  output — zero behavior change for any existing visitor.
-  `broken_references`/`orphaned_assets`/`entities_referencing` now cover
-  `Handle<R>` references, closing that blind spot. **Still open:**
-  `EntityID`-based broken-reference detection (nothing validates
-  `world.is_valid()` against a `field_entity` value yet) and precise
-  field type labels in component reference docs (the docs generator
-  doesn't consume the new hooks yet) — both real, both now
-  straightforward given the primitive exists, each its own small
-  follow-up.
+- ~~The `FieldVisitor` extension~~ — **SHIPPED**, along with both of its
+  consumer follow-ups except one. `field_entity`/`field_handle_asset`
+  exist (`engine/reflection/field_visitor.hpp`), both read-only, both
+  defaulting to the exact prior `field_readonly` output — zero behavior
+  change for any existing visitor. `broken_references`/`orphaned_assets`/
+  `entities_referencing` cover `Handle<R>` references, closing that
+  blind spot. `broken_references` also now detects a non-nil `EntityID`
+  field that fails `world.is_valid()` (verified end-to-end against a
+  real destroyed entity via `Transform.parent`) — every `"broken"` entry
+  now carries a `"kind"` discriminator (`"asset"`/`"entity"`). **Still
+  open:** precise field type labels in component reference docs (the
+  docs generator doesn't consume the new hooks yet) — a small follow-up.
 - The `AssetRegistry`-staleness gap ("hot-reload imported assets... mid-
   session") was hit and explicitly worked around three separate times
   this arc (`broken_references`, `orphaned_assets`, and implicitly by
@@ -228,7 +228,6 @@ rather than trusting the ratings below forever.
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 | "Tick until condition met" tool | Medium |
 | Precise field type labels in component reference docs | Low — **now a quick win**, the `FieldVisitor` primitive it needed already shipped; just wire `MarkdownFieldVisitor` to the new hooks |
-| `EntityID`-based broken-reference detection | Medium — **now a quick win to scope**, `field_entity` exists; needs a 4th visitor pattern checking `world.is_valid()` against a captured `EntityID` |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
