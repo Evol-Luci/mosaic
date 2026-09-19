@@ -34,22 +34,23 @@ struct McpToolError : std::runtime_error
 using ScriptEngineFactory = std::function<std::unique_ptr<mosaic::engine::script::ScriptEngine>()>;
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 23 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
+// for all 24 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
 // set_script + import_asset + tick + build_project + script_profile + entities_where +
-// broken_references).
+// broken_references + orphaned_assets).
 nlohmann::json tools_list_schema();
 
 // Dispatches one tool call by name. `scene_path` is the manifest's default_scene path,
 // used only by `save_scene`. `script_factory` is used only by `set_script`.
 // `project_dir` is used only by `import_asset` and `build_project`. `asset_registry` is
-// used only by `broken_references` (all four unused by every other tool, threaded
-// through uniformly -- the same "every closure takes everything it might need" shape
-// world_globals.cpp uses for world_ptr/types_ptr/stack_ptr). All four default so every
-// existing call site keeps compiling unchanged; the affected tool reports a graceful
-// failure (not a crash) if the relevant one wasn't actually supplied -- for
-// `broken_references`, a default-constructed empty `AssetRegistry` simply makes every
-// non-nil AssetID look unresolved. Throws McpToolError for an unknown tool name or
-// malformed arguments; otherwise never throws.
+// used only by `broken_references` and `orphaned_assets` (all four unused by every other
+// tool, threaded through uniformly -- the same "every closure takes everything it might
+// need" shape world_globals.cpp uses for world_ptr/types_ptr/stack_ptr). All four default
+// so every existing call site keeps compiling unchanged; the affected tool reports a
+// graceful failure (not a crash) if the relevant one wasn't actually supplied -- for
+// `broken_references`/`orphaned_assets`, a default-constructed empty `AssetRegistry`
+// simply makes every non-nil AssetID look unresolved / every registered asset look
+// orphaned. Throws McpToolError for an unknown tool name or malformed arguments;
+// otherwise never throws.
 nlohmann::json handle_tool_call(mosaic::engine::World& world,
                                 const mosaic::engine::reflection::ComponentReflection& types,
                                 mosaic::foundation::commands::CommandStack& stack,

@@ -65,8 +65,8 @@ view that was actually used to pick what to build next as of this writing.
   project-wide, orphaned-asset detection, broken-reference detection.
   Genuinely novel, no existing machinery. *Source:*
   `2026-09-19-project-maintenance-build-project-design.md`
-  *(in progress: sub-project 2/4 shipped, see
-  `docs/superpowers/specs/2026-09-19-project-health-broken-references-design.md`)*
+  *(in progress: sub-project 3/4 shipped, see
+  `docs/superpowers/specs/2026-09-19-project-health-orphaned-assets-design.md`)*
 - **Multi-scene project support in MCP**, **concurrent MCP session locking
   on `save_scene`** — both explicitly unaddressed. *Source:*
   `2026-09-16-agent-api-mcp-server-design.md`
@@ -202,7 +202,7 @@ than trusting the ratings below forever.
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Component TypeID densification (#25) | Low-Medium |
-| **Bulk refactoring / project health checks** | **High** — the only item giving an agent mass-edit/self-audit capability *(in progress: sub-project 2/4 shipped, see `docs/superpowers/specs/2026-09-19-project-health-broken-references-design.md`)* |
+| **Bulk refactoring / project health checks** | **High** — the only item giving an agent mass-edit/self-audit capability *(in progress: sub-project 3/4 shipped, see `docs/superpowers/specs/2026-09-19-project-health-orphaned-assets-design.md`)* |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
