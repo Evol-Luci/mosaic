@@ -225,6 +225,13 @@ bool json_set_at(nlohmann::json& root, const std::vector<std::string>& path, con
     return true;
 }
 
+// Shared by every tool that accepts a where/field-comparison op (entities_where, bulk_set_field).
+const std::unordered_set<std::string>& valid_compare_ops()
+{
+    static const std::unordered_set<std::string> ops = {"eq", "ne", "gt", "gte", "lt", "lte"};
+    return ops;
+}
+
 bool compare(const nlohmann::json& lhs, const std::string& op, const nlohmann::json& rhs)
 {
     if (op == "eq") { return lhs == rhs; }
@@ -248,8 +255,7 @@ nlohmann::json tool_entities_where(World& world, const ComponentReflection& type
     {
         throw McpToolError("missing 'value'");
     }
-    static const std::unordered_set<std::string> kValidOps = {"eq", "ne", "gt", "gte", "lt", "lte"};
-    if (kValidOps.find(op) == kValidOps.end())
+    if (valid_compare_ops().find(op) == valid_compare_ops().end())
     {
         throw McpToolError("unknown op: " + op + " (expected one of eq, ne, gt, gte, lt, lte)");
     }
@@ -560,8 +566,7 @@ nlohmann::json tool_bulk_set_field(World& world, const ComponentReflection& type
         {
             throw McpToolError("missing 'where.value'");
         }
-        static const std::unordered_set<std::string> kValidOps = {"eq", "ne", "gt", "gte", "lt", "lte"};
-        if (kValidOps.find(*where_op) == kValidOps.end())
+        if (valid_compare_ops().find(*where_op) == valid_compare_ops().end())
         {
             throw McpToolError("unknown where.op: " + *where_op + " (expected one of eq, ne, gt, gte, lt, lte)");
         }
@@ -597,14 +602,34 @@ nlohmann::json tool_bulk_set_field(World& world, const ComponentReflection& type
     }
 
     std::vector<std::unique_ptr<Command>> commands;
+    std::vector<mosaic::engine::commands::SetComponentCommand*> set_commands;
     nlohmann::json updated_entities = nlohmann::json::array();
     for (std::size_t i = 0; i < matched.size(); ++i)
     {
-        commands.push_back(std::make_unique<mosaic::engine::commands::SetComponentCommand>(
-            world, types, matched[i], component, patched[i]));
+        auto cmd = std::make_unique<mosaic::engine::commands::SetComponentCommand>(
+            world, types, matched[i], component, patched[i]);
+        set_commands.push_back(cmd.get());
+        commands.push_back(std::move(cmd));
         updated_entities.push_back(matched[i].value());
     }
     stack.execute(std::make_unique<CompositeCommand>("mcp.bulk_set_field", std::move(commands)));
+
+    // json_set_at only validated that the field PATH resolves, not that set.value's type
+    // matches the field's expected type (e.g. writing a number into a string field) -- that
+    // only surfaces once SetComponentCommand::execute() actually tries to deserialize it via
+    // reflection. Check every sub-command's valid() now, after the batch ran: if the type was
+    // wrong, it was wrong identically for every matched entity of this component type, so
+    // undo the whole composite (a correct no-op for any sub-command that never applied) and
+    // report the failure, rather than silently reporting success for a no-op write.
+    for (const auto* cmd : set_commands)
+    {
+        if (!cmd->valid())
+        {
+            stack.undo();
+            throw McpToolError("'set.value' is not valid for field '" + set_field +
+                               "' on component '" + component + "'");
+        }
+    }
 
     return {{"updated", static_cast<std::uint64_t>(matched.size())}, {"entities", updated_entities}};
 }
@@ -864,9 +889,14 @@ nlohmann::json tools_list_schema()
                                      "undoable step -- a single undo call reverts every entity "
                                      "this touched, not just the last one. Covers bulk renames "
                                      "(e.g. set field \"value\" on Name) as the common case. A "
-                                     "'set.field' that doesn't resolve on the matched component "
-                                     "throws before anything is mutated; zero matches returns "
-                                     "updated:0 without touching the undo stack."},
+                                     "'set.field' that doesn't resolve on a matched entity's "
+                                     "component throws before anything is mutated -- note this is "
+                                     "only checked against entities that actually match, so "
+                                     "updated:0 doesn't distinguish 'nothing matched the filter' "
+                                     "from 'set.field would have been invalid'; a 'set.value' "
+                                     "whose type doesn't fit the field also throws (after undoing "
+                                     "any partial apply) rather than silently reporting success "
+                                     "for a no-op write."},
                      {"inputSchema", schema_bulk_set_field()}});
     return {{"tools", tools}};
 }

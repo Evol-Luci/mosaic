@@ -1002,6 +1002,22 @@ TEST_CASE("mcp_tools: bulk_set_field throws for an unresolvable set.field and mu
     REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1); // only the earlier set_component
 }
 
+TEST_CASE("mcp_tools: bulk_set_field throws for a set.value of the wrong type and mutates nothing", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+    f.call("set_component", {{"entity", eid}, {"component", "Name"}, {"value", {{"value", "Original"}}}});
+
+    // Name.value is a std::string; a JSON number doesn't deserialize into it.
+    REQUIRE_THROWS_AS(f.call("bulk_set_field",
+        {{"component", "Name"}, {"set", {{"field", "value"}, {"value", 42}}}}), McpToolError);
+
+    // Nothing net-mutated: value unchanged, and the failed batch's undo left the stack as it was.
+    REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "Name"}}).at("value").at("value").get<std::string>() == "Original");
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1); // only the earlier set_component
+}
+
 TEST_CASE("mcp_tools: bulk_set_field is a single atomic undo step across multiple entities", "[app][mcp]")
 {
     Fixture f;
