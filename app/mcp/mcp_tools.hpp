@@ -33,8 +33,8 @@ struct McpToolError : std::runtime_error
 using ScriptEngineFactory = std::function<std::unique_ptr<mosaic::engine::script::ScriptEngine>()>;
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 20 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
-// set_script + import_asset + tick + build_project).
+// for all 21 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
+// set_script + import_asset + tick + build_project + script_profile).
 nlohmann::json tools_list_schema();
 
 // Dispatches one tool call by name. `scene_path` is the manifest's default_scene path,

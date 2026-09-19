@@ -205,12 +205,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 20 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 21 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 20);
+    REQUIRE(tools.size() == 21);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -576,4 +576,47 @@ TEST_CASE("mcp_tools: build_project throws McpToolError for a malformed out_dir"
 {
     Fixture f;
     REQUIRE_THROWS_AS(f.call("build_project", {{"out_dir", 123}}, std::string("/tmp")), McpToolError);
+}
+
+TEST_CASE("mcp_tools: script_profile reports per-entity on_update timing after ticking", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+    REQUIRE(f.call("set_script", {{"entity", eid}, {"source", "def on_update(dt):\n    pass\n"}})
+                .at("ok")
+                .get<bool>());
+
+    f.call("tick", {{"count", 3}});
+
+    const nlohmann::json result = f.call("script_profile");
+    const nlohmann::json entries = result.at("entries");
+    bool found = false;
+    for (const auto& entry : entries)
+    {
+        if (entry.at("entity").get<std::uint64_t>() == eid)
+        {
+            REQUIRE(entry.at("calls").get<std::uint64_t>() == 3);
+            REQUIRE(entry.at("total_ms").get<double>() >= 0.0);
+            REQUIRE(entry.at("max_ms").get<double>() >= 0.0);
+            found = true;
+        }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("mcp_tools: script_profile is empty before any tick has run", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const nlohmann::json result = f.call("script_profile");
+    REQUIRE(result.at("entries").empty());
+}
+
+TEST_CASE("mcp_tools: script_profile returns empty entries when no ScriptSystem is wired", "[app][mcp]")
+{
+    Fixture f;
+    const nlohmann::json result = f.call("script_profile");
+    REQUIRE(result.at("entries").empty());
 }
