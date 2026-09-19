@@ -35,14 +35,13 @@ view that was actually used to pick what to build next as of this writing.
 - **Spatial queries** — "entities within radius R", scene bounding box. No
   distance/containment query machinery exists yet. *Source:*
   `2026-09-16-scene-reasoning-describe-scene-design.md`
-- **Asset-usage queries** — "what entities reference asset X" via
-  `FieldVisitor::field_asset`. Buildable, just not this slice. *Source:*
-  same. *Update:* the exact visitor pattern this needs (`FieldVisitor`
-  subclass implementing only `field_asset`, walking every entity's every
-  component) now exists and is proven twice over — `AssetRefCollector`
+- ~~**Asset-usage queries**~~ — **SHIPPED**, `entities_referencing`, MCP
+  tool 26. "What entities reference asset X", via a third `FieldVisitor`
+  subclass (`AssetReferenceCollector`) alongside `AssetRefCollector`
   (`broken_references`) and `ReferencedAssetGatherer` (`orphaned_assets`),
-  both in `app/mcp/mcp_tools.cpp`. This item is now closer to "quick win"
-  than "medium" — see Effort vs. impact below.
+  both in `app/mcp/mcp_tools.cpp`. Classified bounded, not architectural
+  — no spec/plan doc, agreed in chat and implemented directly. *Source:*
+  `2026-09-16-scene-reasoning-describe-scene-design.md`.
 - **Generic criteria-based search (query DSL)** — "find entities where
   field Y matches Z". Most general/powerful, needs its own decomposition.
   *Source:* same
@@ -219,7 +218,6 @@ rather than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | CI/pre-commit wiring for `mosaic docs` + nav regen | Medium — closes a doc-staleness gap that's already bitten this project twice |
-| **Asset-usage queries** (`entities_referencing(asset_id)`) | Medium — **now a quick win**, not medium: the exact visitor pattern is proven twice over (`AssetRefCollector`/`ReferencedAssetGatherer`), this is a third near-identical application |
 | Remove unused `types` param from `create_project` | Low |
 | Hot-reload imported assets into live `AssetRegistry` | Medium — **now higher-confidence to scope**, hit and worked around 3 times this arc with the exact failure mode well understood |
 | Wrap remaining CLI verbs as MCP tools | Medium |
