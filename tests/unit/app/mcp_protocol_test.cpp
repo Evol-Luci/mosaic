@@ -46,7 +46,7 @@ TEST_CASE("mcp_protocol: tools/list returns the full tool schema", "[app][mcp]")
     const std::string response =
         handle_request_line(R"({"jsonrpc":"2.0","id":2,"method":"tools/list"})", echo_dispatch());
     const nlohmann::json parsed = nlohmann::json::parse(response);
-    REQUIRE(parsed.at("result").at("tools").size() == 18);
+    REQUIRE(parsed.at("result").at("tools").size() == 19);
 }
 
 TEST_CASE("mcp_protocol: tools/call dispatches and wraps a successful result", "[app][mcp]")

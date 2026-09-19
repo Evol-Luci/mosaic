@@ -13,6 +13,8 @@
 #include "app/asset/asset_io.hpp"
 #include "app/project/project_io.hpp"
 #include "app/run/scene_io.hpp"
+#include "app/run/demo_scene.hpp"
+#include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
@@ -56,6 +58,28 @@ struct Fixture
     nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir)
     {
         return handle_tool_call(world, types, stack, "", tool, args, {}, project_dir);
+    }
+};
+
+struct RuntimeFixture
+{
+    TypeRegistry        registry;
+    ComponentReflection types;
+    World                world;
+    CommandStack          stack;
+    mosaic::engine::assets::AssetRegistry asset_registry;
+    ScriptEngineFactory   script_factory;
+
+    RuntimeFixture()
+        : script_factory([] { return mosaic::script::python::create_python_script_engine(); })
+    {
+        register_builtin_components(registry, types);
+        mosaic::app::setup_runtime(world, asset_registry, types, script_factory);
+    }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args = nlohmann::json::object())
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, script_factory);
     }
 };
 } // namespace
@@ -181,12 +205,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 18 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 19 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 18);
+    REQUIRE(tools.size() == 19);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -454,4 +478,48 @@ TEST_CASE("mcp_tools: import_asset refuses to overwrite on a stem collision", "[
     std::filesystem::remove_all(proj);
     std::filesystem::remove_all(dir_a);
     std::filesystem::remove_all(dir_b);
+}
+
+TEST_CASE("mcp_tools: tick advances a script's state across multiple ticks", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+
+    const nlohmann::json set_result = f.call(
+        "set_script",
+        {{"entity", eid},
+         {"source", "def on_update(dt):\n"
+                    "    t = get_component(entity, \"Transform\")\n"
+                    "    t[\"position\"][\"x\"] = t[\"position\"][\"x\"] + 1.0\n"
+                    "    set_component(entity, \"Transform\", t)\n"}});
+    REQUIRE(set_result.at("ok").get<bool>() == true);
+
+    const nlohmann::json tick_result = f.call("tick", {{"count", 5}});
+    REQUIRE(tick_result.at("ticks").get<std::uint64_t>() == 5);
+
+    const nlohmann::json component = f.call("get_component", {{"entity", eid}, {"component", "Transform"}});
+    REQUIRE(component.at("value").at("position").at("x").get<double>() == 5.0);
+}
+
+TEST_CASE("mcp_tools: tick with no arguments runs a single tick at the standard timestep", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const nlohmann::json result = f.call("tick");
+    REQUIRE(result.at("ticks").get<std::uint64_t>() == 1);
+}
+
+TEST_CASE("mcp_tools: tick throws McpToolError when count exceeds the per-call limit", "[app][mcp]")
+{
+    RuntimeFixture f;
+    REQUIRE_THROWS_AS(f.call("tick", {{"count", 10001}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: tick throws McpToolError for malformed count or dt", "[app][mcp]")
+{
+    RuntimeFixture f;
+    REQUIRE_THROWS_AS(f.call("tick", {{"count", "not-a-number"}}), McpToolError);
+    REQUIRE_THROWS_AS(f.call("tick", {{"dt", "not-a-number"}}), McpToolError);
 }

@@ -63,6 +63,22 @@ std::string require_string(const nlohmann::json& args, const char* key)
     return args.at(key).get<std::string>();
 }
 
+std::uint64_t optional_uint64(const nlohmann::json& args, const char* key, std::uint64_t default_value)
+{
+    if (!args.contains(key)) { return default_value; }
+    return require_uint64(args, key);
+}
+
+double optional_double(const nlohmann::json& args, const char* key, double default_value)
+{
+    if (!args.contains(key)) { return default_value; }
+    if (!args.at(key).is_number())
+    {
+        throw McpToolError(std::string("invalid '") + key + "' (expected a number)");
+    }
+    return args.at(key).get<double>();
+}
+
 using ToolHandler = nlohmann::json (*)(World&, const ComponentReflection&, CommandStack&,
                                        const std::string&, const nlohmann::json&);
 
@@ -269,6 +285,25 @@ nlohmann::json tool_set_script(World& world, const ComponentReflection& types,
     return {{"ok", result.kind == mosaic::studio::ScriptApplyResult::Kind::Ok}, {"message", result.message}};
 }
 
+
+constexpr std::uint64_t kMaxTicksPerCall = 10000;
+
+nlohmann::json tool_tick(World& world, const ComponentReflection&, CommandStack&,
+                         const std::string&, const nlohmann::json& args)
+{
+    const std::uint64_t count = optional_uint64(args, "count", 1);
+    const double dt = optional_double(args, "dt", 1.0 / 60.0);
+    if (count > kMaxTicksPerCall)
+    {
+        throw McpToolError("count exceeds the per-call limit of " + std::to_string(kMaxTicksPerCall));
+    }
+    for (std::uint64_t i = 0; i < count; ++i)
+    {
+        world.tick(static_cast<float>(dt));
+    }
+    return {{"ticks", count}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -281,6 +316,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"redo", &tool_redo},                     {"undo_depth", &tool_undo_depth},
         {"save_scene", &tool_save_scene},
         {"describe_scene", &tool_describe_scene},
+        {"tick", &tool_tick},
     };
     return handlers;
 }
@@ -329,6 +365,14 @@ nlohmann::json schema_entity_source()
 nlohmann::json schema_source()
 {
     return {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", {"source"}}};
+}
+
+nlohmann::json schema_tick()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"count", {{"type", "integer"}, {"minimum", 0}}}, {"dt", {{"type", "number"}}}}},
+           {"required", nlohmann::json::array()}};
 }
 
 nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args)
@@ -412,6 +456,13 @@ nlohmann::json tools_list_schema()
                                      "the specific reason is only visible in the server's own log "
                                      "output, not returned here."},
                      {"inputSchema", schema_source()}});
+    tools.push_back({{"name", "tick"},
+                     {"description", "Advance the simulation by `count` ticks (default 1, max "
+                                     "10000 per call) of `dt` seconds each (default 1/60). Runs "
+                                     "ScriptSystem, PhysicsSystem, and every other system "
+                                     "mosaic run/editor use at play time. Returns the number of "
+                                     "ticks actually run."},
+                     {"inputSchema", schema_tick()}});
     return {{"tools", tools}};
 }
 
