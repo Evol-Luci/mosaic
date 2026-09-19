@@ -205,12 +205,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 21 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 22 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 21);
+    REQUIRE(tools.size() == 22);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -619,4 +619,112 @@ TEST_CASE("mcp_tools: script_profile returns empty entries when no ScriptSystem 
     Fixture f;
     const nlohmann::json result = f.call("script_profile");
     REQUIRE(result.at("entries").empty());
+}
+
+TEST_CASE("mcp_tools: entities_where matches numeric fields with gt/gte/lt/lte", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t low = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t mid = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t high = f.call("create_entity").at("id").get<std::uint64_t>();
+    for (std::uint64_t eid : {low, mid, high})
+    {
+        f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+    }
+    // Directly set position.x on each via set_component with a full Transform value.
+    auto set_x = [&](std::uint64_t eid, double x)
+    {
+        nlohmann::json t = f.call("get_component", {{"entity", eid}, {"component", "Transform"}}).at("value");
+        t["position"]["x"] = x;
+        REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Transform"}, {"value", t}}).at("ok").get<bool>());
+    };
+    set_x(low, 1.0);
+    set_x(mid, 5.0);
+    set_x(high, 9.0);
+
+    const nlohmann::json gt = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "gt"}, {"value", 5.0}});
+    REQUIRE(gt.at("matches").size() == 1);
+    REQUIRE(gt.at("matches").at(0).at("entity").get<std::uint64_t>() == high);
+    REQUIRE(gt.at("matches").at(0).at("value").get<double>() == 9.0);
+
+    const nlohmann::json gte = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "gte"}, {"value", 5.0}});
+    REQUIRE(gte.at("matches").size() == 2);
+
+    const nlohmann::json lt = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "lt"}, {"value", 5.0}});
+    REQUIRE(lt.at("matches").size() == 1);
+    REQUIRE(lt.at("matches").at(0).at("entity").get<std::uint64_t>() == low);
+
+    const nlohmann::json lte = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "lte"}, {"value", 5.0}});
+    REQUIRE(lte.at("matches").size() == 2);
+}
+
+TEST_CASE("mcp_tools: entities_where matches any JSON type with eq/ne", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t a = f.call("create_entity").at("id").get<std::uint64_t>();
+    const std::uint64_t b = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", a}, {"component", "Name"}});
+    f.call("add_component", {{"entity", b}, {"component", "Name"}});
+    f.call("set_component", {{"entity", a}, {"component", "Name"}, {"value", {{"value", "Player"}}}});
+    f.call("set_component", {{"entity", b}, {"component", "Name"}, {"value", {{"value", "Enemy"}}}});
+
+    const nlohmann::json eq = f.call("entities_where",
+        {{"component", "Name"}, {"field", "value"}, {"op", "eq"}, {"value", "Player"}});
+    REQUIRE(eq.at("matches").size() == 1);
+    REQUIRE(eq.at("matches").at(0).at("entity").get<std::uint64_t>() == a);
+
+    const nlohmann::json ne = f.call("entities_where",
+        {{"component", "Name"}, {"field", "value"}, {"op", "ne"}, {"value", "Player"}});
+    REQUIRE(ne.at("matches").size() == 1);
+    REQUIRE(ne.at("matches").at(0).at("entity").get<std::uint64_t>() == b);
+}
+
+TEST_CASE("mcp_tools: entities_where excludes an entity missing the component, gracefully", "[app][mcp]")
+{
+    Fixture f;
+    f.call("create_entity"); // no Transform attached
+    const nlohmann::json result = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "gte"}, {"value", 0.0}});
+    REQUIRE(result.at("matches").empty());
+}
+
+TEST_CASE("mcp_tools: entities_where excludes an entity whose field path doesn't resolve, gracefully", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+    const nlohmann::json result = f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.not_a_real_field"}, {"op", "eq"}, {"value", 0.0}});
+    REQUIRE(result.at("matches").empty());
+}
+
+TEST_CASE("mcp_tools: entities_where excludes a numeric op against a non-numeric field, gracefully", "[app][mcp]")
+{
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Name"}});
+    f.call("set_component", {{"entity", eid}, {"component", "Name"}, {"value", {{"value", "hi"}}}});
+    const nlohmann::json result = f.call("entities_where",
+        {{"component", "Name"}, {"field", "value"}, {"op", "gt"}, {"value", 0.0}});
+    REQUIRE(result.at("matches").empty());
+}
+
+TEST_CASE("mcp_tools: entities_where throws McpToolError for an unknown op", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("entities_where",
+        {{"component", "Transform"}, {"field", "position.x"}, {"op", "regex"}, {"value", 0.0}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: entities_where throws McpToolError for missing required arguments", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("entities_where", {{"field", "position.x"}, {"op", "eq"}, {"value", 0.0}}), McpToolError);
+    REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"op", "eq"}, {"value", 0.0}}), McpToolError);
+    REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"field", "position.x"}, {"value", 0.0}}), McpToolError);
+    REQUIRE_THROWS_AS(f.call("entities_where", {{"component", "Transform"}, {"field", "position.x"}, {"op", "eq"}}), McpToolError);
 }

@@ -6,6 +6,7 @@
 #include <functional>
 #include <system_error>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "app/asset/asset_io.hpp"
 #include "app/project/bundle.hpp"
@@ -15,6 +16,7 @@
 #include "engine/world/name.hpp"
 #include "engine/scene/scene.hpp"
 #include "engine/script/script_system.hpp"
+#include "engine/animation/animation_system.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
 #include "studio/script_editor.hpp"
@@ -192,6 +194,66 @@ nlohmann::json tool_entities_with(World& world, const ComponentReflection& types
     return {{"ids", ids}};
 }
 
+std::optional<nlohmann::json> json_at_path(const nlohmann::json& root,
+                                           const std::vector<std::string>& path)
+{
+    const nlohmann::json* cur = &root;
+    for (const std::string& seg : path)
+    {
+        if (!cur->is_object() || !cur->contains(seg)) { return std::nullopt; }
+        cur = &cur->at(seg);
+    }
+    return *cur;
+}
+
+bool compare(const nlohmann::json& lhs, const std::string& op, const nlohmann::json& rhs)
+{
+    if (op == "eq") { return lhs == rhs; }
+    if (op == "ne") { return lhs != rhs; }
+    if (!lhs.is_number() || !rhs.is_number()) { return false; }
+    const double l = lhs.get<double>();
+    const double r = rhs.get<double>();
+    if (op == "gt") { return l > r; }
+    if (op == "gte") { return l >= r; }
+    if (op == "lt") { return l < r; }
+    return l <= r; // "lte" -- op is already validated by the caller before compare() is called
+}
+
+nlohmann::json tool_entities_where(World& world, const ComponentReflection& types, CommandStack&,
+                                   const std::string&, const nlohmann::json& args)
+{
+    const std::string component = require_string(args, "component");
+    const std::string field = require_string(args, "field");
+    const std::string op = require_string(args, "op");
+    if (!args.contains("value"))
+    {
+        throw McpToolError("missing 'value'");
+    }
+    static const std::unordered_set<std::string> kValidOps = {"eq", "ne", "gt", "gte", "lt", "lte"};
+    if (kValidOps.find(op) == kValidOps.end())
+    {
+        throw McpToolError("unknown op: " + op + " (expected one of eq, ne, gt, gte, lt, lte)");
+    }
+    const nlohmann::json target = args.at("value");
+    const std::vector<std::string> path = mosaic::engine::animation::split_path(field, '.');
+
+    nlohmann::json matches = nlohmann::json::array();
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            const auto v = types.component_value(world, e, component);
+            if (!v) { return; }
+            const nlohmann::json component_json = value_to_json(*v);
+            const auto field_value = json_at_path(component_json, path);
+            if (!field_value) { return; }
+            if (compare(*field_value, op, target))
+            {
+                matches.push_back({{"entity", e.value()}, {"value", *field_value}});
+            }
+        });
+    return {{"matches", matches}};
+}
+
 nlohmann::json tool_entity_count(World& world, const ComponentReflection&, CommandStack&,
                                  const std::string&, const nlohmann::json&)
 {
@@ -347,6 +409,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"add_component", &tool_add_component},   {"remove_component", &tool_remove_component},
         {"has_component", &tool_has_component},   {"component_names", &tool_component_names},
         {"entities", &tool_entities},             {"entities_with", &tool_entities_with},
+        {"entities_where", &tool_entities_where},
         {"entity_count", &tool_entity_count},     {"undo", &tool_undo},
         {"redo", &tool_redo},                     {"undo_depth", &tool_undo_depth},
         {"save_scene", &tool_save_scene},
@@ -388,6 +451,18 @@ nlohmann::json schema_entity_component_value()
 nlohmann::json schema_component()
 {
     return {{"type", "object"}, {"properties", {{"component", {{"type", "string"}}}}}, {"required", {"component"}}};
+}
+
+nlohmann::json schema_entities_where()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"component", {{"type", "string"}}},
+             {"field", {{"type", "string"},
+                       {"description", "Dotted path into the component's fields, e.g. \"position.x\""}}},
+             {"op", {{"type", "string"}, {"enum", {"eq", "ne", "gt", "gte", "lt", "lte"}}}},
+             {"value", {{"description", "The value to compare against"}}}}},
+           {"required", {"component", "field", "op", "value"}}};
 }
 
 nlohmann::json schema_entity_source()
@@ -460,6 +535,13 @@ nlohmann::json tools_list_schema()
     tools.push_back({{"name", "entities_with"},
                      {"description", "Return the ids of every entity that currently has the named component."},
                      {"inputSchema", schema_component()}});
+    tools.push_back({{"name", "entities_where"},
+                     {"description", "Return the ids and actual field values of every entity whose "
+                                     "component has a field matching a condition (op: eq, ne, gt, "
+                                     "gte, lt, lte). A missing component, an unresolvable field path, "
+                                     "or a numeric op against a non-numeric value gracefully excludes "
+                                     "that entity rather than erroring."},
+                     {"inputSchema", schema_entities_where()}});
     tools.push_back({{"name", "entity_count"},
                      {"description", "Return the number of live entities."},
                      {"inputSchema", schema_none()}});
