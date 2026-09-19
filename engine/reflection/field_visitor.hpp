@@ -40,6 +40,24 @@ public:
     {
         field_readonly(name, value);
     }
+
+    // A reference-to-entity field. Read-only (unlike field_asset/field_string, there is
+    // no reassignment use case here yet -- an entity picker widget could add one later).
+    // Default falls back to the read-only display so existing visitors keep compiling.
+    virtual void field_entity(std::string_view name, mosaic::foundation::EntityID value)
+    {
+        field_readonly(name, std::to_string(value.value()));
+    }
+
+    // A reference-to-asset field carried inside a Handle<R>. Read-only: Handle<R> exposes
+    // no mutable accessor for its AssetID (by design -- resolving through a Handle is a
+    // different lifecycle than a bare AssetID field). Default falls back to the read-only
+    // display so existing visitors keep compiling.
+    virtual void field_handle_asset(std::string_view name,
+                                    const mosaic::foundation::serialization::AssetID& asset_id)
+    {
+        field_readonly(name, asset_id.to_string());
+    }
 };
 
 // mosaic::foundation::serialization::Handle<R> detection, kept local so this header
@@ -67,7 +85,7 @@ struct FieldVisitorAdapter
         }
         else if constexpr (std::is_same_v<U, mosaic::foundation::EntityID>)
         {
-            visitor.field_readonly(name, std::to_string(value.value()));
+            visitor.field_entity(name, value);
         }
         else if constexpr (std::is_same_v<U, ser::AssetID>)
         {
@@ -75,7 +93,7 @@ struct FieldVisitorAdapter
         }
         else if constexpr (is_handle_v<U>)
         {
-            visitor.field_readonly(name, value.asset_id().to_string());
+            visitor.field_handle_asset(name, value.asset_id());
         }
         else if constexpr (std::is_same_v<U, bool>)
         {

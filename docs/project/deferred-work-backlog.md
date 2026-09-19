@@ -86,18 +86,18 @@ view that was actually used to pick what to build next as of this writing.
   `2026-09-16-agent-api-mcp-server-design.md`
 
 **Refresh notes (2026-09-19, post-arc):**
-- The `FieldVisitor` extension needed for "precise field type labels" in
-  component reference docs (see Documentation tooling below) is now
-  motivated by two MORE independent needs discovered while building
-  `broken_references`/`orphaned_assets`: distinguishing an `EntityID`
-  reference field from a generic readonly scalar (both currently route
-  through `field_readonly`, the same gap blocking `EntityID`-based broken-
-  reference detection), and distinguishing a `Handle<R>`-typed asset
-  reference from the same bucket (both `broken_references` and
-  `orphaned_assets` ship with this as a documented, currently-inert blind
-  spot). Three independent call sites now want the same `FieldVisitor`
-  change — worth reconsidering whether it's still "cross-cutting, out of
-  scope" or has crossed into "worth doing."
+- ~~The `FieldVisitor` extension~~ — **PARTIALLY SHIPPED**. `field_entity`/
+  `field_handle_asset` now exist (`engine/reflection/field_visitor.hpp`),
+  both read-only, both defaulting to the exact prior `field_readonly`
+  output — zero behavior change for any existing visitor.
+  `broken_references`/`orphaned_assets`/`entities_referencing` now cover
+  `Handle<R>` references, closing that blind spot. **Still open:**
+  `EntityID`-based broken-reference detection (nothing validates
+  `world.is_valid()` against a `field_entity` value yet) and precise
+  field type labels in component reference docs (the docs generator
+  doesn't consume the new hooks yet) — both real, both now
+  straightforward given the primitive exists, each its own small
+  follow-up.
 - The `AssetRegistry`-staleness gap ("hot-reload imported assets... mid-
   session") was hit and explicitly worked around three separate times
   this arc (`broken_references`, `orphaned_assets`, and implicitly by
@@ -125,8 +125,10 @@ view that was actually used to pick what to build next as of this writing.
 
 - **CI/pre-commit wiring** for `mosaic docs` and the nav regenerator
   (`--check` mode) — both stay manually-run.
-- **Precise field type labels** in component reference docs — needs
-  extending `FieldVisitor`.
+- **Precise field type labels** in component reference docs — the
+  `FieldVisitor` extension this needed now exists (`field_entity`/
+  `field_handle_asset`); `MarkdownFieldVisitor`
+  (`app/docs/component_reference.hpp`) just doesn't consume it yet.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
@@ -225,13 +227,14 @@ rather than trusting the ratings below forever.
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 | "Tick until condition met" tool | Medium |
+| Precise field type labels in component reference docs | Low — **now a quick win**, the `FieldVisitor` primitive it needed already shipped; just wire `MarkdownFieldVisitor` to the new hooks |
+| `EntityID`-based broken-reference detection | Medium — **now a quick win to scope**, `field_entity` exists; needs a 4th visitor pattern checking `world.is_valid()` against a captured `EntityID` |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 | Item | Impact |
 |---|---|
 | Spatial queries | Medium-High |
-| `FieldVisitor` extension (distinguish `EntityID`/`Handle<R>`/precise types) | **Medium-High** — now wanted by 3 independent call sites (doc type labels, `EntityID` broken-reference detection, `Handle<R>` asset-reference detection), previously ruled out-of-scope as cross-cutting; worth reconsidering |
 | Undo support for `set_script` | Medium |
 | Studio plugin (`.py`) authoring via MCP | Medium |
 | Plugin discovery: project-dir not CWD | **Medium-High** — silent correctness bug for any packaged distribution |

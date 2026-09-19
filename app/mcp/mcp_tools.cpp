@@ -446,6 +446,16 @@ public:
                         {"asset_id", value.to_string()}});
     }
 
+    void field_handle_asset(std::string_view name, const AssetID& value) override
+    {
+        if (value.is_nil()) { return; }
+        if (registry_.contains(value)) { return; }
+        out_.push_back({{"entity", entity_.value()},
+                        {"component", component_},
+                        {"field", path_with(name)},
+                        {"asset_id", value.to_string()}});
+    }
+
     void field_float(std::string_view, float&) override {}
     void field_readonly(std::string_view, const std::string&) override {}
     void begin_group(std::string_view name) override { path_.push_back(std::string(name)); }
@@ -489,6 +499,11 @@ public:
     explicit ReferencedAssetGatherer(std::unordered_set<AssetID>& out) : out_(out) {}
 
     void field_asset(std::string_view, AssetID& value) override
+    {
+        if (!value.is_nil()) { out_.insert(value); }
+    }
+
+    void field_handle_asset(std::string_view, const AssetID& value) override
     {
         if (!value.is_nil()) { out_.insert(value); }
     }
@@ -543,6 +558,14 @@ public:
     }
 
     void field_asset(std::string_view name, AssetID& value) override
+    {
+        if (value != target_) { return; }
+        out_.push_back({{"entity", entity_.value()},
+                        {"component", component_},
+                        {"field", path_with(name)}});
+    }
+
+    void field_handle_asset(std::string_view name, const AssetID& value) override
     {
         if (value != target_) { return; }
         out_.push_back({{"entity", entity_.value()},
@@ -947,10 +970,10 @@ nlohmann::json tools_list_schema()
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "broken_references"},
                      {"description", "Scan every entity's every component for AssetID fields "
-                                     "that are set (non-nil) but don't resolve in the live "
-                                     "AssetRegistry. Only bare AssetID fields are checked -- "
-                                     "EntityID and Handle<R> references aren't distinguishable "
-                                     "from other scalar fields yet. The AssetRegistry stays live "
+                                     "(bare or inside a Handle<R>) that are set (non-nil) but "
+                                     "don't resolve in the live AssetRegistry. EntityID reference "
+                                     "fields aren't distinguishable from other scalar fields yet, "
+                                     "so those aren't checked. The AssetRegistry stays live "
                                      "across the whole session -- import_asset refreshes it "
                                      "immediately, so an asset imported earlier this session is "
                                      "already resolvable here, not a false positive."},
@@ -958,12 +981,14 @@ nlohmann::json tools_list_schema()
     tools.push_back({{"name", "orphaned_assets"},
                      {"description", "Return every registered asset that no entity's component "
                                      "field currently references (gathered via the same AssetID "
-                                     "field walk broken_references uses). Only bare AssetID fields "
-                                     "count as references -- an asset referenced solely via a "
-                                     "Handle<R> field would be reported orphaned. The AssetRegistry "
-                                     "stays live across the whole session -- import_asset refreshes "
-                                     "it immediately, so an asset imported earlier this session is "
-                                     "already enumerated here, not silently absent."},
+                                     "field walk broken_references uses, covering both bare "
+                                     "AssetID fields and Handle<R> fields). An asset referenced "
+                                     "only via an EntityID field wouldn't be detected -- EntityID "
+                                     "reference fields aren't distinguishable from other scalar "
+                                     "fields yet. The AssetRegistry stays live across the whole "
+                                     "session -- import_asset refreshes it immediately, so an "
+                                     "asset imported earlier this session is already enumerated "
+                                     "here, not silently absent."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "bulk_set_field"},
                      {"description", "Set one field to a new value on every entity matching an "
@@ -984,10 +1009,11 @@ nlohmann::json tools_list_schema()
                      {"inputSchema", schema_bulk_set_field()}});
     tools.push_back({{"name", "entities_referencing"},
                      {"description", "Return every entity/component/field whose AssetID field "
-                                     "matches the given asset_id (the reverse of asking 'what "
-                                     "does this entity reference' -- this asks 'what references "
-                                     "this asset'). A nil AssetID field never matches. asset_id "
-                                     "must be a well-formed UUID string; a malformed one throws."},
+                                     "(bare or inside a Handle<R>) matches the given asset_id "
+                                     "(the reverse of asking 'what does this entity reference' -- "
+                                     "this asks 'what references this asset'). A nil AssetID field "
+                                     "never matches. asset_id must be a well-formed UUID string; "
+                                     "a malformed one throws."},
                      {"inputSchema", schema_asset_id()}});
     return {{"tools", tools}};
 }
