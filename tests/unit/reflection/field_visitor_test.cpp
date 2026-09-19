@@ -65,6 +65,25 @@ struct StringWritingVisitor : FieldVisitor
     void begin_group(std::string_view) override {}
     void end_group() override {}
 };
+
+// A FieldVisitor that overrides field_entity, recording the name/value it saw.
+struct EntityCapturingVisitor : FieldVisitor
+{
+    std::string seen_name;
+    mosaic::foundation::EntityID seen_value;
+    bool saw_entity = false;
+
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view, const std::string&) override {}
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+    void field_entity(std::string_view name, mosaic::foundation::EntityID value) override
+    {
+        saw_entity  = true;
+        seen_name   = std::string(name);
+        seen_value  = value;
+    }
+};
 } // namespace
 
 TEST_CASE("FieldVisitorAdapter visits a Transform as groups, floats, and a readonly parent", "[reflection]")
@@ -122,4 +141,17 @@ TEST_CASE("FieldVisitorAdapter routes a std::string field to field_string when o
     reflect(adapter, n);
 
     REQUIRE(n.value == "NewName");
+}
+
+TEST_CASE("FieldVisitorAdapter routes an EntityID field to field_entity when overridden", "[reflection]")
+{
+    Transform t;
+    t.parent = mosaic::foundation::EntityID(3, 1);
+    EntityCapturingVisitor v;
+    FieldVisitorAdapter adapter{v};
+    reflect(adapter, t);
+
+    REQUIRE(v.saw_entity);
+    REQUIRE(v.seen_name == "parent");
+    REQUIRE(v.seen_value == t.parent);
 }

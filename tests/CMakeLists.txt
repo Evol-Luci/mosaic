@@ -34,6 +34,7 @@ add_executable(mosaic_unit_tests
   unit/reflection/field_visitor_test.cpp
   unit/reflection/component_inspect_test.cpp
   unit/reflection/field_asset_test.cpp
+  unit/reflection/field_handle_test.cpp
   unit/scene/scene_save_test.cpp
   unit/scene/scene_load_test.cpp
   unit/assets/asset_id_hash_test.cpp

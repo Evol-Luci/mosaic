@@ -20,6 +20,7 @@
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
+#include "foundation/serialization/reference.hpp" // Handle<R>
 #include "modules/script_python/python_script_engine.hpp" // ensure_interpreter, create_python_script_engine
 #include "engine/world/world.hpp"
 #include "foundation/commands/command_stack.hpp"
@@ -102,6 +103,20 @@ bool orphaned_contains(const nlohmann::json& orphaned, const std::string& asset_
         if (entry.at("asset_id").get<std::string>() == asset_id) { return true; }
     }
     return false;
+}
+
+// No real component uses Handle<R> yet (confirmed by grep across engine/), so this is a
+// throwaway registered at test time only, mirroring
+// tests/unit/reflection/field_handle_test.cpp's own justification -- Handle<R>'s resource
+// type R is never actually resolved/loaded at the reflection layer.
+struct HandleFieldComponent
+{
+    mosaic::foundation::serialization::Handle<int> resource;
+};
+template <class V>
+void reflect(V& v, HandleFieldComponent& c)
+{
+    v.member("resource", c.resource);
 }
 } // namespace
 
@@ -1202,4 +1217,64 @@ TEST_CASE("mcp_tools: entities_referencing throws McpToolError for a missing ass
 {
     Fixture f;
     REQUIRE_THROWS_AS(f.call("entities_referencing", nlohmann::json::object()), McpToolError);
+}
+
+TEST_CASE("mcp_tools: broken_references detects a broken Handle<R> reference", "[app][mcp]")
+{
+    RuntimeFixture f;
+    f.types.register_component<HandleFieldComponent>(f.registry, "HandleFieldComponent");
+    const auto e = f.world.create_entity();
+    f.world.add_component<HandleFieldComponent>(e, {});
+    const auto stray_id = mosaic::app::random_asset_id();
+    f.world.get_component<HandleFieldComponent>(e)->resource =
+        mosaic::foundation::serialization::Handle<int>(stray_id);
+
+    const nlohmann::json result = f.call("broken_references");
+    bool found = false;
+    for (const auto& entry : result.at("broken"))
+    {
+        if (entry.at("entity").get<std::uint64_t>() == e.value())
+        {
+            REQUIRE(entry.at("component").get<std::string>() == "HandleFieldComponent");
+            REQUIRE(entry.at("field").get<std::string>() == "resource");
+            REQUIRE(entry.at("asset_id").get<std::string>() == stray_id.to_string());
+            found = true;
+        }
+    }
+    REQUIRE(found);
+}
+
+TEST_CASE("mcp_tools: orphaned_assets does not report an asset referenced only via a Handle<R> field", "[app][mcp]")
+{
+    RuntimeFixture f;
+    f.types.register_component<HandleFieldComponent>(f.registry, "HandleFieldComponent");
+    mosaic::engine::assets::AssetMetadata meta;
+    meta.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const auto e = f.world.create_entity();
+    f.world.add_component<HandleFieldComponent>(e, {});
+    f.world.get_component<HandleFieldComponent>(e)->resource =
+        mosaic::foundation::serialization::Handle<int>(meta.uuid);
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE_FALSE(orphaned_contains(result.at("orphaned"), meta.uuid.to_string()));
+}
+
+TEST_CASE("mcp_tools: entities_referencing finds an entity via a Handle<R> field", "[app][mcp]")
+{
+    Fixture f;
+    f.types.register_component<HandleFieldComponent>(f.registry, "HandleFieldComponent");
+    const auto e = f.world.create_entity();
+    f.world.add_component<HandleFieldComponent>(e, {});
+    const auto target = mosaic::app::random_asset_id();
+    f.world.get_component<HandleFieldComponent>(e)->resource =
+        mosaic::foundation::serialization::Handle<int>(target);
+
+    const nlohmann::json result = f.call("entities_referencing", {{"asset_id", target.to_string()}});
+    REQUIRE(result.at("matches").size() == 1);
+    const nlohmann::json entry = result.at("matches").at(0);
+    REQUIRE(entry.at("entity").get<std::uint64_t>() == e.value());
+    REQUIRE(entry.at("component").get<std::string>() == "HandleFieldComponent");
+    REQUIRE(entry.at("field").get<std::string>() == "resource");
 }
