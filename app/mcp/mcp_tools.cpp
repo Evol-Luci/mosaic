@@ -472,6 +472,9 @@ public:
 
     void field_float(std::string_view, float&) override {}
     void field_readonly(std::string_view, const std::string&) override {}
+
+    // Unlike AssetRefCollector, this visitor never needs a field path (only which ids
+    // exist, not where each came from), so no group-path stack to maintain here.
     void begin_group(std::string_view) override {}
     void end_group() override {}
 
@@ -720,12 +723,14 @@ nlohmann::json tools_list_schema()
     tools.push_back({{"name", "orphaned_assets"},
                      {"description", "Return every registered asset that no entity's component "
                                      "field currently references (gathered via the same AssetID "
-                                     "field walk broken_references uses). Caveat: the AssetRegistry "
-                                     "snapshot is loaded once at server startup and never refreshed, "
-                                     "so an asset imported via import_asset earlier this session is "
-                                     "simply absent from this scan entirely -- neither falsely "
-                                     "flagged nor falsely cleared -- until the mosaic mcp process "
-                                     "restarts."},
+                                     "field walk broken_references uses). Only bare AssetID fields "
+                                     "count as references -- an asset referenced solely via a "
+                                     "Handle<R> field would be reported orphaned. Caveat: the "
+                                     "AssetRegistry snapshot is loaded once at server startup and "
+                                     "never refreshed, so an asset imported via import_asset earlier "
+                                     "this session is simply absent from this scan entirely -- "
+                                     "neither falsely flagged nor falsely cleared -- until the "
+                                     "mosaic mcp process restarts."},
                      {"inputSchema", schema_none()}});
     return {{"tools", tools}};
 }
