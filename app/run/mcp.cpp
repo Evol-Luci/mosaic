@@ -10,6 +10,9 @@
 #include "app/project/project.hpp"
 #include "app/project/project_io.hpp"
 #include "app/run/scene_load.hpp"
+#include "app/asset/asset_io.hpp"
+#include "app/run/demo_scene.hpp"
+#include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/world/world.hpp"
@@ -53,8 +56,13 @@ int run_mcp(const Options& options)
         return 1;
     }
 
+    mosaic::engine::assets::AssetRegistry asset_registry;
+    load_project_assets(asset_registry, (std::filesystem::path(project_dir) / "assets").string());
+
     const mcp::ScriptEngineFactory script_factory =
         [] { return mosaic::script::python::create_python_script_engine(); };
+
+    setup_runtime(world, asset_registry, types, script_factory);
 
     const mcp::ToolDispatch dispatch =
         [&](const std::string& tool_name, const nlohmann::json& arguments) -> nlohmann::json
