@@ -663,9 +663,9 @@ nlohmann::json tools_list_schema()
     tools.push_back({{"name", "broken_references"},
                      {"description", "Scan every entity's every component for AssetID fields "
                                      "that are set (non-nil) but don't resolve in the live "
-                                     "AssetRegistry. Only AssetID references are checked -- "
-                                     "EntityID references aren't distinguishable from other "
-                                     "scalar fields yet. Caveat: the AssetRegistry snapshot is "
+                                     "AssetRegistry. Only bare AssetID fields are checked -- "
+                                     "EntityID and Handle<R> references aren't distinguishable "
+                                     "from other scalar fields yet. Caveat: the AssetRegistry snapshot is "
                                      "loaded once at server startup and never refreshed, so an "
                                      "asset imported via import_asset earlier this session will "
                                      "false-positive here until the mosaic mcp process restarts."},
