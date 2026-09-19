@@ -35,6 +35,7 @@ using mosaic::foundation::commands::Command;
 using mosaic::foundation::commands::CommandStack;
 using mosaic::foundation::commands::CompositeCommand;
 using mosaic::foundation::serialization::AssetID;
+using mosaic::foundation::serialization::SerializationError;
 using mosaic::foundation::serialization::Value;
 
 nlohmann::json value_to_json(const Value& v)
@@ -532,6 +533,71 @@ nlohmann::json tool_orphaned_assets(World& world, const ComponentReflection& typ
     return {{"orphaned", orphaned}};
 }
 
+class AssetReferenceCollector final : public mosaic::engine::reflection::FieldVisitor
+{
+public:
+    AssetReferenceCollector(AssetID target, nlohmann::json& out, EntityID entity,
+                            const std::string& component)
+        : target_(target), out_(out), entity_(entity), component_(component)
+    {
+    }
+
+    void field_asset(std::string_view name, AssetID& value) override
+    {
+        if (value != target_) { return; }
+        out_.push_back({{"entity", entity_.value()},
+                        {"component", component_},
+                        {"field", path_with(name)}});
+    }
+
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view, const std::string&) override {}
+    void begin_group(std::string_view name) override { path_.push_back(std::string(name)); }
+    void end_group() override { path_.pop_back(); }
+
+private:
+    std::string path_with(std::string_view leaf) const
+    {
+        std::string result;
+        for (const std::string& seg : path_) { result += seg + "."; }
+        result += leaf;
+        return result;
+    }
+
+    AssetID target_;
+    nlohmann::json& out_;
+    EntityID entity_;
+    std::string component_;
+    std::vector<std::string> path_;
+};
+
+nlohmann::json tool_entities_referencing(World& world, const ComponentReflection& types, CommandStack&,
+                                         const std::string&, const nlohmann::json& args)
+{
+    const std::string asset_id_str = require_string(args, "asset_id");
+    AssetID target;
+    try
+    {
+        target = AssetID::from_string(asset_id_str);
+    }
+    catch (const SerializationError& e)
+    {
+        throw McpToolError(std::string("invalid 'asset_id': ") + e.what());
+    }
+
+    nlohmann::json matches = nlohmann::json::array();
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            for (const std::string& name : types.components_on(world, e))
+            {
+                AssetReferenceCollector collector(target, matches, e, name);
+                types.inspect(world, e, name, collector);
+            }
+        });
+    return {{"matches", matches}};
+}
+
 nlohmann::json tool_bulk_set_field(World& world, const ComponentReflection& types, CommandStack& stack,
                                    const std::string&, const nlohmann::json& args)
 {
@@ -650,6 +716,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"tick", &tool_tick},
         {"script_profile", &tool_script_profile},
         {"bulk_set_field", &tool_bulk_set_field},
+        {"entities_referencing", &tool_entities_referencing},
     };
     return handlers;
 }
@@ -685,6 +752,13 @@ nlohmann::json schema_entity_component_value()
 nlohmann::json schema_component()
 {
     return {{"type", "object"}, {"properties", {{"component", {{"type", "string"}}}}}, {"required", {"component"}}};
+}
+
+nlohmann::json schema_asset_id()
+{
+    return {{"type", "object"},
+           {"properties", {{"asset_id", {{"type", "string"}}}}},
+           {"required", {"asset_id"}}};
 }
 
 nlohmann::json schema_entities_where()
@@ -898,6 +972,13 @@ nlohmann::json tools_list_schema()
                                      "any partial apply) rather than silently reporting success "
                                      "for a no-op write."},
                      {"inputSchema", schema_bulk_set_field()}});
+    tools.push_back({{"name", "entities_referencing"},
+                     {"description", "Return every entity/component/field whose AssetID field "
+                                     "matches the given asset_id (the reverse of asking 'what "
+                                     "does this entity reference' -- this asks 'what references "
+                                     "this asset'). A nil AssetID field never matches. asset_id "
+                                     "must be a well-formed UUID string; a malformed one throws."},
+                     {"inputSchema", schema_asset_id()}});
     return {{"tools", tools}};
 }
 
