@@ -823,10 +823,19 @@ nlohmann::json schema_build()
     return {{"type", "object"}, {"properties", {{"out_dir", {{"type", "string"}}}}}, {"required", nlohmann::json::array()}};
 }
 
-nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args)
+nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args,
+                                 AssetRegistry* live_asset_registry)
 {
     const std::string source = require_string(args, "source");
     const auto asset_id = mosaic::app::import_asset(project_dir, source);
+    if (asset_id && live_asset_registry != nullptr)
+    {
+        // Re-scan is idempotent (AssetRegistry::register_asset overwrites by uuid), so
+        // rerunning the exact same trusted startup loader is simplest and safest -- no new
+        // per-type loading logic to keep in sync with load_project_assets' own.
+        mosaic::app::load_project_assets(*live_asset_registry,
+                                         (std::filesystem::path(project_dir) / "assets").string());
+    }
     return {{"asset_id", asset_id ? nlohmann::json(asset_id->to_string()) : nlohmann::json(nullptr)}};
 }
 } // namespace
@@ -909,7 +918,10 @@ nlohmann::json tools_list_schema()
                                      "exactly like `mosaic import`. asset_id is null on failure "
                                      "(unsupported format, missing source, or a stem collision) -- "
                                      "the specific reason is only visible in the server's own log "
-                                     "output, not returned here."},
+                                     "output, not returned here. On success the new asset is "
+                                     "immediately live: broken_references/orphaned_assets/"
+                                     "entities_referencing all see it right away in the same "
+                                     "session, no mosaic mcp restart needed."},
                      {"inputSchema", schema_source()}});
     tools.push_back({{"name", "tick"},
                      {"description", "Advance the simulation by `count` ticks (default 1, max "
@@ -938,22 +950,20 @@ nlohmann::json tools_list_schema()
                                      "that are set (non-nil) but don't resolve in the live "
                                      "AssetRegistry. Only bare AssetID fields are checked -- "
                                      "EntityID and Handle<R> references aren't distinguishable "
-                                     "from other scalar fields yet. Caveat: the AssetRegistry snapshot is "
-                                     "loaded once at server startup and never refreshed, so an "
-                                     "asset imported via import_asset earlier this session will "
-                                     "false-positive here until the mosaic mcp process restarts."},
+                                     "from other scalar fields yet. The AssetRegistry stays live "
+                                     "across the whole session -- import_asset refreshes it "
+                                     "immediately, so an asset imported earlier this session is "
+                                     "already resolvable here, not a false positive."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "orphaned_assets"},
                      {"description", "Return every registered asset that no entity's component "
                                      "field currently references (gathered via the same AssetID "
                                      "field walk broken_references uses). Only bare AssetID fields "
                                      "count as references -- an asset referenced solely via a "
-                                     "Handle<R> field would be reported orphaned. Caveat: the "
-                                     "AssetRegistry snapshot is loaded once at server startup and "
-                                     "never refreshed, so an asset imported via import_asset earlier "
-                                     "this session is simply absent from this scan entirely -- "
-                                     "neither falsely flagged nor falsely cleared -- until the "
-                                     "mosaic mcp process restarts."},
+                                     "Handle<R> field would be reported orphaned. The AssetRegistry "
+                                     "stays live across the whole session -- import_asset refreshes "
+                                     "it immediately, so an asset imported earlier this session is "
+                                     "already enumerated here, not silently absent."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "bulk_set_field"},
                      {"description", "Set one field to a new value on every entity matching an "
@@ -985,7 +995,8 @@ nlohmann::json tools_list_schema()
 nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, CommandStack& stack,
                                 const std::string& scene_path, const std::string& tool_name,
                                 const nlohmann::json& arguments, const ScriptEngineFactory& script_factory,
-                                const std::string& project_dir, const AssetRegistry& asset_registry)
+                                const std::string& project_dir, const AssetRegistry& asset_registry,
+                                AssetRegistry* live_asset_registry)
 {
     if (tool_name == "set_script")
     {
@@ -993,7 +1004,7 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     }
     if (tool_name == "import_asset")
     {
-        return tool_import_asset(project_dir, arguments);
+        return tool_import_asset(project_dir, arguments, live_asset_registry);
     }
     if (tool_name == "build_project")
     {
