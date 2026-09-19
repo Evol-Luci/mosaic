@@ -1,11 +1,13 @@
 # Deferred Work Backlog
 
-A point-in-time survey (2026-09-19, immediately after Phase 6 — Agent
-ecosystem — completed, closing out every phase `docs/project/roadmap.md`
-currently defines) of every deferred/future-work/stretch-goal item recorded
-across this repo's specs, plans, design docs, and `next-steps.md`. Compiled
-by grepping `docs/superpowers/specs/*.md`'s "Non-goals" sections (a
-convention every spec in this repo has followed since Phase 6 began),
+A point-in-time survey, originally compiled 2026-09-19 immediately after
+Phase 6 (Agent ecosystem) completed, closing out every phase
+`docs/project/roadmap.md` currently defines. **Refreshed 2026-09-19** after
+the project-health/bulk-editing arc (all 4 sub-projects) shipped, to mark
+what that arc closed out and fold in what it surfaced along the way — see
+"Refresh notes" at the end of the Agent API section. Originally compiled by
+grepping `docs/superpowers/specs/*.md`'s "Non-goals" sections (a convention
+every spec in this repo has followed since Phase 6 began),
 `docs/superpowers/plans/*.md`, `docs/design/*.md`, `docs/architecture/*.md`,
 and `docs/project/next-steps.md` for "deferred"/"future work"/"not solved
 here"/"accepted limitation"/"non-goal"/etc.
@@ -35,7 +37,12 @@ view that was actually used to pick what to build next as of this writing.
   `2026-09-16-scene-reasoning-describe-scene-design.md`
 - **Asset-usage queries** — "what entities reference asset X" via
   `FieldVisitor::field_asset`. Buildable, just not this slice. *Source:*
-  same
+  same. *Update:* the exact visitor pattern this needs (`FieldVisitor`
+  subclass implementing only `field_asset`, walking every entity's every
+  component) now exists and is proven twice over — `AssetRefCollector`
+  (`broken_references`) and `ReferencedAssetGatherer` (`orphaned_assets`),
+  both in `app/mcp/mcp_tools.cpp`. This item is now closer to "quick win"
+  than "medium" — see Effort vs. impact below.
 - **Generic criteria-based search (query DSL)** — "find entities where
   field Y matches Z". Most general/powerful, needs its own decomposition.
   *Source:* same
@@ -51,8 +58,12 @@ view that was actually used to pick what to build next as of this writing.
   from scratch (not import). No existing machinery, needs its own
   decomposition. *Source:*
   `2026-09-18-asset-generation-import-asset-design.md`
-- **Confirm `AssetID` referencing via `set_component`** — probably already
-  works, never tested/documented. *Source:* same
+- ~~**Confirm `AssetID` referencing via `set_component`**~~ — **RESOLVED**,
+  no longer deferred. Exercised repeatedly and directly during the
+  project-health arc's manual verification (`broken_references`,
+  `orphaned_assets`, `bulk_set_field` all set `Material.texture` to a
+  literal `AssetID` string via `set_component` against a real `mosaic mcp`
+  session) — confirmed working, no gap remains.
 - **Hot-reload imported assets into the live `AssetRegistry` mid-session**
   — currently only loaded once at `mosaic mcp` startup. *Source:*
   `2026-09-18-automated-testing-tick-design.md`
@@ -61,15 +72,37 @@ view that was actually used to pick what to build next as of this writing.
 - **Broader per-system profiling** — physics/animation/particles timing,
   not just scripts. *Source:*
   `2026-09-19-optimization-script-profile-design.md`
-- **Bulk refactoring / project health checks** — rename a field
-  project-wide, orphaned-asset detection, broken-reference detection.
-  Genuinely novel, no existing machinery. *Source:*
-  `2026-09-19-project-maintenance-build-project-design.md`
-  *(shipped: all 4 sub-projects complete, see
-  `docs/superpowers/specs/2026-09-19-project-health-bulk-set-field-design.md`)*
+- ~~**Bulk refactoring / project health checks**~~ — **SHIPPED, all 4
+  sub-projects complete** (`entities_where`, `broken_references`,
+  `orphaned_assets`, `bulk_set_field` — MCP tools 22-25). No longer
+  deferred; kept here only as the historical pointer. *Source:*
+  `2026-09-19-project-maintenance-build-project-design.md`. Specs:
+  `2026-09-19-project-health-{entities-where,broken-references,
+  orphaned-assets,bulk-set-field}-design.md`.
 - **Multi-scene project support in MCP**, **concurrent MCP session locking
   on `save_scene`** — both explicitly unaddressed. *Source:*
   `2026-09-16-agent-api-mcp-server-design.md`
+
+**Refresh notes (2026-09-19, post-arc):**
+- The `FieldVisitor` extension needed for "precise field type labels" in
+  component reference docs (see Documentation tooling below) is now
+  motivated by two MORE independent needs discovered while building
+  `broken_references`/`orphaned_assets`: distinguishing an `EntityID`
+  reference field from a generic readonly scalar (both currently route
+  through `field_readonly`, the same gap blocking `EntityID`-based broken-
+  reference detection), and distinguishing a `Handle<R>`-typed asset
+  reference from the same bucket (both `broken_references` and
+  `orphaned_assets` ship with this as a documented, currently-inert blind
+  spot). Three independent call sites now want the same `FieldVisitor`
+  change — worth reconsidering whether it's still "cross-cutting, out of
+  scope" or has crossed into "worth doing."
+- The `AssetRegistry`-staleness gap ("hot-reload imported assets... mid-
+  session") was hit and explicitly worked around three separate times
+  this arc (`broken_references`, `orphaned_assets`, and implicitly by
+  every tool that reads `asset_registry`) — each time by documenting the
+  limitation in the affected tool's own schema description rather than
+  fixing it. Same underlying gap, now with three call sites' worth of
+  concrete motivation and lived experience with its exact failure mode.
 
 ## Plugin ecosystem
 
@@ -174,18 +207,21 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Effort vs. impact
 
-Cross-cutting prioritization pass (2026-09-19), used to pick what to build
-next. Re-derive this when the backlog above has moved significantly rather
-than trusting the ratings below forever.
+Cross-cutting prioritization pass, originally 2026-09-19, **re-derived
+2026-09-19** post-arc: the shipped item is removed, resolved items are
+removed, and the two refresh-note items (asset-usage queries' now-easier
+build, the `FieldVisitor` extension's now-tripled motivation) are
+re-rated. Re-derive again when the backlog above has moved significantly
+rather than trusting the ratings below forever.
 
 ### 🟢 Quick wins (hours-scale, single focused change)
 
 | Item | Impact |
 |---|---|
 | CI/pre-commit wiring for `mosaic docs` + nav regen | Medium — closes a doc-staleness gap that's already bitten this project twice |
-| Confirm `AssetID` referencing via `set_component` | Low |
+| **Asset-usage queries** (`entities_referencing(asset_id)`) | Medium — **now a quick win**, not medium: the exact visitor pattern is proven twice over (`AssetRefCollector`/`ReferencedAssetGatherer`), this is a third near-identical application |
 | Remove unused `types` param from `create_project` | Low |
-| Hot-reload imported assets into live `AssetRegistry` | Medium |
+| Hot-reload imported assets into live `AssetRegistry` | Medium — **now higher-confidence to scope**, hit and worked around 3 times this arc with the exact failure mode well understood |
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 | "Tick until condition met" tool | Medium |
@@ -195,14 +231,13 @@ than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | Spatial queries | Medium-High |
-| Asset-usage queries | Medium |
+| `FieldVisitor` extension (distinguish `EntityID`/`Handle<R>`/precise types) | **Medium-High** — now wanted by 3 independent call sites (doc type labels, `EntityID` broken-reference detection, `Handle<R>` asset-reference detection), previously ruled out-of-scope as cross-cutting; worth reconsidering |
 | Undo support for `set_script` | Medium |
 | Studio plugin (`.py`) authoring via MCP | Medium |
 | Plugin discovery: project-dir not CWD | **Medium-High** — silent correctness bug for any packaged distribution |
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Component TypeID densification (#25) | Low-Medium |
-| **Bulk refactoring / project health checks** | **High** — the only item giving an agent mass-edit/self-audit capability *(shipped: all 4 sub-projects complete, see `docs/superpowers/specs/2026-09-19-project-health-bulk-set-field-design.md`)* |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
@@ -219,6 +254,6 @@ than trusting the ratings below forever.
 | Public marketplace | Low today, High later — gated on an actual user base |
 | 3rd-person adventure template | Medium |
 
-**Picked as the largest effective win (2026-09-19):** bulk refactoring /
-project health checks — see `docs/superpowers/specs/` for its design once
-brainstormed.
+**Picked as the largest effective win (2026-09-19, original pass):** bulk
+refactoring / project health checks — **shipped**, all 4 sub-projects
+complete (see specs above). Next pick TBD with the user.
