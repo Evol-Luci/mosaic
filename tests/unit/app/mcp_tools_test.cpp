@@ -1244,6 +1244,20 @@ TEST_CASE("mcp_tools: broken_references detects a broken Handle<R> reference", "
     REQUIRE(found);
 }
 
+TEST_CASE("mcp_tools: broken_references does not report a nil Handle<R> field", "[app][mcp]")
+{
+    RuntimeFixture f;
+    f.types.register_component<HandleFieldComponent>(f.registry, "HandleFieldComponent");
+    const auto e = f.world.create_entity();
+    f.world.add_component<HandleFieldComponent>(e, {}); // resource defaults to a nil Handle<int>
+
+    const nlohmann::json result = f.call("broken_references");
+    for (const auto& entry : result.at("broken"))
+    {
+        REQUIRE(entry.at("entity").get<std::uint64_t>() != e.value());
+    }
+}
+
 TEST_CASE("mcp_tools: orphaned_assets does not report an asset referenced only via a Handle<R> field", "[app][mcp]")
 {
     RuntimeFixture f;

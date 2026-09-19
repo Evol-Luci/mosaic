@@ -143,6 +143,22 @@ TEST_CASE("FieldVisitorAdapter routes a std::string field to field_string when o
     REQUIRE(n.value == "NewName");
 }
 
+TEST_CASE("FieldVisitorAdapter falls back an EntityID field to field_readonly when field_entity is not overridden", "[reflection]")
+{
+    Transform t;
+    t.parent = mosaic::foundation::EntityID(5, 2);
+    RecordingVisitor v;
+    FieldVisitorAdapter adapter{v};
+    reflect(adapter, t);
+
+    bool saw_parent_ro = false;
+    for (const std::string& e : v.events)
+    {
+        if (e == "ro:parent=" + std::to_string(t.parent.value())) { saw_parent_ro = true; }
+    }
+    REQUIRE(saw_parent_ro);
+}
+
 TEST_CASE("FieldVisitorAdapter routes an EntityID field to field_entity when overridden", "[reflection]")
 {
     Transform t;
