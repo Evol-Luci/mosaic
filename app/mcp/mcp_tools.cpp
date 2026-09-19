@@ -14,6 +14,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/world/name.hpp"
 #include "engine/scene/scene.hpp"
+#include "engine/script/script_system.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
 #include "studio/script_editor.hpp"
@@ -313,6 +314,20 @@ nlohmann::json tool_tick(World& world, const ComponentReflection&, CommandStack&
     return {{"ticks", count}};
 }
 
+nlohmann::json tool_script_profile(World& world, const ComponentReflection&, CommandStack&,
+                                   const std::string&, const nlohmann::json&)
+{
+    auto* sys = world.get_system<mosaic::engine::script::ScriptSystem>();
+    if (sys == nullptr) { return {{"entries", nlohmann::json::array()}}; }
+    nlohmann::json entries = nlohmann::json::array();
+    for (const auto& e : sys->profile())
+    {
+        entries.push_back({{"entity", e.entity}, {"calls", e.calls},
+                           {"total_ms", e.total_ms}, {"max_ms", e.max_ms}});
+    }
+    return {{"entries", entries}};
+}
+
 nlohmann::json tool_build_project(const ComponentReflection& types, const std::string& project_dir,
                                   const nlohmann::json& args)
 {
@@ -337,6 +352,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"save_scene", &tool_save_scene},
         {"describe_scene", &tool_describe_scene},
         {"tick", &tool_tick},
+        {"script_profile", &tool_script_profile},
     };
     return handlers;
 }
@@ -496,6 +512,13 @@ nlohmann::json tools_list_schema()
                                      "specific reason is only visible in the server's own log "
                                      "output, matching import_asset's same convention)."},
                      {"inputSchema", schema_build()}});
+    tools.push_back({{"name", "script_profile"},
+                     {"description", "Return per-scripted-entity on_update timing accumulated "
+                                     "so far this session (via ScriptSystem::profile() -- the "
+                                     "same machinery `mosaic run --script-profile` uses): calls, "
+                                     "total_ms, and max_ms per entity. Empty if nothing has "
+                                     "ticked yet, or if no ScriptSystem is wired."},
+                     {"inputSchema", schema_none()}});
     return {{"tools", tools}};
 }
 
