@@ -82,6 +82,19 @@ struct RuntimeFixture
         return handle_tool_call(world, types, stack, "", tool, args, script_factory, "", asset_registry);
     }
 };
+
+// RuntimeFixture's setup_runtime() registers built-in meshes/a built-in font/demo textures into
+// asset_registry that nothing in a fresh test World references via an AssetID field -- so those
+// are legitimately orphaned by this tool's own definition, and orphaned_assets tests must check
+// membership of the ids they care about rather than asserting the array's exact total size.
+bool orphaned_contains(const nlohmann::json& orphaned, const std::string& asset_id)
+{
+    for (const auto& entry : orphaned)
+    {
+        if (entry.at("asset_id").get<std::string>() == asset_id) { return true; }
+    }
+    return false;
+}
 } // namespace
 
 TEST_CASE("mcp_tools: create_entity, entity_count, entities, destroy_entity", "[app][mcp]")
@@ -205,12 +218,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 23 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 24 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 23);
+    REQUIRE(tools.size() == 24);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -801,4 +814,115 @@ TEST_CASE("mcp_tools: broken_references returns an empty array for a world with 
     f.call("create_entity");
     const nlohmann::json result = f.call("broken_references");
     REQUIRE(result.at("broken").empty());
+}
+
+TEST_CASE("mcp_tools: orphaned_assets reports a registered asset nothing references", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata meta;
+    meta.uuid = mosaic::app::random_asset_id();
+    meta.type = "image";
+    meta.source = "textures/unused.png";
+    f.asset_registry.register_asset(meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE(orphaned_contains(result.at("orphaned"), meta.uuid.to_string()));
+    for (const auto& entry : result.at("orphaned"))
+    {
+        if (entry.at("asset_id").get<std::string>() == meta.uuid.to_string())
+        {
+            REQUIRE(entry.at("type").get<std::string>() == "image");
+            REQUIRE(entry.at("source").get<std::string>() == "textures/unused.png");
+        }
+    }
+}
+
+TEST_CASE("mcp_tools: orphaned_assets does not report an asset referenced by an entity's field", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata meta;
+    meta.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = meta.uuid.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE_FALSE(orphaned_contains(result.at("orphaned"), meta.uuid.to_string()));
+}
+
+TEST_CASE("mcp_tools: orphaned_assets ignores nil AssetID fields as references", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata meta;
+    meta.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}}); // texture defaults to nil
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE(orphaned_contains(result.at("orphaned"), meta.uuid.to_string()));
+}
+
+TEST_CASE("mcp_tools: orphaned_assets reports every orphan across a mixed registry", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata referenced_meta;
+    referenced_meta.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(referenced_meta, []() -> std::shared_ptr<void> { return nullptr; });
+
+    mosaic::engine::assets::AssetMetadata orphan_a;
+    orphan_a.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(orphan_a, []() -> std::shared_ptr<void> { return nullptr; });
+
+    mosaic::engine::assets::AssetMetadata orphan_b;
+    orphan_b.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(orphan_b, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = referenced_meta.uuid.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE(orphaned_contains(result.at("orphaned"), orphan_a.uuid.to_string()));
+    REQUIRE(orphaned_contains(result.at("orphaned"), orphan_b.uuid.to_string()));
+    REQUIRE_FALSE(orphaned_contains(result.at("orphaned"), referenced_meta.uuid.to_string()));
+}
+
+TEST_CASE("mcp_tools: orphaned_assets returns an empty array for an empty registry", "[app][mcp]")
+{
+    // A genuinely empty AssetRegistry, bypassing RuntimeFixture's own pre-populated one (which
+    // always carries setup_runtime()'s built-in meshes/font/demo textures) -- this is the only
+    // way to exercise a truly empty registry end to end.
+    RuntimeFixture f;
+    f.call("create_entity");
+    mosaic::engine::assets::AssetRegistry empty_registry;
+    const nlohmann::json result =
+        handle_tool_call(f.world, f.types, f.stack, "", "orphaned_assets", nlohmann::json::object(),
+                         f.script_factory, "", empty_registry);
+    REQUIRE(result.at("orphaned").empty());
+}
+
+TEST_CASE("mcp_tools: orphaned_assets still reports an asset orphaned when a different asset id is referenced", "[app][mcp]")
+{
+    RuntimeFixture f;
+    mosaic::engine::assets::AssetMetadata orphan;
+    orphan.uuid = mosaic::app::random_asset_id();
+    f.asset_registry.register_asset(orphan, []() -> std::shared_ptr<void> { return nullptr; });
+
+    const auto unrelated_id = mosaic::app::random_asset_id(); // never registered, just referenced
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Material"}});
+    nlohmann::json mat = f.call("get_component", {{"entity", eid}, {"component", "Material"}}).at("value");
+    mat["texture"] = unrelated_id.to_string();
+    REQUIRE(f.call("set_component", {{"entity", eid}, {"component", "Material"}, {"value", mat}}).at("ok").get<bool>());
+
+    const nlohmann::json result = f.call("orphaned_assets");
+    REQUIRE(orphaned_contains(result.at("orphaned"), orphan.uuid.to_string()));
 }

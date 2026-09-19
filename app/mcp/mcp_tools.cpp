@@ -460,6 +460,53 @@ nlohmann::json tool_broken_references(World& world, const ComponentReflection& t
     return {{"broken", broken}};
 }
 
+class ReferencedAssetGatherer final : public mosaic::engine::reflection::FieldVisitor
+{
+public:
+    explicit ReferencedAssetGatherer(std::unordered_set<AssetID>& out) : out_(out) {}
+
+    void field_asset(std::string_view, AssetID& value) override
+    {
+        if (!value.is_nil()) { out_.insert(value); }
+    }
+
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view, const std::string&) override {}
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+
+private:
+    std::unordered_set<AssetID>& out_;
+};
+
+nlohmann::json tool_orphaned_assets(World& world, const ComponentReflection& types,
+                                    const AssetRegistry& asset_registry)
+{
+    std::unordered_set<AssetID> referenced;
+    world.for_each_entity(
+        [&](EntityID e)
+        {
+            for (const std::string& name : types.components_on(world, e))
+            {
+                ReferencedAssetGatherer gatherer(referenced);
+                types.inspect(world, e, name, gatherer);
+            }
+        });
+
+    nlohmann::json orphaned = nlohmann::json::array();
+    asset_registry.for_each(
+        [&](const mosaic::engine::assets::AssetMetadata& meta)
+        {
+            if (referenced.find(meta.uuid) == referenced.end())
+            {
+                orphaned.push_back({{"asset_id", meta.uuid.to_string()},
+                                    {"type", meta.type},
+                                    {"source", meta.source}});
+            }
+        });
+    return {{"orphaned", orphaned}};
+}
+
 const std::unordered_map<std::string, ToolHandler>& tool_handlers()
 {
     static const std::unordered_map<std::string, ToolHandler> handlers = {
@@ -670,6 +717,16 @@ nlohmann::json tools_list_schema()
                                      "asset imported via import_asset earlier this session will "
                                      "false-positive here until the mosaic mcp process restarts."},
                      {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "orphaned_assets"},
+                     {"description", "Return every registered asset that no entity's component "
+                                     "field currently references (gathered via the same AssetID "
+                                     "field walk broken_references uses). Caveat: the AssetRegistry "
+                                     "snapshot is loaded once at server startup and never refreshed, "
+                                     "so an asset imported via import_asset earlier this session is "
+                                     "simply absent from this scan entirely -- neither falsely "
+                                     "flagged nor falsely cleared -- until the mosaic mcp process "
+                                     "restarts."},
+                     {"inputSchema", schema_none()}});
     return {{"tools", tools}};
 }
 
@@ -693,6 +750,10 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "broken_references")
     {
         return tool_broken_references(world, types, asset_registry);
+    }
+    if (tool_name == "orphaned_assets")
+    {
+        return tool_orphaned_assets(world, types, asset_registry);
     }
     const auto& handlers = tool_handlers();
     const auto it = handlers.find(tool_name);
