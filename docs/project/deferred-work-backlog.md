@@ -30,9 +30,9 @@ view that was actually used to pick what to build next as of this writing.
 - **Wrap remaining CLI verbs as MCP tools** — decomposed 2026-09-19 into
   one-tool-per-slice sub-projects (this bundled 7-8 separate wrappers,
   too big for one slice): ~~`plugin_list`~~ **SHIPPED** (MCP tool 28),
-  ~~`plugin_install`/`plugin_remove`~~ **SHIPPED** (MCP tools 29-30).
-  Still open: the package-source subcommands (`source add`/`list`/
-  `remove`/`pull`), and a `mosaic docs`-regeneration tool. *Source:*
+  ~~`plugin_install`/`plugin_remove`~~ **SHIPPED** (MCP tools 29-30),
+  ~~`plugin_source_{add,list,remove,pull}`~~ **SHIPPED** (MCP tools
+  31-34). Still open: a `mosaic docs`-regeneration tool. *Source:*
   `2026-09-19-project-maintenance-build-project-design.md`
 - **Spatial queries** — "entities within radius R", scene bounding box. No
   distance/containment query machinery exists yet. *Source:*
@@ -238,7 +238,6 @@ rather than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | Remove unused `types` param from `create_project` | Low |
-| Package-source MCP tools (`source add/list/remove/pull`) | Low-Medium |
 | `mosaic docs`-regeneration MCP tool | Low |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 
