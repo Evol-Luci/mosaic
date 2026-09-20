@@ -166,32 +166,19 @@ interface changes were needed either: an importer's return value is captured by
 composing `set_global` + `run_string` + `get_global`, all of which the interface
 already exposed.
 
-### Where the plugins directory lives (and its known gap)
+### Where the plugins directory lives
 
-Today, `plugins/` is resolved as a **literal path relative to the process's current
-working directory** at the moment Studio loads plugins (`studio_app.cpp`'s
-`plugin_host_.load("plugins", ...)`) — the same implicit convention scenes and assets
-already use elsewhere in Studio. In practice this means: **run `mosaic editor` from
-inside your project directory**, and a `plugins/` folder next to it is picked up
-correctly.
+`plugins/` is resolved against the project directory, not the process's current
+working directory: `app/project/project_io.hpp`'s `resolve_plugins_dir(path)` derives
+`<path>/plugins` from `Options::open_path` (the CLI's positional project-dir/scene-file
+argument), threaded into `Options::plugins_dir` in `app/main.cpp` the same place
+`Options::assets_dir` already is, and passed into `StudioApp`'s constructor for
+`plugin_host_.load()` to use (`studio_app.cpp`). `mosaic editor <path>` run from any
+working directory picks up `<path>/plugins` correctly -- a desktop file association,
+an "Open with Mosaic" launcher, a shortcut, or a packaged distribution's launcher all
+work the same way, since none of them can be relied on to set a particular CWD.
 
-This is a real, documented gap, not an oversight to silently work around: `mosaic
-editor <path>` (and `mosaic run <path>`) already accepts an explicit project directory
-or scene file as a positional argument (`app/cli/options.hpp`'s `Options::open_path`,
-threaded into `Options::assets_dir` for asset loading) — but the process never
-`chdir()`s to match it, so passing that argument does **not** currently make plugin
-discovery (or, more broadly, every other CWD-relative path in Studio) follow it. For an
-installed/packaged distribution — a desktop file association, an "Open with Mosaic"
-launcher, a shortcut — the process's CWD at startup is not guaranteed to be the project
-directory at all, and plugin discovery (along with scene/asset resolution generally)
-would silently find nothing.
-
-**Follow-up, not yet scheduled:** resolve `plugins/` (and ideally every other
-project-relative path in Studio) against an explicit, tracked project root instead of
-CWD. The project system already has the right shape to build this on — `mosaic.toml`
-(`app/project/project.hpp`'s `kManifestName`) plus `app/project/project_io.hpp`'s
-`load_manifest(project_dir)`, both already used by `mosaic create`/`mosaic build` with
-an explicit `project_dir` string, never CWD. `mosaic editor`/`mosaic run` would need to
-thread that same explicit project directory through to `StudioApp` (today they only
-partially do, via `assets_dir`) rather than each CWD-relative path site guessing it
-independently.
+When `open_path` isn't actually a directory (a bare scene file, or nothing given),
+`resolve_plugins_dir` returns `nullopt` and `StudioApp` falls back to its constructor's
+default of a bare `"plugins"` literal -- CWD-relative, matching the old behavior for
+that one case, since there's no project directory to resolve against.
