@@ -2,7 +2,7 @@
 
 # Component Reference
 
-Every built-in engine component, with its fields and their default values. Fields shown as a plain name/value pair (no type label) come from `FieldVisitor::field_readonly`, which is used uniformly for `bool`, non-`float` numeric types, `EntityID`, and `Handle<R>` fields -- the underlying type isn't distinguishable from the callback alone, so no more precise label is shown for those fields.
+Every built-in engine component, with its fields and their default values. Fields shown as a plain name/value pair (no type label) come from `FieldVisitor::field_readonly`, which is used uniformly for `bool` and non-`float` numeric types -- the underlying type isn't distinguishable from the callback alone, so no more precise label is shown for those fields. `EntityID` fields render with an `(entity)` suffix and `Handle<R>` fields with an `(asset via Handle)` suffix.
 
 ## AnimationPlayer
 
@@ -197,7 +197,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `x`: 1.000000
   - `y`: 1.000000
   - `z`: 1.000000
-- `parent`: 0
+- `parent`: 0 (entity)
 
 ## UiButton
 
@@ -245,7 +245,7 @@ Every built-in engine component, with its fields and their default values. Field
 
 ## UiParent
 
-- `parent`: 0
+- `parent`: 0 (entity)
 
 ## UiText
 

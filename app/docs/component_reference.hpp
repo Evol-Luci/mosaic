@@ -42,6 +42,17 @@ public:
         emit(name, value.to_string());
     }
 
+    void field_entity(std::string_view name, mosaic::foundation::EntityID value) override
+    {
+        emit(name, std::to_string(value.value()) + " (entity)");
+    }
+
+    void field_handle_asset(std::string_view name,
+                            const mosaic::foundation::serialization::AssetID& asset_id) override
+    {
+        emit(name, asset_id.to_string() + " (asset via Handle)");
+    }
+
     void begin_group(std::string_view name) override
     {
         indent();
@@ -89,10 +100,11 @@ inline std::string generate_component_reference_markdown(
     out << "Every built-in engine component, with its fields and their "
            "default values. Fields shown as a plain name/value pair "
            "(no type label) come from `FieldVisitor::field_readonly`, which "
-           "is used uniformly for `bool`, non-`float` numeric types, "
-           "`EntityID`, and `Handle<R>` fields -- the underlying type isn't "
-           "distinguishable from the callback alone, so no more precise "
-           "label is shown for those fields.\n\n";
+           "is used uniformly for `bool` and non-`float` numeric types -- "
+           "the underlying type isn't distinguishable from the callback "
+           "alone, so no more precise label is shown for those fields. "
+           "`EntityID` fields render with an `(entity)` suffix and "
+           "`Handle<R>` fields with an `(asset via Handle)` suffix.\n\n";
 
     mosaic::engine::World world;
     const mosaic::engine::World::EntityID entity = world.create_entity();

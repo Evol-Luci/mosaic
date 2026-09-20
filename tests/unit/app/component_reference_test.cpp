@@ -5,8 +5,10 @@
 #include "app/docs/component_reference.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/reflection/component_reflection.hpp"
+#include "foundation/core/entity_id.hpp"
 #include "foundation/reflection/reflect.hpp"
 #include "foundation/reflection/type_registry.hpp"
+#include "foundation/serialization/reference.hpp"
 
 using mosaic::app::generate_component_reference_markdown;
 using mosaic::engine::reflection::ComponentReflection;
@@ -75,6 +77,32 @@ void reflect(Visitor& v, WithGroup& c)
 {
     v.member("offset", c.offset);
 }
+
+struct EntityOnly
+{
+    mosaic::foundation::EntityID parent{};
+};
+
+template <class Visitor>
+void reflect(Visitor& v, EntityOnly& c)
+{
+    v.member("parent", c.parent);
+}
+
+struct DummyResource
+{
+};
+
+struct HandleOnly
+{
+    mosaic::foundation::serialization::Handle<DummyResource> texture{};
+};
+
+template <class Visitor>
+void reflect(Visitor& v, HandleOnly& c)
+{
+    v.member("texture", c.texture);
+}
 } // namespace
 
 TEST_CASE("component reference renders a bare float field", "[docs]")
@@ -126,6 +154,31 @@ TEST_CASE("component reference indents a nested group's fields", "[docs]")
     // Nested fields render indented one level deeper than the group line.
     REQUIRE(markdown.find("  - `x`: 1.000000") != std::string::npos);
     REQUIRE(markdown.find("  - `y`: 2.000000") != std::string::npos);
+}
+
+TEST_CASE("component reference labels an EntityID field distinctly from field_readonly", "[docs]")
+{
+    TypeRegistry registry;
+    ComponentReflection types;
+    types.register_component<EntityOnly>(registry, "EntityOnly");
+
+    const std::string markdown = generate_component_reference_markdown(types);
+
+    REQUIRE(markdown.find("## EntityOnly") != std::string::npos);
+    REQUIRE(markdown.find("`parent`: 0 (entity)") != std::string::npos);
+}
+
+TEST_CASE("component reference labels a Handle<R> field distinctly from field_readonly", "[docs]")
+{
+    TypeRegistry registry;
+    ComponentReflection types;
+    types.register_component<HandleOnly>(registry, "HandleOnly");
+
+    const std::string markdown = generate_component_reference_markdown(types);
+
+    REQUIRE(markdown.find("## HandleOnly") != std::string::npos);
+    REQUIRE(markdown.find("`texture`: 00000000-0000-0000-0000-000000000000 (asset via Handle)") !=
+            std::string::npos);
 }
 
 TEST_CASE("component reference opens with an auto-generated banner naming the type-label limitation", "[docs]")
