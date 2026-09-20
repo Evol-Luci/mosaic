@@ -27,10 +27,13 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Agent API / MCP (Phase 6 — complete, these are follow-on extensions)
 
-- **Wrap remaining CLI verbs as MCP tools** — `mosaic plugin
-  {list,install,remove,source...}` and `mosaic docs` regeneration. Each
-  Phase 6 slice stuck to one-tool-per-slice; these are real, valuable, just
-  not yet picked up. *Source:*
+- **Wrap remaining CLI verbs as MCP tools** — decomposed 2026-09-19 into
+  one-tool-per-slice sub-projects (this bundled 7-8 separate wrappers,
+  too big for one slice): ~~`plugin_list`~~ **SHIPPED** (MCP tool 28).
+  Still open: `plugin_install`/`plugin_remove` (mutations, now
+  unblocked by the query-first tool), the package-source subcommands
+  (`source add`/`list`/`remove`/`pull`), and a `mosaic docs`-
+  regeneration tool. *Source:*
   `2026-09-19-project-maintenance-build-project-design.md`
 - **Spatial queries** — "entities within radius R", scene bounding box. No
   distance/containment query machinery exists yet. *Source:*
@@ -236,7 +239,9 @@ rather than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | Remove unused `types` param from `create_project` | Low |
-| Wrap remaining CLI verbs as MCP tools | Medium |
+| `plugin_install`/`plugin_remove` MCP tools | Medium — next slice of the CLI-verb-wrapping item |
+| Package-source MCP tools (`source add/list/remove/pull`) | Low-Medium |
+| `mosaic docs`-regeneration MCP tool | Low |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
