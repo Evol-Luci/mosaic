@@ -402,6 +402,50 @@ nlohmann::json tool_tick(World& world, const ComponentReflection&, CommandStack&
     return {{"ticks", count}};
 }
 
+nlohmann::json tool_tick_until(World& world, const ComponentReflection& types, CommandStack&,
+                               const std::string&, const nlohmann::json& args)
+{
+    const EntityID e(require_uint64(args, "entity"));
+    const std::string component = require_string(args, "component");
+    const std::string field = require_string(args, "field");
+    const std::string op = require_string(args, "op");
+    if (!args.contains("value"))
+    {
+        throw McpToolError("missing 'value'");
+    }
+    if (valid_compare_ops().find(op) == valid_compare_ops().end())
+    {
+        throw McpToolError("unknown op: " + op + " (expected one of eq, ne, gt, gte, lt, lte)");
+    }
+    const nlohmann::json target = args.at("value");
+    const std::vector<std::string> path = mosaic::engine::animation::split_path(field, '.');
+    const std::uint64_t max_ticks = optional_uint64(args, "max_ticks", kMaxTicksPerCall);
+    const double dt = optional_double(args, "dt", 1.0 / 60.0);
+    if (max_ticks > kMaxTicksPerCall)
+    {
+        throw McpToolError("max_ticks exceeds the per-call limit of " + std::to_string(kMaxTicksPerCall));
+    }
+
+    auto observe = [&]() -> std::optional<nlohmann::json>
+    {
+        const auto v = types.component_value(world, e, component);
+        if (!v) { return std::nullopt; }
+        return json_at_path(value_to_json(*v), path);
+    };
+    auto is_met = [&](const std::optional<nlohmann::json>& value)
+    { return value.has_value() && compare(*value, op, target); };
+
+    std::optional<nlohmann::json> value = observe();
+    std::uint64_t ticks = 0;
+    while (!is_met(value) && ticks < max_ticks)
+    {
+        world.tick(static_cast<float>(dt));
+        ++ticks;
+        value = observe();
+    }
+    return {{"ticks", ticks}, {"met", is_met(value)}, {"value", value ? *value : nlohmann::json(nullptr)}};
+}
+
 nlohmann::json tool_script_profile(World& world, const ComponentReflection&, CommandStack&,
                                    const std::string&, const nlohmann::json&)
 {
@@ -751,6 +795,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"save_scene", &tool_save_scene},
         {"describe_scene", &tool_describe_scene},
         {"tick", &tool_tick},
+        {"tick_until", &tool_tick_until},
         {"script_profile", &tool_script_profile},
         {"bulk_set_field", &tool_bulk_set_field},
         {"entities_referencing", &tool_entities_referencing},
@@ -853,6 +898,21 @@ nlohmann::json schema_tick()
            {"properties",
             {{"count", {{"type", "integer"}, {"minimum", 0}}}, {"dt", {{"type", "number"}}}}},
            {"required", nlohmann::json::array()}};
+}
+
+nlohmann::json schema_tick_until()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"entity", {{"type", "integer"}, {"minimum", 0}}},
+             {"component", {{"type", "string"}}},
+             {"field", {{"type", "string"},
+                       {"description", "Dotted path into the component's fields, e.g. \"position.x\""}}},
+             {"op", {{"type", "string"}, {"enum", {"eq", "ne", "gt", "gte", "lt", "lte"}}}},
+             {"value", {{"description", "The value to compare against"}}},
+             {"max_ticks", {{"type", "integer"}, {"minimum", 0}}},
+             {"dt", {{"type", "number"}}}}},
+           {"required", {"entity", "component", "field", "op", "value"}}};
 }
 
 nlohmann::json schema_build()
@@ -967,6 +1027,18 @@ nlohmann::json tools_list_schema()
                                      "mosaic run/editor use at play time. Returns the number of "
                                      "ticks actually run."},
                      {"inputSchema", schema_tick()}});
+    tools.push_back({{"name", "tick_until"},
+                     {"description", "Tick the simulation (dt seconds each, default 1/60) one "
+                                     "tick at a time, rechecking `component.field` on `entity` "
+                                     "against `op`/`value` after each tick, stopping as soon as "
+                                     "it matches or `max_ticks` (default/max 10000) is reached. "
+                                     "Checks before ticking at all, so an already-met condition "
+                                     "costs zero ticks. An unresolvable entity/component/field "
+                                     "never matches (same convention as entities_where) rather "
+                                     "than erroring, so it simply runs to max_ticks. Returns "
+                                     "ticks actually run, whether it was met, and the last "
+                                     "observed field value (null if never resolved)."},
+                     {"inputSchema", schema_tick_until()}});
     tools.push_back({{"name", "build_project"},
                      {"description", "Package the project into a standalone bundle (default "
                                      "output <project>/dist, or a given out_dir), embedding this "
