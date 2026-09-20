@@ -58,7 +58,12 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             {
                 if (scene_file_.dirty())
                 {
-                    ImGui::OpenPopup("Discard changes and reload?");
+                    // Defer OpenPopup to right before BeginPopupModal below (same
+                    // ID-stack depth, outside the menu bar) -- calling OpenPopup
+                    // from inside a menu computes a popup ID scoped to the menu's
+                    // own floating window, which BeginPopupModal (called after
+                    // EndMainMenuBar, a different window) would never match.
+                    want_reload_confirm_ = true;
                 }
                 else
                 {
@@ -153,6 +158,11 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
         ImGui::EndMainMenuBar();
     }
 
+    if (want_reload_confirm_)
+    {
+        ImGui::OpenPopup("Discard changes and reload?");
+        want_reload_confirm_ = false;
+    }
     if (ImGui::BeginPopupModal("Discard changes and reload?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
     {
         ImGui::Text("This scene has unsaved changes. Reloading discards them.");

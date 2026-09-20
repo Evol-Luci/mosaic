@@ -103,6 +103,8 @@ private:
     PlayState                      play_;
     AssetBrowserModel              assets_;
     SceneFileModel                 scene_file_;
+    bool                           want_reload_confirm_ = false; // set by the File menu, consumed
+                                                                  // right before BeginPopupModal
     std::shared_ptr<ConsoleBuffer> console_ = std::make_shared<ConsoleBuffer>();
     mosaic::foundation::commands::CommandStack commands_;
     ScriptConsoleModel                         script_console_;
