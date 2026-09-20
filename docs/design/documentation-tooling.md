@@ -78,15 +78,18 @@ changes its first line, since `mosaic docs` always emits that same banner).
 A CLI subcommand, `mosaic docs`, walks every built-in engine component via
 `ComponentReflection` and generates `docs/reference/components.md` — one
 combined markdown page listing every component's fields and their default
-values. `docs/reference/` is the 7th auto-generated nav group above. A real,
-accepted limitation: `FieldVisitor::field_readonly` is used uniformly for
-`bool`, non-`float` numeric types, `EntityID`, and `Handle<R>` fields, so the
-generated page can show a field's name and default value but not a precise
-type label for anything routed through it — documented in the generated
-page's own intro, not solved here (would require extending the shared
-`FieldVisitor` interface Studio's Inspector also uses). Scripting-globals
-reference docs remain future work, gated on adding pybind11 docstring
-annotations to the existing `install_world_globals`/`imgui_*` registrations.
-Full design: `docs/superpowers/specs/2026-09-14-component-reference-docs-design.md`.
+values. `docs/reference/` is the 7th auto-generated nav group above.
+`FieldVisitor::field_readonly` is still used uniformly for `bool` and
+non-`float` numeric types, so the generated page can show a field's name and
+default value but not a precise type label for those — documented in the
+generated page's own intro. `EntityID` and `Handle<R>` fields are no longer
+part of that limitation: `MarkdownFieldVisitor` overrides `field_entity`/
+`field_handle_asset` and renders them with an explicit `(entity)`/`(asset via
+Handle)` suffix instead. `mosaic docs` also generates
+`docs/reference/scripting-globals.md` from pybind11 docstring annotations on
+the `install_world_globals`/`imgui_*` registrations. Full design (component
+reference): `docs/superpowers/specs/2026-09-14-component-reference-docs-design.md`.
+Full design (scripting-globals reference):
+`docs/superpowers/specs/2026-09-16-scripting-globals-reference-docs-design.md`.
 
 Full design (nav generator): `docs/superpowers/specs/2026-09-14-docs-hub-nav-generator-design.md`.
