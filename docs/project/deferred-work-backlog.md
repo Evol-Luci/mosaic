@@ -63,9 +63,13 @@ view that was actually used to pick what to build next as of this writing.
   its id, `get_component` read it back correctly, `broken_references`
   did not flag it. *Source:* `2026-09-18-asset-generation-import-
   asset-design.md`
-- **Spatial queries** — "entities within radius R", scene bounding box. No
-  distance/containment query machinery exists yet. *Source:*
-  `2026-09-16-scene-reasoning-describe-scene-design.md`
+- ~~**Spatial queries**~~ — **SHIPPED** 2026-09-20, `entities_near`/
+  `scene_bounds`, MCP tools 35-36. Computes each entity's world
+  position live via `TransformSystem::compute_world()` (made public)
+  rather than the cached `WorldTransform`, which never gets
+  recomputed in a headless `mosaic mcp` session after startup and
+  would have been silently stale for anything moved mid-session.
+  *Source:* `2026-09-16-scene-reasoning-describe-scene-design.md`
 - ~~**Asset-usage queries**~~ — **SHIPPED**, `entities_referencing`, MCP
   tool 26. "What entities reference asset X", via a third `FieldVisitor`
   subclass (`AssetReferenceCollector`) alongside `AssetRefCollector`
@@ -296,7 +300,6 @@ same unchanged source docs.
 
 | Item | Impact |
 |---|---|
-| Spatial queries | Medium-High |
 | Undo support for `set_script` | Medium |
 | Studio plugin (`.py`) authoring via MCP | Medium |
 | Per-plugin enable/disable + versioning | Medium |
