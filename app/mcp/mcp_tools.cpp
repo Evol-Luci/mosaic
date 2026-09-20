@@ -9,6 +9,7 @@
 #include <unordered_set>
 
 #include "app/asset/asset_io.hpp"
+#include "app/plugin/git.hpp"
 #include "app/plugin/package_install.hpp"
 #include "app/plugin/package_source.hpp"
 #include "app/plugin/package_sources_registry.hpp"
@@ -515,6 +516,46 @@ nlohmann::json tool_plugin_remove(const std::string& project_dir, const nlohmann
     return {{"ok", mosaic::app::remove_package(project_dir, name)}};
 }
 
+// The remaining plugin_source_* tools operate on the user's global
+// ~/.config/mosaic/sources.toml (via each function's own registry_path
+// default), not anything project-scoped -- matching `mosaic plugin source`'s
+// own CLI behavior exactly. Unlike every other tool in this file, they have
+// no `project_dir` dependency at all.
+nlohmann::json tool_plugin_source_add(World&, const ComponentReflection&, CommandStack&,
+                                      const std::string&, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    const std::string path = require_string(args, "path");
+    const bool ok = mosaic::app::is_git_url(path) ? mosaic::app::add_named_source_from_git(name, path)
+                                                  : mosaic::app::add_named_source(name, path);
+    return {{"ok", ok}};
+}
+
+nlohmann::json tool_plugin_source_list(World&, const ComponentReflection&, CommandStack&,
+                                       const std::string&, const nlohmann::json&)
+{
+    nlohmann::json sources = nlohmann::json::array();
+    for (const mosaic::app::NamedSource& s : mosaic::app::list_named_sources())
+    {
+        sources.push_back({{"name", s.name}, {"path", s.path}, {"git_url", s.git_url}});
+    }
+    return {{"sources", sources}};
+}
+
+nlohmann::json tool_plugin_source_remove(World&, const ComponentReflection&, CommandStack&,
+                                         const std::string&, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    return {{"ok", mosaic::app::remove_named_source(name)}};
+}
+
+nlohmann::json tool_plugin_source_pull(World&, const ComponentReflection&, CommandStack&,
+                                       const std::string&, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    return {{"ok", mosaic::app::pull_named_source(name)}};
+}
+
 class AssetRefCollector final : public mosaic::engine::reflection::FieldVisitor
 {
 public:
@@ -844,6 +885,10 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"bulk_set_field", &tool_bulk_set_field},
         {"entities_referencing", &tool_entities_referencing},
         {"plugin_list", &tool_plugin_list},
+        {"plugin_source_add", &tool_plugin_source_add},
+        {"plugin_source_list", &tool_plugin_source_list},
+        {"plugin_source_remove", &tool_plugin_source_remove},
+        {"plugin_source_pull", &tool_plugin_source_pull},
     };
     return handlers;
 }
@@ -982,6 +1027,15 @@ nlohmann::json schema_plugin_remove()
     return {{"type", "object"},
            {"properties", {{"name", {{"type", "string"}}}}},
            {"required", {"name"}}};
+}
+
+nlohmann::json schema_plugin_source_add()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"name", {{"type", "string"}}},
+             {"path", {{"description", "A local directory path, or a git URL (auto-detected)"}}}}},
+           {"required", {"name", "path"}}};
 }
 
 nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args,
@@ -1138,6 +1192,34 @@ nlohmann::json tools_list_schema()
                                      "*.py files it owns from plugins/ and drops its mosaic.toml "
                                      "entry. Removing a package that isn't installed is a no-op "
                                      "success (ok:true), not an error."},
+                     {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_source_add"},
+                     {"description", "Register a named package source (same effect as "
+                                     "`mosaic plugin source add <name> <path-or-git-url>`), "
+                                     "usable afterward as `plugin_list`/`plugin_install`'s "
+                                     "`source` argument. `path` is auto-detected as a git URL "
+                                     "or a local directory path. A git URL is cloned into "
+                                     "~/.config/mosaic/sources/<name>/ first. Operates on the "
+                                     "user's global source registry, not anything project-"
+                                     "scoped. ok is false if `name` is already registered, the "
+                                     "path isn't a real directory, or the clone fails."},
+                     {"inputSchema", schema_plugin_source_add()}});
+    tools.push_back({{"name", "plugin_source_list"},
+                     {"description", "List every registered named package source (same effect "
+                                     "as `mosaic plugin source list`): name, path, and git_url "
+                                     "(empty for a plain local-path source) for each."},
+                     {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "plugin_source_remove"},
+                     {"description", "Unregister a named package source (same effect as "
+                                     "`mosaic plugin source remove <name>`); for a git-backed "
+                                     "source, also deletes its clone directory. Removing a name "
+                                     "that isn't registered is a no-op success (ok:true)."},
+                     {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_source_pull"},
+                     {"description", "Run `git pull` on a git-backed named source's clone "
+                                     "directory (same effect as `mosaic plugin source pull "
+                                     "<name>`). ok is false if `name` isn't registered, isn't "
+                                     "git-backed, or the pull itself fails."},
                      {"inputSchema", schema_plugin_remove()}});
     tools.push_back({{"name", "script_profile"},
                      {"description", "Return per-scripted-entity on_update timing accumulated "

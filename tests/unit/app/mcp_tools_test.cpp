@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib> // ::setenv/::unsetenv (XDG_CONFIG_HOME sandboxing for plugin_source_* tests)
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -241,12 +242,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 30 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 34 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 30);
+    REQUIRE(tools.size() == 34);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -918,6 +919,129 @@ TEST_CASE("mcp_tools: plugin_remove of a never-installed package is a no-op succ
     REQUIRE(result.at("ok").get<bool>() == true);
 
     std::filesystem::remove_all(proj);
+}
+
+namespace
+{
+// plugin_source_* tools always operate on the real sources_registry_path()
+// (~/.config/mosaic/sources.toml by default) -- there's no per-call override
+// exposed in the tool's own arguments (that would leak a test-only knob into
+// the production schema). Sandboxed here the same way
+// package_sources_registry_test.cpp's own tests do it: override
+// XDG_CONFIG_HOME for the test's duration so nothing touches the real
+// developer's config.
+struct XdgConfigHomeGuard
+{
+    std::filesystem::path dir;
+    explicit XdgConfigHomeGuard(const std::string& tag)
+        : dir(make_plugin_list_fixture_source("xdg_" + tag))
+    {
+        setenv("XDG_CONFIG_HOME", dir.string().c_str(), 1);
+    }
+    ~XdgConfigHomeGuard()
+    {
+        unsetenv("XDG_CONFIG_HOME");
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+};
+} // namespace
+
+TEST_CASE("mcp_tools: plugin_source_add then plugin_source_list round-trips a local-path source",
+          "[app][mcp]")
+{
+    XdgConfigHomeGuard guard("add_list");
+    const std::filesystem::path src_dir = make_plugin_list_fixture_source("add_list_src");
+
+    Fixture f;
+    REQUIRE(f.call("plugin_source_add", {{"name", "mine"}, {"path", src_dir.string()}})
+                .at("ok")
+                .get<bool>());
+
+    const nlohmann::json sources = f.call("plugin_source_list").at("sources");
+    REQUIRE(sources.size() == 1);
+    REQUIRE(sources[0].at("name").get<std::string>() == "mine");
+    REQUIRE(sources[0].at("path").get<std::string>() == src_dir.string());
+    REQUIRE(sources[0].at("git_url").get<std::string>().empty());
+
+    std::filesystem::remove_all(src_dir);
+}
+
+TEST_CASE("mcp_tools: plugin_source_add returns ok:false for a nonexistent local directory", "[app][mcp]")
+{
+    XdgConfigHomeGuard guard("add_bad_dir");
+
+    Fixture f;
+    const nlohmann::json result = f.call(
+        "plugin_source_add", {{"name", "mine"}, {"path", "/nonexistent/mosaic/source/dir"}});
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE(f.call("plugin_source_list").at("sources").empty());
+}
+
+TEST_CASE("mcp_tools: plugin_source_remove unregisters a source; an unregistered name is a no-op",
+          "[app][mcp]")
+{
+    XdgConfigHomeGuard guard("remove");
+    const std::filesystem::path src_dir = make_plugin_list_fixture_source("remove_src");
+
+    Fixture f;
+    REQUIRE(f.call("plugin_source_add", {{"name", "mine"}, {"path", src_dir.string()}})
+                .at("ok")
+                .get<bool>());
+
+    REQUIRE(f.call("plugin_source_remove", {{"name", "mine"}}).at("ok").get<bool>() == true);
+    REQUIRE(f.call("plugin_source_list").at("sources").empty());
+    REQUIRE(f.call("plugin_source_remove", {{"name", "never-registered"}}).at("ok").get<bool>() == true);
+
+    std::filesystem::remove_all(src_dir);
+}
+
+TEST_CASE("mcp_tools: plugin_source_pull returns ok:false for an unregistered or non-git source",
+          "[app][mcp]")
+{
+    XdgConfigHomeGuard guard("pull_errors");
+    const std::filesystem::path src_dir = make_plugin_list_fixture_source("pull_errors_src");
+
+    Fixture f;
+    REQUIRE(f.call("plugin_source_add", {{"name", "mine"}, {"path", src_dir.string()}})
+                .at("ok")
+                .get<bool>());
+
+    REQUIRE(f.call("plugin_source_pull", {{"name", "never-registered"}}).at("ok").get<bool>() == false);
+    REQUIRE(f.call("plugin_source_pull", {{"name", "mine"}}).at("ok").get<bool>() == false);
+
+    std::filesystem::remove_all(src_dir);
+}
+
+TEST_CASE("mcp_tools: plugin_source_add auto-detects a git URL and routes to the git-backed path,"
+          " network-free",
+          "[app][mcp]")
+{
+    // Distinguishes the two dispatch branches without any real git clone (that
+    // round trip is already thoroughly covered by
+    // tests/unit/app/package_sources_registry_test.cpp's own
+    // add_named_source_from_git/pull_named_source tests, which this wrapper
+    // calls verbatim): add_named_source_from_git rejects an unsafe name (one
+    // containing '/') via is_safe_source_name() BEFORE ever touching git, while
+    // plain add_named_source has no such name check at all. So the same unsafe
+    // name succeeds against a real local directory (plain-path branch) but
+    // fails against a value satisfying is_git_url() (git-backed branch) --
+    // proving the wrapper's `is_git_url(path)` dispatch actually runs.
+    XdgConfigHomeGuard guard("git_dispatch");
+    const std::filesystem::path src_dir = make_plugin_list_fixture_source("git_dispatch_src");
+
+    Fixture f;
+    REQUIRE(f.call("plugin_source_add", {{"name", "not/safe"}, {"path", src_dir.string()}})
+                .at("ok")
+                .get<bool>() == true);
+    REQUIRE(f.call("plugin_source_remove", {{"name", "not/safe"}}).at("ok").get<bool>() == true);
+
+    REQUIRE(f.call("plugin_source_add", {{"name", "not/safe"}, {"path", "git@example.invalid:x/y.git"}})
+                .at("ok")
+                .get<bool>() == false);
+    REQUIRE(f.call("plugin_source_list").at("sources").empty());
+
+    std::filesystem::remove_all(src_dir);
 }
 
 TEST_CASE("mcp_tools: script_profile reports per-entity on_update timing after ticking", "[app][mcp]")
