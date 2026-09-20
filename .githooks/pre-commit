@@ -4,7 +4,15 @@
 # generates them. Regenerates both, then diffs the generated files against
 # what's on disk -- if regeneration changes anything, the commit is stale.
 #
+# Known limitation: the component/scripting-globals reference check only
+# reflects whatever "mosaic" binary is currently built -- it does NOT check
+# that binary is newer than the source you're committing. Editing a
+# reflected component and forgetting to rebuild before committing will
+# pass silently. Rebuild before relying on this check to catch that case.
+#
 # Enable once per clone: git config core.hooksPath .githooks
+# This REPLACES, not augments, any hooks already in .git/hooks/ for this
+# clone -- check there first if you have personal hooks configured.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
