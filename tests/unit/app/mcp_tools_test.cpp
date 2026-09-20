@@ -241,12 +241,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 26 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 28 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 27);
+    REQUIRE(tools.size() == 28);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -755,6 +755,64 @@ TEST_CASE("mcp_tools: build_project throws McpToolError for a malformed out_dir"
 {
     Fixture f;
     REQUIRE_THROWS_AS(f.call("build_project", {{"out_dir", 123}}, std::string("/tmp")), McpToolError);
+}
+
+namespace
+{
+// Mirrors package_source_test.cpp's own throwaway-source-directory convention.
+std::filesystem::path make_plugin_list_fixture_source(const std::string& tag)
+{
+    namespace fs = std::filesystem;
+    const fs::path root = fs::temp_directory_path() / ("mosaic_mcp_plugin_list_" + tag);
+    std::error_code ec;
+    fs::remove_all(root, ec);
+    fs::create_directories(root, ec);
+    return root;
+}
+
+void write_plugin_list_file(const std::filesystem::path& path, const std::string& contents)
+{
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f << contents;
+}
+} // namespace
+
+TEST_CASE("mcp_tools: plugin_list lists packages from a given source, including their dir", "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("basic");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+
+    Fixture f;
+    const nlohmann::json result = f.call("plugin_list", {{"source", root.string()}});
+    const nlohmann::json packages = result.at("packages");
+    REQUIRE(packages.size() == 1);
+    REQUIRE(packages[0].at("name").get<std::string>() == "greet");
+    REQUIRE(packages[0].at("version").get<std::string>() == "1.0.0");
+    REQUIRE(packages[0].at("description").get<std::string>() == "Says hello");
+    REQUIRE(packages[0].at("dir").get<std::string>() == (root / "greet").string());
+
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("mcp_tools: plugin_list returns an empty list for a missing source directory", "[app][mcp]")
+{
+    Fixture f;
+    const nlohmann::json result =
+        f.call("plugin_list", {{"source", "/definitely/not/a/real/mosaic/package/source"}});
+    REQUIRE(result.at("packages").empty());
+}
+
+TEST_CASE("mcp_tools: plugin_list defaults to the compile-time bundled package source", "[app][mcp]")
+{
+    Fixture f;
+    // Doesn't assert on specific package names (the bundled set is content, not this
+    // tool's contract) -- just that omitting `source` doesn't throw and returns the
+    // same shape a custom source does.
+    const nlohmann::json result = f.call("plugin_list");
+    REQUIRE(result.contains("packages"));
+    REQUIRE(result.at("packages").is_array());
 }
 
 TEST_CASE("mcp_tools: script_profile reports per-entity on_update timing after ticking", "[app][mcp]")

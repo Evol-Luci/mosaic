@@ -9,6 +9,8 @@
 #include <unordered_set>
 
 #include "app/asset/asset_io.hpp"
+#include "app/plugin/package_source.hpp"
+#include "app/plugin/package_sources_registry.hpp"
 #include "app/project/bundle.hpp"
 #include "app/run/scene_io.hpp"
 #include "engine/assets/asset_registry.hpp"
@@ -460,6 +462,23 @@ nlohmann::json tool_script_profile(World& world, const ComponentReflection&, Com
     return {{"entries", entries}};
 }
 
+nlohmann::json tool_plugin_list(World&, const ComponentReflection&, CommandStack&,
+                                const std::string&, const nlohmann::json& args)
+{
+    const std::string requested = optional_string(args, "source", "");
+    const std::string source =
+        requested.empty() ? mosaic::app::default_package_source() : mosaic::app::resolve_source(requested);
+    nlohmann::json packages = nlohmann::json::array();
+    for (const mosaic::app::PackageInfo& p : mosaic::app::list_packages(source))
+    {
+        packages.push_back({{"name", p.name},
+                            {"version", p.version},
+                            {"description", p.description},
+                            {"dir", p.dir.string()}});
+    }
+    return {{"packages", packages}};
+}
+
 nlohmann::json tool_build_project(const ComponentReflection& types, const std::string& project_dir,
                                   const nlohmann::json& args)
 {
@@ -799,6 +818,7 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"script_profile", &tool_script_profile},
         {"bulk_set_field", &tool_bulk_set_field},
         {"entities_referencing", &tool_entities_referencing},
+        {"plugin_list", &tool_plugin_list},
     };
     return handlers;
 }
@@ -918,6 +938,11 @@ nlohmann::json schema_tick_until()
 nlohmann::json schema_build()
 {
     return {{"type", "object"}, {"properties", {{"out_dir", {{"type", "string"}}}}}, {"required", nlohmann::json::array()}};
+}
+
+nlohmann::json schema_plugin_list()
+{
+    return {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", nlohmann::json::array()}};
 }
 
 nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args,
@@ -1047,6 +1072,15 @@ nlohmann::json tools_list_schema()
                                      "specific reason is only visible in the server's own log "
                                      "output, matching import_asset's same convention)."},
                      {"inputSchema", schema_build()}});
+    tools.push_back({{"name", "plugin_list"},
+                     {"description", "List available packages in a package source -- the same "
+                                     "listing `mosaic plugin list` prints. `source` is optional: "
+                                     "a registered named source (see `mosaic plugin source "
+                                     "list`) resolves to its path, anything else is used as a "
+                                     "literal path, and omitting it uses the compile-time bundled "
+                                     "packages/ directory. A missing or empty source directory "
+                                     "returns an empty list, never an error."},
+                     {"inputSchema", schema_plugin_list()}});
     tools.push_back({{"name", "script_profile"},
                      {"description", "Return per-scripted-entity on_update timing accumulated "
                                      "so far this session (via ScriptSystem::profile() -- the "
