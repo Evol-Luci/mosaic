@@ -95,9 +95,10 @@ view that was actually used to pick what to build next as of this writing.
   blind spot. `broken_references` also now detects a non-nil `EntityID`
   field that fails `world.is_valid()` (verified end-to-end against a
   real destroyed entity via `Transform.parent`) — every `"broken"` entry
-  now carries a `"kind"` discriminator (`"asset"`/`"entity"`). **Still
-  open:** precise field type labels in component reference docs (the
-  docs generator doesn't consume the new hooks yet) — a small follow-up.
+  now carries a `"kind"` discriminator (`"asset"`/`"entity"`).
+  Precise field type labels in component reference docs also **SHIPPED**
+  — with this, every follow-up the `FieldVisitor` extension enabled is
+  now closed out.
 - The `AssetRegistry`-staleness gap ("hot-reload imported assets... mid-
   session") was hit and explicitly worked around three separate times
   this arc (`broken_references`, `orphaned_assets`, and implicitly by
@@ -125,10 +126,6 @@ view that was actually used to pick what to build next as of this writing.
 
 - **CI/pre-commit wiring** for `mosaic docs` and the nav regenerator
   (`--check` mode) — both stay manually-run.
-- **Precise field type labels** in component reference docs — the
-  `FieldVisitor` extension this needed now exists (`field_entity`/
-  `field_handle_asset`); `MarkdownFieldVisitor`
-  (`app/docs/component_reference.hpp`) just doesn't consume it yet.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
@@ -227,7 +224,6 @@ rather than trusting the ratings below forever.
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 | "Tick until condition met" tool | Medium |
-| Precise field type labels in component reference docs | Low — **now a quick win**, the `FieldVisitor` primitive it needed already shipped; just wire `MarkdownFieldVisitor` to the new hooks |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
