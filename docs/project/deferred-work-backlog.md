@@ -248,10 +248,14 @@ view that was actually used to pick what to build next as of this writing.
   **recent-projects** (no tracking or picker UI exists — also a new
   feature, needs a project-picker shown at startup with no
   project-dir arg).
-- **Plugin discovery doesn't follow `--project-dir`**, only CWD — breaks
-  for an installed/packaged distribution (desktop launcher, shortcut).
-  Real, unscheduled architectural gap: needs `mosaic.toml`-rooted path
-  resolution instead of CWD-relative everywhere.
+- ~~**Plugin discovery doesn't follow the project dir**, only CWD~~ —
+  **SHIPPED** 2026-09-20. `resolve_plugins_dir()`
+  (`app/project/project_io.hpp`) derives `<project_dir>/plugins` from
+  the CLI's positional argument; `StudioApp` uses it instead of a bare
+  `"plugins"` literal. Verified via the real editor binary launched
+  from an unrelated CWD. Scoped to Studio's `PluginHost` specifically
+  -- `import_plugins` (used by `mosaic run`) already resolved
+  correctly and needed no change.
 
 ## Scripting
 
@@ -295,7 +299,6 @@ same unchanged source docs.
 | Spatial queries | Medium-High |
 | Undo support for `set_script` | Medium |
 | Studio plugin (`.py`) authoring via MCP | Medium |
-| Plugin discovery: project-dir not CWD | **Medium-High** — silent correctness bug for any packaged distribution |
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Component TypeID densification (#25) | Low-Medium |
