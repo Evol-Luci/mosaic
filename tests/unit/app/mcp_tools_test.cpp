@@ -241,12 +241,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 28 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 30 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 28);
+    REQUIRE(tools.size() == 30);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -813,6 +813,111 @@ TEST_CASE("mcp_tools: plugin_list defaults to the compile-time bundled package s
     const nlohmann::json result = f.call("plugin_list");
     REQUIRE(result.contains("packages"));
     REQUIRE(result.at("packages").is_array());
+}
+
+TEST_CASE("mcp_tools: plugin_install copies a package's files into the project and records it", "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("install_ok");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+    write_plugin_list_file(root / "greet" / "greet.py", "def register(): pass\n");
+
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_plugin_install_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const nlohmann::json result =
+        f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "greet.py"));
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_install returns ok:false for an unknown package name", "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("install_unknown");
+
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_plugin_install_unknown_") + std::to_string(::getpid())))
+                                 .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const nlohmann::json result =
+        f.call("plugin_install", {{"name", "does-not-exist"}, {"source", root.string()}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == false);
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_install returns ok:false for a non-project directory", "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("install_notproj");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+
+    Fixture f;
+    const std::string notproj = (std::filesystem::temp_directory_path() /
+                                 (std::string("mosaic_mcp_plugin_install_notproj_") + std::to_string(::getpid())))
+                                    .string();
+    std::filesystem::remove_all(notproj);
+    std::filesystem::create_directories(notproj);
+
+    const nlohmann::json result =
+        f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, notproj);
+    REQUIRE(result.at("ok").get<bool>() == false);
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(notproj);
+}
+
+TEST_CASE("mcp_tools: plugin_remove deletes an installed package's files and manifest entry", "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("remove_ok");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+    write_plugin_list_file(root / "greet" / "greet.py", "def register(): pass\n");
+
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_plugin_remove_") + std::to_string(::getpid()))).string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj)
+                .at("ok")
+                .get<bool>());
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "greet.py"));
+
+    const nlohmann::json result = f.call("plugin_remove", {{"name", "greet"}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE_FALSE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "greet.py"));
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_remove of a never-installed package is a no-op success", "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_plugin_remove_noop_") + std::to_string(::getpid())))
+                                 .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj, f.types));
+
+    const nlohmann::json result = f.call("plugin_remove", {{"name", "never-installed"}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+
+    std::filesystem::remove_all(proj);
 }
 
 TEST_CASE("mcp_tools: script_profile reports per-entity on_update timing after ticking", "[app][mcp]")
