@@ -84,8 +84,11 @@ view that was actually used to pick what to build next as of this writing.
   declaring `MOSAIC_MENU_ITEMS`/etc., needs its own validation (throwaway
   `PluginHost` load). *Source:*
   `2026-09-16-code-generation-set-script-design.md`
-- **Undo support for `set_script`** — currently bypasses `CommandStack`.
-  *Source:* same
+- ~~**Undo support for `set_script`**~~ — **SHIPPED** 2026-09-20.
+  `ScriptEditorModel::apply()` now applies via `SetComponentCommand`
+  (the same mechanism `set_component` uses) instead of a raw field
+  mutation, so undo restores the entity's entire prior
+  `ScriptComponent` snapshot. *Source:* same
 - **`ScriptEditorModel::debug()` exposure** — compile + run `on_update(0)`
   with a debugger attached, no write. *Source:* same
 - **Procedural asset generation** — generate texture/mesh/audio content
@@ -300,7 +303,6 @@ same unchanged source docs.
 
 | Item | Impact |
 |---|---|
-| Undo support for `set_script` | Medium |
 | Studio plugin (`.py`) authoring via MCP | Medium |
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
