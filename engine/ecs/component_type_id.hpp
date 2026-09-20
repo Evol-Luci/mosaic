@@ -5,18 +5,21 @@
 namespace mosaic::engine::ecs
 {
 
-// The ECS keys component storage by a per-type integer id. That identity now
-// comes from the reflection system's single source (foundation/reflection):
-// ComponentTypeID is an alias of reflection::TypeID and component_type_id<T>()
-// forwards to type_id<T>(), so a component's storage slot and its reflected
-// TypeInfo::id are the same integer within a run.
+// ComponentTypeID is the ECS's declared-access identity for a component type
+// (ComponentAccess::reads()/writes(), for future job-scheduling use) -- an alias of
+// reflection::TypeID, and component_type_id<T>() forwards to type_id<T>() directly,
+// so a component's declared access identity and its reflected TypeInfo::id are the
+// same integer within a run. One identity source, deliberately: two diverging id
+// spaces for the same T is exactly the "#9 identity drift" this consolidation
+// removed, and it must not come back.
 //
-// v0.1 trade-off (expand/fix later — see issue #25): type_id<T>() draws from a
-// single global counter shared with ALL reflected types, not just components. Since
-// ComponentRegistry sizes its storages_ vector to max_component_id + 1, non-component
-// reflected types inflate that vector with null gaps. Bounded, correctness-safe waste
-// for now; a later version should give components a dense id space (or map storages_
-// by TypeID) without reintroducing the #9 identity drift.
+// Issue #25 (storages_ vector waste) is fixed WITHOUT touching this identity:
+// ComponentRegistry indexes its own storages_ vector by a separate, purely internal
+// dense slot (engine/ecs/component_registry.hpp's detail::component_storage_slot<T>()),
+// assigned only when a component type is actually first stored -- never exposed,
+// never compared against ComponentTypeID. type_id<T>() still draws from one global
+// counter shared with every reflected type (Vec3, Quat, and non-component types
+// generally), but that no longer sizes or indexes any ECS storage.
 using ComponentTypeID = mosaic::foundation::reflection::TypeID;
 
 template <typename T>
