@@ -436,7 +436,7 @@ TEST_CASE("mcp_tools: import_asset cooks a PPM into the project and returns an a
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_import_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const std::string src = (std::filesystem::temp_directory_path() /
                              (std::string("mosaic_mcp_import_src_") + std::to_string(::getpid()) + ".ppm")).string();
@@ -463,7 +463,7 @@ TEST_CASE("mcp_tools: import_asset returns a null asset_id for a missing source 
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_import_missing_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const nlohmann::json result = f.call("import_asset", {{"source", "/no/such/file.ppm"}}, proj);
     REQUIRE(result.at("asset_id").is_null());
@@ -483,7 +483,7 @@ TEST_CASE("mcp_tools: import_asset refuses to overwrite on a stem collision", "[
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_import_collide_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const std::string dir_a = (std::filesystem::temp_directory_path() /
                                (std::string("mosaic_mcp_import_cola_") + std::to_string(::getpid()))).string();
@@ -524,7 +524,7 @@ TEST_CASE("mcp_tools: import_asset hot-reloads the new asset into the live Asset
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_import_hotreload_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const std::string src = (std::filesystem::temp_directory_path() /
                              (std::string("mosaic_mcp_import_hotreload_src_") + std::to_string(::getpid()) + ".ppm")).string();
@@ -551,7 +551,7 @@ TEST_CASE("mcp_tools: import_asset without a live registry does not crash (defau
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_import_norefresh_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const std::string src = (std::filesystem::temp_directory_path() /
                              (std::string("mosaic_mcp_import_norefresh_src_") + std::to_string(::getpid()) + ".ppm")).string();
@@ -710,7 +710,7 @@ TEST_CASE("mcp_tools: build_project packages a project into a standalone bundle"
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_build_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const nlohmann::json result = f.call("build_project", nlohmann::json::object(), proj);
     REQUIRE(result.at("ok").get<bool>() == true);
@@ -725,7 +725,7 @@ TEST_CASE("mcp_tools: build_project honors a custom out_dir argument", "[app][mc
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_build_custom_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
     const std::string out = (std::filesystem::temp_directory_path() /
                              (std::string("mosaic_mcp_build_out_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(out);
@@ -828,7 +828,7 @@ TEST_CASE("mcp_tools: plugin_install copies a package's files into the project a
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_plugin_install_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const nlohmann::json result =
         f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj);
@@ -848,7 +848,7 @@ TEST_CASE("mcp_tools: plugin_install returns ok:false for an unknown package nam
                               (std::string("mosaic_mcp_plugin_install_unknown_") + std::to_string(::getpid())))
                                  .string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const nlohmann::json result =
         f.call("plugin_install", {{"name", "does-not-exist"}, {"source", root.string()}}, proj);
@@ -892,7 +892,7 @@ TEST_CASE("mcp_tools: plugin_remove deletes an installed package's files and man
     const std::string proj = (std::filesystem::temp_directory_path() /
                               (std::string("mosaic_mcp_plugin_remove_") + std::to_string(::getpid()))).string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
     REQUIRE(f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj)
                 .at("ok")
                 .get<bool>());
@@ -913,7 +913,7 @@ TEST_CASE("mcp_tools: plugin_remove of a never-installed package is a no-op succ
                               (std::string("mosaic_mcp_plugin_remove_noop_") + std::to_string(::getpid())))
                                  .string();
     std::filesystem::remove_all(proj);
-    REQUIRE(mosaic::app::create_project(proj, f.types));
+    REQUIRE(mosaic::app::create_project(proj));
 
     const nlohmann::json result = f.call("plugin_remove", {{"name", "never-installed"}}, proj);
     REQUIRE(result.at("ok").get<bool>() == true);
