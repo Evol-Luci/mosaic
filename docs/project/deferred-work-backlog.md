@@ -27,12 +27,23 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Agent API / MCP (Phase 6 — complete, these are follow-on extensions)
 
-- **Wrap remaining CLI verbs as MCP tools** — decomposed 2026-09-19 into
-  one-tool-per-slice sub-projects (this bundled 7-8 separate wrappers,
-  too big for one slice): ~~`plugin_list`~~ **SHIPPED** (MCP tool 28),
-  ~~`plugin_install`/`plugin_remove`~~ **SHIPPED** (MCP tools 29-30),
-  ~~`plugin_source_{add,list,remove,pull}`~~ **SHIPPED** (MCP tools
-  31-34). Still open: a `mosaic docs`-regeneration tool. *Source:*
+- ~~**Wrap remaining CLI verbs as MCP tools**~~ — decomposed 2026-09-19
+  into one-tool-per-slice sub-projects (this bundled 7-8 separate
+  wrappers, too big for one slice): `plugin_list` **SHIPPED** (MCP
+  tool 28), `plugin_install`/`plugin_remove` **SHIPPED** (MCP tools
+  29-30), `plugin_source_{add,list,remove,pull}` **SHIPPED** (MCP
+  tools 31-34). The last item, a `mosaic docs`-regeneration tool, was
+  **dropped** (not built) after discovering `mosaic docs` always
+  regenerates the Mosaic *engine repo's own* `docs/reference/`
+  (`MOSAIC_DOCS_DIR` is baked in at compile time from
+  `CMAKE_SOURCE_DIR`) -- completely independent of whatever project a
+  `mosaic mcp <project-dir>` session is serving. Every other MCP tool
+  here is meant for an agent building a *game* with Mosaic; this one
+  would only ever matter to an agent doing self-hosted Mosaic engine
+  development (like this session) -- a scope mismatch with the
+  server's actual purpose, confirmed with the user rather than built
+  anyway. **With this, the whole arc is closed** (3 of its 4 slices
+  shipped, the 4th correctly dropped). *Source:*
   `2026-09-19-project-maintenance-build-project-design.md`
 - **Spatial queries** — "entities within radius R", scene bounding box. No
   distance/containment query machinery exists yet. *Source:*
@@ -238,7 +249,6 @@ rather than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | Remove unused `types` param from `create_project` | Low |
-| `mosaic docs`-regeneration MCP tool | Low |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
