@@ -17,6 +17,13 @@ Read the [architecture](docs/architecture/ARCHITECTURE.md) and the
    change conflicts with it, the change is wrong, not the list — amendments require
    an RFC.
 
+Run `git config core.hooksPath .githooks` once per clone to enable the
+pre-commit hook that catches stale auto-generated docs (the component
+reference, scripting-globals reference, and `docs/index.html`'s nav
+sections) before they land in a commit. This **replaces**, not
+augments, any hooks already configured under `.git/hooks/` for this
+clone — check there first if you have personal hooks set up.
+
 ## The RFC workflow
 
 Non-trivial changes — new subsystems, data-model changes, public API surface,
