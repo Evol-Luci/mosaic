@@ -213,13 +213,15 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Editor / Studio
 
-- **In-editor "File → Reload"** — reload the current scene from disk,
-  discarding in-editor edits. Explicitly deferred as its own small
-  follow-up slice in `2026-08-29-tools-t2-scene-load-save-design.md`;
-  Studio still only has "Reload Plugins", no scene-reload-from-disk
-  action (confirmed by grep, `studio/studio_app.cpp`). Borderline
-  Quick/Medium: touches the undo stack and `PlayState`, not pure UI.
-  Surfaced 2026-09-20 re-derivation.
+- ~~**In-editor "File → Reload"**~~ — **SHIPPED** 2026-09-20. Turned out
+  to need two new primitives that didn't exist before: `World::clear()`
+  (synchronous, no-system-stepping entity wipe -- `destroy_entity()`
+  alone is deferred to the next `tick()`) and `CommandStack::clear()`.
+  `reload_scene_from_disk()` (`app/run/scene_load.hpp`) validates via a
+  throwaway scratch `World` before touching the live one. A real bug
+  (confirmation popup's `OpenPopup`/`BeginPopupModal` in mismatched
+  ImGui window contexts -- a well-documented pitfall) was caught by
+  review and fixed.
 - ~~**Studio has zero persisted preferences**~~ — window size/panel
   layout **SHIPPED** 2026-09-20 (`app/studio_prefs.hpp`,
   `~/.config/mosaic/studio.toml` + `studio_layout.ini`). Still open,
@@ -276,7 +278,6 @@ is momentarily blank.
 | Component TypeID densification (#25) | Low-Medium |
 | Studio theme system + persistence | Medium |
 | Studio recent-projects list (picker UI + tracking) | Medium |
-| In-editor "File → Reload" | Low-Medium — touches undo stack/`PlayState`, borderline Quick win |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
