@@ -35,6 +35,12 @@ public:
 
     EntityID create_entity();
     void destroy_entity(EntityID id);
+    // Synchronously destroys every currently-valid entity (and its components),
+    // bypassing the deferred destroy_entity()/tick() queue and running no systems --
+    // for callers that need an immediately-empty World (e.g. reloading a scene from
+    // disk), not a normal simulation frame. Uses the same per-entity teardown
+    // (ComponentRegistry::on_destroy) every ordinary destroy already goes through.
+    void clear();
     bool is_valid(EntityID id) const { return entities_.is_valid(id); }
     std::size_t entity_count() const { return entities_.alive_count(); }
 

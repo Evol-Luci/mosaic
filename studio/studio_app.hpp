@@ -68,6 +68,21 @@ public:
     std::shared_ptr<ConsoleBuffer> console() { return console_; }
     bool                           exit_requested() const { return layout_.exit_requested(); }
 
+    // Called by the editor loop right after a File > Reload has replaced the live
+    // World's contents from disk: drops every Studio-side cache that names an
+    // entity from the now-gone previous scene (undo history, selection, the demo-
+    // physics toggle target, the Script Editor's current target) -- all now
+    // meaningless or outright dangling, since reload doesn't preserve entity ids.
+    void on_scene_reloaded()
+    {
+        commands_.clear();
+        selection_.clear();
+        demo_entity_.reset();
+        demo_script_.clear();
+        demo_physics_ = false;
+        script_edit_entity_.reset();
+    }
+
 private:
     void draw_hierarchy(mosaic::engine::World& world);
     bool draw_inspector(mosaic::engine::World& world,

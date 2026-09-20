@@ -207,6 +207,21 @@ int run_editor(const Options& options,
                                                studio.scene_file().path());
             }
         }
+
+        if (studio.scene_file().consume_reload_request())
+        {
+            if (mosaic::app::reload_scene_from_disk(world, studio.scene_file().path(), reflection))
+            {
+                studio.scene_file().mark_clean();
+                studio.on_scene_reloaded();
+                mosaic::foundation::log::info("scene", "reloaded {}", studio.scene_file().path());
+            }
+            else
+            {
+                mosaic::foundation::log::error("scene", "reload failed: {}",
+                                               studio.scene_file().path());
+            }
+        }
     };
 
     FramePump pump(loop, std::move(deps), *reporter, options);

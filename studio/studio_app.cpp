@@ -54,6 +54,17 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             {
                 scene_file_.request_save();
             }
+            if (ImGui::MenuItem("Reload"))
+            {
+                if (scene_file_.dirty())
+                {
+                    ImGui::OpenPopup("Discard changes and reload?");
+                }
+                else
+                {
+                    scene_file_.request_reload();
+                }
+            }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit"))
             {
@@ -140,6 +151,22 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
         ImGui::Text("  %s%s", scene_file_.path().c_str(), scene_file_.dirty() ? " *" : "");
 
         ImGui::EndMainMenuBar();
+    }
+
+    if (ImGui::BeginPopupModal("Discard changes and reload?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("This scene has unsaved changes. Reloading discards them.");
+        if (ImGui::Button("Reload", ImVec2(120, 0)))
+        {
+            scene_file_.request_reload();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     if (play_.is_playing())
