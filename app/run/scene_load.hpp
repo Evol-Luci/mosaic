@@ -45,4 +45,35 @@ inline bool populate_world(mosaic::engine::World& world, const Options& options,
     mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
     return true;
 }
+
+// Replaces `world`'s entire contents with `path`'s scene, for Studio's File > Reload.
+// Fail-safe: `path` is loaded into a throwaway scratch World FIRST, so a missing file
+// or a malformed/structurally-invalid scene is reported and leaves `world` completely
+// untouched, never falling back to the built-in demo (unlike populate_world -- Reload
+// either succeeds at loading the named file or changes nothing). Only once the scratch
+// load succeeds does this clear `world` and load the same text into it for real.
+inline bool reload_scene_from_disk(mosaic::engine::World& world, const std::string& path,
+                                   const mosaic::engine::reflection::ComponentReflection& types)
+{
+    const std::optional<std::string> text = load_scene_file(path);
+    if (!text)
+    {
+        mosaic::foundation::log::error("scene", "scene not found: {}", path);
+        return false;
+    }
+    try
+    {
+        mosaic::engine::World scratch;
+        mosaic::engine::scene::load_from_json(*text, scratch, types);
+    }
+    catch (const mosaic::foundation::serialization::SerializationError& e)
+    {
+        mosaic::foundation::log::error("scene", "failed to reload scene: {}", e.what());
+        return false;
+    }
+    world.clear();
+    mosaic::engine::scene::load_from_json(*text, world, types); // already proven to parse above
+    mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
+    return true;
+}
 } // namespace mosaic::app

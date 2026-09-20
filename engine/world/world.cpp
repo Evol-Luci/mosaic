@@ -15,6 +15,21 @@ void World::destroy_entity(EntityID id)
     pending_destroy_.push_back(id);
 }
 
+void World::clear()
+{
+    std::vector<EntityID> all;
+    entities_.for_each([&](EntityID id) { all.push_back(id); });
+    for (EntityID id : all)
+    {
+        components_.on_destroy(id);
+        entities_.destroy(id);
+    }
+    // Any not-yet-flushed destroy_entity() calls now name already-destroyed
+    // (and possibly recycled) ids -- drop them rather than let a future tick()
+    // act on stale entries.
+    pending_destroy_.clear();
+}
+
 void World::tick(float dt)
 {
     // 1. Deferred events emitted before this tick are delivered now, at the

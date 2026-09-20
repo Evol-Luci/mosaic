@@ -37,6 +37,15 @@ public:
     bool can_undo() const noexcept { return !applied_.empty(); }
     bool can_redo() const noexcept { return !undone_.empty(); }
 
+    // Drops all undo/redo history without undoing anything -- for callers replacing
+    // the state the history refers to entirely (e.g. reloading a scene from disk),
+    // where the old commands would otherwise reference now-gone entities.
+    void clear()
+    {
+        applied_.clear();
+        undone_.clear();
+    }
+
     std::size_t undo_depth() const noexcept { return applied_.size(); }
     std::size_t redo_depth() const noexcept { return undone_.size(); }
 

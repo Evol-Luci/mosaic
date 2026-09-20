@@ -176,3 +176,23 @@ TEST_CASE("push_executed clears the redo stack", "[commands]")
     stack.push_executed(std::make_unique<AppendCommand>(trace, "b"));
     REQUIRE_FALSE(stack.can_redo());
 }
+
+TEST_CASE("clear drops both undo and redo history without undoing anything", "[commands]")
+{
+    std::vector<std::string> trace;
+    CommandStack stack;
+
+    stack.execute(std::make_unique<AppendCommand>(trace, "a"));
+    stack.execute(std::make_unique<AppendCommand>(trace, "b"));
+    stack.undo();
+    REQUIRE(stack.can_undo());
+    REQUIRE(stack.can_redo());
+
+    stack.clear();
+
+    REQUIRE_FALSE(stack.can_undo());
+    REQUIRE_FALSE(stack.can_redo());
+    REQUIRE(stack.undo_depth() == 0);
+    REQUIRE(stack.redo_depth() == 0);
+    REQUIRE(trace == std::vector<std::string>{"a"}); // clear() doesn't invoke undo()/redo()
+}

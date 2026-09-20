@@ -5,9 +5,10 @@
 
 namespace mosaic::studio
 {
-// The editor's current-scene-file state: the path Save writes to, an unsaved-edits flag (a
-// convenience indicator), and a one-shot save request set by the File menu and consumed by the
-// editor loop. Pure data — no ImGui, no filesystem. Mirrors PlayState.
+// The editor's current-scene-file state: the path Save writes to and Reload reads
+// from, an unsaved-edits flag (a convenience indicator), and one-shot save/reload
+// requests set by the File menu and consumed by the editor loop. Pure data — no
+// ImGui, no filesystem. Mirrors PlayState.
 class SceneFileModel
 {
 public:
@@ -27,9 +28,18 @@ public:
         return requested;
     }
 
+    void request_reload() { reload_req_ = true; }
+    bool consume_reload_request()
+    {
+        const bool requested = reload_req_;
+        reload_req_ = false;
+        return requested;
+    }
+
 private:
     std::string path_;
-    bool        dirty_    = false;
-    bool        save_req_ = false;
+    bool        dirty_      = false;
+    bool        save_req_   = false;
+    bool        reload_req_ = false;
 };
 } // namespace mosaic::studio

@@ -47,3 +47,48 @@ TEST_CASE("World::for_each visits entities holding the component", "[world]")
     world.for_each<Position>([&](EntityID, Position&) { ++count; });
     REQUIRE(count == 2);
 }
+
+TEST_CASE("World::clear synchronously destroys every entity and its components", "[world]")
+{
+    World world;
+    const EntityID a = world.create_entity();
+    const EntityID b = world.create_entity();
+    world.add_component<Position>(a, Position{1.0f, 1.0f});
+    world.add_component<Position>(b, Position{2.0f, 2.0f});
+    REQUIRE(world.entity_count() == 2);
+
+    world.clear();
+
+    REQUIRE(world.entity_count() == 0);
+    REQUIRE_FALSE(world.is_valid(a));
+    REQUIRE_FALSE(world.is_valid(b));
+    int count = 0;
+    world.for_each<Position>([&](EntityID, Position&) { ++count; });
+    REQUIRE(count == 0);
+}
+
+TEST_CASE("World::clear takes effect immediately, unlike deferred destroy_entity", "[world]")
+{
+    World world;
+    const EntityID e = world.create_entity();
+    world.clear();
+    REQUIRE(world.entity_count() == 0); // no tick() needed, unlike destroy_entity
+    (void)e;
+}
+
+TEST_CASE("World::clear leaves no lingering effect from a not-yet-flushed destroy_entity",
+          "[world]")
+{
+    // Generational ids mean a stale pending_destroy_ entry could never actually
+    // collide with a later entity (is_valid() on the old id fails once its slot's
+    // generation is bumped) -- this just confirms clear() drops it anyway (tidy
+    // state, not a crash-prevention requirement) and a fresh entity ticks fine.
+    World world;
+    const EntityID e = world.create_entity();
+    world.destroy_entity(e); // deferred, not yet flushed
+    world.clear();
+
+    const EntityID fresh = world.create_entity();
+    world.tick(0.0f);
+    REQUIRE(world.is_valid(fresh));
+}
