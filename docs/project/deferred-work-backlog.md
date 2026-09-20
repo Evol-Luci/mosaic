@@ -45,6 +45,24 @@ view that was actually used to pick what to build next as of this writing.
   anyway. **With this, the whole arc is closed** (3 of its 4 slices
   shipped, the 4th correctly dropped). *Source:*
   `2026-09-19-project-maintenance-build-project-design.md`
+- ~~**Verify AssetID referencing via `set_component`**~~ — **CONFIRMED**
+  2026-09-20, no code change needed. `2026-09-18-asset-generation-
+  import-asset-design.md`'s Non-goals speculated this was "arguably
+  already possible" through the existing generic `set_component` tool
+  but left it unverified. It works exactly as speculated: `set_value`'s
+  default `ReferenceResolver::resolve_asset` is a plain identity
+  passthrough (`foundation/serialization/reference.hpp`), so a bare
+  `AssetID` field accepts any UUID string verbatim, no registry
+  validation at set-time (matching `broken_references`'s own
+  validate-on-read design, not a gap). Already extensively exercised
+  by existing tests (`mcp_tools_test.cpp`'s `broken_references`/
+  `orphaned_assets` test suites both use `set_component` on
+  `Material.texture` as their own setup, both with stray and
+  real-registered ids) -- re-confirmed end-to-end via the real CLI:
+  imported a real PPM asset, `set_component`'d `Material.texture` to
+  its id, `get_component` read it back correctly, `broken_references`
+  did not flag it. *Source:* `2026-09-18-asset-generation-import-
+  asset-design.md`
 - **Spatial queries** — "entities within radius R", scene bounding box. No
   distance/containment query machinery exists yet. *Source:*
   `2026-09-16-scene-reasoning-describe-scene-design.md`
