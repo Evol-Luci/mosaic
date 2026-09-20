@@ -104,7 +104,8 @@ int run_editor(const Options& options,
     mosaic::studio::StudioApp studio(
         options.scene.value_or("scene.json"),
         [] { return mosaic::script::python::create_python_script_engine(); },
-        [] { return mosaic::script::python_studio::create_studio_plugin_script_engine(); });
+        [] { return mosaic::script::python_studio::create_studio_plugin_script_engine(); },
+        options.plugins_dir.value_or("plugins"));
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(

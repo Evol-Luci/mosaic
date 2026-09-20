@@ -168,6 +168,7 @@ int main(int argc, char** argv)
             pr.options.assets_dir =
                 (std::filesystem::path(*pr.options.open_path) / "assets").string();
         }
+        pr.options.plugins_dir = resolve_plugins_dir(*pr.options.open_path);
     }
 
     if (pr.options.command == Command::Editor)
