@@ -278,10 +278,15 @@ rather than trusting the ratings below forever.
 
 ### 🟢 Quick wins (hours-scale, single focused change)
 
-**Empty as of 2026-09-20** — every item from the original 2026-09-19 survey
-shipped. Re-derive this tier from the sections above before picking
-anything else; don't assume there's nothing left just because this list
-is momentarily blank.
+**Empty as of 2026-09-20, re-derived three times today** — the original
+2026-09-19 survey's items shipped, then two follow-up re-derivations each
+found exactly one more genuine item (both now shipped too), then a third
+pass found nothing at all ("the well is dry" -- every remaining Non-goals/
+deferred-work mention traces to already-shipped items, not-yet-applicable
+conditions, or content already tracked in the Medium/Large tiers below).
+Re-derive again once real new work has landed since the last pass — don't
+immediately re-run a fourth time expecting different material from the
+same unchanged source docs.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
