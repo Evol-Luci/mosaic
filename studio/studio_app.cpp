@@ -36,7 +36,7 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     if (!plugins_loaded_)
     {
         plugins_loaded_ = true;
-        for (const std::string& err : plugin_host_.load("plugins", world, reflection, commands_))
+        for (const std::string& err : plugin_host_.load(plugins_dir_, world, reflection, commands_))
         {
             mosaic::foundation::log::error("plugin", "{}", err);
         }
@@ -83,7 +83,7 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
             if (ImGui::MenuItem("Reload Plugins"))
             {
                 for (const std::string& err :
-                    plugin_host_.load("plugins", world, reflection, commands_))
+                    plugin_host_.load(plugins_dir_, world, reflection, commands_))
                 {
                     mosaic::foundation::log::error("plugin", "{}", err);
                 }

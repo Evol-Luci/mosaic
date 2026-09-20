@@ -34,6 +34,7 @@ struct Options
     std::optional<std::string>   source_name;    // positional: source name (plugin source add/remove)
     std::optional<std::string>   source_path;    // positional: local dir (plugin source add)
     std::optional<std::string>   assets_dir;     // computed: <project>/assets to load at startup
+    std::optional<std::string>   plugins_dir;    // computed: <project>/plugins, for Studio's PluginHost
     std::optional<double>        duration_s;   // --duration <seconds>
     std::optional<std::uint64_t> ticks;        // --ticks <n>
     bool                         json = false;   // --json

@@ -183,4 +183,23 @@ inline std::optional<std::string> resolve_startup_scene(const std::string& path)
     }
     return std::nullopt;
 }
+
+// The project-rooted plugins/ directory Studio's PluginHost should load from, when `path`
+// (the CLI's positional project-dir/scene-file argument) is actually a project directory.
+// nullopt when it isn't (a bare scene file, or nothing given) -- the caller then leaves
+// StudioApp to fall back to its own CWD-relative default, matching pre-existing behavior
+// for that case. Fixes plugin discovery silently breaking whenever the process's CWD isn't
+// the project root (a desktop shortcut, a packaged distribution's launcher, `mosaic editor`
+// invoked from elsewhere): PluginHost::load() itself always worked fine given a real path,
+// this was purely a matter of which path `mosaic editor` was passing it.
+inline std::optional<std::string> resolve_plugins_dir(const std::string& path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (fs::is_directory(path, ec))
+    {
+        return (fs::path(path) / "plugins").string();
+    }
+    return std::nullopt;
+}
 } // namespace mosaic::app

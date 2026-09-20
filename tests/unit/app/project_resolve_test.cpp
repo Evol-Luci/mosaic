@@ -8,6 +8,7 @@
 #include "app/project/project_io.hpp"
 
 using mosaic::app::create_project;
+using mosaic::app::resolve_plugins_dir;
 using mosaic::app::resolve_startup_scene;
 
 namespace fs = std::filesystem;
@@ -50,4 +51,23 @@ TEST_CASE("resolve_startup_scene errors on a missing path or a dir without a man
     fs::create_directories(dir); // a dir but no mosaic.toml
     REQUIRE_FALSE(resolve_startup_scene(dir).has_value());
     fs::remove_all(dir);
+}
+
+TEST_CASE("resolve_plugins_dir resolves a project directory's plugins/ subdirectory", "[app]")
+{
+    const std::string dir = temp_dir("pluginsdir");
+    fs::remove_all(dir);
+    REQUIRE(create_project(dir));
+
+    const auto plugins_dir = resolve_plugins_dir(dir);
+    REQUIRE(plugins_dir.has_value());
+    REQUIRE(*plugins_dir == (fs::path(dir) / "plugins").string());
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("resolve_plugins_dir returns nullopt for a bare scene file or a missing path", "[app]")
+{
+    REQUIRE_FALSE(resolve_plugins_dir("some/level.json").has_value());
+    REQUIRE_FALSE(resolve_plugins_dir("/no/such/mosaic_path_xyz").has_value());
 }

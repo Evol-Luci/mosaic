@@ -45,13 +45,22 @@ inline const char* live_link_label(LiveLinkState s)
 class StudioApp
 {
 public:
+    // `plugins_dir` defaults to the bare relative name "plugins" (resolved against
+    // whatever the process's current working directory happens to be) so every
+    // existing call site keeps compiling and behaving unchanged. A real project
+    // session should pass the project-rooted path instead (see app/run/editor.cpp) --
+    // CWD-relative resolution silently breaks for any launch whose CWD isn't the
+    // project root (a desktop shortcut, a packaged distribution's launcher, `mosaic
+    // editor` invoked from elsewhere with a project-dir argument).
     explicit StudioApp(std::string scene_path = "scene.json",
                        ScriptConsoleModel::EngineFactory script_factory = {},
-                       PluginHost::EngineFactory plugin_factory = {})
+                       PluginHost::EngineFactory plugin_factory = {},
+                       std::string plugins_dir = "plugins")
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
           script_editor_(script_factory),
-          plugin_host_(plugin_factory)
+          plugin_host_(plugin_factory),
+          plugins_dir_(std::move(plugins_dir))
     {
     }
 
@@ -120,8 +129,9 @@ private:
     int                                         script_bp_line_ = 1;   // breakpoint line input
     ScriptApplyResult                           script_debug_result_;  // outcome of the last Debug run
     LiveLinkServer                              live_link_;            // Blender Live-Link socket
-    PluginHost plugin_host_;       // project-local *.py plugins
-    bool       plugins_loaded_ = false; // true after the first load() this session
+    PluginHost  plugin_host_;       // project-local *.py plugins
+    std::string plugins_dir_;           // where plugin_host_ loads from -- see constructor comment
+    bool        plugins_loaded_ = false; // true after the first load() this session
 };
 
 } // namespace mosaic::studio
