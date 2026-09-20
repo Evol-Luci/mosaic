@@ -65,7 +65,7 @@ TEST_CASE("import_asset cooks a .wav into an audio asset, and load registers an 
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src") + ".wav";
     REQUIRE(save_scene_file(src, make_wav16(48000, 1000)));
 
@@ -94,7 +94,7 @@ TEST_CASE("a loaded AudioClip plays through the miniaudio null backend", "[app]"
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj2");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src2") + ".wav";
     REQUIRE(save_scene_file(src, make_wav16(48000, 4000)));
     const auto id = import_asset(proj, src);
@@ -121,7 +121,7 @@ TEST_CASE("import_asset rejects a non-WAV .wav", "[app]")
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj3");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src3") + ".wav";
     REQUIRE(save_scene_file(src, "this is not a wav file"));
     REQUIRE_FALSE(import_asset(proj, src).has_value());
@@ -134,7 +134,7 @@ TEST_CASE("register_audio_clips hands loaded audio assets to a backend", "[app]"
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj_reg");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src_reg") + ".wav";
     REQUIRE(save_scene_file(src, make_wav16(48000, 2000)));
     const auto id = import_asset(proj, src);

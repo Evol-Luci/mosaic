@@ -11,9 +11,7 @@
 #include "app/project/project_io.hpp"
 #include "app/run/scene_io.hpp"
 #include "engine/assets/asset_registry.hpp"
-#include "engine/reflection/builtin_components.hpp"
 #include "engine/ui/font_atlas.hpp"
-#include "foundation/reflection/type_registry.hpp"
 
 using mosaic::app::create_project;
 using mosaic::app::import_asset;
@@ -21,24 +19,16 @@ using mosaic::app::load_project_assets;
 using mosaic::app::load_scene_file;
 using mosaic::app::save_scene_file;
 using mosaic::engine::assets::AssetRegistry;
-using mosaic::engine::reflection::ComponentReflection;
-using mosaic::engine::reflection::register_builtin_components;
 using mosaic::engine::ui::FontAtlas;
-using mosaic::foundation::reflection::TypeRegistry;
 
 TEST_CASE("import_asset cooks a .ttf into a font asset, and load registers a FontAtlas", "[app]")
 {
     namespace fs = std::filesystem;
 
-    // Scaffold a project (create_project needs a ComponentReflection, like audio_asset_test).
-    TypeRegistry reg;
-    ComponentReflection types;
-    register_builtin_components(reg, types);
-
     const std::string root = (fs::temp_directory_path() /
         ("mosaic_font_" + std::to_string(::getpid()))).string();
     fs::remove_all(root);
-    REQUIRE(create_project(root, types));
+    REQUIRE(create_project(root));
 
     // Write the fixture TTF as the import source (outside the project tree).
     const std::string src = root + "_glyphs.ttf";

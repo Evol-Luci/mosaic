@@ -70,7 +70,7 @@ TEST_CASE("build_bundle produces a runnable self-contained bundle", "[app]")
     const std::string out  = tmp("out");
     const std::string bin  = tmp("bin") + ".exe";
     fs::remove_all(proj); fs::remove_all(out);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string bin_bytes = make_dummy_binary(bin);
 
     REQUIRE(build_bundle(proj, out, bin, types));
@@ -100,7 +100,7 @@ TEST_CASE("build_bundle regenerates a prior bundle but refuses a non-bundle dir"
     const std::string out  = tmp("out2");
     const std::string bin  = tmp("bin2") + ".exe";
     fs::remove_all(proj); fs::remove_all(out);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     make_dummy_binary(bin);
 
     REQUIRE(build_bundle(proj, out, bin, types));
@@ -125,7 +125,7 @@ TEST_CASE("build_bundle refuses self-build and refuses a project dir as output",
     // --- self-build: output == project dir ---
     const std::string proj = tmp("proj4");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     REQUIRE_FALSE(build_bundle(proj, proj, bin, types));
     // Project must be intact.
@@ -135,7 +135,7 @@ TEST_CASE("build_bundle refuses self-build and refuses a project dir as output",
     // --- project used as -o: refused as non-bundle, left untouched ---
     const std::string proj2 = tmp("proj4b");
     fs::remove_all(proj2);
-    REQUIRE(create_project(proj2, types));
+    REQUIRE(create_project(proj2));
 
     REQUIRE_FALSE(build_bundle(proj, proj2, bin, types));
     // proj2's manifest must still be present.
@@ -161,7 +161,7 @@ TEST_CASE("build_bundle fails on a non-project or a missing scene, rolling back"
     // Project whose default scene was deleted -> copy fails -> out rolled back.
     const std::string proj = tmp("proj3");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     fs::remove(fs::path(proj) / "scenes" / "main.json");
     const std::string out2 = tmp("out3b");
     fs::remove_all(out2);
@@ -178,7 +178,7 @@ TEST_CASE("build_bundle copies the project's assets into the bundle", "[app]")
     const std::string out  = tmp("aout");
     const std::string bin  = tmp("abin") + ".exe";
     fs::remove_all(proj); fs::remove_all(out);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     make_dummy_binary(bin);
 
     // Import a tiny PPM so the project has an asset.

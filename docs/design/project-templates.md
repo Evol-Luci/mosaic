@@ -87,11 +87,3 @@ future work rather than silently dropped. Full rationale for deferring it:
 `docs/superpowers/specs/2026-09-14-project-templates-mechanism-design.md`'s
 Non-goals section.
 
-## `create_project`'s `types` parameter
-
-`create_project(dir, types, template_name, templates_root)` still takes a
-`const ComponentReflection&` even though the function no longer uses it --
-templates are static files now, not in-process-built scenes. It's kept, unused,
-because 29 existing call sites across 7 files construct and pass it for reasons
-unrelated to `create_project` itself; removing the parameter would mean touching
-all of them for no behavioral gain. A future cleanup pass could remove it.

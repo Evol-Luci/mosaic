@@ -64,7 +64,7 @@ TEST_CASE("import_asset cooks a PPM into a project asset + metadata", "[app]")
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src") + ".ppm";
     write_ppm(src);
 
@@ -83,7 +83,7 @@ TEST_CASE("load_project_assets registers imported assets into the registry", "[a
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj2");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("src2") + ".ppm";
     write_ppm(src);
     auto id = import_asset(proj, src);
@@ -126,7 +126,7 @@ TEST_CASE("import_asset refuses to overwrite an asset on a stem collision", "[ap
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj_collide");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     // Two source files that share a stem ("tex") in different directories.
     const fs::path dir_a = fs::path(tmp("cola"));
@@ -162,7 +162,7 @@ TEST_CASE("import_asset fails on a non-project or a bad source", "[app]")
 
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("proj3");
-    fs::remove_all(proj); REQUIRE(create_project(proj, types));
+    fs::remove_all(proj); REQUIRE(create_project(proj));
     REQUIRE_FALSE(import_asset(proj, "/no/such/file.ppm").has_value()); // missing source
 
     fs::remove_all(notproj); fs::remove_all(proj);
@@ -173,7 +173,7 @@ TEST_CASE("import_asset cooks a .py into a script asset + metadata", "[app]")
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("sproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("ssrc") + ".py";
     write_py(src);
 
@@ -193,7 +193,7 @@ TEST_CASE("load_project_assets registers a script asset as ScriptSource", "[app]
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("sproj2");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
     const std::string src = tmp("ssrc2") + ".py";
     write_py(src);
     auto id = import_asset(proj, src);
@@ -215,7 +215,7 @@ TEST_CASE("import_asset uses a plugin importer for an unrecognized extension", "
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("iproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     write_plugin(proj, "csv_importer.py",
         "MOSAIC_IMPORTERS = {\".csv\": \"import_csv\"}\n\n"
@@ -248,7 +248,7 @@ TEST_CASE("import_asset refuses a plugin extension that would produce a reserved
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("rproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     write_plugin(proj, "bad_importer.py",
         "MOSAIC_IMPORTERS = {\".texture\": \"import_texture\"}\n\n"
@@ -269,7 +269,7 @@ TEST_CASE("import_asset still falls back to PPM decoding when no plugin claims t
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("fproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     write_plugin(proj, "csv_importer.py",
         "MOSAIC_IMPORTERS = {\".csv\": \"import_csv\"}\n\n"
@@ -292,7 +292,7 @@ TEST_CASE("import_asset reports a plugin importer's error and writes nothing", "
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("eproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     write_plugin(proj, "boom_importer.py",
         "MOSAIC_IMPORTERS = {\".boom\": \"import_boom\"}\n\n"
@@ -316,7 +316,7 @@ TEST_CASE("load_project_assets registers a generic (plugin-imported) asset as a 
     TypeRegistry reg; ComponentReflection types = make_types(reg);
     const std::string proj = tmp("gproj");
     fs::remove_all(proj);
-    REQUIRE(create_project(proj, types));
+    REQUIRE(create_project(proj));
 
     write_plugin(proj, "csv_importer.py",
         "MOSAIC_IMPORTERS = {\".csv\": \"import_csv\"}\n\n"

@@ -6,7 +6,6 @@
 
 #include "app/project/project.hpp"
 #include "app/run/scene_io.hpp"     // load_scene_file / save_scene_file
-#include "engine/reflection/component_reflection.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/serialization/reflect_value.hpp" // to_value / from_value
 #include "foundation/serialization/reference.hpp"     // SerializationError
@@ -50,16 +49,11 @@ inline std::string default_templates_root() { return MOSAIC_TEMPLATES_DIR; }
 // omitted it), matching every project's existing contract. Returns false (and logs)
 // if `dir` already exists, `template_name` isn't a subdirectory of `templates_root`
 // (the error names every available template), or any copy/write fails — never
-// leaves a half-written project. `types` is accepted for signature stability with
-// existing call sites but is unused now that templates are static files, not
-// in-process-built scenes (see docs/design/project-templates.md).
-inline bool create_project(const std::string& dir,
-                           const mosaic::engine::reflection::ComponentReflection& types,
-                           const std::string& template_name = "default",
+// leaves a half-written project.
+inline bool create_project(const std::string& dir, const std::string& template_name = "default",
                            const std::string& templates_root = default_templates_root())
 {
     namespace fs = std::filesystem;
-    (void)types;
     if (fs::exists(dir))
     {
         mosaic::foundation::log::error("project", "refusing to overwrite existing path: {}", dir);

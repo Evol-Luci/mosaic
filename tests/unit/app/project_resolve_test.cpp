@@ -6,14 +6,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "app/project/project_io.hpp"
-#include "engine/reflection/builtin_components.hpp"
-#include "foundation/reflection/type_registry.hpp"
 
 using mosaic::app::create_project;
 using mosaic::app::resolve_startup_scene;
-using mosaic::engine::reflection::ComponentReflection;
-using mosaic::engine::reflection::register_builtin_components;
-using mosaic::foundation::reflection::TypeRegistry;
 
 namespace fs = std::filesystem;
 
@@ -27,10 +22,9 @@ std::string temp_dir(const char* tag)
 
 TEST_CASE("resolve_startup_scene maps a project dir to its default scene", "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string dir = temp_dir("proj");
     fs::remove_all(dir);
-    REQUIRE(create_project(dir, types));
+    REQUIRE(create_project(dir));
 
     auto scene = resolve_startup_scene(dir);
     REQUIRE(scene.has_value());

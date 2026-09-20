@@ -8,17 +8,12 @@
 
 #include "app/project/project.hpp"
 #include "app/project/project_io.hpp"
-#include "engine/reflection/builtin_components.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
-#include "foundation/reflection/type_registry.hpp"
 
 using mosaic::app::create_project;
 using mosaic::app::load_manifest;
 using mosaic::engine::World;
-using mosaic::engine::reflection::ComponentReflection;
-using mosaic::engine::reflection::register_builtin_components;
-using mosaic::foundation::reflection::TypeRegistry;
 
 namespace fs = std::filesystem;
 
@@ -32,11 +27,10 @@ std::string temp_project_dir(const char* tag)
 
 TEST_CASE("create_project scaffolds a manifest + starter scene + assets dir", "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string dir = temp_project_dir("create");
     fs::remove_all(dir); // clean slate
 
-    REQUIRE(create_project(dir, types));
+    REQUIRE(create_project(dir));
     REQUIRE(fs::exists(fs::path(dir) / "mosaic.toml"));
     REQUIRE(fs::exists(fs::path(dir) / "scenes" / "main.json"));
     REQUIRE(fs::is_directory(fs::path(dir) / "assets"));
@@ -52,12 +46,11 @@ TEST_CASE("create_project scaffolds a manifest + starter scene + assets dir", "[
 
 TEST_CASE("create_project refuses to overwrite an existing directory", "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string dir = temp_project_dir("exists");
     fs::remove_all(dir);
     fs::create_directories(dir); // pre-existing
 
-    REQUIRE_FALSE(create_project(dir, types)); // refuses
+    REQUIRE_FALSE(create_project(dir)); // refuses
     REQUIRE_FALSE(fs::exists(fs::path(dir) / "mosaic.toml")); // nothing written
 
     fs::remove_all(dir);
@@ -65,17 +58,15 @@ TEST_CASE("create_project refuses to overwrite an existing directory", "[app]")
 
 TEST_CASE("create_project fails cleanly for an unknown template name", "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string dir = temp_project_dir("badtemplate");
     fs::remove_all(dir);
 
-    REQUIRE_FALSE(create_project(dir, types, "does-not-exist"));
+    REQUIRE_FALSE(create_project(dir, "does-not-exist"));
     REQUIRE_FALSE(fs::exists(dir));
 }
 
 TEST_CASE("create_project copies a template's assets/ and plugins/ content", "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string root = temp_project_dir("tmplroot");
     fs::remove_all(root);
     fs::create_directories(fs::path(root) / "mine" / "scenes");
@@ -87,7 +78,7 @@ TEST_CASE("create_project copies a template's assets/ and plugins/ content", "[a
 
     const std::string dir = temp_project_dir("fromtmpl");
     fs::remove_all(dir);
-    REQUIRE(create_project(dir, types, "mine", root));
+    REQUIRE(create_project(dir, "mine", root));
 
     REQUIRE(fs::exists(fs::path(dir) / "scenes" / "main.json"));
     REQUIRE(fs::exists(fs::path(dir) / "assets" / "note.txt"));
@@ -100,7 +91,6 @@ TEST_CASE("create_project copies a template's assets/ and plugins/ content", "[a
 TEST_CASE("create_project still writes assets/.gitkeep when a template has no assets/",
          "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string root = temp_project_dir("tmplroot2");
     fs::remove_all(root);
     fs::create_directories(fs::path(root) / "bare" / "scenes");
@@ -108,7 +98,7 @@ TEST_CASE("create_project still writes assets/.gitkeep when a template has no as
 
     const std::string dir = temp_project_dir("fromtmpl2");
     fs::remove_all(dir);
-    REQUIRE(create_project(dir, types, "bare", root));
+    REQUIRE(create_project(dir, "bare", root));
     REQUIRE(fs::exists(fs::path(dir) / "assets" / ".gitkeep"));
 
     fs::remove_all(root); fs::remove_all(dir);
@@ -119,13 +109,12 @@ TEST_CASE("create_project creates missing parent directories", "[app]")
     // Regression test: fs::copy only creates the single leaf directory, not the
     // full chain -- `mosaic create ~/games/mygame` must still work when ~/games
     // doesn't exist yet, matching the pre-template-mechanism behavior.
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string top = temp_project_dir("parentmissing");
     fs::remove_all(top);
     const std::string dir = (fs::path(top) / "nested" / "project").string();
 
     REQUIRE_FALSE(fs::exists(top));
-    REQUIRE(create_project(dir, types));
+    REQUIRE(create_project(dir));
     REQUIRE(fs::exists(fs::path(dir) / "mosaic.toml"));
 
     fs::remove_all(top);
@@ -134,14 +123,13 @@ TEST_CASE("create_project creates missing parent directories", "[app]")
 TEST_CASE("create_project rejects a template name that would escape templates_root",
          "[app]")
 {
-    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
     const std::string dir = temp_project_dir("escape1");
     fs::remove_all(dir);
-    REQUIRE_FALSE(create_project(dir, types, "../assets"));
+    REQUIRE_FALSE(create_project(dir, "../assets"));
     REQUIRE_FALSE(fs::exists(dir));
 
     const std::string dir2 = temp_project_dir("escape2");
     fs::remove_all(dir2);
-    REQUIRE_FALSE(create_project(dir2, types, ""));
+    REQUIRE_FALSE(create_project(dir2, ""));
     REQUIRE_FALSE(fs::exists(dir2));
 }
