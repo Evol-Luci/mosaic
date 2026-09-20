@@ -33,7 +33,15 @@ public:
         });
     }
 
-private:
+    // Public (not just this class's own update() loop): the canonical way to get an
+    // entity's current world matrix on demand, honoring its parent chain, without
+    // waiting for update() to next run and write a WorldTransform. Needed because
+    // TransformSystem is deliberately NOT part of World's regular system list (see
+    // app/run/editor.cpp's own comment on why) -- headless sessions (e.g. `mosaic
+    // mcp`) never call update() again after startup, so a live WorldTransform read
+    // would silently go stale after any edit. Pure and stateless: safe to call from
+    // any read-only query without an actual TransformSystem instance's update() ever
+    // having run for the entity in question.
     static constexpr int kMaxDepth = 256;
 
     static mosaic::foundation::math::Mat4 compute_world(World& world,
