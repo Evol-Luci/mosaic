@@ -242,12 +242,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 34 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 36 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 34);
+    REQUIRE(tools.size() == 36);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -377,6 +377,94 @@ TEST_CASE("mcp_tools: describe_scene silently omits a Transform cycle from hiera
     REQUIRE(result.at("entity_count").get<std::uint64_t>() == 2);
     REQUIRE(result.at("component_counts").at("Transform").get<std::uint64_t>() == 2);
     REQUIRE(result.at("hierarchy").empty());
+}
+
+TEST_CASE("mcp_tools: entities_near returns entities within radius, nearest first", "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID near = f.world.create_entity();
+    const World::EntityID mid = f.world.create_entity();
+    const World::EntityID far = f.world.create_entity();
+    Transform tn; tn.position = {1.0f, 0.0f, 0.0f}; f.world.add_component(near, tn);
+    Transform tm; tm.position = {3.0f, 0.0f, 0.0f}; f.world.add_component(mid, tm);
+    Transform tf; tf.position = {100.0f, 0.0f, 0.0f}; f.world.add_component(far, tf);
+
+    const nlohmann::json result =
+        f.call("entities_near", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}, {"radius", 5.0}});
+    const nlohmann::json matches = result.at("matches");
+    REQUIRE(matches.size() == 2);
+    REQUIRE(matches.at(0).at("entity").get<std::uint64_t>() == near.value());
+    REQUIRE(matches.at(0).at("distance").get<double>() == 1.0);
+    REQUIRE(matches.at(1).at("entity").get<std::uint64_t>() == mid.value());
+    REQUIRE(matches.at(1).at("distance").get<double>() == 3.0);
+}
+
+TEST_CASE("mcp_tools: entities_near honors the parent chain, not a stale cached WorldTransform",
+          "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID parent = f.world.create_entity();
+    const World::EntityID child = f.world.create_entity();
+    Transform tp; tp.position = {10.0f, 0.0f, 0.0f}; f.world.add_component(parent, tp);
+    Transform tc; tc.position = {1.0f, 0.0f, 0.0f}; tc.parent = parent;
+    f.world.add_component(child, tc);
+    // No WorldTransform component exists on either entity at all -- entities_near must
+    // compute world position live, not read a (nonexistent) cache.
+
+    const nlohmann::json result =
+        f.call("entities_near", {{"x", 11.0}, {"y", 0.0}, {"z", 0.0}, {"radius", 0.5}});
+    const nlohmann::json matches = result.at("matches");
+    REQUIRE(matches.size() == 1);
+    REQUIRE(matches.at(0).at("entity").get<std::uint64_t>() == child.value());
+    REQUIRE(matches.at(0).at("position").at("x").get<double>() == 11.0); // parent(10) + local(1)
+}
+
+TEST_CASE("mcp_tools: entities_near excludes Transform-less entities and rejects a negative radius",
+          "[app][mcp]")
+{
+    Fixture f;
+    const World::EntityID loose = f.world.create_entity();
+    f.world.add_component(loose, mosaic::engine::Name{"Loose"});
+
+    const nlohmann::json result =
+        f.call("entities_near", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}, {"radius", 1000.0}});
+    REQUIRE(result.at("matches").empty());
+
+    REQUIRE_THROWS_AS(
+        f.call("entities_near", {{"x", 0.0}, {"y", 0.0}, {"z", 0.0}, {"radius", -1.0}}),
+        McpToolError);
+}
+
+TEST_CASE("mcp_tools: scene_bounds computes the min/max corners over every positioned entity",
+          "[app][mcp]")
+{
+    Fixture f;
+    using mosaic::engine::transform::Transform;
+    const World::EntityID a = f.world.create_entity();
+    const World::EntityID b = f.world.create_entity();
+    Transform ta; ta.position = {-2.0f, 5.0f, 0.0f}; f.world.add_component(a, ta);
+    Transform tb; tb.position = {4.0f, -1.0f, 3.0f}; f.world.add_component(b, tb);
+
+    const nlohmann::json result = f.call("scene_bounds");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("min").at("x").get<double>() == -2.0);
+    REQUIRE(result.at("min").at("y").get<double>() == -1.0);
+    REQUIRE(result.at("min").at("z").get<double>() == 0.0);
+    REQUIRE(result.at("max").at("x").get<double>() == 4.0);
+    REQUIRE(result.at("max").at("y").get<double>() == 5.0);
+    REQUIRE(result.at("max").at("z").get<double>() == 3.0);
+}
+
+TEST_CASE("mcp_tools: scene_bounds returns null min/max for a scene with no positioned entities",
+          "[app][mcp]")
+{
+    Fixture f;
+    const nlohmann::json result = f.call("scene_bounds");
+    REQUIRE(result.at("entity_count").get<std::uint64_t>() == 0);
+    REQUIRE(result.at("min").is_null());
+    REQUIRE(result.at("max").is_null());
 }
 
 TEST_CASE("mcp_tools: set_script test-compiles and writes a valid script into an existing ScriptComponent", "[app][mcp]")

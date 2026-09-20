@@ -1,5 +1,7 @@
 #include "app/mcp/mcp_tools.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -18,6 +20,7 @@
 #include "engine/assets/asset_registry.hpp"
 #include "engine/commands/set_component_command.hpp"
 #include "engine/transform/transform.hpp"
+#include "engine/transform/transform_system.hpp"
 #include "engine/world/name.hpp"
 #include "engine/scene/scene.hpp"
 #include "engine/script/script_system.hpp"
@@ -92,6 +95,15 @@ double optional_double(const nlohmann::json& args, const char* key, double defau
     if (!args.at(key).is_number())
     {
         throw McpToolError(std::string("invalid '") + key + "' (expected a number)");
+    }
+    return args.at(key).get<double>();
+}
+
+double require_double(const nlohmann::json& args, const char* key)
+{
+    if (!args.contains(key) || !args.at(key).is_number())
+    {
+        throw McpToolError(std::string("missing or invalid '") + key + "' (expected a number)");
     }
     return args.at(key).get<double>();
 }
@@ -375,6 +387,90 @@ nlohmann::json tool_describe_scene(World& world, const ComponentReflection& type
     return {{"entity_count", static_cast<std::uint64_t>(world.entity_count())},
            {"component_counts", component_counts},
            {"hierarchy", hierarchy}};
+}
+
+// Shared by entities_near/scene_bounds: every entity with a Transform, positioned by
+// its live world matrix -- computed on demand via TransformSystem::compute_world (the
+// exact same parent-chain composer the renderer uses), NOT read from a cached
+// WorldTransform component. WorldTransform is only ever written by TransformSystem's
+// own update(), which is deliberately not part of World's regular system list (see
+// app/run/editor.cpp) -- a headless `mosaic mcp` session never calls it again after
+// startup, so a cached WorldTransform silently goes stale after any edit. Computing
+// fresh here means correct results regardless of hierarchy or recent edits, at the
+// cost of recomputing every queried entity's chain on each call -- a non-issue at
+// interactive agent-tool-call frequency.
+struct PositionedEntity
+{
+    EntityID entity;
+    mosaic::foundation::math::Vec3 position;
+};
+
+std::vector<PositionedEntity> positioned_entities(World& world)
+{
+    std::vector<PositionedEntity> out;
+    world.for_each<mosaic::engine::transform::Transform>(
+        [&](EntityID e, mosaic::engine::transform::Transform&)
+        {
+            const auto m = mosaic::engine::transform::TransformSystem::compute_world(world, e, 0);
+            out.push_back({e, {m.m[12], m.m[13], m.m[14]}});
+        });
+    return out;
+}
+
+nlohmann::json tool_entities_near(World& world, const ComponentReflection&, CommandStack&,
+                                  const std::string&, const nlohmann::json& args)
+{
+    const double x = require_double(args, "x");
+    const double y = require_double(args, "y");
+    const double z = require_double(args, "z");
+    const double radius = require_double(args, "radius");
+    if (radius < 0.0)
+    {
+        throw McpToolError("'radius' must be non-negative");
+    }
+
+    struct Match { EntityID entity; mosaic::foundation::math::Vec3 position; double distance; };
+    std::vector<Match> matches;
+    for (const PositionedEntity& pe : positioned_entities(world))
+    {
+        const double dx = pe.position.x - x;
+        const double dy = pe.position.y - y;
+        const double dz = pe.position.z - z;
+        const double distance = std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (distance <= radius) { matches.push_back({pe.entity, pe.position, distance}); }
+    }
+    std::sort(matches.begin(), matches.end(),
+             [](const Match& a, const Match& b) { return a.distance < b.distance; });
+
+    nlohmann::json out = nlohmann::json::array();
+    for (const Match& m : matches)
+    {
+        out.push_back({{"entity", m.entity.value()},
+                       {"position", {{"x", m.position.x}, {"y", m.position.y}, {"z", m.position.z}}},
+                       {"distance", m.distance}});
+    }
+    return {{"matches", out}};
+}
+
+nlohmann::json tool_scene_bounds(World& world, const ComponentReflection&, CommandStack&,
+                                 const std::string&, const nlohmann::json&)
+{
+    const std::vector<PositionedEntity> entities = positioned_entities(world);
+    if (entities.empty())
+    {
+        return {{"min", nullptr}, {"max", nullptr}, {"entity_count", 0}};
+    }
+    mosaic::foundation::math::Vec3 lo = entities.front().position;
+    mosaic::foundation::math::Vec3 hi = entities.front().position;
+    for (const PositionedEntity& pe : entities)
+    {
+        lo.x = std::min(lo.x, pe.position.x); hi.x = std::max(hi.x, pe.position.x);
+        lo.y = std::min(lo.y, pe.position.y); hi.y = std::max(hi.y, pe.position.y);
+        lo.z = std::min(lo.z, pe.position.z); hi.z = std::max(hi.z, pe.position.z);
+    }
+    return {{"min", {{"x", lo.x}, {"y", lo.y}, {"z", lo.z}}},
+           {"max", {{"x", hi.x}, {"y", hi.y}, {"z", hi.z}}},
+           {"entity_count", entities.size()}};
 }
 
 nlohmann::json tool_set_script(World& world, const ComponentReflection& types,
@@ -879,6 +975,8 @@ const std::unordered_map<std::string, ToolHandler>& tool_handlers()
         {"redo", &tool_redo},                     {"undo_depth", &tool_undo_depth},
         {"save_scene", &tool_save_scene},
         {"describe_scene", &tool_describe_scene},
+        {"entities_near", &tool_entities_near},
+        {"scene_bounds", &tool_scene_bounds},
         {"tick", &tool_tick},
         {"tick_until", &tool_tick_until},
         {"script_profile", &tool_script_profile},
@@ -943,6 +1041,15 @@ nlohmann::json schema_entities_where()
              {"op", {{"type", "string"}, {"enum", {"eq", "ne", "gt", "gte", "lt", "lte"}}}},
              {"value", {{"description", "The value to compare against"}}}}},
            {"required", {"component", "field", "op", "value"}}};
+}
+
+nlohmann::json schema_entities_near()
+{
+    return {{"type", "object"},
+           {"properties",
+            {{"x", {{"type", "number"}}}, {"y", {{"type", "number"}}}, {"z", {{"type", "number"}}},
+             {"radius", {{"type", "number"}, {"minimum", 0}}}}},
+           {"required", {"x", "y", "z", "radius"}}};
 }
 
 nlohmann::json schema_bulk_set_field()
@@ -1118,6 +1225,24 @@ nlohmann::json tools_list_schema()
                      {"description", "Return a snapshot of the scene's shape: entity count, a "
                                      "component-type histogram, and the Transform parent-child "
                                      "hierarchy as a tree."},
+                     {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "entities_near"},
+                     {"description", "Every entity with a Transform whose live world position "
+                                     "is within `radius` of (x, y, z), nearest first, each with "
+                                     "its actual position and distance. Position is computed on "
+                                     "demand honoring the parent chain (the same composition "
+                                     "TransformSystem itself uses) -- always live, never a stale "
+                                     "cached WorldTransform, so it reflects edits made earlier in "
+                                     "this same session."},
+                     {"inputSchema", schema_entities_near()}});
+    tools.push_back({{"name", "scene_bounds"},
+                     {"description", "The point-cloud bounding box (min/max corners) over every "
+                                     "entity with a Transform's live world position, plus how "
+                                     "many entities contributed. This is entity positions only, "
+                                     "not mesh geometry extents -- an entity's actual rendered "
+                                     "footprint (mesh bounds, particle emitter radius, etc.) can "
+                                     "extend beyond this box. min/max are both null with "
+                                     "entity_count 0 for a scene with no positioned entities."},
                      {"inputSchema", schema_none()}});
     tools.push_back({{"name", "set_script"},
                      {"description", "Test-compile a Python script against the live World and, on "
