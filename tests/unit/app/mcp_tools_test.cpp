@@ -246,7 +246,7 @@ TEST_CASE("mcp_tools: tools_list_schema lists all 26 v1 tools with a description
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 26);
+    REQUIRE(tools.size() == 27);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -609,6 +609,98 @@ TEST_CASE("mcp_tools: tick throws McpToolError for malformed count or dt", "[app
     RuntimeFixture f;
     REQUIRE_THROWS_AS(f.call("tick", {{"count", "not-a-number"}}), McpToolError);
     REQUIRE_THROWS_AS(f.call("tick", {{"dt", "not-a-number"}}), McpToolError);
+}
+
+TEST_CASE("mcp_tools: tick_until stops as soon as the condition is met", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+    f.call("set_script",
+           {{"entity", eid},
+            {"source", "def on_update(dt):\n"
+                       "    t = get_component(entity, \"Transform\")\n"
+                       "    t[\"position\"][\"x\"] = t[\"position\"][\"x\"] + 1.0\n"
+                       "    set_component(entity, \"Transform\", t)\n"}});
+
+    const nlohmann::json result = f.call(
+        "tick_until",
+        {{"entity", eid}, {"component", "Transform"}, {"field", "position.x"}, {"op", "gte"}, {"value", 5.0}});
+    REQUIRE(result.at("ticks").get<std::uint64_t>() == 5);
+    REQUIRE(result.at("met").get<bool>() == true);
+    REQUIRE(result.at("value").get<double>() == 5.0);
+}
+
+TEST_CASE("mcp_tools: tick_until costs zero ticks when already met", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+
+    const nlohmann::json result = f.call(
+        "tick_until",
+        {{"entity", eid}, {"component", "Transform"}, {"field", "position.x"}, {"op", "eq"}, {"value", 0.0}});
+    REQUIRE(result.at("ticks").get<std::uint64_t>() == 0);
+    REQUIRE(result.at("met").get<bool>() == true);
+}
+
+TEST_CASE("mcp_tools: tick_until reports unmet after exhausting max_ticks", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "Transform"}});
+
+    const nlohmann::json result = f.call("tick_until",
+                                         {{"entity", eid},
+                                          {"component", "Transform"},
+                                          {"field", "position.x"},
+                                          {"op", "gt"},
+                                          {"value", 1000.0},
+                                          {"max_ticks", 3}});
+    REQUIRE(result.at("ticks").get<std::uint64_t>() == 3);
+    REQUIRE(result.at("met").get<bool>() == false);
+}
+
+TEST_CASE("mcp_tools: tick_until never matches an unresolvable entity/component/field, running to max_ticks",
+          "[app][mcp]")
+{
+    RuntimeFixture f;
+    const nlohmann::json result = f.call(
+        "tick_until",
+        {{"entity", 999999}, {"component", "Transform"}, {"field", "position.x"}, {"op", "eq"}, {"value", 0.0},
+         {"max_ticks", 2}});
+    REQUIRE(result.at("ticks").get<std::uint64_t>() == 2);
+    REQUIRE(result.at("met").get<bool>() == false);
+    REQUIRE(result.at("value").is_null());
+}
+
+TEST_CASE("mcp_tools: tick_until throws McpToolError when max_ticks exceeds the per-call limit", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    REQUIRE_THROWS_AS(f.call("tick_until",
+                             {{"entity", eid},
+                              {"component", "Transform"},
+                              {"field", "position.x"},
+                              {"op", "eq"},
+                              {"value", 0.0},
+                              {"max_ticks", 10001}}),
+                      McpToolError);
+}
+
+TEST_CASE("mcp_tools: tick_until throws McpToolError for an unknown op", "[app][mcp]")
+{
+    RuntimeFixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    REQUIRE_THROWS_AS(f.call("tick_until",
+                             {{"entity", eid},
+                              {"component", "Transform"},
+                              {"field", "position.x"},
+                              {"op", "between"},
+                              {"value", 0.0}}),
+                      McpToolError);
 }
 
 TEST_CASE("mcp_tools: build_project packages a project into a standalone bundle", "[app][mcp]")
