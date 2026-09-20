@@ -1,16 +1,42 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <utility>
 #include <vector>
 
-#include "engine/ecs/component_type_id.hpp"
 #include "engine/ecs/entity_registry.hpp"
 #include "engine/ecs/sparse_set.hpp"
 #include "foundation/core/entity_id.hpp"
 
 namespace mosaic::engine::ecs
 {
+
+namespace detail
+{
+// A dense, storage-only slot index -- deliberately NOT ComponentTypeID (issue #25:
+// naively giving component storage its own separate identity counter would
+// reintroduce the exact "#9 identity drift" the reflection consolidation removed --
+// two diverging integer spaces both claiming to identify the same T). This stays
+// completely private to ComponentRegistry's own storages_ vector and is never
+// compared against ComponentTypeID/TypeID anywhere; it only exists so storages_ is
+// sized by "how many distinct component types have ever been stored," not by the
+// much larger, sparser space of every reflected type ever assigned a TypeID
+// (Vec3, Quat, and every other non-component reflected struct included).
+// Not thread-safe, mirroring foundation::reflection::type_id<T>()'s own contract.
+inline std::size_t next_component_storage_slot() noexcept
+{
+    static std::size_t counter = 0;
+    return counter++;
+}
+
+template <typename T>
+std::size_t component_storage_slot() noexcept
+{
+    static const std::size_t slot = next_component_storage_slot();
+    return slot;
+}
+} // namespace detail
 
 // Type-erased handle to one component type's storage, so the registry can hold
 // heterogeneous storages and erase an entity from all of them on destroy.
@@ -86,8 +112,8 @@ public:
         {
             return false;
         }
-        const ComponentTypeID tid = component_type_id<T>();
-        return tid < storages_.size() && storages_[tid] && storages_[tid]->contains(id);
+        const std::size_t slot = detail::component_storage_slot<T>();
+        return slot < storages_.size() && storages_[slot] && storages_[slot]->contains(id);
     }
 
     template <typename T>
@@ -130,31 +156,35 @@ private:
     template <typename T>
     ComponentStorage<T>& storage()
     {
-        const ComponentTypeID tid = component_type_id<T>();
-        if (tid >= storages_.size())
+        const std::size_t slot = detail::component_storage_slot<T>();
+        if (slot >= storages_.size())
         {
-            storages_.resize(tid + 1u);
+            storages_.resize(slot + 1u);
         }
-        if (!storages_[tid])
+        if (!storages_[slot])
         {
-            storages_[tid] = std::make_unique<ComponentStorage<T>>();
+            storages_[slot] = std::make_unique<ComponentStorage<T>>();
         }
-        return static_cast<ComponentStorage<T>&>(*storages_[tid]);
+        return static_cast<ComponentStorage<T>&>(*storages_[slot]);
     }
 
     template <typename T>
     ComponentStorage<T>* find_storage()
     {
-        const ComponentTypeID tid = component_type_id<T>();
-        if (tid >= storages_.size() || !storages_[tid])
+        const std::size_t slot = detail::component_storage_slot<T>();
+        if (slot >= storages_.size() || !storages_[slot])
         {
             return nullptr;
         }
-        return static_cast<ComponentStorage<T>*>(storages_[tid].get());
+        return static_cast<ComponentStorage<T>*>(storages_[slot].get());
     }
 
     const EntityRegistry* entities_; // non-owning; must outlive this ComponentRegistry
-    std::vector<std::unique_ptr<IComponentStorage>> storages_; // indexed by ComponentTypeID
+    // Indexed by component_storage_slot<T>() (a dense, storage-only index -- see
+    // namespace detail above), NOT ComponentTypeID: sized by how many distinct
+    // component types have actually been stored, not by every reflected type's
+    // (much larger, sparser) TypeID space.
+    std::vector<std::unique_ptr<IComponentStorage>> storages_;
 };
 
 } // namespace mosaic::engine::ecs
