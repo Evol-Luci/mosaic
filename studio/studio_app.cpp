@@ -412,7 +412,7 @@ void StudioApp::draw_script_editor(
                               ImVec2(-1.0f, 200.0f));
     if (ImGui::Button("Apply"))
     {
-        script_apply_result_ = script_editor_.apply(script_edit_buf_, world, reflection, e);
+        script_apply_result_ = script_editor_.apply(script_edit_buf_, world, reflection, e, commands_);
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(applies live on Play)");

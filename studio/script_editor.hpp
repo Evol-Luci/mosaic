@@ -6,11 +6,13 @@
 #include <string>
 #include <utility>
 
+#include "engine/commands/set_component_command.hpp"
 #include "engine/reflection/component_reflection.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_debugger.hpp"
 #include "engine/script/script_engine.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/commands/command_stack.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
 
@@ -36,11 +38,14 @@ public:
     explicit ScriptEditorModel(EngineFactory factory = {}) : factory_(std::move(factory)) {}
 
     // Test-compile `source` against a throwaway engine bound to the live world; on success, write it
-    // into entity e's ScriptComponent (-> ScriptSystem recompiles it live). On a compile/top-level
-    // error, return Error{error} and leave the component untouched. Never throws.
+    // into entity e's ScriptComponent (-> ScriptSystem recompiles it live) via a SetComponentCommand
+    // pushed onto `commands` -- the same generic undo/redo mechanism set_component already uses,
+    // rather than a raw field write. On a compile/top-level error, return Error{error} and leave the
+    // component untouched. Never throws.
     ScriptApplyResult apply(const std::string& source, mosaic::engine::World& world,
                             const mosaic::engine::reflection::ComponentReflection& reflection,
-                            mosaic::foundation::EntityID e)
+                            mosaic::foundation::EntityID e,
+                            mosaic::foundation::commands::CommandStack& commands)
     {
         if (!factory_)
         {
@@ -56,13 +61,22 @@ public:
         {
             return {ScriptApplyResult::Kind::Error, r.error};
         }
-        mosaic::engine::script::ScriptComponent* sc =
-            world.get_component<mosaic::engine::script::ScriptComponent>(e);
-        if (sc == nullptr)
+        const auto current = reflection.component_value(world, e, "ScriptComponent");
+        if (!current)
         {
             return {ScriptApplyResult::Kind::Error, "selected entity has no ScriptComponent"};
         }
-        sc->source = source;
+        mosaic::foundation::serialization::Value next = *current;
+        next.as<mosaic::foundation::serialization::Table>()["source"] =
+            mosaic::foundation::serialization::Value(source);
+        auto cmd = std::make_unique<mosaic::engine::commands::SetComponentCommand>(
+            world, reflection, e, "ScriptComponent", next);
+        cmd->execute();
+        if (!cmd->valid())
+        {
+            return {ScriptApplyResult::Kind::Error, "failed to apply the compiled script"};
+        }
+        commands.push_executed(std::move(cmd));
         return {ScriptApplyResult::Kind::Ok, r.output};
     }
 

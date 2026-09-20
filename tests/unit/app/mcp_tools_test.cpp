@@ -483,6 +483,32 @@ TEST_CASE("mcp_tools: set_script test-compiles and writes a valid script into an
     REQUIRE(component.at("value").at("source").get<std::string>() == "def on_update(dt):\n    pass\n");
 }
 
+TEST_CASE("mcp_tools: set_script is undoable via the undo/redo tools", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    Fixture f;
+    const std::uint64_t eid = f.call("create_entity").at("id").get<std::uint64_t>();
+    f.call("add_component", {{"entity", eid}, {"component", "ScriptComponent"}});
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    REQUIRE(f.call("set_script", {{"entity", eid}, {"source", "def on_update(dt):\n    x = 1\n"}}, factory)
+                .at("ok")
+                .get<bool>());
+    REQUIRE(f.call("undo_depth").at("depth").get<std::uint64_t>() == 1);
+
+    REQUIRE(f.call("undo").at("ok").get<bool>());
+    REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "ScriptComponent"}})
+                .at("value")
+                .at("source")
+                .get<std::string>() == "");
+
+    REQUIRE(f.call("redo").at("ok").get<bool>());
+    REQUIRE(f.call("get_component", {{"entity", eid}, {"component", "ScriptComponent"}})
+                .at("value")
+                .at("source")
+                .get<std::string>() == "def on_update(dt):\n    x = 1\n");
+}
+
 TEST_CASE("mcp_tools: set_script leaves the component unchanged on a compile error", "[app][mcp]")
 {
     mosaic::script::python::ensure_interpreter();

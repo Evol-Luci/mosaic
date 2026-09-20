@@ -473,13 +473,13 @@ nlohmann::json tool_scene_bounds(World& world, const ComponentReflection&, Comma
            {"entity_count", entities.size()}};
 }
 
-nlohmann::json tool_set_script(World& world, const ComponentReflection& types,
+nlohmann::json tool_set_script(World& world, const ComponentReflection& types, CommandStack& stack,
                                const nlohmann::json& args, const ScriptEngineFactory& script_factory)
 {
     const EntityID e(require_uint64(args, "entity"));
     const std::string source = require_string(args, "source");
     mosaic::studio::ScriptEditorModel model(script_factory);
-    const mosaic::studio::ScriptApplyResult result = model.apply(source, world, types, e);
+    const mosaic::studio::ScriptApplyResult result = model.apply(source, world, types, e, stack);
     return {{"ok", result.kind == mosaic::studio::ScriptApplyResult::Kind::Ok}, {"message", result.message}};
 }
 
@@ -1414,7 +1414,7 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
 {
     if (tool_name == "set_script")
     {
-        return tool_set_script(world, types, arguments, script_factory);
+        return tool_set_script(world, types, stack, arguments, script_factory);
     }
     if (tool_name == "import_asset")
     {
