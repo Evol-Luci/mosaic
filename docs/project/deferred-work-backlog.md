@@ -69,7 +69,8 @@ view that was actually used to pick what to build next as of this writing.
   `broken_references`/`orphaned_assets`/`entities_referencing` see a
   same-session import immediately, no restart. *Source:*
   `2026-09-18-automated-testing-tick-design.md`.
-- **"Tick until condition met" tool** — vs. today's fixed-count `tick`.
+- ~~**"Tick until condition met" tool**~~ — **SHIPPED** as `tick_until`
+  (MCP tool 27), reusing `entities_where`'s exact matching primitives.
   *Source:* same
 - **Broader per-system profiling** — physics/animation/particles timing,
   not just scripts. *Source:*
@@ -237,7 +238,6 @@ rather than trusting the ratings below forever.
 | Remove unused `types` param from `create_project` | Low |
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
-| "Tick until condition met" tool | Medium |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
