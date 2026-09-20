@@ -9,6 +9,7 @@
 #include <unordered_set>
 
 #include "app/asset/asset_io.hpp"
+#include "app/plugin/package_install.hpp"
 #include "app/plugin/package_source.hpp"
 #include "app/plugin/package_sources_registry.hpp"
 #include "app/project/bundle.hpp"
@@ -462,12 +463,21 @@ nlohmann::json tool_script_profile(World& world, const ComponentReflection&, Com
     return {{"entries", entries}};
 }
 
+// Shared by every tool taking an optional `source` argument (plugin_list,
+// plugin_install): a registered named source resolves to its path, anything
+// else is a literal path, and omitting it entirely falls back to the
+// compile-time bundled packages/ directory -- mirrors the CLI's own
+// resolve_package_source() (Options-based, not reusable here as-is).
+std::string resolve_plugin_source(const nlohmann::json& args)
+{
+    const std::string requested = optional_string(args, "source", "");
+    return requested.empty() ? mosaic::app::default_package_source() : mosaic::app::resolve_source(requested);
+}
+
 nlohmann::json tool_plugin_list(World&, const ComponentReflection&, CommandStack&,
                                 const std::string&, const nlohmann::json& args)
 {
-    const std::string requested = optional_string(args, "source", "");
-    const std::string source =
-        requested.empty() ? mosaic::app::default_package_source() : mosaic::app::resolve_source(requested);
+    const std::string source = resolve_plugin_source(args);
     nlohmann::json packages = nlohmann::json::array();
     for (const mosaic::app::PackageInfo& p : mosaic::app::list_packages(source))
     {
@@ -488,6 +498,21 @@ nlohmann::json tool_build_project(const ComponentReflection& types, const std::s
     const std::filesystem::path exe = std::filesystem::read_symlink("/proc/self/exe", ec);
     if (ec) { return {{"ok", false}}; }
     return {{"ok", mosaic::app::build_bundle(project_dir, out_dir, exe.string(), types)}};
+}
+
+nlohmann::json tool_plugin_install(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    const std::string source = resolve_plugin_source(args);
+    const auto pkg = mosaic::app::find_package(source, name);
+    if (!pkg) { return {{"ok", false}}; }
+    return {{"ok", mosaic::app::install_package(project_dir, *pkg)}};
+}
+
+nlohmann::json tool_plugin_remove(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    return {{"ok", mosaic::app::remove_package(project_dir, name)}};
 }
 
 class AssetRefCollector final : public mosaic::engine::reflection::FieldVisitor
@@ -945,6 +970,20 @@ nlohmann::json schema_plugin_list()
     return {{"type", "object"}, {"properties", {{"source", {{"type", "string"}}}}}, {"required", nlohmann::json::array()}};
 }
 
+nlohmann::json schema_plugin_install()
+{
+    return {{"type", "object"},
+           {"properties", {{"name", {{"type", "string"}}}, {"source", {{"type", "string"}}}}},
+           {"required", {"name"}}};
+}
+
+nlohmann::json schema_plugin_remove()
+{
+    return {{"type", "object"},
+           {"properties", {{"name", {{"type", "string"}}}}},
+           {"required", {"name"}}};
+}
+
 nlohmann::json tool_import_asset(const std::string& project_dir, const nlohmann::json& args,
                                  AssetRegistry* live_asset_registry)
 {
@@ -1081,6 +1120,25 @@ nlohmann::json tools_list_schema()
                                      "packages/ directory. A missing or empty source directory "
                                      "returns an empty list, never an error."},
                      {"inputSchema", schema_plugin_list()}});
+    tools.push_back({{"name", "plugin_install"},
+                     {"description", "Install package `name` into the project (same effect as "
+                                     "`mosaic plugin install <name> <project>`): copies the "
+                                     "package's *.py files into plugins/ and records it in "
+                                     "mosaic.toml. `source` resolves the same way plugin_list's "
+                                     "does. ok is false (not an error) if the package isn't found "
+                                     "in that source, or if install fails for any other reason -- "
+                                     "the specific reason is only visible in the server's own log "
+                                     "output, matching import_asset's same convention. "
+                                     "Reinstalling the same name/version is a no-op success; a "
+                                     "different version overwrites the package's own files only."},
+                     {"inputSchema", schema_plugin_install()}});
+    tools.push_back({{"name", "plugin_remove"},
+                     {"description", "Remove package `name` from the project (same effect as "
+                                     "`mosaic plugin remove <name> <project>`): deletes the "
+                                     "*.py files it owns from plugins/ and drops its mosaic.toml "
+                                     "entry. Removing a package that isn't installed is a no-op "
+                                     "success (ok:true), not an error."},
+                     {"inputSchema", schema_plugin_remove()}});
     tools.push_back({{"name", "script_profile"},
                      {"description", "Return per-scripted-entity on_update timing accumulated "
                                      "so far this session (via ScriptSystem::profile() -- the "
@@ -1158,6 +1216,14 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "build_project")
     {
         return tool_build_project(types, project_dir, arguments);
+    }
+    if (tool_name == "plugin_install")
+    {
+        return tool_plugin_install(project_dir, arguments);
+    }
+    if (tool_name == "plugin_remove")
+    {
+        return tool_plugin_remove(project_dir, arguments);
     }
     if (tool_name == "broken_references")
     {
