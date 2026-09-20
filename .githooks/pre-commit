@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Blocks a commit when the auto-generated docs (component/scripting-globals
+# reference, index.html's nav sections) are stale relative to what actually
+# generates them. Regenerates both, then diffs the generated files against
+# what's on disk -- if regeneration changes anything, the commit is stale.
+#
+# Enable once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+mosaic_bin=""
+for candidate in build/app/mosaic build/debug/app/mosaic build/release/app/mosaic; do
+    if [ -x "$candidate" ]; then
+        mosaic_bin="$candidate"
+        break
+    fi
+done
+
+if [ -z "$mosaic_bin" ]; then
+    echo "pre-commit: no built 'mosaic' binary found (looked in build/app," \
+         "build/debug/app, build/release/app) -- skipping the component/" \
+         "scripting-globals reference staleness check. Nav regen still runs." >&2
+else
+    "$mosaic_bin" docs >/dev/null
+fi
+
+python3 tools/docs/regenerate_nav.py >/dev/null
+
+checked_files=(docs/index.html)
+if [ -n "$mosaic_bin" ]; then
+    checked_files+=(docs/reference/components.md docs/reference/scripting-globals.md)
+fi
+
+if ! git diff --exit-code -- "${checked_files[@]}"; then
+    echo "" >&2
+    echo "pre-commit: generated docs were stale and have now been" \
+         "refreshed in your working tree (diff above). Review the" \
+         "changes, 'git add' the affected files, and commit again." >&2
+    exit 1
+fi
+
+exit 0
