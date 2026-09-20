@@ -208,8 +208,8 @@ view that was actually used to pick what to build next as of this writing.
   work, explicitly tracked as deferred.
 - Template parameterization (setup wizard, prompted values) beyond
   verbatim copy.
-- Remove now-unused `types` param from `create_project` (29 call sites) —
-  cosmetic cleanup, explicitly deferred.
+- ~~Remove now-unused `types` param from `create_project`~~ — **SHIPPED**
+  2026-09-20, ~40 call sites updated.
 
 ## Editor / Studio
 
@@ -251,9 +251,10 @@ rather than trusting the ratings below forever.
 
 ### 🟢 Quick wins (hours-scale, single focused change)
 
-| Item | Impact |
-|---|---|
-| Remove unused `types` param from `create_project` | Low |
+**Empty as of 2026-09-20** — every item from the original 2026-09-19 survey
+shipped. Re-derive this tier from the sections above before picking
+anything else; don't assume there's nothing left just because this list
+is momentarily blank.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
