@@ -124,8 +124,23 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Documentation tooling
 
-- **CI/pre-commit wiring** for `mosaic docs` and the nav regenerator
-  (`--check` mode) — both stay manually-run.
+- ~~CI/pre-commit wiring for `mosaic docs` + nav regen~~ — **SHIPPED** as
+  a local pre-commit hook (`.githooks/pre-commit`, opt-in via
+  `git config core.hooksPath .githooks`). Caught real staleness in
+  `docs/index.html`'s nav on its first run. **Scope note:** this repo
+  has no CI at all (no `.github/workflows/`), so only the pre-commit
+  half was built — standing up actual CI is a separate, larger item,
+  see below.
+- **No CI exists in this repo at all** — discovered while shipping the
+  pre-commit hook above. `CONTRIBUTING.md` claims the `Foundation →
+  Engine → Editor → Studio` dependency rules are "enforced in CI," but
+  there is no `.github/workflows/` (or any other CI config) anywhere —
+  that enforcement doesn't actually run anywhere today. Standing up a
+  first CI workflow (running the test suite, then the dependency-rule
+  check, then possibly the same docs/nav staleness check the local
+  hook covers) is real, undone work, not a stale doc claim to just
+  delete — scope TBD (a GitHub Actions build of this project needs a
+  full C++ toolchain + Vulkan/GLFW deps, non-trivial to set up).
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
@@ -219,7 +234,6 @@ rather than trusting the ratings below forever.
 
 | Item | Impact |
 |---|---|
-| CI/pre-commit wiring for `mosaic docs` + nav regen | Medium — closes a doc-staleness gap that's already bitten this project twice |
 | Remove unused `types` param from `create_project` | Low |
 | Wrap remaining CLI verbs as MCP tools | Medium |
 | Studio: persisted preferences | Medium — small effort, but every session forever |
@@ -251,6 +265,7 @@ rather than trusting the ratings below forever.
 | Package manager (network/deps/registry) | Medium |
 | Public marketplace | Low today, High later — gated on an actual user base |
 | 3rd-person adventure template | Medium |
+| Stand up real CI (GitHub Actions) | Medium-High — `CONTRIBUTING.md` claims dependency rules are "enforced in CI" but no CI exists at all today; needs a full C++/Vulkan/GLFW toolchain in the runner |
 
 **Picked as the largest effective win (2026-09-19, original pass):** bulk
 refactoring / project health checks — **shipped**, all 4 sub-projects
