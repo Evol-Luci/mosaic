@@ -14,6 +14,7 @@
 #include "app/run/scene_io.hpp"
 #include "app/run/scene_load.hpp"
 #include "app/run/status_reporter.hpp"
+#include "app/studio_prefs.hpp"
 #include "engine/assets/asset_registry.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/scene/scene.hpp"
@@ -54,8 +55,10 @@ int run_editor(const Options& options,
         reporter->error("glfwInit failed");
         return 1;
     }
+    StudioPrefs prefs = load_studio_prefs();
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    GLFWwindow* window = glfwCreateWindow(1280, 720, "Mosaic Studio", nullptr, nullptr);
+    GLFWwindow* window =
+        glfwCreateWindow(prefs.window_width, prefs.window_height, "Mosaic Studio", nullptr, nullptr);
     if (window == nullptr)
     {
         reporter->error("glfwCreateWindow failed");
@@ -77,7 +80,7 @@ int run_editor(const Options& options,
     }
     try
     {
-        device->init_ui();
+        device->init_ui(studio_layout_ini_path().string());
     }
     catch (const std::exception& e)
     {
@@ -209,6 +212,11 @@ int run_editor(const Options& options,
     FramePump pump(loop, std::move(deps), *reporter, options);
     RunSummary summary = pump.run(world);
     reporter->summary(summary);
+
+    // Window size persists across sessions; panel layout is ImGui's own concern
+    // (already writing to studio_layout_ini_path(), passed to init_ui() above).
+    glfwGetWindowSize(window, &prefs.window_width, &prefs.window_height);
+    save_studio_prefs(prefs);
 
     device.reset(); // device (and ImGui) destroyed before the window
     glfwDestroyWindow(window);

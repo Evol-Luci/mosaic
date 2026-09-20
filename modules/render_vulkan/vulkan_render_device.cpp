@@ -1026,7 +1026,10 @@ public:
         frame_ = (frame_ + 1) % kFramesInFlight;
     }
 
-    void init_ui() override
+    // No default here -- a default on both the base and this override is a
+    // well-known C++ footgun (virtual dispatch uses the static type's default,
+    // not the dynamic one), so the base class alone declares one.
+    void init_ui(const std::string& ini_path) override
     {
         if (ui_ready_) { return; }
         // Dedicated descriptor pool for ImGui (combined-image-samplers for its textures).
@@ -1042,7 +1045,16 @@ public:
 
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
-        ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        ImGuiIO& io = ImGui::GetIO();
+        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        if (!ini_path.empty())
+        {
+            // io.IniFilename is a raw pointer ImGui holds onto for the context's
+            // whole lifetime -- imgui_ini_path_ (a member, not a local) is what
+            // keeps it alive.
+            imgui_ini_path_ = ini_path;
+            io.IniFilename = imgui_ini_path_.c_str();
+        }
         ImGui::StyleColorsDark();
 
         ImGui_ImplGlfw_InitForVulkan(window_, true);
@@ -2995,6 +3007,7 @@ private:
     GLFWwindow* window_ = nullptr;
     VkDescriptorPool imgui_pool_ = VK_NULL_HANDLE;
     bool             ui_ready_ = false;
+    std::string      imgui_ini_path_; // must outlive the ImGui context -- io.IniFilename is a raw pointer
     VkInstance instance_ = VK_NULL_HANDLE;
 #ifndef NDEBUG
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;

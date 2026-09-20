@@ -81,6 +81,7 @@ add_executable(mosaic_unit_tests
   unit/app/package_source_test.cpp
   unit/app/package_install_test.cpp
   unit/app/package_sources_registry_test.cpp
+  unit/app/studio_prefs_test.cpp
   unit/app/git_test.cpp
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp

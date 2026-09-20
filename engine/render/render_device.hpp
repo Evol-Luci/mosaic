@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "engine/render/image.hpp"
@@ -142,7 +143,9 @@ public:
     // need not implement them. On a UI-capable backend, call init_ui() once after
     // construction, then per frame: begin_ui_frame() before building the UI and
     // end_ui_frame() between begin_frame() and end_frame() to record the UI.
-    virtual void init_ui() {}
+    // `ini_path` is where ImGui persists its panel layout; empty keeps ImGui's own
+    // default ("imgui.ini" in the working directory).
+    virtual void init_ui(const std::string& ini_path = "") {}
     virtual void begin_ui_frame() {}
     virtual void end_ui_frame() {}
 
