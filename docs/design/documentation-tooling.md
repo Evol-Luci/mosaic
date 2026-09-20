@@ -41,9 +41,10 @@ python3 tools/docs/regenerate_nav.py
 Overwrites `docs/index.html` in place, regenerating only the 7 auto-groups.
 Safe to run any time — idempotent (running it twice with no doc changes
 produces a byte-identical file), and it never touches `General`/
-`Project & Legal`. Not wired into the build or CI; rerun it by hand after
-adding docs (this is real, acknowledged future work — see the design spec's
-Non-goals).
+`Project & Legal`. Runs automatically via `.githooks/pre-commit`
+(`git config core.hooksPath .githooks` opts a clone in), which blocks a
+commit if regenerating changes anything — still safe to run by hand at
+any other time, e.g. to preview a change before committing.
 
 ## Title derivation
 
