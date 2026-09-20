@@ -1,7 +1,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -9,6 +8,7 @@
 
 #include "app/plugin/git.hpp"
 #include "app/run/scene_io.hpp" // load_scene_file / save_scene_file
+#include "app/user_config_dir.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/serialization/reference.hpp"     // SerializationError
 #include "foundation/serialization/reflect_value.hpp" // to_value/from_value
@@ -49,21 +49,6 @@ template <class V>
 void reflect(V& v, SourcesRegistry& r)
 {
     v.member("sources", r.sources);
-}
-
-// $XDG_CONFIG_HOME/mosaic if set (and non-empty), else $HOME/.config/mosaic. This is
-// the first user-level (not project-level, not compile-time-baked) directory anywhere
-// in this codebase -- see docs/design/user-config-directory.md for the rationale and
-// forward-looking notes on what else might live here later.
-inline std::filesystem::path user_config_dir()
-{
-    namespace fs = std::filesystem;
-    if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg != nullptr && xdg[0] != '\0')
-    {
-        return fs::path(xdg) / "mosaic";
-    }
-    const char* home = std::getenv("HOME");
-    return fs::path(home != nullptr ? home : "") / ".config" / "mosaic";
 }
 
 // The default sources.toml path. A separate function (not calling user_config_dir()
