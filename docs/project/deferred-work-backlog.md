@@ -213,9 +213,14 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Editor / Studio
 
-- **Studio has zero persisted preferences** — window size/panel
-  layout/theme/recent-projects. Named as a natural fit for the
-  user-config-directory work, not built.
+- ~~**Studio has zero persisted preferences**~~ — window size/panel
+  layout **SHIPPED** 2026-09-20 (`app/studio_prefs.hpp`,
+  `~/.config/mosaic/studio.toml` + `studio_layout.ini`). Still open,
+  as their own future slices: **theme** (no theme system exists yet —
+  a new feature, not just persistence of an existing setting) and
+  **recent-projects** (no tracking or picker UI exists — also a new
+  feature, needs a project-picker shown at startup with no
+  project-dir arg).
 - **Plugin discovery doesn't follow `--project-dir`**, only CWD — breaks
   for an installed/packaged distribution (desktop launcher, shortcut).
   Real, unscheduled architectural gap: needs `mosaic.toml`-rooted path
@@ -249,7 +254,6 @@ rather than trusting the ratings below forever.
 | Item | Impact |
 |---|---|
 | Remove unused `types` param from `create_project` | Low |
-| Studio: persisted preferences | Medium — small effort, but every session forever |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
@@ -262,6 +266,8 @@ rather than trusting the ratings below forever.
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Component TypeID densification (#25) | Low-Medium |
+| Studio theme system + persistence | Medium |
+| Studio recent-projects list (picker UI + tracking) | Medium |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
