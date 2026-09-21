@@ -7,6 +7,12 @@ on:
 
 jobs:
   build-and-test:
+    # NOTE: ubuntu-latest is 24.04 (noble) as of this writing and is scheduled to
+    # move to Ubuntu 26 starting 2026-10-19 (github.com/actions/runner-images#14748).
+    # The LunarG apt list URL below is pinned to the "noble" codename explicitly, not
+    # derived from ubuntu-latest -- when that migration lands, this list (and possibly
+    # the GLFW/X11 dev package names) will need updating in lockstep, or this workflow
+    # will start failing at the "Install Vulkan SDK components" step.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
