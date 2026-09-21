@@ -16,33 +16,35 @@ mosaic/
 ├── CONTRIBUTING.md
 ├── CODE_OF_CONDUCT.md
 │
-├── docs/                 architecture, design, project, rfcs, tutorials
+├── docs/                 architecture, design, project, rfcs, updates
 │
 ├── foundation/           tiny, boring core — knows nothing above it
-│   ├── core/      memory/   math/     reflection/
-│   ├── serialization/  events/  commands/  jobs/
-│   ├── io/  logging/  platform/
+│   ├── core/  math/  reflection/  serialization/
+│   ├── events/  commands/  jobs/  logging/
 │
-├── engine/               standalone runtime — no editor, no Blender, no AI
-│   ├── scene/  ecs/  assets/  rendering/  physics/
-│   ├── animation/  audio/  input/  scripting/  networking/  runtime/
+├── engine/               standalone runtime — no Studio, no App, no Blender, no AI
+│   ├── ecs/  world/  scene/  assets/  transform/  render/
+│   ├── physics/  animation/  audio/  particles/  vfx/  ui/
+│   ├── navigation/  net/  sequencer/  script/  runtime/  commands/  reflection/
 │
-├── editor/               tools that manipulate engine state via commands
-│   ├── shell/  viewport/  inspector/  outliner/  asset_browser/
-│   ├── console/  debugger/  profiler/  tools/
+├── studio/               the full editor UI + Blender live-link — depends on engine only
+│   (viewport, hierarchy, inspector, console, play/stop, plugin host, script editor)
 │
-├── studio/               full dev environment — knows Editor and Blender
-│   ├── app/  workspace/  blender/
+├── app/                  composition root: main() for every binary, CLI + MCP,
+│   ├── cli/  run/  project/  plugin/  asset/  mcp/  docs/     project/plugin/asset management
+│   (depends on engine AND studio; studio never depends back on app)
 │
-├── modules/              static/dynamic modules behind interfaces
-│   ├── box3d/  render_vulkan/  render_d3d12/  render_metal/
-│   ├── python/  ai/  ...
+├── modules/              backends behind engine-level interfaces
+│   ├── render_vulkan/  physics_box3d/  audio_miniaudio/  net_enet/
+│   ├── script_python/  script_python_studio/
 │
-├── tools/                mosaic-cli/  assetc/  scenec/  shaderc/  packager/  projectgen/
+├── tools/                ci/  docs/  blender_live_link/  example_plugins/
 │
-├── templates/            empty/  game/  visualization/  cinematic/
+├── packages/             bundled example plugins (e.g. hello-plugin/)
 │
-└── tests/                unit/  integration/  rendering/  physics/  projects/
+├── templates/            project scaffolds (default/, ...)
+│
+└── tests/                unit/  fixtures/
 ```
 
 ## Top-level responsibilities
@@ -51,25 +53,30 @@ mosaic/
 |---|---|
 | `foundation/` | The small core: memory, jobs, math, reflection, events, commands, IO, plugin ABI. |
 | `engine/` | The standalone runtime. Depends only on foundation. |
-| `editor/` | Editor tools. Depend on engine. |
-| `studio/` | Full environment + Blender integration. Depends on editor. |
-| `modules/` | Backends and optional capabilities behind interfaces (Box3D, renderers, Python, AI). |
-| `tools/` | CLI and content compilers. |
-| `templates/` | Project starters. |
-| `tests/` | Unit, integration, and project-level tests. |
+| `studio/` | The editor UI (viewport, hierarchy, inspector, console, plugin host) + Blender live-link (out-of-process). Depends only on engine. |
+| `app/` | The composition root — `main()`, CLI subcommands, the MCP automation API, project/plugin/asset management. Depends on engine and studio (studio never depends back on app). |
+| `modules/` | Backends behind engine-level interfaces (Vulkan rendering, Box3D physics, miniaudio, ENet networking, embedded Python). |
+| `tools/` | The dependency-rule lint, docs generation, the Blender live-link addon, example plugins. |
+| `packages/` | Bundled example plugins installable via `mosaic plugin install`. |
+| `templates/` | Project scaffolds `mosaic create` copies from. |
+| `tests/` | Unit tests + fixtures. |
 
 ## Enforced dependency direction
 
 ```text
-Foundation  →  Engine  →  Editor  →  Studio
+Foundation  →  Engine  →  Studio  →  App
 ```
 
-Allowed: `Engine → Foundation`, `Editor → Engine`, `Studio → Editor`.
-Forbidden (enforced in CI): `Foundation → Engine`, `Foundation → Editor`,
-`Engine → Editor`, `Engine → Blender`, `Engine → AI`.
+Allowed: `Engine → Foundation`, `Studio → Engine`, `App → Engine`, `App → Studio`,
+`Modules → Engine`.
+Forbidden (enforced in CI via `tools/ci/check_dependency_rules.py`):
+`Foundation → {Engine, Studio, App, Modules}`, `Engine → {Studio, App, Modules}`,
+`Studio → App`, `Modules → {Studio, App}`, `Engine → Blender`, `Engine → AI`
+(the last two have no dedicated directory to check yet).
 
-Modules may depend on the interfaces they implement, never on arbitrary editor
-code. The full rationale and the "Things Mosaic Will Never Do" contract are in
+Modules may depend on the interfaces they implement, never on arbitrary Studio or
+App code. The full rationale, the real `#include`-direction basis for this
+mapping, and the "Things Mosaic Will Never Do" contract are in
 [ARCHITECTURE.md](../architecture/ARCHITECTURE.md).
 
 ## On splitting later
