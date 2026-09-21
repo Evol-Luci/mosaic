@@ -14,6 +14,7 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/point_light.hpp"
+#include "engine/render/spot_light.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/vfx/decal.hpp"
@@ -45,6 +46,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::render::MeshRenderer>(registry, "MeshRenderer");
     types.register_component<mosaic::engine::render::DirectionalLight>(registry, "DirectionalLight");
     types.register_component<mosaic::engine::render::PointLight>(registry, "PointLight");
+    types.register_component<mosaic::engine::render::SpotLight>(registry, "SpotLight");
     types.register_component<mosaic::engine::physics::RigidBody>(registry, "RigidBody");
     types.register_component<mosaic::engine::physics::Collider>(registry, "Collider");
     types.register_component<mosaic::engine::physics::SphereCollider>(registry, "SphereCollider");
