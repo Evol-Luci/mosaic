@@ -334,7 +334,14 @@ implementation starts.
 | Package manager (network/deps/registry) | Medium |
 | Public marketplace | Low today, High later — gated on an actual user base |
 | 3rd-person adventure template | Medium |
-| Stand up real CI (GitHub Actions) | Medium-High — `CONTRIBUTING.md` claims dependency rules are "enforced in CI" but no CI exists at all today; needs a full C++/Vulkan/GLFW toolchain in the runner |
+
+**Stand up real CI (GitHub Actions) — SHIPPED 2026-09-21 (PR #198)**,
+removed from the table above. `.github/workflows/ci.yml`: debug-preset
+build, full `ctest`, headless `mosaic run --ticks N --json` smoke test,
+on every push to `main` and every PR. A dependency-rule lint is a
+natural follow-up (`CONTRIBUTING.md` still says the layering rules
+aren't mechanically enforced, only reviewed by eye) but is intentionally
+not bundled into this item — greenfield work, not yet scoped.
 
 **Picked as the largest effective win (2026-09-19, original pass):** bulk
 refactoring / project health checks — **shipped**, all 4 sub-projects
