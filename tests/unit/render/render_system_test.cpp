@@ -13,6 +13,7 @@
 #include "engine/render/mesh.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/point_light.hpp"
+#include "engine/render/spot_light.hpp"
 #include "engine/render/image.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
@@ -53,6 +54,7 @@ using mosaic::engine::render::RenderSystem;
 using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
 using mosaic::engine::render::PointLight;
+using mosaic::engine::render::SpotLight;
 using mosaic::engine::transform::WorldTransform;
 using mosaic::foundation::math::Mat4;
 using mosaic::foundation::math::Vec3;
@@ -437,6 +439,83 @@ TEST_CASE("RenderSystem transforms point light into mesh object space", "[render
     REQUIRE(p.point_color.y == Approx(0.5f));   // 0.25 * 2
     REQUIRE(p.point_color.z == Approx(0.2f));   // 0.1 * 2
     REQUIRE(p.point_range == Approx(6.0f));
+}
+
+TEST_CASE("RenderSystem transforms spot light position and direction into mesh object space", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+
+    // Spot light at a known world position with identity rotation (so its forward
+    // direction, via Mat4::forward(), is the default world -Z: {0,0,-1}).
+    const Vec3 light_world_pos{2.0f, 0.0f, 0.0f};
+    auto light = world.create_entity();
+    world.add_component<WorldTransform>(light, WorldTransform{Mat4::translation(light_world_pos)});
+    world.add_component<SpotLight>(light, SpotLight{Vec3{0.3f, 0.6f, 0.9f}, 2.0f, 8.0f, 0.4f, 0.6f});
+
+    // Mesh with a 90-degree-about-Y world rotation (identical setup to the existing
+    // point-light object-space test), so object-space values differ from world ones.
+    const Mat4 mesh_world =
+        Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+
+    // spot_position: identical golden-value derivation to the existing point-light
+    // test (same light world position, same mesh rotation) -- world->object is the
+    // inverse rotation R_y(-90 deg), mapping world {2,0,0} -> object {0,0,2}.
+    REQUIRE(p.spot_position.x == Approx(0.0f).margin(1e-5));
+    REQUIRE(p.spot_position.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(p.spot_position.z == Approx(2.0f).margin(1e-5));
+
+    // spot_direction: independently hand-derived (not by re-running the production
+    // formula, so a systematic error in it cannot make this test pass by matching
+    // itself). World direction is {0,0,-1} (identity-rotation light, Mat4::forward()).
+    // Applying the same R_y(-90 deg) world->object rotation the position above uses:
+    // R_y(-90) maps (x,z) -> (x*0 + z*(-1), -x*(-1) + z*0) = (-z, x). For direction
+    // (x=0, z=-1): (-(-1), 0) = (1, 0). So object-space direction = {1, 0, 0}.
+    REQUIRE(p.spot_direction.x == Approx(1.0f).margin(1e-5));
+    REQUIRE(p.spot_direction.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(p.spot_direction.z == Approx(0.0f).margin(1e-5));
+
+    // spot_color is color * intensity (premultiplied); range/cosines pass through.
+    REQUIRE(p.spot_color.x == Approx(0.6f));  // 0.3 * 2
+    REQUIRE(p.spot_color.y == Approx(1.2f));  // 0.6 * 2
+    REQUIRE(p.spot_color.z == Approx(1.8f));  // 0.9 * 2
+    REQUIRE(p.spot_range == Approx(8.0f));
+    REQUIRE(p.spot_cos_inner == Approx(std::cos(0.4f)));
+    REQUIRE(p.spot_cos_outer == Approx(std::cos(0.6f)));
+}
+
+TEST_CASE("RenderSystem disables spot light when none present", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    REQUIRE(device.draws[0].params.spot_range == Approx(0.0f)); // 0 == disabled
 }
 
 TEST_CASE("RenderSystem disables point light when none present", "[render]")

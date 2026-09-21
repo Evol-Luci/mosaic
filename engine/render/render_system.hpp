@@ -4,7 +4,9 @@
 #include "engine/render/camera.hpp"
 #include "engine/render/directional_light.hpp"
 #include "engine/render/point_light.hpp"
+#include "engine/render/spot_light.hpp"
 #include "engine/render/image.hpp"
+#include <cmath>
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_cache.hpp"
 #include "engine/render/mesh_renderer.hpp"
@@ -95,6 +97,7 @@ public:
 
         DirectionalLight light = active_light(world);
         const PointLightState point = active_point_light(world);
+        const SpotLightState spot = active_spot_light(world);
 
         const Mat4 light_view_proj = directional_light_view_projection(light);
 
@@ -137,10 +140,30 @@ public:
                     point_range = point.range;
                 }
 
+                Vec3 spot_position{0.0f, 0.0f, 0.0f};
+                Vec3 spot_direction{0.0f, 0.0f, -1.0f};
+                Vec3 spot_color{0.0f, 0.0f, 0.0f};
+                float spot_range = 0.0f;
+                float spot_cos_inner = 1.0f;
+                float spot_cos_outer = 1.0f;
+                if (spot.present)
+                {
+                    const Mat4 inv = Mat4::inverse_affine(wt->matrix);
+                    spot_position = mosaic::foundation::math::transform_point(inv, spot.world_pos);
+                    spot_direction = mosaic::foundation::math::normalize(
+                        mosaic::foundation::math::transform_direction(inv, spot.direction));
+                    spot_color = spot.color;
+                    spot_range = spot.range;
+                    spot_cos_inner = spot.cos_inner;
+                    spot_cos_outer = spot.cos_outer;
+                }
+
                 device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, light_obj,
                                        light.color, base_color, point_position, point_color,
-                                       point_range, light_view_proj * wt->matrix});
+                                       point_range, light_view_proj * wt->matrix,
+                                       spot_position, spot_direction, spot_color, spot_range,
+                                       spot_cos_inner, spot_cos_outer});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
@@ -383,6 +406,48 @@ private:
             });
         return s;
     }
+
+    struct SpotLightState
+    {
+        bool                           present = false;
+        mosaic::foundation::math::Vec3 world_pos{};
+        mosaic::foundation::math::Vec3 direction{}; // world space, normalized
+        mosaic::foundation::math::Vec3 color{};     // premultiplied by intensity
+        float                          range = 0.0f;
+        float                          cos_inner = 1.0f;
+        float                          cos_outer = 1.0f;
+    };
+
+    // First SpotLight whose entity has a WorldTransform; world position = its
+    // translation, direction = its local -Z axis in world space (Mat4::forward()).
+    SpotLightState active_spot_light(World& world) const
+    {
+        using mosaic::foundation::math::Vec3;
+        SpotLightState s;
+        world.for_each<SpotLight>(
+            [&](mosaic::foundation::EntityID e, SpotLight& l)
+            {
+                if (s.present)
+                {
+                    return;
+                }
+                const auto* wt = world.get_component<transform::WorldTransform>(e);
+                if (wt == nullptr)
+                {
+                    return;
+                }
+                s.present = true;
+                s.world_pos =
+                    mosaic::foundation::math::transform_point(wt->matrix, Vec3{0.0f, 0.0f, 0.0f});
+                s.direction = wt->matrix.forward();
+                s.color = l.color * l.intensity;
+                s.range = l.range;
+                s.cos_inner = std::cos(l.inner_angle);
+                s.cos_outer = std::cos(l.outer_angle);
+            });
+        return s;
+    }
+
 
     // First DirectionalLight, else a default.
     DirectionalLight active_light(World& world) const
