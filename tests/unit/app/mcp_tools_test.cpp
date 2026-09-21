@@ -69,6 +69,12 @@ struct Fixture
     {
         return handle_tool_call(world, types, stack, "", tool, args, {}, project_dir, live_registry, &live_registry);
     }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir,
+                        const mosaic::app::mcp::ScriptEngineFactory& script_factory)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, script_factory, project_dir);
+    }
 };
 
 struct RuntimeFixture
@@ -90,6 +96,17 @@ struct RuntimeFixture
     nlohmann::json call(const std::string& tool, const nlohmann::json& args = nlohmann::json::object())
     {
         return handle_tool_call(world, types, stack, "", tool, args, script_factory, "", asset_registry);
+    }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir,
+                        const ScriptEngineFactory& factory)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, factory, project_dir, asset_registry);
+    }
+
+    nlohmann::json call(const std::string& tool, const nlohmann::json& args, const std::string& project_dir)
+    {
+        return handle_tool_call(world, types, stack, "", tool, args, script_factory, project_dir, asset_registry);
     }
 };
 
@@ -247,7 +264,7 @@ TEST_CASE("mcp_tools: tools_list_schema lists all 36 v1 tools with a description
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 36);
+    REQUIRE(tools.size() == 39);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -1031,6 +1048,190 @@ TEST_CASE("mcp_tools: plugin_remove of a never-installed package is a no-op succ
 
     const nlohmann::json result = f.call("plugin_remove", {{"name", "never-installed"}}, proj);
     REQUIRE(result.at("ok").get<bool>() == true);
+
+    std::filesystem::remove_all(proj);
+}
+
+namespace
+{
+std::string make_plugin_script_fixture_project(const std::string& tag)
+{
+    const std::string proj = (std::filesystem::temp_directory_path() /
+                              (std::string("mosaic_mcp_plugin_script_") + tag + "_" +
+                               std::to_string(::getpid())))
+                                 .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj));
+    return proj;
+}
+} // namespace
+
+TEST_CASE("mcp_tools: plugin_script_write test-loads then writes a valid plugin, reporting its menu items",
+          "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("write_ok");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    RuntimeFixture f;
+    const nlohmann::json result = f.call(
+        "plugin_script_write",
+        {{"name", "greet"},
+         {"source", "MOSAIC_MENU_ITEMS = {'Say Hello': 'on_say_hello'}\n"
+                    "def on_say_hello():\n    pass\n"}},
+        proj, factory);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE(result.at("menu_items").size() == 1);
+    REQUIRE(result.at("menu_items")[0].at("label").get<std::string>() == "Say Hello");
+    REQUIRE(result.at("menu_items")[0].at("function").get<std::string>() == "on_say_hello");
+    REQUIRE(result.at("panels").empty());
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "greet.py"));
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write overwrites an existing plugin file", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("write_overwrite");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    RuntimeFixture f;
+    REQUIRE(f.call("plugin_script_write", {{"name", "greet"}, {"source", "x = 1\n"}}, proj, factory)
+                .at("ok")
+                .get<bool>());
+    REQUIRE(f.call("plugin_script_write", {{"name", "greet"}, {"source", "x = 2\n"}}, proj, factory)
+                .at("ok")
+                .get<bool>());
+
+    std::ifstream in(std::filesystem::path(proj) / "plugins" / "greet.py", std::ios::binary);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    REQUIRE(ss.str() == "x = 2\n");
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write leaves the real plugins/ untouched on a compile error",
+          "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("write_compile_error");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    RuntimeFixture f;
+    const nlohmann::json result =
+        f.call("plugin_script_write", {{"name", "broken"}, {"source", "def on_update(dt:\n"}}, proj, factory);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE_FALSE(result.at("message").get<std::string>().empty());
+    REQUIRE_FALSE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "broken.py"));
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write reports ok:false when the real plugins/ can't be written",
+          "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("write_unwritable");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    // A regular FILE named "plugins" makes create_directories fail (ENOTDIR), simulating an
+    // unwritable/misconfigured project dir without needing root or chmod games.
+    write_plugin_list_file(std::filesystem::path(proj) / "plugins", "not a directory\n");
+
+    RuntimeFixture f;
+    const nlohmann::json result =
+        f.call("plugin_script_write", {{"name", "greet"}, {"source", "x = 1\n"}}, proj, factory);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE_FALSE(result.at("message").get<std::string>().empty());
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write reports ok:false for a malformed MOSAIC_MENU_ITEMS dict",
+          "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("write_bad_menu_dict");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    RuntimeFixture f;
+    const nlohmann::json result = f.call(
+        "plugin_script_write",
+        {{"name", "badmenu"}, {"source", "MOSAIC_MENU_ITEMS = {'Say Hello': 123}\n"}}, proj, factory);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE(result.at("message").get<std::string>().find("MOSAIC_MENU_ITEMS") != std::string::npos);
+    REQUIRE_FALSE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "badmenu.py"));
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write rejects an unsafe name without touching disk", "[app][mcp]")
+{
+    const std::string proj = make_plugin_script_fixture_project("write_unsafe_name");
+    Fixture f;
+    const nlohmann::json result =
+        f.call("plugin_script_write", {{"name", "../escape"}, {"source", "x = 1\n"}}, proj,
+              ScriptEngineFactory{});
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE_FALSE(std::filesystem::exists(std::filesystem::path(proj) / "plugins"));
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_write throws McpToolError for malformed arguments", "[app][mcp]")
+{
+    Fixture f;
+    REQUIRE_THROWS_AS(f.call("plugin_script_write", {{"source", "x = 1\n"}}, "/tmp"), McpToolError);
+    REQUIRE_THROWS_AS(f.call("plugin_script_write", {{"name", "x"}}, "/tmp"), McpToolError);
+}
+
+TEST_CASE("mcp_tools: plugin_script_read reads back a written plugin's source", "[app][mcp]")
+{
+    mosaic::script::python::ensure_interpreter();
+    const std::string proj = make_plugin_script_fixture_project("read_ok");
+    const ScriptEngineFactory factory = [] { return mosaic::script::python::create_python_script_engine(); };
+
+    RuntimeFixture f;
+    REQUIRE(f.call("plugin_script_write", {{"name", "greet"}, {"source", "x = 1\n"}}, proj, factory)
+                .at("ok")
+                .get<bool>());
+
+    const nlohmann::json result = f.call("plugin_script_read", {{"name", "greet"}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == true);
+    REQUIRE(result.at("source").get<std::string>() == "x = 1\n");
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_read returns ok:false for a plugin that doesn't exist", "[app][mcp]")
+{
+    const std::string proj = make_plugin_script_fixture_project("read_missing");
+    Fixture f;
+    const nlohmann::json result = f.call("plugin_script_read", {{"name", "nope"}}, proj);
+    REQUIRE(result.at("ok").get<bool>() == false);
+    REQUIRE(result.at("source").is_null());
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_script_list lists authored plugins sorted, empty when none exist",
+          "[app][mcp]")
+{
+    const std::string proj = make_plugin_script_fixture_project("list_basic");
+    Fixture f;
+    REQUIRE(f.call("plugin_script_list", {}, proj).at("scripts").empty());
+
+    std::filesystem::create_directories(std::filesystem::path(proj) / "plugins");
+    write_plugin_list_file(std::filesystem::path(proj) / "plugins" / "zeta.py", "pass\n");
+    write_plugin_list_file(std::filesystem::path(proj) / "plugins" / "alpha.py", "pass\n");
+    write_plugin_list_file(std::filesystem::path(proj) / "plugins" / "notes.txt", "not a plugin\n");
+
+    const nlohmann::json scripts = f.call("plugin_script_list", {}, proj).at("scripts");
+    REQUIRE(scripts.size() == 2);
+    REQUIRE(scripts[0].get<std::string>() == "alpha");
+    REQUIRE(scripts[1].get<std::string>() == "zeta");
 
     std::filesystem::remove_all(proj);
 }

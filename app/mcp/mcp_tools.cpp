@@ -1,14 +1,19 @@
 #include "app/mcp/mcp_tools.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <memory>
 #include <functional>
+#include <sstream>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
+
+#include <unistd.h> // ::getpid (unique scratch dir for plugin_script_write's validation copy)
 
 #include "app/asset/asset_io.hpp"
 #include "app/plugin/git.hpp"
@@ -28,6 +33,7 @@
 #include "foundation/commands/composite_command.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/json_backend.hpp"
+#include "studio/plugin_host.hpp"
 #include "studio/script_editor.hpp"
 
 namespace mosaic::app::mcp
@@ -612,6 +618,120 @@ nlohmann::json tool_plugin_remove(const std::string& project_dir, const nlohmann
     return {{"ok", mosaic::app::remove_package(project_dir, name)}};
 }
 
+// List every *.py stem in `project_dir`/plugins, sorted for a deterministic result --
+// mirrors PluginHost::load's own non-recursive *.py scan, but names only (no execution).
+// A missing or non-directory plugins/ (no plugins authored yet, the common case for a
+// fresh project) returns an empty list, matching every other plugin_* tool's convention
+// of "not found" being a normal result, never an error.
+nlohmann::json tool_plugin_script_list(const std::string& project_dir, const nlohmann::json&)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path plugins_dir = fs::path(project_dir) / "plugins";
+    std::vector<std::string> names;
+    if (fs::is_directory(plugins_dir, ec))
+    {
+        std::error_code it_ec;
+        for (auto it = fs::directory_iterator(plugins_dir, ec); it != fs::directory_iterator();
+            it.increment(it_ec))
+        {
+            if (it_ec) { break; }
+            std::error_code file_ec;
+            if (!it->is_regular_file(file_ec) || file_ec || it->path().extension() != ".py") { continue; }
+            names.push_back(it->path().stem().string());
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return {{"scripts", names}};
+}
+
+// Reads back a project-local plugin's source, the read half of write/read authoring --
+// so an agent can fetch a plugin's current source before editing it, the same "read
+// before write" shape get_component/set_component already establish for components.
+// ok:false (never a thrown error) for an unsafe name or a plugin that doesn't exist,
+// matching every other plugin_* tool's not-found convention.
+nlohmann::json tool_plugin_script_read(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    if (!mosaic::app::is_safe_source_name(name)) { return {{"ok", false}, {"source", nullptr}}; }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path path = fs::path(project_dir) / "plugins" / (name + ".py");
+    if (!fs::is_regular_file(path, ec)) { return {{"ok", false}, {"source", nullptr}}; }
+    std::ifstream in(path, std::ios::binary);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return {{"ok", true}, {"source", ss.str()}};
+}
+
+// Writes (creating or overwriting) `project_dir`/plugins/<name>.py, but only after
+// test-loading it via a throwaway PluginHost against a scratch directory containing
+// ONLY the new file -- mirrors set_script's "throwaway compile-check" (a fresh engine,
+// still bound to the real live World/commands, exactly as PluginHost::load always runs
+// plugin top-level code) while never re-running every OTHER already-installed plugin's
+// side effects just to validate one new file, and never leaving a broken script behind
+// in the project's real plugins/ on failure. ok:false (not a thrown error) for an unsafe
+// name or a script that fails to load, mirroring set_script's own "leave it untouched on
+// error" contract -- see `message` for the compile/dict-shape error.
+nlohmann::json tool_plugin_script_write(World& world, const ComponentReflection& types,
+                                        CommandStack& stack, const std::string& project_dir,
+                                        const nlohmann::json& args,
+                                        const ScriptEngineFactory& script_factory)
+{
+    const std::string name = require_string(args, "name");
+    const std::string source = require_string(args, "source");
+    if (!mosaic::app::is_safe_source_name(name))
+    {
+        return {{"ok", false}, {"message", "'" + name + "' is not a valid plugin name"}};
+    }
+
+    namespace fs = std::filesystem;
+    static std::atomic<int> counter{0};
+    std::error_code ec;
+    const fs::path scratch = fs::temp_directory_path() /
+        ("mosaic_mcp_plugin_script_write_" + std::to_string(::getpid()) + "_" +
+         std::to_string(counter.fetch_add(1)));
+    fs::remove_all(scratch, ec);
+    fs::create_directories(scratch, ec);
+    {
+        std::ofstream out(scratch / (name + ".py"), std::ios::binary | std::ios::trunc);
+        out << source;
+    }
+
+    mosaic::studio::PluginHost throwaway(script_factory);
+    const std::vector<std::string> errors = throwaway.load(scratch.string(), world, types, stack);
+    fs::remove_all(scratch, ec);
+    if (!errors.empty())
+    {
+        return {{"ok", false}, {"message", errors.front()}};
+    }
+
+    const fs::path plugins_dir = fs::path(project_dir) / "plugins";
+    fs::create_directories(plugins_dir, ec);
+    if (ec)
+    {
+        return {{"ok", false}, {"message", "failed to create " + plugins_dir.string() + ": " + ec.message()}};
+    }
+    std::ofstream out(plugins_dir / (name + ".py"), std::ios::binary | std::ios::trunc);
+    out << source;
+    if (!out)
+    {
+        return {{"ok", false}, {"message", "failed to write " + (plugins_dir / (name + ".py")).string()}};
+    }
+
+    nlohmann::json menu_items = nlohmann::json::array();
+    for (const mosaic::studio::PluginMenuItem& item : throwaway.menu_items())
+    {
+        menu_items.push_back({{"label", item.label}, {"function", item.function_name}});
+    }
+    nlohmann::json panels = nlohmann::json::array();
+    for (const mosaic::studio::PluginPanel& panel : throwaway.panels())
+    {
+        panels.push_back({{"label", panel.label}, {"function", panel.function_name}});
+    }
+    return {{"ok", true}, {"menu_items", menu_items}, {"panels", panels}};
+}
+
 // The remaining plugin_source_* tools operate on the user's global
 // ~/.config/mosaic/sources.toml (via each function's own registry_path
 // default), not anything project-scoped -- matching `mosaic plugin source`'s
@@ -1136,6 +1256,20 @@ nlohmann::json schema_plugin_remove()
            {"required", {"name"}}};
 }
 
+nlohmann::json schema_plugin_script_read()
+{
+    return {{"type", "object"},
+           {"properties", {{"name", {{"type", "string"}}}}},
+           {"required", {"name"}}};
+}
+
+nlohmann::json schema_plugin_script_write()
+{
+    return {{"type", "object"},
+           {"properties", {{"name", {{"type", "string"}}}, {"source", {{"type", "string"}}}}},
+           {"required", {"name", "source"}}};
+}
+
 nlohmann::json schema_plugin_source_add()
 {
     return {{"type", "object"},
@@ -1318,6 +1452,35 @@ nlohmann::json tools_list_schema()
                                      "entry. Removing a package that isn't installed is a no-op "
                                      "success (ok:true), not an error."},
                      {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_script_list"},
+                     {"description", "List the project's authored plugins/*.py files by name "
+                                     "(sorted), no execution. Distinct from plugin_list, which "
+                                     "lists installable packages in a package source -- this "
+                                     "lists what's already on disk under the project's own "
+                                     "plugins/. Empty if plugins/ doesn't exist yet."},
+                     {"inputSchema", schema_none()}});
+    tools.push_back({{"name", "plugin_script_read"},
+                     {"description", "Read a project-local plugin's current source by name "
+                                     "(no .py extension), for editing before calling "
+                                     "plugin_script_write. ok is false (not an error) if the "
+                                     "name is invalid or no such plugin exists."},
+                     {"inputSchema", schema_plugin_script_read()}});
+    tools.push_back({{"name", "plugin_script_write"},
+                     {"description", "Author a project-local plugin: write `source` to "
+                                     "plugins/<name>.py, declaring MOSAIC_MENU_ITEMS/"
+                                     "MOSAIC_PANELS dicts mapping a label to a zero-argument "
+                                     "function name to register a Studio menu item/panel (see "
+                                     "the bundled hello-plugin package for an example). Before "
+                                     "writing, test-loads the script via a throwaway plugin "
+                                     "host bound to the live World -- ok is false (not an "
+                                     "error, see message) on a compile error or a malformed "
+                                     "MOSAIC_MENU_ITEMS/MOSAIC_PANELS dict, and the real "
+                                     "plugins/ directory is left untouched. On success, "
+                                     "creates or overwrites the file and returns the "
+                                     "menu_items/panels it registered; call Studio's "
+                                     "\"Reload Plugins\" (or restart mosaic mcp) to pick up "
+                                     "the change in a running session."},
+                     {"inputSchema", schema_plugin_script_write()}});
     tools.push_back({{"name", "plugin_source_add"},
                      {"description", "Register a named package source (same effect as "
                                      "`mosaic plugin source add <name> <path-or-git-url>`), "
@@ -1431,6 +1594,18 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "plugin_remove")
     {
         return tool_plugin_remove(project_dir, arguments);
+    }
+    if (tool_name == "plugin_script_list")
+    {
+        return tool_plugin_script_list(project_dir, arguments);
+    }
+    if (tool_name == "plugin_script_read")
+    {
+        return tool_plugin_script_read(project_dir, arguments);
+    }
+    if (tool_name == "plugin_script_write")
+    {
+        return tool_plugin_script_write(world, types, stack, project_dir, arguments, script_factory);
     }
     if (tool_name == "broken_references")
     {

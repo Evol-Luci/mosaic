@@ -273,10 +273,11 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Tech debt
 
-- **Issue #25 — Component TypeID densification** — `type_id<T>()` shares
-  one global counter across all reflected types, wasting
-  `ComponentRegistry::storages_` slots. Correctness-safe, but flagged as
-  should-fix post-v0.1 and never touched.
+- ~~**Issue #25 — Component TypeID densification**~~ — **SHIPPED**
+  2026-09-20. `storages_` now indexed by a new, purely-internal dense
+  slot (`detail::component_storage_slot<T>()`) instead of the shared
+  `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
+  avoiding a reintroduction of the earlier "#9 identity drift" bug.
 
 ## Effort vs. impact
 
@@ -306,7 +307,6 @@ same unchanged source docs.
 | Studio plugin (`.py`) authoring via MCP | Medium |
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
-| Component TypeID densification (#25) | Low-Medium |
 | Studio theme system + persistence | Medium |
 | Studio recent-projects list (picker UI + tracking) | Medium |
 
