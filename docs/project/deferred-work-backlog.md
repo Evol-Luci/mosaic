@@ -228,8 +228,42 @@ view that was actually used to pick what to build next as of this writing.
 
 - RenderGraph / multi-pass structure — deferred since the point-light
   slice, never picked up (two-pass submission chosen instead each time it
-  came up).
-- Shadows, specular/PBR, spot lights, world-space per-frame light UBO.
+  came up). **Shadows (below, in scoping as of 2026-09-21) will bring the
+  editor's viewport path to 3 direct-submission passes** (shadow depth →
+  offscreen viewport → swapchain blit) — still not being used as the
+  trigger to build the graph for real (confirmed with the user: extend
+  direct submission again for shadows' v1), but this is now the closest
+  the project has come to the "≥3-pass slice" bar named as the graph's
+  actual trigger back at 37d/46. Worth re-raising with the user the next
+  time a *dynamic* pass need shows up (conditional/reorderable passes,
+  not just "one more fixed pass"), since that's the harder case direct
+  submission genuinely doesn't scale to.
+- **Shadows — v1 (directional-only, hard-edged, fixed-size ortho
+  frustum) in scoping as of 2026-09-21**; real, explicitly-deferred
+  upgrades once v1 ships, each its own future slice, not silently
+  folded in:
+  - **PCF / soft shadow filtering** — v1 ships hard-edged (single depth
+    sample) shadows deliberately, to prove the pipeline (light-space
+    matrix, depth pass, sampling) before adding filtering. A small,
+    separable follow-up (a few extra texture samples averaged in the
+    shader) once v1 is solid.
+  - **Point-light shadows (cubemap / 6-pass omnidirectional depth)** —
+    v1 is directional-light-only. Point-light shadows are a genuinely
+    different technique (cubemap rendering, not a single ortho
+    frustum), roughly doubling the scope of v1 — its own future slice.
+  - **Scene/camera-fitted (and eventually cascaded) shadow frustum** —
+    v1 uses a fixed-size orthographic box centered on the origin,
+    correct for the current demo/test scenes but not for scenes bigger
+    than that box or not centered near the origin. Fitting the frustum
+    to the live scene bounds (similar math to the existing
+    `entities_near`/`scene_bounds` MCP tool) or the camera's view
+    frustum, and eventually cascaded shadow maps for large open scenes,
+    are named, deliberate follow-ups, not built in v1.
+- Specular/PBR, spot lights, world-space per-frame light UBO (the
+  fixed-per-frame directional light-view-projection matrix v1's shadow
+  work introduces is a first, narrow step toward a real per-frame light
+  UBO, but the general one — multiple lights, PBR material params — is
+  still its own separate, unscoped item).
 
 ## Project templates
 
