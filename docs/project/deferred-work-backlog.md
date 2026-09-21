@@ -80,9 +80,12 @@ view that was actually used to pick what to build next as of this writing.
 - **Generic criteria-based search (query DSL)** — "find entities where
   field Y matches Z". Most general/powerful, needs its own decomposition.
   *Source:* same
-- **Studio plugin (`.py`) authoring via MCP** — write `plugins/*.py`
-  declaring `MOSAIC_MENU_ITEMS`/etc., needs its own validation (throwaway
-  `PluginHost` load). *Source:*
+- ~~**Studio plugin (`.py`) authoring via MCP**~~ — **SHIPPED** 2026-09-20
+  (MCP tools 37-39, PR #193). `plugin_script_write` validates via a
+  throwaway `PluginHost` load (a scratch directory holding only the
+  candidate file, bound to the real live World) before persisting to
+  the project's real `plugins/`; `plugin_script_read`/`plugin_script_list`
+  round out the loop. *Source:*
   `2026-09-16-code-generation-set-script-design.md`
 - ~~**Undo support for `set_script`**~~ — **SHIPPED** 2026-09-20.
   `ScriptEditorModel::apply()` now applies via `SetComponentCommand`
@@ -302,9 +305,11 @@ same unchanged source docs.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
+**Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)** —
+removed from the table below.
+
 | Item | Impact |
 |---|---|
-| Studio plugin (`.py`) authoring via MCP | Medium |
 | Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Studio theme system + persistence | Medium |
