@@ -18,6 +18,7 @@
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/render_system.hpp"
+#include "engine/render/shadow.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_emitter.hpp"
@@ -92,6 +93,17 @@ public:
     {
         draws.push_back({m, t, p});
     }
+
+    struct ShadowDrawCall { MeshHandle mesh; Mat4 light_mvp; };
+    std::vector<ShadowDrawCall> shadow_draws;
+    int shadow_pass_begins = 0;
+    int shadow_pass_ends = 0;
+    void begin_shadow_pass() override { ++shadow_pass_begins; }
+    void draw_shadow(MeshHandle m, const Mat4& light_mvp) override
+    {
+        shadow_draws.push_back({m, light_mvp});
+    }
+    void end_shadow_pass() override { ++shadow_pass_ends; }
 
     struct ParticleDrawCall { std::vector<ParticleInstance> instances; ParticleDrawParams params; };
     std::vector<ParticleDrawCall> particle_draws;
@@ -222,6 +234,44 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     // direction, so this test fails if the RenderSystem ever skips the object-space transform.
     const Vec3 world_norm = mosaic::foundation::math::normalize(world_dir);
     REQUIRE(std::abs(p.light_direction.x - world_norm.x) > 0.1f);
+}
+
+TEST_CASE("RenderSystem runs a shadow pass before the main draw, with the right light_mvp", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto light = world.create_entity();
+    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{0, -1, 0}, Vec3{1, 1, 1}});
+
+    const Mat4 mesh_world = Mat4::translation(Vec3{1.0f, 0.0f, 0.0f});
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.shadow_pass_begins == 1);
+    REQUIRE(device.shadow_pass_ends == 1);
+    REQUIRE(device.shadow_draws.size() == 1);
+    REQUIRE(device.shadow_draws[0].mesh == device.draws[0].mesh);
+
+    // light_mvp == light_view_proj * mesh_world; light_mvp in DrawParams (main pass)
+    // must match the shadow pass's own light_mvp exactly -- same light, same mesh.
+    const Mat4 light_vp = mosaic::engine::render::directional_light_view_projection(
+        DirectionalLight{Vec3{0, -1, 0}, Vec3{1, 1, 1}});
+    const Mat4 expected = light_vp * mesh_world;
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(device.shadow_draws[0].light_mvp.m[i] == Approx(expected.m[i]).margin(1e-4));
+        REQUIRE(device.draws[0].params.light_mvp.m[i] == Approx(expected.m[i]).margin(1e-4));
+    }
 }
 
 TEST_CASE("RenderSystem uses default base color and light when none present", "[render]")

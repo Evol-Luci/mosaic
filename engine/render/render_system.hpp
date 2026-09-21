@@ -10,6 +10,7 @@
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
 #include "engine/render/texture_cache.hpp"
+#include "engine/render/shadow.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
 #include "engine/particles/particle_system.hpp"
@@ -67,6 +68,20 @@ public:
         DirectionalLight light = active_light(world);
         const PointLightState point = active_point_light(world);
 
+        const Mat4 light_view_proj = directional_light_view_projection(light);
+
+        device.begin_shadow_pass();
+        world.for_each<MeshRenderer>(
+            [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
+            {
+                const MeshHandle mesh = mesh_cache_.get(mr.mesh, registry, device);
+                if (mesh == 0) { return; }
+                const auto* wt = world.get_component<transform::WorldTransform>(e);
+                if (wt == nullptr) { return; }
+                device.draw_shadow(mesh, light_view_proj * wt->matrix);
+            });
+        device.end_shadow_pass();
+
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
             {
@@ -108,7 +123,8 @@ public:
 
                 device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, light_obj,
-                                       light.color, base_color, point_position, point_color, point_range});
+                                       light.color, base_color, point_position, point_color,
+                                       point_range, light_view_proj * wt->matrix});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
