@@ -339,3 +339,59 @@ implementation starts.
 **Picked as the largest effective win (2026-09-19, original pass):** bulk
 refactoring / project health checks — **shipped**, all 4 sub-projects
 complete (see specs above). Next pick TBD with the user.
+
+**Scoping pass on "Stand up real CI" (2026-09-21, after the Medium tier
+closed out)** — investigated the actual dependency chain rather than
+guessing at a workflow file blind, since getting package names wrong
+means a slow guess-push-fail loop with no one around to weigh
+trade-offs. Findings from reading `CMakeLists.txt` and
+`modules/render_vulkan/CMakeLists.txt` directly:
+- Hard `REQUIRED` dependencies at configure time: `Threads`, system
+  `Vulkan` (`find_package(Vulkan REQUIRED)` — needs the SDK/loader +
+  headers installed, not just runtime-resolvable), `Python3`
+  (Interpreter + Development, for the embedded pybind11 scripting),
+  and a `glslc` binary on `PATH` (`find_program(GLSLC glslc
+  REQUIRED)` — shaders are compiled to SPIR-V at *build* time, so a
+  CI runner needs the compiler even though it never needs a real GPU
+  to run it). GLFW is fetched and built from source via
+  `FetchContent` — no system package needed for it.
+- **The good news, confirmed by actually running the full suite
+  locally and reading what it touches:** `ctest`/`mosaic_unit_tests`
+  never creates a real `VkDevice`/window — it's headless logic
+  (confirmed via this session's own repeated full-suite runs, all
+  green, on a sandbox with no functioning GPU-backed Vulkan ICD).
+  Only `mosaic run --window`/`mosaic editor` (never invoked by
+  `ctest`) touch a real GPU. **This means CI likely does NOT need a
+  working GPU or software rasterizer (lavapipe/llvmpipe) at all** —
+  just the Vulkan *headers + loader* to satisfy `find_package`/link,
+  and a real `glslc` binary to compile shaders at build time. This
+  significantly de-risks the item versus the original "needs a full
+  Vulkan toolchain in the runner" framing.
+- **The actual open risk is `glslc` package availability on GitHub's
+  `ubuntu-latest` runner image** — not confirmed by installing it
+  anywhere, only reasoned about from memory (Ubuntu's own repos have
+  historically been inconsistent about shipping a standalone `glslc`
+  package versus only `glslang-tools`' `glslangValidator`, a
+  different tool). The standard robust fix other Vulkan projects use
+  is adding LunarG's official Vulkan SDK apt repository and
+  installing the `vulkan-sdk` meta-package (guarantees loader,
+  headers, validation layers, and `glslc` together) rather than
+  hunting for the right combination of distro packages — but this
+  needs an actual CI run to confirm, not more reading.
+- **Not attempted tonight, deliberately:** writing and iterating on
+  the actual `.github/workflows/*.yml` needs a real push-and-watch
+  loop (`gh run watch`) to get the LunarG-repo-vs-distro-packages
+  question and the exact CMake preset/build-type right, plus
+  judgment calls this session's own practice would normally raise
+  with the user first rather than decide alone at 1am: which preset
+  (debug/release/both as a matrix?), whether to also gate on the
+  dependency-rule check `CONTRIBUTING.md` already claims is
+  "enforced" (it isn't, anywhere, today — a lint pass would need
+  writing from scratch, not just wiring up a workflow), and whether
+  a `ctest`-only pipeline is an acceptable v1 or whether launching
+  `mosaic run --ticks N` headlessly (no `--window`) should also gate
+  merges as a smoke test. **Next: brainstorm this properly with the
+  user** (a real spec/plan cycle, not a chat-agreed bounded slice —
+  this is the first item in the whole session that touches
+  infrastructure outside the repo itself) before writing the
+  workflow file.
