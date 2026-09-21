@@ -305,12 +305,12 @@ same unchanged source docs.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
-**Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)** —
-removed from the table below.
+**Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)**,
+**per-plugin enable/disable + versioning shipped 2026-09-21 (PR #194)** —
+both removed from the table below.
 
 | Item | Impact |
 |---|---|
-| Per-plugin enable/disable + versioning | Medium |
 | Plugin live file-watching/hot-reload | Medium |
 | Studio theme system + persistence | Medium |
 | Studio recent-projects list (picker UI + tracking) | Medium |
