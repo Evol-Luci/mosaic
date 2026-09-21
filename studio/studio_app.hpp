@@ -63,17 +63,26 @@ public:
     // already open won't be picked up by "Reload Plugins" until the editor restarts --
     // an accepted limitation, not a bug, matching this project's precedent of naming
     // known follow-ups rather than silently shipping around them.
+    // `initial_theme` is the theme already applied to the ImGui context via
+    // RenderDevice::init_ui() before this constructor runs (see app/run/editor.cpp) --
+    // stored here purely so the Theme menu can show which one is active and
+    // current_theme() can report it back for persistence at exit. Constructing a
+    // StudioApp never itself calls set_ui_theme(); the caller is expected to have
+    // already applied it via init_ui().
     explicit StudioApp(std::string scene_path = "scene.json",
                        ScriptConsoleModel::EngineFactory script_factory = {},
                        PluginHost::EngineFactory plugin_factory = {},
                        std::string plugins_dir = "plugins",
-                       std::vector<std::string> disabled_plugin_files = {})
+                       std::vector<std::string> disabled_plugin_files = {},
+                       mosaic::engine::render::UiTheme initial_theme =
+                           mosaic::engine::render::UiTheme::Dark)
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
           script_editor_(script_factory),
           plugin_host_(plugin_factory),
           plugins_dir_(std::move(plugins_dir)),
-          disabled_plugin_files_(std::move(disabled_plugin_files))
+          disabled_plugin_files_(std::move(disabled_plugin_files)),
+          current_theme_(initial_theme)
     {
     }
 
@@ -89,6 +98,11 @@ public:
     SceneFileModel&                scene_file() { return scene_file_; }
     std::shared_ptr<ConsoleBuffer> console() { return console_; }
     bool                           exit_requested() const { return layout_.exit_requested(); }
+    // The theme most recently selected via the Theme menu (or initial_theme if
+    // never changed this session) -- read by the caller right before exit to
+    // persist alongside window size, mirroring the existing glfwGetWindowSize
+    // read-back-at-exit pattern.
+    mosaic::engine::render::UiTheme current_theme() const { return current_theme_; }
 
     // Called by the editor loop right after a File > Reload has replaced the live
     // World's contents from disk: drops every Studio-side cache that names an
@@ -153,6 +167,7 @@ private:
     std::vector<std::string> disabled_plugin_files_; // filenames plugin_host_.load() should skip
     bool                     plugins_loaded_ = false; // true after the first load() this session
     PluginFileWatcher        plugin_watcher_; // polled once per frame; a change triggers reload_plugins()
+    mosaic::engine::render::UiTheme current_theme_; // see current_theme()/the Theme menu in draw_ui
 };
 
 } // namespace mosaic::studio

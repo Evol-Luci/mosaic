@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <string>
+#include <utility>
 
 #include <imgui.h>
 
@@ -138,6 +139,24 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
                 if (ImGui::MenuItem(panel.name.c_str(), nullptr, &open))
                 {
                     layout_.toggle(panel.name);
+                }
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Theme"))
+        {
+            static const std::pair<const char*, mosaic::engine::render::UiTheme> kThemes[] = {
+                {"Dark", mosaic::engine::render::UiTheme::Dark},
+                {"Light", mosaic::engine::render::UiTheme::Light},
+                {"Classic", mosaic::engine::render::UiTheme::Classic},
+            };
+            for (const auto& [label, theme] : kThemes)
+            {
+                if (ImGui::MenuItem(label, nullptr, current_theme_ == theme))
+                {
+                    current_theme_ = theme;
+                    device.set_ui_theme(theme);
                 }
             }
             ImGui::EndMenu();
