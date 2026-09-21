@@ -618,6 +618,39 @@ nlohmann::json tool_plugin_remove(const std::string& project_dir, const nlohmann
     return {{"ok", mosaic::app::remove_package(project_dir, name)}};
 }
 
+// Disables/re-enables an installed plugin without deleting its files (unlike
+// plugin_remove). ok:false if `name` isn't installed -- Studio's PluginHost only
+// picks up the new state on its next load (an already-open editor session's "Reload
+// Plugins" recomputes it lazily; see StudioApp's constructor comment).
+nlohmann::json tool_plugin_enable(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    return {{"ok", mosaic::app::set_plugin_enabled(project_dir, name, true)}};
+}
+
+nlohmann::json tool_plugin_disable(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string name = require_string(args, "name");
+    return {{"ok", mosaic::app::set_plugin_enabled(project_dir, name, false)}};
+}
+
+// The "versioning" half of enable/disable + versioning: every installed plugin whose
+// source version (resolved the same way plugin_install does) differs from the version
+// recorded at install time. Empty list (not an error) when everything is up to date, or
+// when a package no longer exists in the source at all -- nothing to compare against.
+nlohmann::json tool_plugin_check_updates(const std::string& project_dir, const nlohmann::json& args)
+{
+    const std::string source = resolve_plugin_source(args);
+    nlohmann::json updates = nlohmann::json::array();
+    for (const mosaic::app::PluginUpdate& u : mosaic::app::available_plugin_updates(project_dir, source))
+    {
+        updates.push_back({{"name", u.name},
+                           {"installed_version", u.installed_version},
+                           {"available_version", u.available_version}});
+    }
+    return {{"updates", updates}};
+}
+
 // List every *.py stem in `project_dir`/plugins, sorted for a deterministic result --
 // mirrors PluginHost::load's own non-recursive *.py scan, but names only (no execution).
 // A missing or non-directory plugins/ (no plugins authored yet, the common case for a
@@ -1452,6 +1485,29 @@ nlohmann::json tools_list_schema()
                                      "entry. Removing a package that isn't installed is a no-op "
                                      "success (ok:true), not an error."},
                      {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_enable"},
+                     {"description", "Enable a previously-disabled installed plugin `name` "
+                                     "(same effect as `mosaic plugin enable <name> <project>`) "
+                                     "-- reversible, unlike plugin_remove: no files touched, "
+                                     "just the mosaic.toml flag PluginHost consults on load. "
+                                     "ok is false if `name` isn't installed."},
+                     {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_disable"},
+                     {"description", "Disable installed plugin `name` without uninstalling it "
+                                     "(same effect as `mosaic plugin disable <name> <project>`) "
+                                     "-- PluginHost skips its files on the next load, but "
+                                     "nothing on disk changes and plugin_enable reverses it. "
+                                     "ok is false if `name` isn't installed."},
+                     {"inputSchema", schema_plugin_remove()}});
+    tools.push_back({{"name", "plugin_check_updates"},
+                     {"description", "List installed plugins whose version in the package "
+                                     "source (resolved the same way as plugin_install's "
+                                     "`source`) differs from the version recorded at install "
+                                     "time -- the same comparison `mosaic plugin updates "
+                                     "<project>` prints. Empty (not an error) when everything "
+                                     "is up to date, or when a package no longer exists in "
+                                     "that source at all."},
+                     {"inputSchema", schema_plugin_list()}});
     tools.push_back({{"name", "plugin_script_list"},
                      {"description", "List the project's authored plugins/*.py files by name "
                                      "(sorted), no execution. Distinct from plugin_list, which "
@@ -1594,6 +1650,18 @@ nlohmann::json handle_tool_call(World& world, const ComponentReflection& types, 
     if (tool_name == "plugin_remove")
     {
         return tool_plugin_remove(project_dir, arguments);
+    }
+    if (tool_name == "plugin_enable")
+    {
+        return tool_plugin_enable(project_dir, arguments);
+    }
+    if (tool_name == "plugin_disable")
+    {
+        return tool_plugin_disable(project_dir, arguments);
+    }
+    if (tool_name == "plugin_check_updates")
+    {
+        return tool_plugin_check_updates(project_dir, arguments);
     }
     if (tool_name == "plugin_script_list")
     {

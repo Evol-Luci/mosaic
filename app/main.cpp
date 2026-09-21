@@ -124,6 +124,21 @@ int main(int argc, char** argv)
         return run_plugin_remove(pr.options);
     }
 
+    if (pr.options.command == Command::PluginEnable)
+    {
+        return run_plugin_enable(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginDisable)
+    {
+        return run_plugin_disable(pr.options);
+    }
+
+    if (pr.options.command == Command::PluginUpdates)
+    {
+        return run_plugin_updates(pr.options);
+    }
+
     if (pr.options.command == Command::PluginSourceAdd)
     {
         return run_plugin_source_add(pr.options);

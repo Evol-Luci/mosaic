@@ -16,6 +16,7 @@
 #include "studio/viewport.hpp"
 #include <optional>
 #include <string>
+#include <vector>
 #include "foundation/core/entity_id.hpp"
 #include "studio/demo_physics.hpp"
 #include "studio/transform_controls.hpp"
@@ -52,15 +53,26 @@ public:
     // CWD-relative resolution silently breaks for any launch whose CWD isn't the
     // project root (a desktop shortcut, a packaged distribution's launcher, `mosaic
     // editor` invoked from elsewhere with a project-dir argument).
+    // `disabled_plugin_files` names *.py files (bare filenames) PluginHost should skip on
+    // every load -- the caller (app/run/editor.cpp) derives this from the project's
+    // ProjectManifest.installed_plugins' `enabled` flags, since Studio itself doesn't know
+    // about app/'s ProjectManifest (Studio sits below app/ in the dependency direction:
+    // app/run/editor.cpp constructs and drives StudioApp, not the reverse). Fixed at
+    // construction: a plugin enabled/disabled via the CLI/MCP while this editor session is
+    // already open won't be picked up by "Reload Plugins" until the editor restarts --
+    // an accepted limitation, not a bug, matching this project's precedent of naming
+    // known follow-ups rather than silently shipping around them.
     explicit StudioApp(std::string scene_path = "scene.json",
                        ScriptConsoleModel::EngineFactory script_factory = {},
                        PluginHost::EngineFactory plugin_factory = {},
-                       std::string plugins_dir = "plugins")
+                       std::string plugins_dir = "plugins",
+                       std::vector<std::string> disabled_plugin_files = {})
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
           script_editor_(script_factory),
           plugin_host_(plugin_factory),
-          plugins_dir_(std::move(plugins_dir))
+          plugins_dir_(std::move(plugins_dir)),
+          disabled_plugin_files_(std::move(disabled_plugin_files))
     {
     }
 
@@ -129,9 +141,10 @@ private:
     int                                         script_bp_line_ = 1;   // breakpoint line input
     ScriptApplyResult                           script_debug_result_;  // outcome of the last Debug run
     LiveLinkServer                              live_link_;            // Blender Live-Link socket
-    PluginHost  plugin_host_;       // project-local *.py plugins
-    std::string plugins_dir_;           // where plugin_host_ loads from -- see constructor comment
-    bool        plugins_loaded_ = false; // true after the first load() this session
+    PluginHost               plugin_host_;       // project-local *.py plugins
+    std::string              plugins_dir_;           // where plugin_host_ loads from -- see constructor comment
+    std::vector<std::string> disabled_plugin_files_; // filenames plugin_host_.load() should skip
+    bool                     plugins_loaded_ = false; // true after the first load() this session
 };
 
 } // namespace mosaic::studio

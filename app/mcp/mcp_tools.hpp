@@ -34,10 +34,11 @@ struct McpToolError : std::runtime_error
 using ScriptEngineFactory = std::function<std::unique_ptr<mosaic::engine::script::ScriptEngine>()>;
 
 // The MCP `tools/list` response body: { "tools": [ { name, description, inputSchema }, ... ] }
-// for all 39 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
+// for all 42 v1 tools (entity/component CRUD + undo/redo/save_scene + describe_scene +
 // entities_near + scene_bounds + set_script + import_asset + tick + tick_until +
 // build_project + script_profile + entities_where + broken_references + orphaned_assets +
 // bulk_set_field + entities_referencing + plugin_list + plugin_install + plugin_remove +
+// plugin_enable + plugin_disable + plugin_check_updates +
 // plugin_script_list/read/write + plugin_source_add/list/remove/pull).
 nlohmann::json tools_list_schema();
 
@@ -45,7 +46,8 @@ nlohmann::json tools_list_schema();
 // used only by `save_scene`. `script_factory` is used only by `set_script` and
 // `plugin_script_write` (the latter's throwaway validation load).
 // `project_dir` is used only by `import_asset`, `build_project`, `plugin_install`,
-// `plugin_remove`, and `plugin_script_list`/`plugin_script_read`/`plugin_script_write`.
+// `plugin_remove`, `plugin_enable`, `plugin_disable`, `plugin_check_updates`, and
+// `plugin_script_list`/`plugin_script_read`/`plugin_script_write`.
 // `asset_registry` is used only by `broken_references` and
 // `orphaned_assets` (all four unused by every other
 // tool, threaded through uniformly -- the same "every closure takes everything it might

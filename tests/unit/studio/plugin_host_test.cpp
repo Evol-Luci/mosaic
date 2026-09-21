@@ -335,3 +335,46 @@ TEST_CASE("StudioPluginScriptEngine rejects an imgui_* call outside an active pa
     fs::remove_all(dir);
 }
 
+TEST_CASE("PluginHost.load skips a disabled plugin's file entirely -- no run, no error, no menu item",
+         "[studio]")
+{
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const fs::path dir = make_plugin_dir("disabled_skip");
+    write_plugin(dir, "enabled.py", "MOSAIC_MENU_ITEMS = {\"On\": \"on_click\"}\n\n"
+                                    "def on_click(): pass\n");
+    write_plugin(dir, "disabled.py", "this is not even valid python (");
+
+    PluginHost host(create_python_script_engine);
+    const auto errors = host.load(dir.string(), world, types, commands, {"disabled.py"});
+
+    REQUIRE(errors.empty()); // the broken-but-disabled file was never run, so never errored
+    REQUIRE(host.menu_items().size() == 1);
+    REQUIRE(host.menu_items()[0].plugin_name == "enabled");
+
+    fs::remove_all(dir);
+}
+
+TEST_CASE("PluginHost.load with an empty disabled list behaves exactly as before (default arg)",
+         "[studio]")
+{
+    World world;
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+    CommandStack commands;
+
+    const fs::path dir = make_plugin_dir("disabled_default");
+    write_plugin(dir, "hello.py", "MOSAIC_MENU_ITEMS = {}\n");
+
+    PluginHost host(create_python_script_engine);
+    REQUIRE(host.load(dir.string(), world, types, commands).empty());
+    REQUIRE(host.menu_items().empty());
+
+    fs::remove_all(dir);
+}
+

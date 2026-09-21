@@ -202,4 +202,34 @@ inline std::optional<std::string> resolve_plugins_dir(const std::string& path)
     }
     return std::nullopt;
 }
+
+// The *.py filenames Studio's PluginHost should skip loading when opening `path` -- every
+// file owned by an installed_plugins entry whose `enabled` flag is false. Studio itself
+// can't call this directly (it sits below app/ in the dependency direction; see
+// StudioApp's constructor comment), so app/run/editor.cpp calls it and threads the result
+// down. `path` not a directory, or no manifest, or no disabled plugins: an empty vector,
+// same "not an error" convention as resolve_plugins_dir.
+inline std::vector<std::string> resolve_disabled_plugin_files(const std::string& path)
+{
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (!fs::is_directory(path, ec))
+    {
+        return {};
+    }
+    const std::optional<ProjectManifest> manifest = load_manifest(path);
+    if (!manifest)
+    {
+        return {};
+    }
+    std::vector<std::string> files;
+    for (const InstalledPlugin& p : manifest->installed_plugins)
+    {
+        if (!p.enabled)
+        {
+            files.insert(files.end(), p.files.begin(), p.files.end());
+        }
+    }
+    return files;
+}
 } // namespace mosaic::app

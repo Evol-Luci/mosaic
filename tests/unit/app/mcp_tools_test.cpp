@@ -259,12 +259,12 @@ TEST_CASE("mcp_tools: save_scene with an empty scene path is an McpToolError", "
     REQUIRE_THROWS_AS(handle_tool_call(f.world, f.types, f.stack, "", "save_scene", {}), McpToolError);
 }
 
-TEST_CASE("mcp_tools: tools_list_schema lists all 36 v1 tools with a description and inputSchema", "[app][mcp]")
+TEST_CASE("mcp_tools: tools_list_schema lists all 42 v1 tools with a description and inputSchema", "[app][mcp]")
 {
     const nlohmann::json schema = tools_list_schema();
     REQUIRE(schema.contains("tools"));
     const nlohmann::json tools = schema.at("tools");
-    REQUIRE(tools.size() == 39);
+    REQUIRE(tools.size() == 42);
     for (const auto& tool : tools)
     {
         REQUIRE(tool.contains("name"));
@@ -1049,6 +1049,102 @@ TEST_CASE("mcp_tools: plugin_remove of a never-installed package is a no-op succ
     const nlohmann::json result = f.call("plugin_remove", {{"name", "never-installed"}}, proj);
     REQUIRE(result.at("ok").get<bool>() == true);
 
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_disable/plugin_enable toggle an installed plugin's flag without "
+         "touching its files",
+         "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("enable_disable_ok");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+    write_plugin_list_file(root / "greet" / "greet.py", "def register(): pass\n");
+
+    Fixture f;
+    const std::string proj =
+        (std::filesystem::temp_directory_path() /
+         (std::string("mosaic_mcp_plugin_enable_disable_") + std::to_string(::getpid())))
+            .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj));
+    REQUIRE(f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj)
+                .at("ok")
+                .get<bool>());
+
+    REQUIRE(f.call("plugin_disable", {{"name", "greet"}}, proj).at("ok").get<bool>() == true);
+    REQUIRE(std::filesystem::exists(std::filesystem::path(proj) / "plugins" / "greet.py"));
+    {
+        const auto manifest = mosaic::app::load_manifest(proj);
+        REQUIRE_FALSE(manifest->installed_plugins[0].enabled);
+    }
+
+    REQUIRE(f.call("plugin_enable", {{"name", "greet"}}, proj).at("ok").get<bool>() == true);
+    {
+        const auto manifest = mosaic::app::load_manifest(proj);
+        REQUIRE(manifest->installed_plugins[0].enabled);
+    }
+
+    std::filesystem::remove_all(root);
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_enable/plugin_disable return ok:false for a package that isn't "
+         "installed",
+         "[app][mcp]")
+{
+    Fixture f;
+    const std::string proj =
+        (std::filesystem::temp_directory_path() /
+         (std::string("mosaic_mcp_plugin_enable_disable_missing_") + std::to_string(::getpid())))
+            .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj));
+
+    REQUIRE(f.call("plugin_disable", {{"name", "never-installed"}}, proj).at("ok").get<bool>() ==
+           false);
+    REQUIRE(f.call("plugin_enable", {{"name", "never-installed"}}, proj).at("ok").get<bool>() ==
+           false);
+
+    std::filesystem::remove_all(proj);
+}
+
+TEST_CASE("mcp_tools: plugin_check_updates reports an installed plugin whose source version moved",
+         "[app][mcp]")
+{
+    const std::filesystem::path root = make_plugin_list_fixture_source("check_updates_ok");
+    std::filesystem::create_directories(root / "greet");
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.0.0\"\ndescription = \"Says hello\"\n");
+    write_plugin_list_file(root / "greet" / "greet.py", "def register(): pass\n");
+
+    Fixture f;
+    const std::string proj =
+        (std::filesystem::temp_directory_path() /
+         (std::string("mosaic_mcp_plugin_check_updates_") + std::to_string(::getpid())))
+            .string();
+    std::filesystem::remove_all(proj);
+    REQUIRE(mosaic::app::create_project(proj));
+    REQUIRE(f.call("plugin_install", {{"name", "greet"}, {"source", root.string()}}, proj)
+                .at("ok")
+                .get<bool>());
+
+    REQUIRE(f.call("plugin_check_updates", {{"source", root.string()}}, proj)
+               .at("updates")
+               .empty());
+
+    write_plugin_list_file(root / "greet" / "package.toml",
+                           "name = \"greet\"\nversion = \"1.1.0\"\ndescription = \"Says hello\"\n");
+
+    const nlohmann::json updates =
+        f.call("plugin_check_updates", {{"source", root.string()}}, proj).at("updates");
+    REQUIRE(updates.size() == 1);
+    REQUIRE(updates[0].at("name") == "greet");
+    REQUIRE(updates[0].at("installed_version") == "1.0.0");
+    REQUIRE(updates[0].at("available_version") == "1.1.0");
+
+    std::filesystem::remove_all(root);
     std::filesystem::remove_all(proj);
 }
 

@@ -136,6 +136,79 @@ inline bool install_package(const std::string& project_dir, const PackageInfo& p
     return true;
 }
 
+// Set the enabled flag on installed package `name` in `project_dir`'s manifest, without
+// touching its files on disk -- Studio's PluginHost consults this flag to decide which
+// plugins/ files to skip on load, so disabling is reversible and non-destructive (unlike
+// remove_package, which deletes the package's files). Returns false (and logs) if
+// project_dir isn't a Mosaic project or `name` isn't installed. Setting the same value
+// it already has is a no-op success.
+inline bool set_plugin_enabled(const std::string& project_dir, const std::string& name, bool enabled)
+{
+    std::optional<ProjectManifest> manifest = load_manifest(project_dir);
+    if (!manifest)
+    {
+        mosaic::foundation::log::error("plugin", "not a Mosaic project: {}", project_dir);
+        return false;
+    }
+
+    auto it = std::find_if(
+        manifest->installed_plugins.begin(), manifest->installed_plugins.end(),
+        [&](const InstalledPlugin& p) { return p.name == name; });
+    if (it == manifest->installed_plugins.end())
+    {
+        mosaic::foundation::log::error("plugin", "{} is not installed in {}", name, project_dir);
+        return false;
+    }
+
+    if (it->enabled == enabled)
+    {
+        return true;
+    }
+    it->enabled = enabled;
+    if (!save_manifest(project_dir, *manifest))
+    {
+        return false;
+    }
+    mosaic::foundation::log::info(
+        "plugin", "{} {} in {}", name, enabled ? "enabled" : "disabled", project_dir);
+    return true;
+}
+
+// One installed package whose available version (in `source_dir`) differs from the
+// version recorded at install time -- the "versioning" half of per-plugin
+// enable/disable + versioning: install_package already updates the recorded version on
+// reinstall, but there was previously no way to ask "is a newer version available"
+// without reinstalling blind.
+struct PluginUpdate
+{
+    std::string name;
+    std::string installed_version;
+    std::string available_version;
+};
+
+// Every installed package in `project_dir` whose version in `source_dir` differs from
+// the version recorded at install time. A package no longer present in `source_dir` is
+// not reported (nothing to compare against -- not the same thing as "up to date").
+inline std::vector<PluginUpdate> available_plugin_updates(const std::string& project_dir,
+                                                          const std::string& source_dir)
+{
+    std::vector<PluginUpdate> updates;
+    const std::optional<ProjectManifest> manifest = load_manifest(project_dir);
+    if (!manifest)
+    {
+        return updates;
+    }
+    for (const InstalledPlugin& installed : manifest->installed_plugins)
+    {
+        const std::optional<PackageInfo> pkg = find_package(source_dir, installed.name);
+        if (pkg && pkg->version != installed.version)
+        {
+            updates.push_back(PluginUpdate{installed.name, installed.version, pkg->version});
+        }
+    }
+    return updates;
+}
+
 // Remove package `name` from `project_dir`: deletes the *.py files its manifest
 // entry says it owns from plugins/, then removes the manifest entry. Not
 // installed is not an error -- returns true, a no-op.
