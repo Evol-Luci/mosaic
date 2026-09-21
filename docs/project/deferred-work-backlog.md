@@ -254,12 +254,13 @@ view that was actually used to pick what to build next as of this writing.
   review and fixed.
 - ~~**Studio has zero persisted preferences**~~ — window size/panel
   layout **SHIPPED** 2026-09-20 (`app/studio_prefs.hpp`,
-  `~/.config/mosaic/studio.toml` + `studio_layout.ini`). Still open,
-  as their own future slices: **theme** (no theme system exists yet —
-  a new feature, not just persistence of an existing setting) and
-  **recent-projects** (no tracking or picker UI exists — also a new
-  feature, needs a project-picker shown at startup with no
-  project-dir arg).
+  `~/.config/mosaic/studio.toml` + `studio_layout.ini`); **theme
+  SHIPPED** 2026-09-21 (PR #196) -- a `UiTheme` enum on
+  `RenderDevice` (Dark/Light/Classic, ImGui's own built-ins), a
+  live-switching "Theme" menu, and persistence alongside window
+  size. Still open, as its own future slice: **recent-projects** (no
+  tracking or picker UI exists — a new feature, needs a
+  project-picker shown at startup with no project-dir arg).
 - ~~**Plugin discovery doesn't follow the project dir**, only CWD~~ —
   **SHIPPED** 2026-09-20. `resolve_plugins_dir()`
   (`app/project/project_io.hpp`) derives `<project_dir>/plugins` from
@@ -309,12 +310,12 @@ same unchanged source docs.
 
 **Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)**,
 **per-plugin enable/disable + versioning shipped 2026-09-21 (PR #194)**,
-**plugin live file-watching/hot-reload shipped 2026-09-21 (PR #195)** —
-all three removed from the table below.
+**plugin live file-watching/hot-reload shipped 2026-09-21 (PR #195)**,
+**Studio theme system + persistence shipped 2026-09-21 (PR #196)** —
+all four removed from the table below.
 
 | Item | Impact |
 |---|---|
-| Studio theme system + persistence | Medium |
 | Studio recent-projects list (picker UI + tracking) | Medium |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
