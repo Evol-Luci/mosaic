@@ -9,23 +9,28 @@ contribution carries.
 Read the [architecture](docs/architecture/ARCHITECTURE.md) and the
 [repository layout](docs/project/repo-layout.md). Two things matter most:
 
-1. **Respect the dependency rules.** `Foundation → Engine → Editor → Studio`.
-   Forbidden edges (`Engine → Blender`, `Engine → AI`, `Engine → Editor`,
-   `Foundation → *` upward) are not yet mechanically enforced (CI currently runs
-   the unit suite and a headless smoke test, not a dependency-rule lint — see
-   `docs/project/deferred-work-backlog.md`), so review carefully and don't
-   introduce a violation; a lint pass is tracked as a follow-up.
+1. **Respect the dependency rules.** `Foundation → Engine → Studio → App`
+   (mapping onto the real `foundation/`, `engine/`, `studio/`, `app/`
+   directories, plus `modules/` (backends, depend only on Engine) — there is
+   no separate `editor/` tree; see
+   [repository layout](docs/project/repo-layout.md) for the full table).
+   Forbidden edges (`Engine → Studio`, `Engine → App`, `Studio → App`,
+   `Foundation → *` upward, `Modules → Studio`, `Modules → App`,
+   `Engine → Blender`, `Engine → AI`) are enforced in CI by
+   `tools/ci/check_dependency_rules.py` (the last two have no dedicated
+   directory to check yet, so they remain a review-time guardrail).
 2. **Respect the "Things Mosaic Will Never Do"**
    [contract](docs/architecture/ARCHITECTURE.md#things-mosaic-will-never-do). If a
    change conflicts with it, the change is wrong, not the list — amendments require
    an RFC.
 
 Run `git config core.hooksPath .githooks` once per clone to enable the
-pre-commit hook that catches stale auto-generated docs (the component
-reference, scripting-globals reference, and `docs/index.html`'s nav
-sections) before they land in a commit. This **replaces**, not
-augments, any hooks already configured under `.git/hooks/` for this
-clone — check there first if you have personal hooks set up.
+pre-commit hook that runs the dependency-rule check above and catches
+stale auto-generated docs (the component reference, scripting-globals
+reference, and `docs/index.html`'s nav sections) before they land in a
+commit. This **replaces**, not augments, any hooks already configured
+under `.git/hooks/` for this clone — check there first if you have
+personal hooks set up.
 
 ## The RFC workflow
 
@@ -74,7 +79,7 @@ confirm they have waived their rights before you sign the ICLA.
 - Branch from the current development branch; keep PRs focused.
 - Write clear commit messages describing *why*, not just *what*.
 - Include tests for behavioral changes where the subsystem supports them.
-- Ensure CI passes (unit suite + headless smoke test).
+- Ensure CI passes (unit suite + dependency-rule check + headless smoke test).
 
 ## Where work is tracked
 

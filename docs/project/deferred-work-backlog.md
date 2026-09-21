@@ -288,6 +288,27 @@ view that was actually used to pick what to build next as of this writing.
   slot (`detail::component_storage_slot<T>()`) instead of the shared
   `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
   avoiding a reintroduction of the earlier "#9 identity drift" bug.
+- **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
+  — real, currently un-root-caused. Two tests --
+  `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem
+  applies script writes one tick later" (a known SIGSEGV flake,
+  previously observed under full-suite local ordering) and
+  `tests/unit/script/script_worker_test.cpp`'s "ScriptWorker runs a
+  job on its thread and returns the write batch" (a size-mismatch
+  failure, not a crash) -- both touch the same embedded-Python +
+  worker-thread machinery and both are rare/near-impossible to
+  reproduce in local dev runs, but failed on 2 of the first 3 real
+  GitHub Actions CI runs (`.github/workflows/ci.yml`, added 2026-09-21)
+  -- a materially higher rate than anything seen in this project's
+  local-dev history, almost certainly because CI's shared/constrained
+  runner vCPUs expose thread-scheduling races local hardware doesn't.
+  **Not fixed, only worked around for now:** both are excluded from
+  the CI `ctest` gate via `-E` (still run by every local/full-suite
+  invocation) so CI stays usably green; the actual race in
+  `engine/script/script_worker.hpp`/`ScriptSystem`'s threaded path
+  needs real investigation (likely embedded-Python interpreter
+  init/teardown ordering across threads) as its own scoped piece of
+  work, not something to guess at blind.
 
 ## Effort vs. impact
 
