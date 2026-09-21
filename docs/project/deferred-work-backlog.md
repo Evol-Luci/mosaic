@@ -259,6 +259,11 @@ view that was actually used to pick what to build next as of this writing.
     `entities_near`/`scene_bounds` MCP tool) or the camera's view
     frustum, and eventually cascaded shadow maps for large open scenes,
     are named, deliberate follow-ups, not built in v1.
+  - **Configurable shadow map resolution** — v1 fixes the shadow map's
+    resolution as an implementation constant, not a user- or
+    project-facing setting. Exposing it (likely alongside a future
+    quality/performance settings surface, not on its own) is a named
+    follow-up once there's a real place for such a setting to live.
 - Specular/PBR, spot lights, world-space per-frame light UBO (the
   fixed-per-frame directional light-view-projection matrix v1's shadow
   work introduces is a first, narrow step toward a real per-frame light
