@@ -258,9 +258,13 @@ view that was actually used to pick what to build next as of this writing.
   SHIPPED** 2026-09-21 (PR #196) -- a `UiTheme` enum on
   `RenderDevice` (Dark/Light/Classic, ImGui's own built-ins), a
   live-switching "Theme" menu, and persistence alongside window
-  size. Still open, as its own future slice: **recent-projects** (no
-  tracking or picker UI exists — a new feature, needs a
-  project-picker shown at startup with no project-dir arg).
+  size; **recent-projects SHIPPED** 2026-09-21 (PR #197) -- a
+  persisted, capped, deduped `recent_projects` list, a dismissible
+  startup picker window, and a full-process relaunch (`readlink`
+  + `execl`) to reopen a chosen project (no in-process
+  project-switching mechanism exists, correctly left as its own
+  future design rather than half-built here). **All three slices of
+  this item are now shipped.**
 - ~~**Plugin discovery doesn't follow the project dir**, only CWD~~ —
   **SHIPPED** 2026-09-20. `resolve_plugins_dir()`
   (`app/project/project_io.hpp`) derives `<project_dir>/plugins` from
@@ -308,15 +312,13 @@ same unchanged source docs.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
-**Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)**,
-**per-plugin enable/disable + versioning shipped 2026-09-21 (PR #194)**,
-**plugin live file-watching/hot-reload shipped 2026-09-21 (PR #195)**,
-**Studio theme system + persistence shipped 2026-09-21 (PR #196)** —
-all four removed from the table below.
-
-| Item | Impact |
-|---|---|
-| Studio recent-projects list (picker UI + tracking) | Medium |
+**Empty as of 2026-09-21.** All five original items shipped: Studio
+plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
++ versioning (PR #194), plugin live file-watching/hot-reload
+(PR #195), Studio theme system + persistence (PR #196), Studio
+recent-projects list (PR #197). The next pick comes from the 🔴 Large
+tier below — each of those items needs its own decomposition before
+implementation starts.
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
