@@ -1029,7 +1029,7 @@ public:
     // No default here -- a default on both the base and this override is a
     // well-known C++ footgun (virtual dispatch uses the static type's default,
     // not the dynamic one), so the base class alone declares one.
-    void init_ui(const std::string& ini_path) override
+    void init_ui(const std::string& ini_path, mosaic::engine::render::UiTheme theme) override
     {
         if (ui_ready_) { return; }
         // Dedicated descriptor pool for ImGui (combined-image-samplers for its textures).
@@ -1055,7 +1055,7 @@ public:
             imgui_ini_path_ = ini_path;
             io.IniFilename = imgui_ini_path_.c_str();
         }
-        ImGui::StyleColorsDark();
+        apply_ui_theme(theme);
 
         ImGui_ImplGlfw_InitForVulkan(window_, true);
 
@@ -1073,6 +1073,12 @@ public:
         ImGui_ImplVulkan_Init(&info);
 
         ui_ready_ = true;
+    }
+
+    void set_ui_theme(mosaic::engine::render::UiTheme theme) override
+    {
+        if (!ui_ready_) { return; }
+        apply_ui_theme(theme);
     }
 
     void begin_ui_frame() override
@@ -1165,6 +1171,20 @@ public:
     }
 
 private:
+    // Applies one of ImGui's own built-in color schemes -- shared by init_ui()'s
+    // one-time startup application and set_ui_theme()'s live runtime switch, so
+    // the two can never drift into applying the mapping differently.
+    static void apply_ui_theme(mosaic::engine::render::UiTheme theme)
+    {
+        switch (theme)
+        {
+        case mosaic::engine::render::UiTheme::Light: ImGui::StyleColorsLight(); break;
+        case mosaic::engine::render::UiTheme::Classic: ImGui::StyleColorsClassic(); break;
+        case mosaic::engine::render::UiTheme::Dark:
+        default: ImGui::StyleColorsDark(); break;
+        }
+    }
+
     // --- static GLFW callback ---------------------------------------------
 
     static void framebuffer_resize_callback(GLFWwindow* w, int /*width*/, int /*height*/)

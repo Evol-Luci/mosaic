@@ -81,7 +81,7 @@ int run_editor(const Options& options,
     }
     try
     {
-        device->init_ui(studio_layout_ini_path().string());
+        device->init_ui(studio_layout_ini_path().string(), studio_theme_to_ui_theme(prefs.theme));
     }
     catch (const std::exception& e)
     {
@@ -107,7 +107,8 @@ int run_editor(const Options& options,
         [] { return mosaic::script::python::create_python_script_engine(); },
         [] { return mosaic::script::python_studio::create_studio_plugin_script_engine(); },
         options.plugins_dir.value_or("plugins"),
-        mosaic::app::resolve_disabled_plugin_files(options.open_path.value_or("")));
+        mosaic::app::resolve_disabled_plugin_files(options.open_path.value_or("")),
+        studio_theme_to_ui_theme(prefs.theme));
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(
@@ -234,6 +235,7 @@ int run_editor(const Options& options,
     // Window size persists across sessions; panel layout is ImGui's own concern
     // (already writing to studio_layout_ini_path(), passed to init_ui() above).
     glfwGetWindowSize(window, &prefs.window_width, &prefs.window_height);
+    prefs.theme = ui_theme_to_studio_theme(studio.current_theme());
     save_studio_prefs(prefs);
 
     device.reset(); // device (and ImGui) destroyed before the window

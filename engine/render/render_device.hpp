@@ -15,6 +15,13 @@ namespace mosaic::engine::render
 
 struct Color { float r, g, b, a; };
 
+// The editor UI's built-in ImGui color scheme. A plain enum (not enum class-in-a-
+// reflected-struct; nothing here is serialized directly -- app/studio_prefs.hpp
+// stores the persisted choice as a plain int and maps it to this type at the two
+// call sites below, the same "reflection layer supports int, not enum class"
+// convention engine/particles/particle_emitter.hpp's Easing already established).
+enum class UiTheme { Dark, Light, Classic };
+
 // Unlit vertex was {position, color}; lighting needs a normal. 36d-2 adds uv.
 struct Vertex
 {
@@ -144,10 +151,16 @@ public:
     // construction, then per frame: begin_ui_frame() before building the UI and
     // end_ui_frame() between begin_frame() and end_frame() to record the UI.
     // `ini_path` is where ImGui persists its panel layout; empty keeps ImGui's own
-    // default ("imgui.ini" in the working directory).
-    virtual void init_ui(const std::string& ini_path = "") {}
+    // default ("imgui.ini" in the working directory). `theme` is applied once,
+    // immediately, before the first frame; switch it later at runtime via
+    // set_ui_theme().
+    virtual void init_ui(const std::string& ini_path = "", UiTheme theme = UiTheme::Dark) {}
     virtual void begin_ui_frame() {}
     virtual void end_ui_frame() {}
+    // Switches the live ImGui color scheme. A no-op on a headless/non-UI device or
+    // before init_ui() has run, matching every other UI hook's default-no-op
+    // contract.
+    virtual void set_ui_theme(UiTheme theme) {}
 
     // Draw camera-facing, alpha-blended billboards, one per instance. Default no-op so
     // headless devices and test fakes need not implement it (like the UI/viewport hooks).
