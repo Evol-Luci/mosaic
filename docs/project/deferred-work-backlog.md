@@ -266,11 +266,32 @@ view that was actually used to pick what to build next as of this writing.
     project-facing setting. Exposing it (likely alongside a future
     quality/performance settings surface, not on its own) is a named
     follow-up once there's a real place for such a setting to live.
-- Specular/PBR, spot lights, world-space per-frame light UBO (the
-  fixed-per-frame directional light-view-projection matrix v1's shadow
-  work introduces is a first, narrow step toward a real per-frame light
-  UBO, but the general one — multiple lights, PBR material params — is
-  still its own separate, unscoped item).
+- **"Specular/PBR, spot lights" decomposed 2026-09-21** (confirmed with
+  the user before brainstorming any of it): the current lighting model
+  is Lambert diffuse only (no specular term at all), single directional
+  + single point light ("first found," never accumulated), no shadows
+  for point lights. Picked **spot lights** as the first, smallest slice
+  (reuses `PointLight`'s `WorldTransform`-derived positional machinery,
+  no material/BRDF changes, no multi-light question) — in scoping as of
+  2026-09-21. Deferred, each its own future slice, not silently folded
+  into spot lights:
+  - **Specular highlights (Blinn-Phong)** — a shininess/specular-color
+    param added to `Material` and the shader's lighting math, without
+    committing to a full PBR material model. Bigger than spot lights
+    (touches the whole lighting shader), smaller than full PBR.
+  - **Full PBR material model** — metallic/roughness workflow,
+    Cook-Torrance BRDF, energy-conserving specular. The real thing, not
+    a stepping stone; needs its own design decisions (scalar params vs.
+    texture maps for v1) and likely its own sub-decomposition, not a
+    single slice.
+  - **World-space per-frame light UBO / real multi-light support** —
+    the fixed-per-frame directional light-view-projection matrix the
+    shadow v1 work introduced is a first, narrow step toward a real
+    per-frame light UBO, but the general one (multiple lights of each
+    type, accumulated rather than "first found") is still its own
+    separate, unscoped item — spot lights inherit the same
+    one-light-per-type limitation as directional/point today, not fixed
+    by this slice.
 
 ## Project templates
 
