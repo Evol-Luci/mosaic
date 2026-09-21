@@ -125,17 +125,19 @@ public:
                 {
                     texture = default_white(device);
                 }
+                // Computed once and reused below for the directional/point/spot object-space
+                // transforms -- each previously recomputed the same inverse independently.
+                const Mat4 inv = Mat4::inverse_affine(wt->matrix);
+
                 const Vec3 light_obj = mosaic::foundation::math::normalize(
-                    mosaic::foundation::math::transform_direction(
-                        Mat4::inverse_affine(wt->matrix), light.direction));
+                    mosaic::foundation::math::transform_direction(inv, light.direction));
 
                 Vec3 point_position{0.0f, 0.0f, 0.0f};
                 Vec3 point_color{0.0f, 0.0f, 0.0f};
                 float point_range = 0.0f;
                 if (point.present)
                 {
-                    point_position = mosaic::foundation::math::transform_point(
-                        Mat4::inverse_affine(wt->matrix), point.world_pos);
+                    point_position = mosaic::foundation::math::transform_point(inv, point.world_pos);
                     point_color = point.color;
                     point_range = point.range;
                 }
@@ -148,7 +150,6 @@ public:
                 float spot_cos_outer = 1.0f;
                 if (spot.present)
                 {
-                    const Mat4 inv = Mat4::inverse_affine(wt->matrix);
                     spot_position = mosaic::foundation::math::transform_point(inv, spot.world_pos);
                     spot_direction = mosaic::foundation::math::normalize(
                         mosaic::foundation::math::transform_direction(inv, spot.direction));

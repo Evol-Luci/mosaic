@@ -1385,8 +1385,10 @@ private:
                 continue;
             }
 
-            // 208-byte push constants (mvp + lighting + shadow light-space matrix)
-            // exceed Vulkan's guaranteed 128-byte minimum but fit desktop GPUs (256).
+            // 256-byte push constants (mvp + lighting + shadow light-space matrix +
+            // spot light) exceed Vulkan's guaranteed 128-byte minimum and sit exactly
+            // at the documented desktop-GPU ceiling (256) -- zero margin left for
+            // anything added after the spot-light slice without revisiting this.
             // Fail loud rather than let validation catch it downstream.
             VkPhysicalDeviceProperties props{};
             vkGetPhysicalDeviceProperties(dev, &props);
