@@ -18,3 +18,7 @@ scene.json
 .claude/
 .claire/
 
+# Subagent-driven-development scratch (ledgers, briefs, review packages) --
+# per-plan working state, not part of the project's own history.
+.superpowers/
+
