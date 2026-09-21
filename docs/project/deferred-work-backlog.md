@@ -154,9 +154,11 @@ view that was actually used to pick what to build next as of this writing.
 - **Native `.so`/`.dll` dynamic-library plugins** — repeatedly deferred
   across all 3 Plugin SDK slices; ABI stability, cross-platform loader,
   sandboxing are the blockers.
-- **Per-plugin enable/disable + manifest/versioning**, **live
-  file-watching/hot-reload** (currently manual "Reload Plugins"),
-  **user-global (non-project) plugins** — all still unbuilt.
+- ~~**Per-plugin enable/disable + manifest/versioning**~~ — **shipped**
+  2026-09-21 (PR #194). ~~**Live file-watching/hot-reload**~~ — **shipped**
+  2026-09-21 (PR #195); Studio no longer needs a manual "Reload Plugins"
+  click for edits made while the editor is open. **User-global
+  (non-project) plugins** — still unbuilt.
 - **Public marketplace** — hosting, moderation pipeline, static/dynamic
   analysis review layers. *Status:* design-only
   (`docs/design/marketplace.md`), explicitly "not yet scheduled."
@@ -306,12 +308,12 @@ same unchanged source docs.
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 **Studio plugin (`.py`) authoring via MCP shipped 2026-09-20 (PR #193)**,
-**per-plugin enable/disable + versioning shipped 2026-09-21 (PR #194)** —
-both removed from the table below.
+**per-plugin enable/disable + versioning shipped 2026-09-21 (PR #194)**,
+**plugin live file-watching/hot-reload shipped 2026-09-21 (PR #195)** —
+all three removed from the table below.
 
 | Item | Impact |
 |---|---|
-| Plugin live file-watching/hot-reload | Medium |
 | Studio theme system + persistence | Medium |
 | Studio recent-projects list (picker UI + tracking) | Medium |
 
