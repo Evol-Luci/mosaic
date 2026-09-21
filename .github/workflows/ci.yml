@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Vulkan SDK (loader + headers + glslc)
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      - name: Install build + GLFW (X11/Wayland) dependencies
+        run: |
+          sudo apt-get install -y \
+            ninja-build \
+            python3-dev \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libwayland-dev libxkbcommon-dev \
+            pkg-config
+
+      - name: Configure (debug)
+        run: cmake --preset debug -G Ninja
+
+      - name: Build (debug)
+        run: cmake --build --preset debug -j"$(nproc)"
+
+      - name: Unit tests
+        run: ctest --preset debug --output-on-failure
+
+      - name: Headless smoke test (mosaic run --ticks, no window/GPU)
+        run: |
+          PROJ="$(mktemp -d)/smoke_project"
+          ./build/debug/app/mosaic create "$PROJ"
+          ./build/debug/app/mosaic run "$PROJ" --ticks 120 --json
