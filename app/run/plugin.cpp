@@ -65,6 +65,47 @@ int run_plugin_remove(const Options& options)
     return remove_package(*options.plugin_project, *options.plugin_name) ? 0 : 1;
 }
 
+int run_plugin_enable(const Options& options)
+{
+    if (!options.plugin_name || !options.plugin_project)
+    {
+        mosaic::foundation::log::error("plugin", "usage: mosaic plugin enable <name> <project>");
+        return 1;
+    }
+    return set_plugin_enabled(*options.plugin_project, *options.plugin_name, true) ? 0 : 1;
+}
+
+int run_plugin_disable(const Options& options)
+{
+    if (!options.plugin_name || !options.plugin_project)
+    {
+        mosaic::foundation::log::error("plugin", "usage: mosaic plugin disable <name> <project>");
+        return 1;
+    }
+    return set_plugin_enabled(*options.plugin_project, *options.plugin_name, false) ? 0 : 1;
+}
+
+int run_plugin_updates(const Options& options)
+{
+    if (!options.plugin_project)
+    {
+        mosaic::foundation::log::error("plugin", "usage: mosaic plugin updates <project>");
+        return 1;
+    }
+    const std::string source = resolve_package_source(options.package_source);
+    const std::vector<PluginUpdate> updates = available_plugin_updates(*options.plugin_project, source);
+    if (updates.empty())
+    {
+        mosaic::foundation::log::info("plugin", "all installed plugins are up to date");
+        return 0;
+    }
+    for (const PluginUpdate& u : updates)
+    {
+        std::cout << u.name << " " << u.installed_version << " -> " << u.available_version << "\n";
+    }
+    return 0;
+}
+
 int run_plugin_source_add(const Options& options)
 {
     if (!options.source_name || !options.source_path)

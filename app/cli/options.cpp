@@ -121,6 +121,27 @@ ParseResult parse(int argc, char** argv)
     plugin_remove->add_option("name", plugin_remove_name, "Package name")->required();
     plugin_remove->add_option("project", plugin_remove_project, "Project directory")->required();
 
+    CLI::App* plugin_enable = plugin->add_subcommand("enable", "Enable a disabled installed plugin");
+    std::string plugin_enable_name;
+    std::string plugin_enable_project;
+    plugin_enable->add_option("name", plugin_enable_name, "Package name")->required();
+    plugin_enable->add_option("project", plugin_enable_project, "Project directory")->required();
+
+    CLI::App* plugin_disable =
+        plugin->add_subcommand("disable", "Disable an installed plugin without uninstalling it");
+    std::string plugin_disable_name;
+    std::string plugin_disable_project;
+    plugin_disable->add_option("name", plugin_disable_name, "Package name")->required();
+    plugin_disable->add_option("project", plugin_disable_project, "Project directory")->required();
+
+    CLI::App* plugin_updates = plugin->add_subcommand(
+        "updates", "List installed plugins whose source version differs from the installed version");
+    std::string plugin_updates_project;
+    std::string plugin_updates_source;
+    plugin_updates->add_option("project", plugin_updates_project, "Project directory")->required();
+    plugin_updates->add_option("--source", plugin_updates_source,
+                               "Package source directory (default: bundled packages/)");
+
     CLI::App* plugin_source = plugin->add_subcommand("source", "Manage named package sources");
     plugin_source->require_subcommand(1);
 
@@ -204,6 +225,18 @@ ParseResult parse(int argc, char** argv)
     {
         result.options.command = Command::PluginRemove;
     }
+    if (plugin_enable->parsed())
+    {
+        result.options.command = Command::PluginEnable;
+    }
+    if (plugin_disable->parsed())
+    {
+        result.options.command = Command::PluginDisable;
+    }
+    if (plugin_updates->parsed())
+    {
+        result.options.command = Command::PluginUpdates;
+    }
     if (!plugin_list_source.empty())
     {
         result.options.package_source = plugin_list_source;
@@ -211,6 +244,10 @@ ParseResult parse(int argc, char** argv)
     if (!plugin_install_source.empty())
     {
         result.options.package_source = plugin_install_source;
+    }
+    if (!plugin_updates_source.empty())
+    {
+        result.options.package_source = plugin_updates_source;
     }
     if (!plugin_install_name.empty())
     {
@@ -220,6 +257,14 @@ ParseResult parse(int argc, char** argv)
     {
         result.options.plugin_name = plugin_remove_name;
     }
+    if (!plugin_enable_name.empty())
+    {
+        result.options.plugin_name = plugin_enable_name;
+    }
+    if (!plugin_disable_name.empty())
+    {
+        result.options.plugin_name = plugin_disable_name;
+    }
     if (!plugin_install_project.empty())
     {
         result.options.plugin_project = plugin_install_project;
@@ -227,6 +272,18 @@ ParseResult parse(int argc, char** argv)
     if (!plugin_remove_project.empty())
     {
         result.options.plugin_project = plugin_remove_project;
+    }
+    if (!plugin_enable_project.empty())
+    {
+        result.options.plugin_project = plugin_enable_project;
+    }
+    if (!plugin_disable_project.empty())
+    {
+        result.options.plugin_project = plugin_disable_project;
+    }
+    if (!plugin_updates_project.empty())
+    {
+        result.options.plugin_project = plugin_updates_project;
     }
     if (plugin_source_add->parsed())
     {

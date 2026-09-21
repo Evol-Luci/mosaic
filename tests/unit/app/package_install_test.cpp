@@ -8,11 +8,14 @@
 #include "app/project/project_io.hpp"
 #include "engine/reflection/component_reflection.hpp"
 
+using mosaic::app::available_plugin_updates;
 using mosaic::app::InstalledPlugin;
 using mosaic::app::install_package;
 using mosaic::app::load_manifest;
 using mosaic::app::PackageInfo;
+using mosaic::app::PluginUpdate;
 using mosaic::app::remove_package;
+using mosaic::app::set_plugin_enabled;
 
 namespace
 {
@@ -179,4 +182,89 @@ TEST_CASE("remove_package ignores a hand-edited manifest entry that tries to esc
 
     const auto after = load_manifest(project.string());
     REQUIRE(after->installed_plugins.empty()); // the manifest entry is still removed
+}
+
+TEST_CASE("a freshly installed plugin is enabled by default", "[app]")
+{
+    const std::filesystem::path project = make_fixture_project("enabled_default");
+    const std::filesystem::path pkg_dir = make_fixture_package("enabled_default", "widget", "1.0.0");
+    REQUIRE(install_package(project.string(), PackageInfo{"widget", "1.0.0", "A widget", pkg_dir}));
+
+    const auto manifest = load_manifest(project.string());
+    REQUIRE(manifest->installed_plugins[0].enabled);
+}
+
+TEST_CASE("set_plugin_enabled toggles the flag and persists it", "[app]")
+{
+    const std::filesystem::path project = make_fixture_project("enable_toggle");
+    const std::filesystem::path pkg_dir = make_fixture_package("enable_toggle", "widget", "1.0.0");
+    REQUIRE(install_package(project.string(), PackageInfo{"widget", "1.0.0", "A widget", pkg_dir}));
+
+    REQUIRE(set_plugin_enabled(project.string(), "widget", false));
+    REQUIRE_FALSE(load_manifest(project.string())->installed_plugins[0].enabled);
+
+    REQUIRE(set_plugin_enabled(project.string(), "widget", true));
+    REQUIRE(load_manifest(project.string())->installed_plugins[0].enabled);
+}
+
+TEST_CASE("set_plugin_enabled fails for a package that isn't installed", "[app]")
+{
+    const std::filesystem::path project = make_fixture_project("enable_missing");
+    REQUIRE_FALSE(set_plugin_enabled(project.string(), "never-installed", false));
+}
+
+TEST_CASE("set_plugin_enabled fails on a non-project directory", "[app]")
+{
+    namespace fs = std::filesystem;
+    const fs::path not_a_project = fs::temp_directory_path() / "mosaic_pkginstall_test_enable_notproj";
+    std::error_code ec;
+    fs::remove_all(not_a_project, ec);
+    fs::create_directories(not_a_project, ec);
+    REQUIRE_FALSE(set_plugin_enabled(not_a_project.string(), "widget", false));
+}
+
+TEST_CASE("available_plugin_updates reports installed packages whose source version moved", "[app]")
+{
+    namespace fs = std::filesystem;
+    const fs::path project = make_fixture_project("updates_basic");
+    const fs::path source  = fs::temp_directory_path() / "mosaic_pkginstall_test_updates_basic_source";
+    fs::remove_all(source);
+    fs::create_directories(source / "widget");
+    {
+        std::ofstream toml(source / "widget" / "package.toml", std::ios::binary | std::ios::trunc);
+        toml << "name = \"widget\"\nversion = \"1.0.0\"\ndescription = \"A widget\"\n";
+        std::ofstream py(source / "widget" / "widget.py", std::ios::binary | std::ios::trunc);
+        py << "MOSAIC_MENU_ITEMS = {}\n";
+    }
+    REQUIRE(install_package(project.string(), PackageInfo{"widget", "1.0.0", "A widget", source / "widget"}));
+
+    // Nothing changed yet -- installed version matches the source's.
+    REQUIRE(available_plugin_updates(project.string(), source.string()).empty());
+
+    // Bump the source's own version without reinstalling.
+    {
+        std::ofstream toml(source / "widget" / "package.toml", std::ios::binary | std::ios::trunc);
+        toml << "name = \"widget\"\nversion = \"1.1.0\"\ndescription = \"A widget\"\n";
+    }
+
+    const std::vector<PluginUpdate> updates = available_plugin_updates(project.string(), source.string());
+    REQUIRE(updates.size() == 1);
+    REQUIRE(updates[0].name == "widget");
+    REQUIRE(updates[0].installed_version == "1.0.0");
+    REQUIRE(updates[0].available_version == "1.1.0");
+}
+
+TEST_CASE("available_plugin_updates ignores an installed package no longer in the source", "[app]")
+{
+    namespace fs = std::filesystem;
+    const fs::path project = make_fixture_project("updates_gone");
+    const fs::path pkg_dir = make_fixture_package("updates_gone", "widget", "1.0.0");
+    REQUIRE(install_package(project.string(), PackageInfo{"widget", "1.0.0", "A widget", pkg_dir}));
+
+    const fs::path empty_source =
+        fs::temp_directory_path() / "mosaic_pkginstall_test_updates_gone_source";
+    fs::remove_all(empty_source);
+    fs::create_directories(empty_source);
+
+    REQUIRE(available_plugin_updates(project.string(), empty_source.string()).empty());
 }

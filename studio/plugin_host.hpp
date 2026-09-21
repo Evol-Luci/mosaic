@@ -53,9 +53,14 @@ public:
     // never prevents the others in the same directory from loading. A missing or
     // non-directory `directory` is not an error: returns an empty vector, zero menu
     // items (a project with no plugins/ folder at all is the common case).
+    // `disabled_files` names *.py files (bare filenames, e.g. "hello.py") to skip
+    // entirely -- neither run nor reported as an error -- letting a caller honor a
+    // disabled InstalledPlugin's per-plugin enable/disable flag (app/plugin's
+    // ProjectManifest) without deleting the files from disk.
     std::vector<std::string> load(const std::string& directory, mosaic::engine::World& world,
                                   const mosaic::engine::reflection::ComponentReflection& types,
-                                  mosaic::foundation::commands::CommandStack& commands);
+                                  mosaic::foundation::commands::CommandStack& commands,
+                                  const std::vector<std::string>& disabled_files = {});
 
     // Every registered menu item across all successfully loaded plugins, in load order
     // then MOSAIC_MENU_ITEMS declaration order.

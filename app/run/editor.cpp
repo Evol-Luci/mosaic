@@ -9,6 +9,7 @@
 #include <GLFW/glfw3.h>
 
 #include "app/asset/asset_io.hpp"
+#include "app/project/project_io.hpp"
 #include "app/run/demo_scene.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/scene_io.hpp"
@@ -105,7 +106,8 @@ int run_editor(const Options& options,
         options.scene.value_or("scene.json"),
         [] { return mosaic::script::python::create_python_script_engine(); },
         [] { return mosaic::script::python_studio::create_studio_plugin_script_engine(); },
-        options.plugins_dir.value_or("plugins"));
+        options.plugins_dir.value_or("plugins"),
+        mosaic::app::resolve_disabled_plugin_files(options.open_path.value_or("")));
 
     // Route all logging (StatusReporter, Vulkan validation, ...) into the Console panel.
     mosaic::foundation::log::add_sink(

@@ -1,5 +1,6 @@
 #include "studio/plugin_host.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -25,7 +26,8 @@ std::string read_file(const fs::path& path)
 std::vector<std::string> PluginHost::load(const std::string& directory,
                                           mosaic::engine::World& world,
                                           const mosaic::engine::reflection::ComponentReflection& types,
-                                          mosaic::foundation::commands::CommandStack& commands)
+                                          mosaic::foundation::commands::CommandStack& commands,
+                                          const std::vector<std::string>& disabled_files)
 {
     plugins_.clear();
     menu_items_.clear();
@@ -43,6 +45,11 @@ std::vector<std::string> PluginHost::load(const std::string& directory,
         const auto& entry = *it;
         std::error_code file_ec;
         if (!entry.is_regular_file(file_ec) || file_ec || entry.path().extension() != ".py") { continue; }
+        if (std::find(disabled_files.begin(), disabled_files.end(), entry.path().filename().string()) !=
+            disabled_files.end())
+        {
+            continue;
+        }
 
         const std::string name = entry.path().stem().string();
         if (!factory_)

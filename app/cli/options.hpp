@@ -10,6 +10,7 @@ namespace mosaic::app
 
 // Which subcommand the user invoked.
 enum class Command { Run, Editor, Create, Build, Import, Docs, PluginList, PluginInstall, PluginRemove,
+                    PluginEnable, PluginDisable, PluginUpdates,
                     PluginSourceAdd, PluginSourceList, PluginSourceRemove, PluginSourcePull, Mcp };
 
 // Parsed CLI arguments (for the `run` and `editor` subcommands). A plain value

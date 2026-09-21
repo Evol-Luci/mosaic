@@ -22,6 +22,7 @@ struct InstalledPlugin
     std::string              name;    // package name
     std::string              version; // package version at install time
     std::vector<std::string> files;   // filenames this package owns in plugins/
+    bool                     enabled = true; // whether PluginHost should load this package's files
 };
 
 template <class V>
@@ -30,6 +31,7 @@ void reflect(V& v, InstalledPlugin& p)
     v.member("name", p.name);
     v.member("version", p.version);
     v.member("files", p.files);
+    v.member("enabled", p.enabled);
 }
 
 // The project manifest (mosaic.toml), reflected so it round-trips through the #10 TOML backend
