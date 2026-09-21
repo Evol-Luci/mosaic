@@ -47,8 +47,11 @@ struct PushConstants
     float point_position[4]; // xyz = object-space pos, w = range
     float point_color[4];    // xyz = color * intensity
     float light_mvp[16];     // light_view_proj * model, for shadow sampling
+    float spot_position[4];  // xyz = object-space pos, w = range
+    float spot_direction[4]; // xyz = object-space direction, w = cos(outer_angle)
+    float spot_color[4];     // xyz = color * intensity, w = cos(inner_angle)
 };
-static_assert(sizeof(PushConstants) == 208, "push constant layout must match the shader");
+static_assert(sizeof(PushConstants) == 256, "push constant layout must match the shader");
 
 struct ShadowPushConstants
 {
@@ -699,6 +702,18 @@ public:
         pc.point_color[1] = params.point_color.y;
         pc.point_color[2] = params.point_color.z;
         std::memcpy(pc.light_mvp, params.light_mvp.m.data(), sizeof(pc.light_mvp));
+        pc.spot_position[0] = params.spot_position.x;
+        pc.spot_position[1] = params.spot_position.y;
+        pc.spot_position[2] = params.spot_position.z;
+        pc.spot_position[3] = params.spot_range;
+        pc.spot_direction[0] = params.spot_direction.x;
+        pc.spot_direction[1] = params.spot_direction.y;
+        pc.spot_direction[2] = params.spot_direction.z;
+        pc.spot_direction[3] = params.spot_cos_outer;
+        pc.spot_color[0] = params.spot_color.x;
+        pc.spot_color[1] = params.spot_color.y;
+        pc.spot_color[2] = params.spot_color.z;
+        pc.spot_color[3] = params.spot_cos_inner;
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
