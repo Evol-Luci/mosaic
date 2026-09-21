@@ -212,6 +212,7 @@ int run_editor(const Options& options,
             vp.mark_applied();
         }
         render_system->set_aspect(vp.aspect());
+        render_system->render_shadows(world, *device, asset_registry);
         mosaic::studio::render_scene_to_viewport(
             *device, vp, engine::render::Color{0.05f, 0.05f, 0.07f, 1.0f},
             [&](engine::render::RenderDevice& d) { render_system->render(world, d, asset_registry); });

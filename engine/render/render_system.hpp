@@ -51,6 +51,34 @@ class RenderSystem
 public:
     void set_aspect(float aspect) { aspect_ = aspect; }
 
+    // Records the shadow depth pass. MUST be called before the caller opens its own
+    // main render pass (the swapchain pass or, in the editor, the offscreen viewport
+    // pass via render_scene_to_viewport) -- a render pass cannot begin while another
+    // is already active. `mosaic run --window` opens its swapchain pass lazily on
+    // the first draw() call inside render(), so calling render_shadows() immediately
+    // before render() is always safe there; the editor opens its viewport pass
+    // explicitly and earlier, so render_shadows() must be called before
+    // render_scene_to_viewport(), not from inside its draw_scene callback.
+    void render_shadows(World& world, RenderDevice& device,
+                        mosaic::engine::assets::AssetRegistry& registry) const
+    {
+        const DirectionalLight light = active_light(world);
+        const mosaic::foundation::math::Mat4 light_view_proj =
+            directional_light_view_projection(light);
+
+        device.begin_shadow_pass();
+        world.for_each<MeshRenderer>(
+            [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
+            {
+                const MeshHandle mesh = mesh_cache_.get(mr.mesh, registry, device);
+                if (mesh == 0) { return; }
+                const auto* wt = world.get_component<transform::WorldTransform>(e);
+                if (wt == nullptr) { return; }
+                device.draw_shadow(mesh, light_view_proj * wt->matrix);
+            });
+        device.end_shadow_pass();
+    }
+
     void render(World& world, RenderDevice& device,
                 mosaic::engine::assets::AssetRegistry& registry) const
     {
@@ -69,18 +97,6 @@ public:
         const PointLightState point = active_point_light(world);
 
         const Mat4 light_view_proj = directional_light_view_projection(light);
-
-        device.begin_shadow_pass();
-        world.for_each<MeshRenderer>(
-            [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
-            {
-                const MeshHandle mesh = mesh_cache_.get(mr.mesh, registry, device);
-                if (mesh == 0) { return; }
-                const auto* wt = world.get_component<transform::WorldTransform>(e);
-                if (wt == nullptr) { return; }
-                device.draw_shadow(mesh, light_view_proj * wt->matrix);
-            });
-        device.end_shadow_pass();
 
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)

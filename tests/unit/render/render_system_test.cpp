@@ -236,7 +236,7 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     REQUIRE(std::abs(p.light_direction.x - world_norm.x) > 0.1f);
 }
 
-TEST_CASE("RenderSystem runs a shadow pass before the main draw, with the right light_mvp", "[render]")
+TEST_CASE("RenderSystem::render_shadows records the shadow pass with the right light_mvp, matching render()'s own light_mvp", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -255,6 +255,7 @@ TEST_CASE("RenderSystem runs a shadow pass before the main draw, with the right 
     world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
     world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
 
+    rs.render_shadows(world, device, registry);
     rs.render(world, device, registry);
 
     REQUIRE(device.shadow_pass_begins == 1);
