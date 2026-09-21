@@ -111,6 +111,7 @@ add_executable(mosaic_unit_tests
   unit/studio/demo_physics_test.cpp
   unit/studio/asset_browser_test.cpp
   unit/studio/plugin_host_test.cpp
+  unit/studio/plugin_file_watcher_test.cpp
   unit/physics/physics_backend_test.cpp
   unit/physics/falling_box_test.cpp
   unit/physics/physics_components_test.cpp

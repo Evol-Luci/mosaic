@@ -17,6 +17,20 @@
 namespace mosaic::studio
 {
 
+void StudioApp::reload_plugins(mosaic::engine::World& world,
+                               const mosaic::engine::reflection::ComponentReflection& reflection)
+{
+    for (const std::string& err :
+        plugin_host_.load(plugins_dir_, world, reflection, commands_, disabled_plugin_files_))
+    {
+        mosaic::foundation::log::error("plugin", "{}", err);
+    }
+    for (const PluginPanel& panel : plugin_host_.panels())
+    {
+        layout_.add_panel(panel.label);
+    }
+}
+
 void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection,
                         const mosaic::engine::assets::AssetRegistry& registry)
@@ -36,14 +50,23 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     if (!plugins_loaded_)
     {
         plugins_loaded_ = true;
-        for (const std::string& err : plugin_host_.load(plugins_dir_, world, reflection, commands_, disabled_plugin_files_))
-        {
-            mosaic::foundation::log::error("plugin", "{}", err);
-        }
-        for (const PluginPanel& panel : plugin_host_.panels())
-        {
-            layout_.add_panel(panel.label);
-        }
+        reload_plugins(world, reflection);
+        // The initial load establishes plugin_watcher_'s baseline too -- its very
+        // first poll() call always reports "unchanged" regardless, so ordering here
+        // doesn't matter, but doing it now keeps both plugin_loaded_ and the
+        // watcher's baseline set together rather than one frame apart.
+        plugin_watcher_.poll(plugins_dir_);
+    }
+    else if (plugin_watcher_.poll(plugins_dir_))
+    {
+        // Hot-reload: a *.py file under plugins_dir_ was added, removed, or edited
+        // since the last frame -- rerun the same load the manual "Reload Plugins"
+        // menu item triggers, so editing a plugin on disk takes effect without a
+        // click. hot-reload deliberately does not bypass the per-plugin enable/
+        // disable flag (disabled_plugin_files_ is unchanged): a disabled plugin's
+        // edits are still skipped, exactly like a fresh load would skip them.
+        mosaic::foundation::log::info("plugin", "plugins/ changed on disk, reloading");
+        reload_plugins(world, reflection);
     }
 
     if (ImGui::BeginMainMenuBar())
@@ -82,15 +105,11 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
         {
             if (ImGui::MenuItem("Reload Plugins"))
             {
-                for (const std::string& err :
-                    plugin_host_.load(plugins_dir_, world, reflection, commands_, disabled_plugin_files_))
-                {
-                    mosaic::foundation::log::error("plugin", "{}", err);
-                }
-                for (const PluginPanel& panel : plugin_host_.panels())
-                {
-                    layout_.add_panel(panel.label);
-                }
+                reload_plugins(world, reflection);
+                // Re-baseline the watcher against what was just loaded, so the
+                // manual reload doesn't leave a stale snapshot that hot-reload
+                // would otherwise (harmlessly, but redundantly) fire on next frame.
+                plugin_watcher_.poll(plugins_dir_);
             }
             ImGui::Separator();
             for (const PluginMenuItem& item : plugin_host_.menu_items())

@@ -23,6 +23,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/render/material.hpp"
 #include "studio/live_link_server.hpp"
+#include "studio/plugin_file_watcher.hpp"
 #include "studio/plugin_host.hpp"
 
 namespace mosaic::studio
@@ -105,6 +106,12 @@ public:
     }
 
 private:
+    // Runs plugin_host_.load() and refreshes the layout's registered panels --
+    // shared by the initial load, the manual "Reload Plugins" menu item, and hot-
+    // reload's automatic trigger, so all three stay in sync by construction.
+    void reload_plugins(mosaic::engine::World& world,
+                        const mosaic::engine::reflection::ComponentReflection& reflection);
+
     void draw_hierarchy(mosaic::engine::World& world);
     bool draw_inspector(mosaic::engine::World& world,
                         const mosaic::engine::reflection::ComponentReflection& reflection);
@@ -145,6 +152,7 @@ private:
     std::string              plugins_dir_;           // where plugin_host_ loads from -- see constructor comment
     std::vector<std::string> disabled_plugin_files_; // filenames plugin_host_.load() should skip
     bool                     plugins_loaded_ = false; // true after the first load() this session
+    PluginFileWatcher        plugin_watcher_; // polled once per frame; a change triggers reload_plugins()
 };
 
 } // namespace mosaic::studio
