@@ -9,14 +9,17 @@ layout(push_constant) uniform Push {
     vec4 base_color;      // .xyz
     vec4 point_position;  // object space .xyz, .w = range
     vec4 point_color;     // .xyz = color * intensity
+    mat4 light_mvp;       // light_view_proj * model, for shadow sampling
 } pc;
 layout(location = 0) out vec3 fragNormal;
 layout(location = 1) out vec2 fragUV;
 layout(location = 2) out vec3 fragPos;
+layout(location = 3) out vec4 fragLightSpacePos;
 void main()
 {
     gl_Position = pc.mvp * vec4(inPosition, 1.0);
     fragNormal = inNormal; // object space; lights are provided in object space too
     fragUV = inUV;
     fragPos = inPosition;  // object space
+    fragLightSpacePos = pc.light_mvp * vec4(inPosition, 1.0);
 }

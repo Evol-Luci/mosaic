@@ -379,6 +379,7 @@ int main(int argc, char** argv)
             }
             device->begin_frame();
             device->clear(render::Color{0.1F, 0.1F, 0.12F, 1.0F});
+            render_system->render_shadows(world, *device, asset_registry);
             render_system->render(world, *device, asset_registry);
             device->end_frame();
         };

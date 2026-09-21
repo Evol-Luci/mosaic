@@ -238,10 +238,12 @@ view that was actually used to pick what to build next as of this writing.
   time a *dynamic* pass need shows up (conditional/reorderable passes,
   not just "one more fixed pass"), since that's the harder case direct
   submission genuinely doesn't scale to.
-- **Shadows — v1 (directional-only, hard-edged, fixed-size ortho
-  frustum) in scoping as of 2026-09-21**; real, explicitly-deferred
-  upgrades once v1 ships, each its own future slice, not silently
-  folded in:
+- ~~**Shadows — v1 (directional-only, hard-edged, fixed-size ortho
+  frustum)**~~ — **SHIPPED 2026-09-21.** See `docs/project/next-steps.md`
+  for the full shipment entry (a real editor-pass-ordering bug found by
+  functional testing, not by review, and fixed with a ruling). The
+  upgrades below remain real, explicitly-deferred follow-ups, each its
+  own future slice, not silently folded in:
   - **PCF / soft shadow filtering** — v1 ships hard-edged (single depth
     sample) shadows deliberately, to prove the pipeline (light-space
     matrix, depth pass, sampling) before adding filtering. A small,

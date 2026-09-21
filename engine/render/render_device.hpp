@@ -47,6 +47,7 @@ struct DrawParams
     mosaic::foundation::math::Vec3 point_position;
     mosaic::foundation::math::Vec3 point_color;
     float                          point_range = 0.0f; // 0 == no point light (disabled)
+    mosaic::foundation::math::Mat4 light_mvp; // light_view_proj * model, for shadow sampling
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived
@@ -205,6 +206,14 @@ public:
     virtual void begin_viewport_pass(const Color& /*clear*/) {}
     virtual void end_viewport_pass() {}
     virtual ViewportTextureId viewport_texture() const { return 0; }
+
+    // Shadow pass: render depth-only geometry from the directional light's point of
+    // view into a dedicated shadow map. Default no-op (a backend that doesn't
+    // implement shadows simply never populates one; the main pass's shadow lookup
+    // then must degrade to "fully lit" on the shader side, not fail).
+    virtual void begin_shadow_pass() {}
+    virtual void draw_shadow(MeshHandle /*mesh*/, const mosaic::foundation::math::Mat4& /*light_mvp*/) {}
+    virtual void end_shadow_pass() {}
 };
 
 } // namespace mosaic::engine::render
