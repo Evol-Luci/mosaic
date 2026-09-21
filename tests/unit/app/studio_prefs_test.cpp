@@ -1,13 +1,17 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
 #include "app/studio_prefs.hpp"
 
+using mosaic::app::kMaxRecentProjects;
 using mosaic::app::load_studio_prefs;
+using mosaic::app::record_recent_project;
 using mosaic::app::save_studio_prefs;
+using mosaic::app::should_show_recent_projects_picker;
 using mosaic::app::StudioPrefs;
 using mosaic::app::studio_theme_to_ui_theme;
 using mosaic::app::ThemeClassic;
@@ -118,4 +122,86 @@ TEST_CASE("save_studio_prefs creates its parent directory if missing", "[app]")
     StudioPrefs prefs;
     REQUIRE(save_studio_prefs(prefs, path));
     REQUIRE(fs::exists(path));
+}
+
+TEST_CASE("a fresh StudioPrefs has an empty recent_projects list", "[app]")
+{
+    REQUIRE(StudioPrefs{}.recent_projects.empty());
+}
+
+TEST_CASE("record_recent_project inserts a new path at the front", "[app]")
+{
+    StudioPrefs prefs;
+    record_recent_project(prefs, "/projects/a");
+    REQUIRE(prefs.recent_projects == std::vector<std::string>{"/projects/a"});
+
+    record_recent_project(prefs, "/projects/b");
+    REQUIRE(prefs.recent_projects == std::vector<std::string>{"/projects/b", "/projects/a"});
+}
+
+TEST_CASE("record_recent_project moves a re-opened path to the front instead of duplicating it",
+         "[app]")
+{
+    StudioPrefs prefs;
+    record_recent_project(prefs, "/projects/a");
+    record_recent_project(prefs, "/projects/b");
+    record_recent_project(prefs, "/projects/c");
+    record_recent_project(prefs, "/projects/a"); // reopen the first one
+
+    REQUIRE(prefs.recent_projects ==
+           std::vector<std::string>{"/projects/a", "/projects/c", "/projects/b"});
+}
+
+TEST_CASE("record_recent_project caps the list at kMaxRecentProjects, dropping the oldest",
+         "[app]")
+{
+    StudioPrefs prefs;
+    for (std::size_t i = 0; i < kMaxRecentProjects + 3; ++i)
+    {
+        record_recent_project(prefs, "/projects/" + std::to_string(i));
+    }
+
+    REQUIRE(prefs.recent_projects.size() == kMaxRecentProjects);
+    // Most recent (highest index) first; the three oldest (0, 1, 2) were dropped.
+    REQUIRE(prefs.recent_projects.front() ==
+           "/projects/" + std::to_string(kMaxRecentProjects + 2));
+    for (const std::string& path : prefs.recent_projects)
+    {
+        REQUIRE(path != "/projects/0");
+        REQUIRE(path != "/projects/1");
+        REQUIRE(path != "/projects/2");
+    }
+}
+
+TEST_CASE("save_studio_prefs then load_studio_prefs round-trips recent_projects", "[app]")
+{
+    const std::filesystem::path path = make_fixture_prefs_path("recent_roundtrip");
+    StudioPrefs prefs;
+    record_recent_project(prefs, "/projects/a");
+    record_recent_project(prefs, "/projects/b");
+
+    REQUIRE(save_studio_prefs(prefs, path));
+
+    const StudioPrefs loaded = load_studio_prefs(path);
+    REQUIRE(loaded.recent_projects == std::vector<std::string>{"/projects/b", "/projects/a"});
+}
+
+TEST_CASE("should_show_recent_projects_picker is false when an open path was given, "
+         "regardless of recent_projects",
+         "[app]")
+{
+    REQUIRE_FALSE(should_show_recent_projects_picker(true, {}));
+    REQUIRE_FALSE(should_show_recent_projects_picker(true, {"/projects/a"}));
+}
+
+TEST_CASE("should_show_recent_projects_picker is false with no open path but nothing recent",
+         "[app]")
+{
+    REQUIRE_FALSE(should_show_recent_projects_picker(false, {}));
+}
+
+TEST_CASE("should_show_recent_projects_picker is true with no open path and a non-empty list",
+         "[app]")
+{
+    REQUIRE(should_show_recent_projects_picker(false, {"/projects/a"}));
 }

@@ -69,20 +69,32 @@ public:
     // current_theme() can report it back for persistence at exit. Constructing a
     // StudioApp never itself calls set_ui_theme(); the caller is expected to have
     // already applied it via init_ui().
+    // `recent_projects` and `show_recent_projects_picker` back the startup "Recent
+    // Projects" window: the caller (app/run/editor.cpp) decides whether to show it
+    // (via app/studio_prefs.hpp's should_show_recent_projects_picker(), since that
+    // decision needs Options::open_path -- an app-level type Studio can't reference)
+    // and passes the already-persisted list to display. Selecting an entry sets
+    // reopen_requested() rather than switching projects in-process (StudioApp has no
+    // notion of "reload with an entirely different project's assets/plugins/scene" --
+    // that would need its own design); the caller relaunches the editor process.
     explicit StudioApp(std::string scene_path = "scene.json",
                        ScriptConsoleModel::EngineFactory script_factory = {},
                        PluginHost::EngineFactory plugin_factory = {},
                        std::string plugins_dir = "plugins",
                        std::vector<std::string> disabled_plugin_files = {},
                        mosaic::engine::render::UiTheme initial_theme =
-                           mosaic::engine::render::UiTheme::Dark)
+                           mosaic::engine::render::UiTheme::Dark,
+                       std::vector<std::string> recent_projects = {},
+                       bool show_recent_projects_picker = false)
         : scene_file_(std::move(scene_path)),
           script_console_(script_factory),
           script_editor_(script_factory),
           plugin_host_(plugin_factory),
           plugins_dir_(std::move(plugins_dir)),
           disabled_plugin_files_(std::move(disabled_plugin_files)),
-          current_theme_(initial_theme)
+          current_theme_(initial_theme),
+          recent_projects_(std::move(recent_projects)),
+          show_recent_projects_picker_(show_recent_projects_picker)
     {
     }
 
@@ -103,6 +115,11 @@ public:
     // persist alongside window size, mirroring the existing glfwGetWindowSize
     // read-back-at-exit pattern.
     mosaic::engine::render::UiTheme current_theme() const { return current_theme_; }
+    // Set once the user clicks an entry in the "Recent Projects" startup picker;
+    // the caller (app/run/editor.cpp) checks this each frame and, once set, tears
+    // down this session and relaunches the editor process pointed at the chosen
+    // project directory.
+    std::optional<std::string> reopen_requested() const { return reopen_requested_; }
 
     // Called by the editor loop right after a File > Reload has replaced the live
     // World's contents from disk: drops every Studio-side cache that names an
@@ -168,6 +185,9 @@ private:
     bool                     plugins_loaded_ = false; // true after the first load() this session
     PluginFileWatcher        plugin_watcher_; // polled once per frame; a change triggers reload_plugins()
     mosaic::engine::render::UiTheme current_theme_; // see current_theme()/the Theme menu in draw_ui
+    std::vector<std::string>   recent_projects_;             // shown by the startup picker
+    bool                       show_recent_projects_picker_; // drawn once at startup; dismissible
+    std::optional<std::string> reopen_requested_;            // see reopen_requested()
 };
 
 } // namespace mosaic::studio

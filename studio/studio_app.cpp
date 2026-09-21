@@ -39,6 +39,32 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     // Full-window dockspace host so panels can be docked/tabbed/floated.
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
+    // Startup-only "Recent Projects" picker -- offered when no project/scene was
+    // named on the command line and there's something to pick from (see
+    // app/studio_prefs.hpp's should_show_recent_projects_picker()). Dismissible via
+    // the window's own close button (p_open below), in which case the editor just
+    // continues with whatever scene it already loaded -- unchanged prior behavior.
+    if (show_recent_projects_picker_)
+    {
+        ImGui::SetNextWindowSize(ImVec2(480, 320), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Recent Projects", &show_recent_projects_picker_))
+        {
+            ImGui::TextWrapped(
+                "No project was given on the command line. Pick a recent one to reopen, "
+                "or close this window to continue with the current scene.");
+            ImGui::Separator();
+            for (const std::string& path : recent_projects_)
+            {
+                if (ImGui::Selectable(path.c_str()))
+                {
+                    reopen_requested_          = path;
+                    show_recent_projects_picker_ = false;
+                }
+            }
+        }
+        ImGui::End();
+    }
+
     if (!demo_entity_)
     {
         world.for_each<mosaic::engine::script::ScriptComponent>(
