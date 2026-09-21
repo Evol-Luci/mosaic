@@ -270,11 +270,12 @@ view that was actually used to pick what to build next as of this writing.
   the user before brainstorming any of it): the current lighting model
   is Lambert diffuse only (no specular term at all), single directional
   + single point light ("first found," never accumulated), no shadows
-  for point lights. Picked **spot lights** as the first, smallest slice
-  (reuses `PointLight`'s `WorldTransform`-derived positional machinery,
-  no material/BRDF changes, no multi-light question) — in scoping as of
-  2026-09-21. Deferred, each its own future slice, not silently folded
-  into spot lights:
+  for point lights. ~~**Spot lights**~~ — **SHIPPED 2026-09-21**, the
+  first, smallest slice (reused `PointLight`'s `WorldTransform`-derived
+  positional machinery, no material/BRDF changes, no multi-light
+  question). See `docs/project/next-steps.md` for the full shipment
+  entry. Deferred, each its own future slice, not silently folded into
+  spot lights:
   - **Specular highlights (Blinn-Phong)** — a shininess/specular-color
     param added to `Material` and the shader's lighting math, without
     committing to a full PBR material model. Bigger than spot lights

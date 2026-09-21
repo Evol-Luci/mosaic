@@ -172,6 +172,17 @@ Every built-in engine component, with its fields and their default values. Field
 
 - `radius`: 0.500000
 
+## SpotLight
+
+- `color`
+  - `x`: 1.000000
+  - `y`: 1.000000
+  - `z`: 1.000000
+- `intensity`: 1.000000
+- `range`: 10.000000
+- `inner_angle`: 0.400000
+- `outer_angle`: 0.600000
+
 ## TrailRenderer
 
 - `color`

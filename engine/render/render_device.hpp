@@ -48,6 +48,12 @@ struct DrawParams
     mosaic::foundation::math::Vec3 point_color;
     float                          point_range = 0.0f; // 0 == no point light (disabled)
     mosaic::foundation::math::Mat4 light_mvp; // light_view_proj * model, for shadow sampling
+    mosaic::foundation::math::Vec3 spot_position;  // object space
+    mosaic::foundation::math::Vec3 spot_direction; // object space, normalized
+    mosaic::foundation::math::Vec3 spot_color;     // premultiplied by intensity
+    float                          spot_range = 0.0f; // 0 == no spot light (disabled)
+    float                          spot_cos_inner = 1.0f;
+    float                          spot_cos_outer = 1.0f;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived

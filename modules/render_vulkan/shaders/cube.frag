@@ -13,6 +13,9 @@ layout(push_constant) uniform Push {
     vec4 point_position; // object space .xyz, .w = range
     vec4 point_color;    // .xyz = color * intensity
     mat4 light_mvp;
+    vec4 spot_position;  // object space .xyz, .w = range
+    vec4 spot_direction; // object space .xyz, .w = cos(outer_angle)
+    vec4 spot_color;     // .xyz = color * intensity, .w = cos(inner_angle)
 } pc;
 layout(location = 0) out vec4 outColor;
 
@@ -40,7 +43,7 @@ void main()
     vec3 albedo = texture(tex, fragUV).rgb * pc.base_color.xyz;
 
     // Point light (object space): windowed inverse-square attenuation. Unaffected
-    // by shadows in v1 -- only the directional light casts shadows.
+    // by shadows -- only the directional light casts shadows.
     vec3  toL   = pc.point_position.xyz - fragPos;
     float d     = length(toL);
     float range = pc.point_position.w;
@@ -52,7 +55,25 @@ void main()
     }
     float pl = max(0.0, dot(n, toL / max(d, 1e-4))) * atten;
 
+    // Spot light (object space): same windowed inverse-square falloff as the point
+    // light, additionally scaled by a smooth cone edge (smoothstep between the
+    // outer and inner cosines -- full intensity inside the inner cone, smoothly
+    // fading to zero at the outer cone, never a hard/aliased cutoff). No shadows.
+    vec3  toSpotL   = pc.spot_position.xyz - fragPos;
+    float spotD     = length(toSpotL);
+    float spotRange = pc.spot_position.w;
+    float spotAtten = 0.0;
+    if (spotRange > 0.0)
+    {
+        float win = clamp(1.0 - pow(spotD / spotRange, 4.0), 0.0, 1.0);
+        spotAtten = (win * win) / (spotD * spotD + 1.0);
+    }
+    float cosAngle = dot(normalize(-toSpotL), pc.spot_direction.xyz);
+    float coneAtten = smoothstep(pc.spot_direction.w, pc.spot_color.w, cosAngle); // (cos_outer, cos_inner)
+    float spotL = max(0.0, dot(n, toSpotL / max(spotD, 1e-4))) * spotAtten * coneAtten;
+
     vec3 color = albedo * (0.1 + lambert * pc.light_color.xyz)
-               + albedo * pl * pc.point_color.xyz;
+               + albedo * pl * pc.point_color.xyz
+               + albedo * spotL * pc.spot_color.xyz;
     outColor = vec4(color, 1.0);
 }
