@@ -204,7 +204,7 @@ TEST_CASE("script-profile flag toggles on_update timing output", "[cli]")
     REQUIRE(result.options.script_profile == true);
 }
 
-TEST_CASE("--host parses into a port", "[cli]")
+TEST_CASE("host option parses into a port", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--host", "7777"});
     REQUIRE_FALSE(result.exit_code.has_value());
@@ -213,7 +213,7 @@ TEST_CASE("--host parses into a port", "[cli]")
     REQUIRE_FALSE(result.options.connect_address.has_value());
 }
 
-TEST_CASE("--connect parses a valid host:port", "[cli]")
+TEST_CASE("connect option parses a valid host:port", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1:7777"});
     REQUIRE_FALSE(result.exit_code.has_value());
@@ -222,28 +222,28 @@ TEST_CASE("--connect parses a valid host:port", "[cli]")
     REQUIRE_FALSE(result.options.host_port.has_value());
 }
 
-TEST_CASE("--connect without a port is rejected", "[cli]")
+TEST_CASE("connect option without a port is rejected", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1"});
     REQUIRE(result.exit_code.has_value());
     REQUIRE(*result.exit_code != 0);
 }
 
-TEST_CASE("--connect with a non-numeric port is rejected", "[cli]")
+TEST_CASE("connect option with a non-numeric port is rejected", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--connect", "127.0.0.1:abc"});
     REQUIRE(result.exit_code.has_value());
     REQUIRE(*result.exit_code != 0);
 }
 
-TEST_CASE("--host and --connect together are rejected", "[cli]")
+TEST_CASE("host and connect options together are rejected", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--host", "7777", "--connect", "127.0.0.1:7778"});
     REQUIRE(result.exit_code.has_value());
     REQUIRE(*result.exit_code != 0);
 }
 
-TEST_CASE("--host port zero is rejected", "[cli]")
+TEST_CASE("host option port zero is rejected", "[cli]")
 {
     auto result = parse_args({"mosaic", "run", "--host", "0"});
     REQUIRE(result.exit_code.has_value());

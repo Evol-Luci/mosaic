@@ -11,7 +11,10 @@ Read the [architecture](docs/architecture/ARCHITECTURE.md) and the
 
 1. **Respect the dependency rules.** `Foundation → Engine → Editor → Studio`.
    Forbidden edges (`Engine → Blender`, `Engine → AI`, `Engine → Editor`,
-   `Foundation → *` upward) are enforced in CI and will be rejected.
+   `Foundation → *` upward) are not yet mechanically enforced (CI currently runs
+   the unit suite and a headless smoke test, not a dependency-rule lint — see
+   `docs/project/deferred-work-backlog.md`), so review carefully and don't
+   introduce a violation; a lint pass is tracked as a follow-up.
 2. **Respect the "Things Mosaic Will Never Do"**
    [contract](docs/architecture/ARCHITECTURE.md#things-mosaic-will-never-do). If a
    change conflicts with it, the change is wrong, not the list — amendments require
@@ -71,7 +74,7 @@ confirm they have waived their rights before you sign the ICLA.
 - Branch from the current development branch; keep PRs focused.
 - Write clear commit messages describing *why*, not just *what*.
 - Include tests for behavioral changes where the subsystem supports them.
-- Ensure CI passes, including the dependency-rule checks.
+- Ensure CI passes (unit suite + headless smoke test).
 
 ## Where work is tracked
 
