@@ -359,10 +359,20 @@ implementation starts.
 **Stand up real CI (GitHub Actions) — SHIPPED 2026-09-21 (PR #198)**,
 removed from the table above. `.github/workflows/ci.yml`: debug-preset
 build, full `ctest`, headless `mosaic run --ticks N --json` smoke test,
-on every push to `main` and every PR. A dependency-rule lint is a
-natural follow-up (`CONTRIBUTING.md` still says the layering rules
-aren't mechanically enforced, only reviewed by eye) but is intentionally
-not bundled into this item — greenfield work, not yet scoped.
+on every push to `main` and every PR.
+
+**Dependency-rule lint — SHIPPED 2026-09-21 (PR #199)**, the follow-up
+named above. `tools/ci/check_dependency_rules.py` (+ its own unit
+tests), wired into CI and `.githooks/pre-commit`. Surfaced and fixed a
+real doc-vs-reality mismatch along the way: `ARCHITECTURE.md`/
+`repo-layout.md` described a `Foundation → Engine → Editor → Studio`
+layout with an `editor/` directory that was never built — rewritten to
+describe the real tiers (`foundation/engine/studio/app` + `modules/`)
+confirmed by grepping every `#include` direction in the tree. See the
+`next-steps.md` entry for the full story, including the real
+`app → studio` direction (opposite of what the old docs said) and the
+CI-flake exclusion this PR's own run surfaced (tracked separately in
+Tech debt above).
 
 **Picked as the largest effective win (2026-09-19, original pass):** bulk
 refactoring / project health checks — **shipped**, all 4 sub-projects
