@@ -44,10 +44,12 @@ inline mosaic::engine::ui::Anchor to_anchor(int a)
                               : mosaic::engine::ui::Anchor::TopLeft;
 }
 
-// Render-time traversal: finds the active camera + directional light and draws every
-// entity with WorldTransform + MeshRenderer, lit (Lambert; light transformed into each
-// mesh's object space so the backend needs no model matrix). Fallbacks keep the scene
-// lit/rendered when a camera/light/material is absent.
+// Render-time traversal: finds the active camera and lights, sends the frame's
+// world-space lighting once via set_frame_lighting, then draws every entity with
+// WorldTransform + MeshRenderer. Shading is done in WORLD space (Lambert), so each
+// draw carries the model matrix and a normal matrix rather than lights pre-transformed
+// into its object space. Fallbacks keep the scene lit/rendered when a camera, light,
+// or material is absent.
 class RenderSystem
 {
 public:
