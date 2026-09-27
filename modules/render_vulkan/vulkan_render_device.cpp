@@ -41,17 +41,25 @@ constexpr int kFramesInFlight = 2;
 struct PushConstants
 {
     float mvp[16];
-    float light_direction[4]; // vec3 + pad
-    float light_color[4];
-    float base_color[4];
-    float point_position[4]; // xyz = object-space pos, w = range
-    float point_color[4];    // xyz = color * intensity
-    float light_mvp[16];     // light_view_proj * model, for shadow sampling
-    float spot_position[4];  // xyz = object-space pos, w = range
-    float spot_direction[4]; // xyz = object-space direction, w = cos(outer_angle)
-    float spot_color[4];     // xyz = color * intensity, w = cos(inner_angle)
+    float model[16];         // object -> world
+    float normal_matrix[16]; // transpose(inverse(model)); only the upper 3x3 is used
+    float base_color[4];     // xyz
 };
-static_assert(sizeof(PushConstants) == 256, "push constant layout must match the shader");
+static_assert(sizeof(PushConstants) == 208, "push constant layout must match the shader");
+
+// std140 layout, matching the FrameLighting uniform block in cube.vert/cube.frag.
+struct FrameLightingUbo
+{
+    float light_direction[4]; // xyz, w unused
+    float light_color[4];     // xyz, w unused
+    float point_position[4];  // xyz, w = range
+    float point_color[4];     // xyz, w unused
+    float spot_position[4];   // xyz, w = range
+    float spot_direction[4];  // xyz, w = cos(outer_angle)
+    float spot_color[4];      // xyz, w = cos(inner_angle)
+    float light_view_proj[16];
+};
+static_assert(sizeof(FrameLightingUbo) == 176, "UBO layout must match the shader block");
 
 struct ShadowPushConstants
 {
@@ -225,6 +233,7 @@ public:
         create_descriptor_infrastructure();
         create_shadow_resources();
         create_shadow_descriptor();
+        create_frame_lighting_resources();
         create_pipeline();
         create_shadow_pipeline();
         create_particle_pipeline();
@@ -271,6 +280,15 @@ public:
             if (shadow_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, shadow_view_, nullptr); }
             if (shadow_image_ != VK_NULL_HANDLE) { vkDestroyImage(device_, shadow_image_, nullptr); }
             if (shadow_memory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, shadow_memory_, nullptr); }
+
+            if (frame_ubo_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, frame_ubo_pool_, nullptr); }
+            if (frame_ubo_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, frame_ubo_set_layout_, nullptr); }
+            for (int i = 0; i < kFramesInFlight; ++i)
+            {
+                if (frame_ubo_memory_[i] != VK_NULL_HANDLE) { vkUnmapMemory(device_, frame_ubo_memory_[i]); }
+                if (frame_ubo_[i] != VK_NULL_HANDLE) { vkDestroyBuffer(device_, frame_ubo_[i], nullptr); }
+                if (frame_ubo_memory_[i] != VK_NULL_HANDLE) { vkFreeMemory(device_, frame_ubo_memory_[i], nullptr); }
+            }
 
             if (ui_ready_)
             {
@@ -618,6 +636,42 @@ public:
         textures_.push_back(tex);
         return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
     }
+
+    void set_frame_lighting(const mosaic::engine::render::FrameLighting& fl) override
+    {
+        FrameLightingUbo ubo{};
+        ubo.light_direction[0] = fl.light_direction.x;
+        ubo.light_direction[1] = fl.light_direction.y;
+        ubo.light_direction[2] = fl.light_direction.z;
+        ubo.light_color[0] = fl.light_color.x;
+        ubo.light_color[1] = fl.light_color.y;
+        ubo.light_color[2] = fl.light_color.z;
+        ubo.point_position[0] = fl.point_position.x;
+        ubo.point_position[1] = fl.point_position.y;
+        ubo.point_position[2] = fl.point_position.z;
+        ubo.point_position[3] = fl.point_range;
+        ubo.point_color[0] = fl.point_color.x;
+        ubo.point_color[1] = fl.point_color.y;
+        ubo.point_color[2] = fl.point_color.z;
+        ubo.spot_position[0] = fl.spot_position.x;
+        ubo.spot_position[1] = fl.spot_position.y;
+        ubo.spot_position[2] = fl.spot_position.z;
+        ubo.spot_position[3] = fl.spot_range;
+        ubo.spot_direction[0] = fl.spot_direction.x;
+        ubo.spot_direction[1] = fl.spot_direction.y;
+        ubo.spot_direction[2] = fl.spot_direction.z;
+        ubo.spot_direction[3] = fl.spot_cos_outer;
+        ubo.spot_color[0] = fl.spot_color.x;
+        ubo.spot_color[1] = fl.spot_color.y;
+        ubo.spot_color[2] = fl.spot_color.z;
+        ubo.spot_color[3] = fl.spot_cos_inner;
+        std::memcpy(ubo.light_view_proj, fl.light_view_proj.m.data(), sizeof(ubo.light_view_proj));
+
+        // frame_ is the current frame-in-flight index (advanced at the end of
+        // end_frame), so this always targets the buffer this frame will read.
+        std::memcpy(frame_ubo_mapped_[frame_], &ubo, sizeof(ubo));
+    }
+
     void begin_shadow_pass() override
     {
         VkClearValue clear{};
@@ -676,6 +730,8 @@ public:
                                     nullptr);
             vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline_layout_, 1, 1, &shadow_descriptor_set_, 0, nullptr);
+            vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout_, 2, 1, &frame_ubo_set_[frame_], 0, nullptr);
         }
 
         const MeshBuffers& mb = meshes_[mesh - 1];
@@ -685,35 +741,11 @@ public:
 
         PushConstants pc{};
         std::memcpy(pc.mvp, params.mvp.m.data(), sizeof(pc.mvp));
-        pc.light_direction[0] = params.light_direction.x;
-        pc.light_direction[1] = params.light_direction.y;
-        pc.light_direction[2] = params.light_direction.z;
-        pc.light_color[0] = params.light_color.x;
-        pc.light_color[1] = params.light_color.y;
-        pc.light_color[2] = params.light_color.z;
+        std::memcpy(pc.model, params.model.m.data(), sizeof(pc.model));
+        std::memcpy(pc.normal_matrix, params.normal_matrix.m.data(), sizeof(pc.normal_matrix));
         pc.base_color[0] = params.base_color.x;
         pc.base_color[1] = params.base_color.y;
         pc.base_color[2] = params.base_color.z;
-        pc.point_position[0] = params.point_position.x;
-        pc.point_position[1] = params.point_position.y;
-        pc.point_position[2] = params.point_position.z;
-        pc.point_position[3] = params.point_range;
-        pc.point_color[0] = params.point_color.x;
-        pc.point_color[1] = params.point_color.y;
-        pc.point_color[2] = params.point_color.z;
-        std::memcpy(pc.light_mvp, params.light_mvp.m.data(), sizeof(pc.light_mvp));
-        pc.spot_position[0] = params.spot_position.x;
-        pc.spot_position[1] = params.spot_position.y;
-        pc.spot_position[2] = params.spot_position.z;
-        pc.spot_position[3] = params.spot_range;
-        pc.spot_direction[0] = params.spot_direction.x;
-        pc.spot_direction[1] = params.spot_direction.y;
-        pc.spot_direction[2] = params.spot_direction.z;
-        pc.spot_direction[3] = params.spot_cos_outer;
-        pc.spot_color[0] = params.spot_color.x;
-        pc.spot_color[1] = params.spot_color.y;
-        pc.spot_color[2] = params.spot_color.z;
-        pc.spot_color[3] = params.spot_cos_inner;
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
@@ -2069,7 +2101,74 @@ private:
         vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
     }
 
+    // Set 2 in the main pipeline: per-frame world-space lighting. Visible to BOTH
+    // stages -- the vertex shader reads light_view_proj to compute the shadow
+    // lookup position, the fragment shader reads the lights themselves.
+    void create_frame_lighting_resources()
+    {
+        for (int i = 0; i < kFramesInFlight; ++i)
+        {
+            create_buffer(sizeof(FrameLightingUbo), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          frame_ubo_[i], frame_ubo_memory_[i]);
+            vk_check(vkMapMemory(device_, frame_ubo_memory_[i], 0, sizeof(FrameLightingUbo), 0,
+                                 &frame_ubo_mapped_[i]),
+                     "vkMapMemory(frame lighting ubo)");
+            std::memset(frame_ubo_mapped_[i], 0, sizeof(FrameLightingUbo));
+        }
+
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding = 0;
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        binding.descriptorCount = 1;
+        binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layout.bindingCount = 1;
+        layout.pBindings = &binding;
+        vk_check(vkCreateDescriptorSetLayout(device_, &layout, nullptr, &frame_ubo_set_layout_),
+                 "vkCreateDescriptorSetLayout(frame lighting)");
+
+        VkDescriptorPoolSize pool_size{};
+        pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        pool_size.descriptorCount = kFramesInFlight;
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        pool.maxSets = kFramesInFlight;
+        vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &frame_ubo_pool_),
+                 "vkCreateDescriptorPool(frame lighting)");
+
+        for (int i = 0; i < kFramesInFlight; ++i)
+        {
+            VkDescriptorSetAllocateInfo alloc{};
+            alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            alloc.descriptorPool = frame_ubo_pool_;
+            alloc.descriptorSetCount = 1;
+            alloc.pSetLayouts = &frame_ubo_set_layout_;
+            vk_check(vkAllocateDescriptorSets(device_, &alloc, &frame_ubo_set_[i]),
+                     "vkAllocateDescriptorSets(frame lighting)");
+
+            VkDescriptorBufferInfo info{};
+            info.buffer = frame_ubo_[i];
+            info.offset = 0;
+            info.range = sizeof(FrameLightingUbo);
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = frame_ubo_set_[i];
+            write.dstBinding = 0;
+            write.descriptorCount = 1;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            write.pBufferInfo = &info;
+            vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        }
+    }
+
     // --- pipeline ---------------------------------------------------------
+
 
     static std::vector<char> read_file(const std::string& path)
     {
@@ -2303,7 +2402,8 @@ private:
         push.offset = 0;
         push.size = sizeof(PushConstants);
 
-        std::array<VkDescriptorSetLayout, 2> set_layouts{texture_set_layout_, shadow_set_layout_};
+        std::array<VkDescriptorSetLayout, 3> set_layouts{texture_set_layout_, shadow_set_layout_,
+                                                         frame_ubo_set_layout_};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
@@ -3401,6 +3501,15 @@ private:
     VkDescriptorSet       shadow_descriptor_set_ = VK_NULL_HANDLE;
     VkPipelineLayout shadow_pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline       shadow_pipeline_ = VK_NULL_HANDLE;
+
+    // Per-frame lighting UBO -- one per frame-in-flight, so writing frame N cannot
+    // race a still-executing frame N-1 reading its own copy. Persistently mapped.
+    VkBuffer              frame_ubo_[kFramesInFlight]{};
+    VkDeviceMemory        frame_ubo_memory_[kFramesInFlight]{};
+    void*                 frame_ubo_mapped_[kFramesInFlight]{};
+    VkDescriptorSetLayout frame_ubo_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool      frame_ubo_pool_ = VK_NULL_HANDLE;
+    VkDescriptorSet       frame_ubo_set_[kFramesInFlight]{};
 
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> framebuffers_;

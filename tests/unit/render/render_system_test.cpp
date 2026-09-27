@@ -45,6 +45,7 @@ using mosaic::engine::render::Camera;
 using mosaic::engine::render::Color;
 using mosaic::engine::render::DirectionalLight;
 using mosaic::engine::render::DrawParams;
+using mosaic::engine::render::FrameLighting;
 using mosaic::engine::render::Image;
 using mosaic::engine::render::Material;
 using mosaic::engine::render::MeshHandle;
@@ -106,6 +107,12 @@ public:
         shadow_draws.push_back({m, light_mvp});
     }
     void end_shadow_pass() override { ++shadow_pass_ends; }
+
+    std::vector<FrameLighting> frame_lighting_calls;
+    void set_frame_lighting(const FrameLighting& fl) override
+    {
+        frame_lighting_calls.push_back(fl);
+    }
 
     struct ParticleDrawCall { std::vector<ParticleInstance> instances; ParticleDrawParams params; };
     std::vector<ParticleDrawCall> particle_draws;
@@ -188,7 +195,7 @@ AssetID register_cube(AssetRegistry& registry)
 }
 } // namespace
 
-TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight", "[render]")
+TEST_CASE("RenderSystem reports world-space directional light in FrameLighting, untouched by mesh rotation", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -199,12 +206,11 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     add_camera(world, Vec3{0, 0, 4});
 
     auto light = world.create_entity();
-    // Light NOT aligned with the mesh's rotation axis (Y), so the object-space transform
-    // produces a genuinely different vector than the world direction — this is what makes
-    // the assertion below actually exercise inverse_affine + transform_direction.
+    // Light NOT aligned with the mesh's rotation axis (Y): if any leftover
+    // object-space transform were still applied, the result would visibly differ
+    // from the world direction -- which the final guard below checks for.
     world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{1, -1, 0}, Vec3{1, 0.9f, 0.8f}});
 
-    // Mesh with a 90-degree-about-Y world rotation, so object-space light differs from world.
     const Mat4 mesh_world =
         Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
     const AssetID mesh_id = register_cube(registry);
@@ -216,29 +222,34 @@ TEST_CASE("RenderSystem produces lit DrawParams from Material + DirectionalLight
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
-    const DrawParams& p = device.draws[0].params;
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const DrawParams&    p  = device.draws[0].params;
+    const FrameLighting& fl = device.frame_lighting_calls[0];
     REQUIRE(device.draws[0].mesh != 0);
-    // base_color from the Material:
+
+    // base_color stays per-draw.
     REQUIRE(p.base_color.x == Approx(0.2f));
     REQUIRE(p.base_color.y == Approx(0.4f));
     REQUIRE(p.base_color.z == Approx(0.6f));
-    // light_color from the DirectionalLight:
-    REQUIRE(p.light_color.x == Approx(1.0f));
-    REQUIRE(p.light_color.z == Approx(0.8f));
-    // light_direction is the world light transformed into the mesh's object space + normalized.
-    const Vec3 world_dir{1, -1, 0};
-    const Vec3 expected_obj = mosaic::foundation::math::normalize(
-        mosaic::foundation::math::transform_direction(Mat4::inverse_affine(mesh_world), world_dir));
-    REQUIRE(p.light_direction.x == Approx(expected_obj.x).margin(1e-5));
-    REQUIRE(p.light_direction.y == Approx(expected_obj.y).margin(1e-5));
-    REQUIRE(p.light_direction.z == Approx(expected_obj.z).margin(1e-5));
-    // Guard: the object-space direction must actually differ from the normalized world
-    // direction, so this test fails if the RenderSystem ever skips the object-space transform.
-    const Vec3 world_norm = mosaic::foundation::math::normalize(world_dir);
-    REQUIRE(std::abs(p.light_direction.x - world_norm.x) > 0.1f);
+
+    // Light color and direction are now per-frame and in WORLD space.
+    REQUIRE(fl.light_color.x == Approx(1.0f));
+    REQUIRE(fl.light_color.z == Approx(0.8f));
+    const Vec3 world_norm = mosaic::foundation::math::normalize(Vec3{1, -1, 0});
+    REQUIRE(fl.light_direction.x == Approx(world_norm.x).margin(1e-5));
+    REQUIRE(fl.light_direction.y == Approx(world_norm.y).margin(1e-5));
+    REQUIRE(fl.light_direction.z == Approx(world_norm.z).margin(1e-5));
+
+    // Guard, inverted from the object-space era: the mesh's 90-degree rotation must
+    // NOT affect the light direction any more. If a leftover object-space transform
+    // is applied, the x component differs from the world value by well over 0.1.
+    const Vec3 object_space = mosaic::foundation::math::normalize(
+        mosaic::foundation::math::transform_direction(Mat4::inverse_affine(mesh_world),
+                                                      Vec3{1, -1, 0}));
+    REQUIRE(std::abs(fl.light_direction.x - object_space.x) > 0.1f);
 }
 
-TEST_CASE("RenderSystem::render_shadows records the shadow pass with the right light_mvp, matching render()'s own light_mvp", "[render]")
+TEST_CASE("render_shadows' light_mvp agrees with FrameLighting's light_view_proj and the per-draw model", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -264,16 +275,28 @@ TEST_CASE("RenderSystem::render_shadows records the shadow pass with the right l
     REQUIRE(device.shadow_pass_ends == 1);
     REQUIRE(device.shadow_draws.size() == 1);
     REQUIRE(device.shadow_draws[0].mesh == device.draws[0].mesh);
+    REQUIRE(device.frame_lighting_calls.size() == 1);
 
-    // light_mvp == light_view_proj * mesh_world; light_mvp in DrawParams (main pass)
-    // must match the shadow pass's own light_mvp exactly -- same light, same mesh.
     const Mat4 light_vp = mosaic::engine::render::directional_light_view_projection(
         DirectionalLight{Vec3{0, -1, 0}, Vec3{1, 1, 1}});
-    const Mat4 expected = light_vp * mesh_world;
+
+    // The shadow pass still gets a fully composed light_mvp (its own pipeline is
+    // untouched by this migration).
+    const Mat4 expected_shadow = light_vp * mesh_world;
     for (int i = 0; i < 16; ++i)
     {
-        REQUIRE(device.shadow_draws[0].light_mvp.m[i] == Approx(expected.m[i]).margin(1e-4));
-        REQUIRE(device.draws[0].params.light_mvp.m[i] == Approx(expected.m[i]).margin(1e-4));
+        REQUIRE(device.shadow_draws[0].light_mvp.m[i] == Approx(expected_shadow.m[i]).margin(1e-4));
+    }
+
+    // The main pass now composes it in the shader from these two halves. If they ever
+    // disagree with what the shadow pass rendered, the shadow map would misalign --
+    // so assert both halves rather than the product.
+    const FrameLighting& fl = device.frame_lighting_calls[0];
+    const DrawParams&    p  = device.draws[0].params;
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(fl.light_view_proj.m[i] == Approx(light_vp.m[i]).margin(1e-4));
+        REQUIRE(p.model.m[i] == Approx(mesh_world.m[i]).margin(1e-4));
     }
 }
 
@@ -294,7 +317,8 @@ TEST_CASE("RenderSystem uses default base color and light when none present", "[
     REQUIRE(device.draws.size() == 1);
     const DrawParams& p = device.draws[0].params;
     REQUIRE(p.base_color.x == Approx(0.8f)); // default material
-    REQUIRE(p.light_color.x == Approx(1.0f)); // default light is white
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].light_color.x == Approx(1.0f)); // default light is white
 }
 
 TEST_CASE("RenderSystem skips a nil mesh or a missing WorldTransform", "[render]")
@@ -392,7 +416,7 @@ TEST_CASE("RenderSystem uses non-zero default white texture for untextured mater
     REQUIRE(device.draws[0].texture != 0);
 }
 
-TEST_CASE("RenderSystem transforms point light into mesh object space", "[render]")
+TEST_CASE("RenderSystem reports point light in world space, unaffected by mesh rotation", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -402,13 +426,14 @@ TEST_CASE("RenderSystem transforms point light into mesh object space", "[render
 
     add_camera(world, Vec3{0, 0, 4});
 
-    // Point light at a known world position, placed via its WorldTransform.
     const Vec3 light_world_pos{2.0f, 0.0f, 0.0f};
     auto light = world.create_entity();
     world.add_component<WorldTransform>(light, WorldTransform{Mat4::translation(light_world_pos)});
     world.add_component<PointLight>(light, PointLight{Vec3{0.5f, 0.25f, 0.1f}, 2.0f, 6.0f});
 
-    // Mesh with a 90-degree-about-Y world rotation, so object-space pos differs from world.
+    // Mesh rotated 90 degrees about Y -- kept deliberately from the object-space era:
+    // under the old behavior this produced object-space {0,0,2}, so if any leftover
+    // transform is applied these assertions fail.
     const Mat4 mesh_world =
         Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
     const AssetID mesh_id = register_cube(registry);
@@ -418,30 +443,20 @@ TEST_CASE("RenderSystem transforms point light into mesh object space", "[render
 
     rs.render(world, device, registry);
 
-    REQUIRE(device.draws.size() == 1);
-    const DrawParams& p = device.draws[0].params;
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
 
-    // point_position = light world pos transformed into the mesh's object space.
-    // Golden value derived independently of the production formula: the mesh is rotated
-    // +90 deg about Y, so world->object is the inverse rotation R_y(-90). Applying it to
-    // the world light {2,0,0} maps +X -> +Z, giving object-space {0,0,2}. Hardcoding this
-    // (rather than recomputing with transform_point/inverse_affine) means a systematic
-    // error in that formula cannot make the test pass by matching itself on both sides.
-    REQUIRE(p.point_position.x == Approx(0.0f).margin(1e-5));
-    REQUIRE(p.point_position.y == Approx(0.0f).margin(1e-5));
-    REQUIRE(p.point_position.z == Approx(2.0f).margin(1e-5));
-    // Guard: object-space position must actually differ from the raw world position,
-    // so this fails if the RenderSystem ever skips the object-space transform.
-    REQUIRE(std::abs(p.point_position.z - light_world_pos.z) > 0.1f);
+    REQUIRE(fl.point_position.x == Approx(2.0f).margin(1e-5));
+    REQUIRE(fl.point_position.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(fl.point_position.z == Approx(0.0f).margin(1e-5));
 
-    // point_color is color * intensity (premultiplied); point_range passes through.
-    REQUIRE(p.point_color.x == Approx(1.0f));   // 0.5 * 2
-    REQUIRE(p.point_color.y == Approx(0.5f));   // 0.25 * 2
-    REQUIRE(p.point_color.z == Approx(0.2f));   // 0.1 * 2
-    REQUIRE(p.point_range == Approx(6.0f));
+    REQUIRE(fl.point_color.x == Approx(1.0f));   // 0.5 * 2
+    REQUIRE(fl.point_color.y == Approx(0.5f));   // 0.25 * 2
+    REQUIRE(fl.point_color.z == Approx(0.2f));   // 0.1 * 2
+    REQUIRE(fl.point_range == Approx(6.0f));
 }
 
-TEST_CASE("RenderSystem transforms spot light position and direction into mesh object space", "[render]")
+TEST_CASE("RenderSystem reports spot light position and direction in world space", "[render]")
 {
     World world;
     FakeRenderDevice device;
@@ -451,15 +466,13 @@ TEST_CASE("RenderSystem transforms spot light position and direction into mesh o
 
     add_camera(world, Vec3{0, 0, 4});
 
-    // Spot light at a known world position with identity rotation (so its forward
-    // direction, via Mat4::forward(), is the default world -Z: {0,0,-1}).
     const Vec3 light_world_pos{2.0f, 0.0f, 0.0f};
     auto light = world.create_entity();
     world.add_component<WorldTransform>(light, WorldTransform{Mat4::translation(light_world_pos)});
     world.add_component<SpotLight>(light, SpotLight{Vec3{0.3f, 0.6f, 0.9f}, 2.0f, 8.0f, 0.4f, 0.6f});
 
-    // Mesh with a 90-degree-about-Y world rotation (identical setup to the existing
-    // point-light object-space test), so object-space values differ from world ones.
+    // Same deliberately-rotated mesh as before: under object-space shading this
+    // produced position {0,0,2} and direction {1,0,0}, so a leftover transform fails here.
     const Mat4 mesh_world =
         Mat4::rotation(mosaic::foundation::math::Quat{0, 0.70710678f, 0, 0.70710678f});
     const AssetID mesh_id = register_cube(registry);
@@ -469,33 +482,24 @@ TEST_CASE("RenderSystem transforms spot light position and direction into mesh o
 
     rs.render(world, device, registry);
 
-    REQUIRE(device.draws.size() == 1);
-    const DrawParams& p = device.draws[0].params;
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
 
-    // spot_position: identical golden-value derivation to the existing point-light
-    // test (same light world position, same mesh rotation) -- world->object is the
-    // inverse rotation R_y(-90 deg), mapping world {2,0,0} -> object {0,0,2}.
-    REQUIRE(p.spot_position.x == Approx(0.0f).margin(1e-5));
-    REQUIRE(p.spot_position.y == Approx(0.0f).margin(1e-5));
-    REQUIRE(p.spot_position.z == Approx(2.0f).margin(1e-5));
+    REQUIRE(fl.spot_position.x == Approx(2.0f).margin(1e-5));
+    REQUIRE(fl.spot_position.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(fl.spot_position.z == Approx(0.0f).margin(1e-5));
 
-    // spot_direction: independently hand-derived (not by re-running the production
-    // formula, so a systematic error in it cannot make this test pass by matching
-    // itself). World direction is {0,0,-1} (identity-rotation light, Mat4::forward()).
-    // Applying the same R_y(-90 deg) world->object rotation the position above uses:
-    // R_y(-90) maps (x,z) -> (x*0 + z*(-1), -x*(-1) + z*0) = (-z, x). For direction
-    // (x=0, z=-1): (-(-1), 0) = (1, 0). So object-space direction = {1, 0, 0}.
-    REQUIRE(p.spot_direction.x == Approx(1.0f).margin(1e-5));
-    REQUIRE(p.spot_direction.y == Approx(0.0f).margin(1e-5));
-    REQUIRE(p.spot_direction.z == Approx(0.0f).margin(1e-5));
+    // Identity-rotation light, so Mat4::forward() gives world -Z.
+    REQUIRE(fl.spot_direction.x == Approx(0.0f).margin(1e-5));
+    REQUIRE(fl.spot_direction.y == Approx(0.0f).margin(1e-5));
+    REQUIRE(fl.spot_direction.z == Approx(-1.0f).margin(1e-5));
 
-    // spot_color is color * intensity (premultiplied); range/cosines pass through.
-    REQUIRE(p.spot_color.x == Approx(0.6f));  // 0.3 * 2
-    REQUIRE(p.spot_color.y == Approx(1.2f));  // 0.6 * 2
-    REQUIRE(p.spot_color.z == Approx(1.8f));  // 0.9 * 2
-    REQUIRE(p.spot_range == Approx(8.0f));
-    REQUIRE(p.spot_cos_inner == Approx(std::cos(0.4f)));
-    REQUIRE(p.spot_cos_outer == Approx(std::cos(0.6f)));
+    REQUIRE(fl.spot_color.x == Approx(0.6f));  // 0.3 * 2
+    REQUIRE(fl.spot_color.y == Approx(1.2f));  // 0.6 * 2
+    REQUIRE(fl.spot_color.z == Approx(1.8f));  // 0.9 * 2
+    REQUIRE(fl.spot_range == Approx(8.0f));
+    REQUIRE(fl.spot_cos_inner == Approx(std::cos(0.4f)));
+    REQUIRE(fl.spot_cos_outer == Approx(std::cos(0.6f)));
 }
 
 TEST_CASE("RenderSystem disables spot light when none present", "[render]")
@@ -515,7 +519,8 @@ TEST_CASE("RenderSystem disables spot light when none present", "[render]")
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
-    REQUIRE(device.draws[0].params.spot_range == Approx(0.0f)); // 0 == disabled
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].spot_range == Approx(0.0f)); // 0 == disabled
 }
 
 TEST_CASE("RenderSystem disables point light when none present", "[render]")
@@ -534,8 +539,8 @@ TEST_CASE("RenderSystem disables point light when none present", "[render]")
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
-    // range 0 == contribution disabled in the shader.
-    REQUIRE(device.draws[0].params.point_range == Approx(0.0f));
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].point_range == Approx(0.0f)); // 0 == disabled
 }
 
 TEST_CASE("RenderSystem emits one batched draw_particles with per-particle instances", "[render]")
@@ -1102,4 +1107,140 @@ TEST_CASE("RenderSystem skips a WorldLabel with no WorldTransform or empty text"
     FakeRenderDevice device;
     rs.render(world, device, registry);
     REQUIRE(device.world_text_draws.empty());
+}
+
+TEST_CASE("RenderSystem sets frame lighting even when the scene has no meshes", "[render]")
+{
+    // Review Focus 1: if the UBO were only refreshed alongside mesh draws, an empty
+    // frame would leave the backend shading from the previous frame's buffer -- or,
+    // on the very first frame, from uninitialized memory.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto light = world.create_entity();
+    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{0, -1, 0}, Vec3{1, 1, 1}});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.empty());
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].light_color.x == Approx(1.0f));
+}
+
+TEST_CASE("RenderSystem's normal_matrix is the inverse-transpose under non-uniform scale", "[render]")
+{
+    // Review Focus 2: the migration claims to fix non-uniform scale. A mesh scaled 2x
+    // on X only must get normals scaled by 1/2 on X -- passing the model matrix
+    // straight through would give 2x, which is exactly the bug this pins.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const Mat4 mesh_world = Mat4::scale(Vec3{2.0f, 1.0f, 1.0f});
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{mesh_world});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+    REQUIRE(p.normal_matrix.m[0] == Approx(0.5f).margin(1e-5));
+    REQUIRE(p.normal_matrix.m[5] == Approx(1.0f).margin(1e-5));
+    REQUIRE(p.normal_matrix.m[10] == Approx(1.0f).margin(1e-5));
+    // Guard: the model matrix itself carries 2.0 there, so this fails loudly if
+    // someone passes `model` as the normal matrix.
+    REQUIRE(p.model.m[0] == Approx(2.0f));
+}
+
+TEST_CASE("RenderSystem emits a sane default FrameLighting for a world with no lights", "[render]")
+{
+    // Review Focus 3: no lights at all -- the default directional light must come
+    // through and both positional lights must be range 0 (contributing nothing).
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
+    REQUIRE(fl.light_color.x == Approx(1.0f));
+    REQUIRE(fl.point_range == Approx(0.0f));
+    REQUIRE(fl.spot_range == Approx(0.0f));
+    // The default direction is normalized, so it is a unit vector rather than zero.
+    const float len = mosaic::foundation::math::length(fl.light_direction);
+    REQUIRE(len == Approx(1.0f).margin(1e-5));
+}
+
+TEST_CASE("RenderSystem emits no NaN for a zero-length directional light direction", "[render]")
+{
+    // Review Focus 4: authorable in the editor and in scene files. normalize()
+    // already returns the zero vector rather than NaN, so the expected behavior is
+    // "unlit, still finite" -- pinned here because the value is now shared by every
+    // fragment through the UBO instead of being recomputed per mesh.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    auto light = world.create_entity();
+    world.add_component<DirectionalLight>(light, DirectionalLight{Vec3{0, 0, 0}, Vec3{1, 1, 1}});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
+    REQUIRE(std::isfinite(fl.light_direction.x));
+    REQUIRE(std::isfinite(fl.light_direction.y));
+    REQUIRE(std::isfinite(fl.light_direction.z));
+}
+
+TEST_CASE("RenderSystem emits finite per-draw matrices for a zero-scaled mesh", "[render]")
+{
+    // Review Focus 5: a zero-scaled Transform makes the model matrix singular.
+    // Mat4::inverse_affine already returns identity for a singular linear part, so
+    // the normal matrix must stay finite rather than filling with NaN/inf.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::scale(Vec3{1.0f, 1.0f, 0.0f})});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(std::isfinite(p.normal_matrix.m[i]));
+    }
 }
