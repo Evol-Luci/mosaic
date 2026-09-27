@@ -280,31 +280,30 @@ view that was actually used to pick what to build next as of this writing.
     param added to `Material` and the shader's lighting math, without
     committing to a full PBR material model. Bigger than spot lights
     (touches the whole lighting shader), smaller than full PBR.
-    **Blocked on the shading-data UBO migration below, confirmed
-    2026-09-27:** Blinn-Phong needs 5 new floats (object-space eye
-    position ×3 — the shader currently has no camera position at all —
-    plus shininess and specular strength), but `PushConstants` sits at
-    the 256-byte ceiling with only 4 unused `.w` padding slots left.
-    Squeezing in by dropping authorable specular strength was
-    considered and rejected with the user: it would consume every
-    remaining byte, so the next shading change pays the full UBO cost
-    anyway with nothing gained by deferring. Specular follows the
-    migration as its own slice.
+    **Unblocked 2026-09-27** — it was blocked on the shading-data UBO
+    migration below, which has now shipped. The blocker was that
+    Blinn-Phong needed 5 new floats against a `PushConstants` struct
+    pinned at the 256-byte ceiling with 4 padding slots left. Post-
+    migration that pressure is largely gone: there are 48 bytes of
+    per-draw headroom, and because shading is now done in world space
+    the camera position is *per-frame* data that belongs in the
+    lighting UBO rather than the per-draw payload — so specular's only
+    per-draw additions are shininess and strength (8 bytes). This is
+    the natural next rendering slice.
   - **Full PBR material model** — metallic/roughness workflow,
     Cook-Torrance BRDF, energy-conserving specular. The real thing, not
     a stepping stone; needs its own design decisions (scalar params vs.
     texture maps for v1) and likely its own sub-decomposition, not a
     single slice.
-  - **Shading-data UBO migration** — **PICKED 2026-09-27, in scoping**
-    as the next slice, ahead of specular. Move the per-draw shading
-    data off push constants (at the hard 256-byte ceiling since spot
-    lights, with 4 padding floats left) into a uniform buffer. Framed
-    deliberately as a **pure refactor with zero behavior change** — all
-    three light types plus shadows must render identically and every
-    existing test must still pass — so it stays reviewable on its own
-    rather than being bundled with the feature that forced it. Both the
-    shadows v1 and spot-lights specs predicted this exact forcing
-    function in writing.
+  - ~~**Shading-data UBO migration**~~ — **SHIPPED 2026-09-27.**
+    Lighting moved into the codebase's first uniform buffer (descriptor
+    set 2, one per frame-in-flight) and shading from object space to
+    world space; per-draw push constants went 256 → 208 bytes. See
+    `docs/project/next-steps.md` for the full shipment entry, including
+    the sharpened boundary on the "identical output" claim (exact for
+    scale 1; a uniform scale `s != 1` shifts point/spot attenuation
+    brightness by `s`, since the old object-space distance input was
+    `world_distance / s` — the new behavior is the correct one).
   - **Move `view_proj` per-frame and drop `mvp` from push constants** —
     a further per-draw reduction available on top of the UBO migration
     (the vertex shader would compute `view_proj * model` instead of
