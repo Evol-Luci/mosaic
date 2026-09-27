@@ -437,8 +437,7 @@ implementation starts.
 |---|---|
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| Rendering: shadows | High (visual quality bar) |
-| Rendering: PBR/specular/spot lights | High |
+| Rendering: full PBR material model | High |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
 | UI pillar gaps | High if interactive-game UI is a near-term goal, else Low |
 | Networking gaps | High if shipping real multiplayer soon, else Low |
@@ -463,6 +462,32 @@ confirmed by grepping every `#include` direction in the tree. See the
 `app → studio` direction (opposite of what the old docs said) and the
 CI-flake exclusion this PR's own run surfaced (tracked separately in
 Tech debt above).
+
+**Rendering: shadows — SHIPPED 2026-09-21 (PR #200)** and **spot lights
+— SHIPPED 2026-09-21 (PR #201)**, both removed from the table above.
+Directional-light-only, hard-edged, fixed-frustum shadow mapping, and a
+third simultaneous light type reusing the point light's positional
+machinery plus a `smoothstep` cone edge. Both extended direct
+submission rather than building the RenderGraph, which stays deferred
+(its own row above) until a genuinely *dynamic* pass need appears. The
+per-slice deferrals each opened — PCF, point/spot-light shadows,
+scene-fitted and cascaded frustums, configurable shadow resolution,
+real multi-light support — are tracked in the Rendering section above,
+not here.
+
+**The old "Rendering: PBR/specular/spot lights" row is now only "full
+PBR."** Decomposing it turned out to be the right call: spot lights
+shipped as their own small slice, and the **shading-data UBO migration
+— SHIPPED 2026-09-27 (PR #202)** (world-space shading, the codebase's
+first uniform buffer, push constants 256 → 208 bytes) unblocked
+**Blinn-Phong specular**, which is now a *small* slice rather than part
+of a Large item — it needs 8 bytes of per-draw data against 48 bytes of
+headroom, since world-space shading moved the camera position into the
+per-frame UBO. Specular is tracked in the Rendering section above and
+does **not** need its own decomposition pass. What genuinely remains
+Large is the full metallic/roughness Cook-Torrance material model,
+which still needs its own design decisions (scalar params vs. texture
+maps for v1) and likely its own sub-decomposition.
 
 **Picked as the largest effective win (2026-09-19, original pass):** bulk
 refactoring / project health checks — **shipped**, all 4 sub-projects
