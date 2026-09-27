@@ -305,6 +305,15 @@ view that was actually used to pick what to build next as of this writing.
     rather than being bundled with the feature that forced it. Both the
     shadows v1 and spot-lights specs predicted this exact forcing
     function in writing.
+  - **Move `view_proj` per-frame and drop `mvp` from push constants** —
+    a further per-draw reduction available on top of the UBO migration
+    (the vertex shader would compute `view_proj * model` instead of
+    receiving a precomputed `mvp`), taking the per-draw payload from
+    ~208 bytes to ~144. Deliberately not done in the migration slice:
+    that slice's job is the *lighting* data, and the 48 bytes of
+    headroom it restores already covers everything queued behind it.
+    Worth revisiting only if the per-draw payload comes under pressure
+    again.
   - **Real multi-light support** — multiple lights of each type,
     accumulated rather than "first found." Distinct from the UBO
     migration above (which is only about *where* the existing
