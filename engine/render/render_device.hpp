@@ -34,26 +34,35 @@ using MeshHandle = std::uint32_t;
 using TextureHandle = std::uint32_t; // opaque; 0 == invalid/default
 using ViewportTextureId = std::uint64_t; // ImTextureID-compatible; 0 == none
 
-// Per-draw parameters. `light_direction` and `point_position` are in the mesh's OBJECT
-// space (the RenderSystem transforms world lights per mesh), so the backend needs no
-// model/normal matrix. `point_color` is premultiplied by intensity; `point_range == 0`
-// disables the point-light contribution.
+// Per-frame, world-space lighting shared by every draw this frame. One light of
+// each type ("first found"), matching the RenderSystem accessors. A zero `range`
+// means that positional light is absent and contributes nothing.
+struct FrameLighting
+{
+    mosaic::foundation::math::Vec3 light_direction;  // world space, normalized
+    mosaic::foundation::math::Vec3 light_color;
+    mosaic::foundation::math::Vec3 point_position;   // world space
+    mosaic::foundation::math::Vec3 point_color;      // premultiplied by intensity
+    float                          point_range = 0.0f; // 0 == no point light
+    mosaic::foundation::math::Vec3 spot_position;    // world space
+    mosaic::foundation::math::Vec3 spot_direction;   // world space, normalized
+    mosaic::foundation::math::Vec3 spot_color;       // premultiplied by intensity
+    float                          spot_range = 0.0f;  // 0 == no spot light
+    float                          spot_cos_inner = 1.0f;
+    float                          spot_cos_outer = 1.0f;
+    mosaic::foundation::math::Mat4 light_view_proj;  // for shadow-map sampling
+};
+
+// Per-draw parameters. Lighting lives in FrameLighting now; shading is done in
+// WORLD space, so the backend needs the model matrix (to place the fragment) and
+// the normal matrix (transpose of the inverse model, so normals stay correct
+// under non-uniform scale).
 struct DrawParams
 {
     mosaic::foundation::math::Mat4 mvp;
-    mosaic::foundation::math::Vec3 light_direction;
-    mosaic::foundation::math::Vec3 light_color;
+    mosaic::foundation::math::Mat4 model;         // object -> world
+    mosaic::foundation::math::Mat4 normal_matrix; // transpose(inverse_affine(model)); upper 3x3 used
     mosaic::foundation::math::Vec3 base_color;
-    mosaic::foundation::math::Vec3 point_position;
-    mosaic::foundation::math::Vec3 point_color;
-    float                          point_range = 0.0f; // 0 == no point light (disabled)
-    mosaic::foundation::math::Mat4 light_mvp; // light_view_proj * model, for shadow sampling
-    mosaic::foundation::math::Vec3 spot_position;  // object space
-    mosaic::foundation::math::Vec3 spot_direction; // object space, normalized
-    mosaic::foundation::math::Vec3 spot_color;     // premultiplied by intensity
-    float                          spot_range = 0.0f; // 0 == no spot light (disabled)
-    float                          spot_cos_inner = 1.0f;
-    float                          spot_cos_outer = 1.0f;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived
@@ -220,6 +229,11 @@ public:
     virtual void begin_shadow_pass() {}
     virtual void draw_shadow(MeshHandle /*mesh*/, const mosaic::foundation::math::Mat4& /*light_mvp*/) {}
     virtual void end_shadow_pass() {}
+
+    // Per-frame world-space lighting, uploaded once before the frame's mesh draws.
+    // Default no-op: a backend with no uniform-buffer path simply renders unlit
+    // rather than failing.
+    virtual void set_frame_lighting(const FrameLighting& /*lighting*/) {}
 };
 
 } // namespace mosaic::engine::render

@@ -280,19 +280,46 @@ view that was actually used to pick what to build next as of this writing.
     param added to `Material` and the shader's lighting math, without
     committing to a full PBR material model. Bigger than spot lights
     (touches the whole lighting shader), smaller than full PBR.
+    **Unblocked 2026-09-27** — it was blocked on the shading-data UBO
+    migration below, which has now shipped. The blocker was that
+    Blinn-Phong needed 5 new floats against a `PushConstants` struct
+    pinned at the 256-byte ceiling with 4 padding slots left. Post-
+    migration that pressure is largely gone: there are 48 bytes of
+    per-draw headroom, and because shading is now done in world space
+    the camera position is *per-frame* data that belongs in the
+    lighting UBO rather than the per-draw payload — so specular's only
+    per-draw additions are shininess and strength (8 bytes). This is
+    the natural next rendering slice.
   - **Full PBR material model** — metallic/roughness workflow,
     Cook-Torrance BRDF, energy-conserving specular. The real thing, not
     a stepping stone; needs its own design decisions (scalar params vs.
     texture maps for v1) and likely its own sub-decomposition, not a
     single slice.
-  - **World-space per-frame light UBO / real multi-light support** —
-    the fixed-per-frame directional light-view-projection matrix the
-    shadow v1 work introduced is a first, narrow step toward a real
-    per-frame light UBO, but the general one (multiple lights of each
-    type, accumulated rather than "first found") is still its own
-    separate, unscoped item — spot lights inherit the same
-    one-light-per-type limitation as directional/point today, not fixed
-    by this slice.
+  - ~~**Shading-data UBO migration**~~ — **SHIPPED 2026-09-27.**
+    Lighting moved into the codebase's first uniform buffer (descriptor
+    set 2, one per frame-in-flight) and shading from object space to
+    world space; per-draw push constants went 256 → 208 bytes. See
+    `docs/project/next-steps.md` for the full shipment entry, including
+    the sharpened boundary on the "identical output" claim (exact for
+    scale 1; a uniform scale `s != 1` shifts point/spot attenuation
+    brightness by `s`, since the old object-space distance input was
+    `world_distance / s` — the new behavior is the correct one).
+  - **Move `view_proj` per-frame and drop `mvp` from push constants** —
+    a further per-draw reduction available on top of the UBO migration
+    (the vertex shader would compute `view_proj * model` instead of
+    receiving a precomputed `mvp`), taking the per-draw payload from
+    ~208 bytes to ~144. Deliberately not done in the migration slice:
+    that slice's job is the *lighting* data, and the 48 bytes of
+    headroom it restores already covers everything queued behind it.
+    Worth revisiting only if the per-draw payload comes under pressure
+    again.
+  - **Real multi-light support** — multiple lights of each type,
+    accumulated rather than "first found." Distinct from the UBO
+    migration above (which is only about *where* the existing
+    single-light-per-type data lives, not how many lights there are);
+    the migration is a prerequisite that makes this tractable, but does
+    not deliver it. Spot lights inherit the same one-light-per-type
+    limitation directional/point already had.
 
 ## Project templates
 

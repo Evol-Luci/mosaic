@@ -81,6 +81,7 @@ struct Mat4
     static Mat4 perspective(float fovy_radians, float aspect, float near_z, float far_z);
     static Mat4 look_at(const Vec3& eye, const Vec3& center, const Vec3& up);
     static Mat4 orthographic(float left, float right, float bottom, float top, float near_z, float far_z);
+    static Mat4 transpose(const Mat4& m);
     static Mat4 inverse_affine(const Mat4& m);
 };
 
@@ -146,6 +147,19 @@ inline Mat4 Mat4::orthographic(float left, float right, float bottom, float top,
     out.m[12] = -(right + left) / (right - left);
     out.m[13] = -(top + bottom) / (top - bottom);
     out.m[14] = -near_z / (far_z - near_z);
+    return out;
+}
+
+inline Mat4 Mat4::transpose(const Mat4& m)
+{
+    Mat4 out;
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int col = 0; col < 4; ++col)
+        {
+            out.m[col * 4 + row] = m.m[row * 4 + col];
+        }
+    }
     return out;
 }
 

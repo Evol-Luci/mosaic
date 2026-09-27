@@ -44,10 +44,12 @@ inline mosaic::engine::ui::Anchor to_anchor(int a)
                               : mosaic::engine::ui::Anchor::TopLeft;
 }
 
-// Render-time traversal: finds the active camera + directional light and draws every
-// entity with WorldTransform + MeshRenderer, lit (Lambert; light transformed into each
-// mesh's object space so the backend needs no model matrix). Fallbacks keep the scene
-// lit/rendered when a camera/light/material is absent.
+// Render-time traversal: finds the active camera and lights, sends the frame's
+// world-space lighting once via set_frame_lighting, then draws every entity with
+// WorldTransform + MeshRenderer. Shading is done in WORLD space (Lambert), so each
+// draw carries the model matrix and a normal matrix rather than lights pre-transformed
+// into its object space. Fallbacks keep the scene lit/rendered when a camera, light,
+// or material is absent.
 class RenderSystem
 {
 public:
@@ -101,6 +103,31 @@ public:
 
         const Mat4 light_view_proj = directional_light_view_projection(light);
 
+        // Per-frame, world-space lighting. Sent unconditionally, before (and
+        // independently of) any mesh draw -- a frame with no meshes must still
+        // refresh the backend's uniform buffer, or it would shade from a previous
+        // frame's contents.
+        FrameLighting frame_lighting;
+        frame_lighting.light_direction = mosaic::foundation::math::normalize(light.direction);
+        frame_lighting.light_color = light.color;
+        if (point.present)
+        {
+            frame_lighting.point_position = point.world_pos;
+            frame_lighting.point_color = point.color;
+            frame_lighting.point_range = point.range;
+        }
+        if (spot.present)
+        {
+            frame_lighting.spot_position = spot.world_pos;
+            frame_lighting.spot_direction = spot.direction;
+            frame_lighting.spot_color = spot.color;
+            frame_lighting.spot_range = spot.range;
+            frame_lighting.spot_cos_inner = spot.cos_inner;
+            frame_lighting.spot_cos_outer = spot.cos_outer;
+        }
+        frame_lighting.light_view_proj = light_view_proj;
+        device.set_frame_lighting(frame_lighting);
+
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
             {
@@ -125,46 +152,16 @@ public:
                 {
                     texture = default_white(device);
                 }
-                // Computed once and reused below for the directional/point/spot object-space
-                // transforms -- each previously recomputed the same inverse independently.
-                const Mat4 inv = Mat4::inverse_affine(wt->matrix);
 
-                const Vec3 light_obj = mosaic::foundation::math::normalize(
-                    mosaic::foundation::math::transform_direction(inv, light.direction));
-
-                Vec3 point_position{0.0f, 0.0f, 0.0f};
-                Vec3 point_color{0.0f, 0.0f, 0.0f};
-                float point_range = 0.0f;
-                if (point.present)
-                {
-                    point_position = mosaic::foundation::math::transform_point(inv, point.world_pos);
-                    point_color = point.color;
-                    point_range = point.range;
-                }
-
-                Vec3 spot_position{0.0f, 0.0f, 0.0f};
-                Vec3 spot_direction{0.0f, 0.0f, -1.0f};
-                Vec3 spot_color{0.0f, 0.0f, 0.0f};
-                float spot_range = 0.0f;
-                float spot_cos_inner = 1.0f;
-                float spot_cos_outer = 1.0f;
-                if (spot.present)
-                {
-                    spot_position = mosaic::foundation::math::transform_point(inv, spot.world_pos);
-                    spot_direction = mosaic::foundation::math::normalize(
-                        mosaic::foundation::math::transform_direction(inv, spot.direction));
-                    spot_color = spot.color;
-                    spot_range = spot.range;
-                    spot_cos_inner = spot.cos_inner;
-                    spot_cos_outer = spot.cos_outer;
-                }
+                // Normals transform by the inverse-transpose of the model matrix, or
+                // non-uniformly-scaled meshes shade wrong. inverse_affine already
+                // returns identity for a singular linear part (zero scale), so this
+                // stays finite without extra guarding.
+                const Mat4 normal_matrix = Mat4::transpose(Mat4::inverse_affine(wt->matrix));
 
                 device.draw(mesh, texture,
-                            DrawParams{projection * view * wt->matrix, light_obj,
-                                       light.color, base_color, point_position, point_color,
-                                       point_range, light_view_proj * wt->matrix,
-                                       spot_position, spot_direction, spot_color, spot_range,
-                                       spot_cos_inner, spot_cos_outer});
+                            DrawParams{projection * view * wt->matrix, wt->matrix,
+                                       normal_matrix, base_color});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
