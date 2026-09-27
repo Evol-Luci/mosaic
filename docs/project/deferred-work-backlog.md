@@ -280,19 +280,38 @@ view that was actually used to pick what to build next as of this writing.
     param added to `Material` and the shader's lighting math, without
     committing to a full PBR material model. Bigger than spot lights
     (touches the whole lighting shader), smaller than full PBR.
+    **Blocked on the shading-data UBO migration below, confirmed
+    2026-09-27:** Blinn-Phong needs 5 new floats (object-space eye
+    position ×3 — the shader currently has no camera position at all —
+    plus shininess and specular strength), but `PushConstants` sits at
+    the 256-byte ceiling with only 4 unused `.w` padding slots left.
+    Squeezing in by dropping authorable specular strength was
+    considered and rejected with the user: it would consume every
+    remaining byte, so the next shading change pays the full UBO cost
+    anyway with nothing gained by deferring. Specular follows the
+    migration as its own slice.
   - **Full PBR material model** — metallic/roughness workflow,
     Cook-Torrance BRDF, energy-conserving specular. The real thing, not
     a stepping stone; needs its own design decisions (scalar params vs.
     texture maps for v1) and likely its own sub-decomposition, not a
     single slice.
-  - **World-space per-frame light UBO / real multi-light support** —
-    the fixed-per-frame directional light-view-projection matrix the
-    shadow v1 work introduced is a first, narrow step toward a real
-    per-frame light UBO, but the general one (multiple lights of each
-    type, accumulated rather than "first found") is still its own
-    separate, unscoped item — spot lights inherit the same
-    one-light-per-type limitation as directional/point today, not fixed
-    by this slice.
+  - **Shading-data UBO migration** — **PICKED 2026-09-27, in scoping**
+    as the next slice, ahead of specular. Move the per-draw shading
+    data off push constants (at the hard 256-byte ceiling since spot
+    lights, with 4 padding floats left) into a uniform buffer. Framed
+    deliberately as a **pure refactor with zero behavior change** — all
+    three light types plus shadows must render identically and every
+    existing test must still pass — so it stays reviewable on its own
+    rather than being bundled with the feature that forced it. Both the
+    shadows v1 and spot-lights specs predicted this exact forcing
+    function in writing.
+  - **Real multi-light support** — multiple lights of each type,
+    accumulated rather than "first found." Distinct from the UBO
+    migration above (which is only about *where* the existing
+    single-light-per-type data lives, not how many lights there are);
+    the migration is a prerequisite that makes this tractable, but does
+    not deliver it. Spot lights inherit the same one-light-per-type
+    limitation directional/point already had.
 
 ## Project templates
 
