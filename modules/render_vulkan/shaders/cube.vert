@@ -7,6 +7,8 @@ layout(push_constant) uniform Push {
     mat4 model;         // object -> world
     mat4 normal_matrix; // transpose(inverse(model)); upper 3x3 used
     vec4 base_color;    // .xyz
+    float shininess;
+    float specular_strength;
 } pc;
 layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 light_direction; // world space .xyz
@@ -16,6 +18,7 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 spot_position;   // world space .xyz, .w = range
     vec4 spot_direction;  // world space .xyz, .w = cos(outer_angle)
     vec4 spot_color;      // .xyz = color * intensity, .w = cos(inner_angle)
+    vec4 camera_position; // world space .xyz
     mat4 light_view_proj;
 } fl;
 layout(location = 0) out vec3 fragNormal;   // world space

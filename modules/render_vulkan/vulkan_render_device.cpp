@@ -44,8 +44,11 @@ struct PushConstants
     float model[16];         // object -> world
     float normal_matrix[16]; // transpose(inverse(model)); only the upper 3x3 is used
     float base_color[4];     // xyz
+    // Push-constant blocks are std430: these two floats pack tight after the vec4.
+    float shininess;
+    float specular_strength;
 };
-static_assert(sizeof(PushConstants) == 208, "push constant layout must match the shader");
+static_assert(sizeof(PushConstants) == 216, "push constant layout must match the shader");
 
 // std140 layout, matching the FrameLighting uniform block in cube.vert/cube.frag.
 struct FrameLightingUbo
@@ -57,9 +60,10 @@ struct FrameLightingUbo
     float spot_position[4];   // xyz, w = range
     float spot_direction[4];  // xyz, w = cos(outer_angle)
     float spot_color[4];      // xyz, w = cos(inner_angle)
+    float camera_position[4]; // xyz world space, w unused
     float light_view_proj[16];
 };
-static_assert(sizeof(FrameLightingUbo) == 176, "UBO layout must match the shader block");
+static_assert(sizeof(FrameLightingUbo) == 192, "UBO layout must match the shader block");
 
 struct ShadowPushConstants
 {
@@ -664,6 +668,9 @@ public:
         ubo.spot_color[0] = fl.spot_color.x;
         ubo.spot_color[1] = fl.spot_color.y;
         ubo.spot_color[2] = fl.spot_color.z;
+        ubo.camera_position[0] = fl.camera_position.x;
+        ubo.camera_position[1] = fl.camera_position.y;
+        ubo.camera_position[2] = fl.camera_position.z;
         ubo.spot_color[3] = fl.spot_cos_inner;
         std::memcpy(ubo.light_view_proj, fl.light_view_proj.m.data(), sizeof(ubo.light_view_proj));
 
@@ -746,6 +753,8 @@ public:
         pc.base_color[0] = params.base_color.x;
         pc.base_color[1] = params.base_color.y;
         pc.base_color[2] = params.base_color.z;
+        pc.shininess = params.shininess;
+        pc.specular_strength = params.specular_strength;
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
