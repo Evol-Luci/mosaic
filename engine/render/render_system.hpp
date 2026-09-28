@@ -103,6 +103,12 @@ public:
 
         const Mat4 light_view_proj = directional_light_view_projection(light);
 
+        // The camera's world matrix is the inverse of the view matrix; its
+        // translation is the eye position, which world-space specular needs. Computed
+        // once here and reused by the billboard and world-label passes below, which
+        // each previously computed it for themselves.
+        const Mat4 cam_world = Mat4::inverse_affine(view);
+
         // Per-frame, world-space lighting. Sent unconditionally, before (and
         // independently of) any mesh draw -- a frame with no meshes must still
         // refresh the backend's uniform buffer, or it would shade from a previous
@@ -125,6 +131,7 @@ public:
             frame_lighting.spot_cos_inner = spot.cos_inner;
             frame_lighting.spot_cos_outer = spot.cos_outer;
         }
+        frame_lighting.camera_position = Vec3{cam_world.m[12], cam_world.m[13], cam_world.m[14]};
         frame_lighting.light_view_proj = light_view_proj;
         device.set_frame_lighting(frame_lighting);
 
@@ -141,11 +148,17 @@ public:
                 {
                     return;
                 }
-                Vec3 base_color{0.8f, 0.8f, 0.8f};
+                // Defaults here must match Material's own defaults, so a mesh with no
+                // Material shades the same as one with an untouched Material.
+                Vec3  base_color{0.8f, 0.8f, 0.8f};
+                float shininess = 32.0f;
+                float specular_strength = 0.5f;
                 TextureHandle texture = 0;
                 if (const Material* mat = world.get_component<Material>(e))
                 {
                     base_color = mat->base_color;
+                    shininess = mat->shininess;
+                    specular_strength = mat->specular_strength;
                     texture = texture_cache_.get(mat->texture, registry, device);
                 }
                 if (texture == 0)
@@ -161,7 +174,8 @@ public:
 
                 device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, wt->matrix,
-                                       normal_matrix, base_color});
+                                       normal_matrix, base_color, shininess,
+                                       specular_strength});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
@@ -185,7 +199,6 @@ public:
         auto* trails    = world.get_system<mosaic::engine::vfx::TrailSystem>();
         if (particles != nullptr || trails != nullptr)
         {
-            const Mat4 cam_world = Mat4::inverse_affine(view);
             const Vec3 cam_right = mosaic::foundation::math::normalize(
                 Vec3{cam_world.m[0], cam_world.m[1], cam_world.m[2]});
             const Vec3 cam_up = mosaic::foundation::math::normalize(
@@ -255,7 +268,6 @@ public:
         // World-label pass: camera-facing 3D text. Part of the scene (depth-tested),
         // under the screen-space HUD passes.
         {
-            const Mat4 cam_world = Mat4::inverse_affine(view);
             const Vec3 cam_right = mosaic::foundation::math::normalize(
                 Vec3{cam_world.m[0], cam_world.m[1], cam_world.m[2]});
             const Vec3 cam_up = mosaic::foundation::math::normalize(

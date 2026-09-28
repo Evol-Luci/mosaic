@@ -1244,3 +1244,188 @@ TEST_CASE("RenderSystem emits finite per-draw matrices for a zero-scaled mesh", 
         REQUIRE(std::isfinite(p.normal_matrix.m[i]));
     }
 }
+
+TEST_CASE("RenderSystem reports the camera's world position in FrameLighting", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{2.0f, 3.0f, 4.0f});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
+    REQUIRE(fl.camera_position.x == Approx(2.0f).margin(1e-5));
+    REQUIRE(fl.camera_position.y == Approx(3.0f).margin(1e-5));
+    REQUIRE(fl.camera_position.z == Approx(4.0f).margin(1e-5));
+}
+
+TEST_CASE("RenderSystem recovers the camera position from the fallback view", "[render]")
+{
+    // No Camera component at all: the position has to be recovered from the fallback
+    // view matrix rather than read off a WorldTransform. fallback_view() looks from
+    // {0, 1.5, 4} at the origin, so that is the expected eye position.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    const FrameLighting& fl = device.frame_lighting_calls[0];
+    REQUIRE(fl.camera_position.x == Approx(0.0f).margin(1e-4));
+    REQUIRE(fl.camera_position.y == Approx(1.5f).margin(1e-4));
+    REQUIRE(fl.camera_position.z == Approx(4.0f).margin(1e-4));
+}
+
+TEST_CASE("RenderSystem sends the camera position even with no meshes", "[render]")
+{
+    // Review Focus 1: the backend's UBO is only refreshed by set_frame_lighting. If a
+    // mesh-less frame skipped it, the camera position would go stale and highlights
+    // would freeze in place while the camera moved. Specular is the first feature
+    // that makes this hazard visible.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{5.0f, 0.0f, 0.0f});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.empty());
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].camera_position.x == Approx(5.0f).margin(1e-5));
+}
+
+TEST_CASE("RenderSystem's camera position follows a moving camera", "[render]")
+{
+    // Review Focus 2: the whole point of specular is that it tracks the camera. A
+    // value computed once and cached would pass every single-frame test above.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    auto cam = add_camera(world, Vec3{1.0f, 0.0f, 0.0f});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    rs.render(world, device, registry);
+
+    auto* cam_wt = world.get_component<WorldTransform>(cam);
+    REQUIRE(cam_wt != nullptr);
+    cam_wt->matrix = Mat4::translation(Vec3{-7.0f, 0.0f, 0.0f});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 2);
+    REQUIRE(device.frame_lighting_calls[0].camera_position.x == Approx(1.0f).margin(1e-5));
+    REQUIRE(device.frame_lighting_calls[1].camera_position.x == Approx(-7.0f).margin(1e-5));
+}
+
+TEST_CASE("RenderSystem forwards a Material's specular parameters to the draw call", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+    Material mat{Vec3{0.2f, 0.4f, 0.6f}};
+    mat.shininess = 128.0f;
+    mat.specular_strength = 0.75f;
+    world.add_component<Material>(mesh, mat);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    const DrawParams& p = device.draws[0].params;
+    REQUIRE(p.shininess == Approx(128.0f));
+    REQUIRE(p.specular_strength == Approx(0.75f));
+}
+
+TEST_CASE("RenderSystem uses the documented specular defaults with and without a Material", "[render]")
+{
+    // Review Focus 5: a Material that exists but leaves the specular fields alone is
+    // the common real case, and it is a DIFFERENT code path from having no Material
+    // at all. Both must yield 32.0 / 0.5.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto bare = world.create_entity();
+    world.add_component<WorldTransform>(bare, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(bare, MeshRenderer{mesh_id});
+
+    auto with_material = world.create_entity();
+    world.add_component<WorldTransform>(with_material, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(with_material, MeshRenderer{mesh_id});
+    world.add_component<Material>(with_material, Material{Vec3{1.0f, 0.0f, 0.0f}});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 2);
+    for (const auto& d : device.draws)
+    {
+        REQUIRE(d.params.shininess == Approx(32.0f));
+        REQUIRE(d.params.specular_strength == Approx(0.5f));
+    }
+}
+
+TEST_CASE("RenderSystem forwards a zero specular strength and a negative shininess unchanged", "[render]")
+{
+    // Review Focus 3: strength 0 is how a material opts OUT of specular. If a
+    // falsy-zero bug substituted the 0.5 default, every material would be glossy with
+    // no way to turn it off.
+    // Review Focus 4: the engine must not clamp shininess -- the shader does. An
+    // engine-side clamp added later would silently diverge from the shader.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    add_camera(world, Vec3{0, 0, 4});
+
+    const AssetID mesh_id = register_cube(registry);
+    auto mesh = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+    Material mat{};
+    mat.shininess = -4.0f;
+    mat.specular_strength = 0.0f;
+    world.add_component<Material>(mesh, mat);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    REQUIRE(device.draws[0].params.specular_strength == Approx(0.0f));
+    REQUIRE(device.draws[0].params.shininess == Approx(-4.0f));
+}
