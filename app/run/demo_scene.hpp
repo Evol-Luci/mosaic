@@ -366,9 +366,14 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kSphereMeshId});
-    // Tight and bright: the best showcase, since a curved surface gives a clean round
-    // highlight that slides as the sphere rolls and as the camera moves.
-    world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex, 128.0f, 0.9f});
+    // The showcase. Deliberately UNTEXTURED and solid red: a checker texture
+    // camouflages a specular highlight completely (white highlight on a white square
+    // is invisible, on a black square it is a few pixels), which defeats the point of
+    // having a showcase object. A white highlight on a red surface also makes the
+    // "specular takes the LIGHT's color, never the albedo" rule visible at a glance --
+    // if this highlight ever looks red, that rule has been broken.
+    world.add_component<render::Material>(sphere,
+        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 64.0f, 0.9f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
@@ -411,13 +416,18 @@ inline void build_default_scene(mosaic::engine::World& world)
     // (local -Z), so the rotation is what aims it: -1.1 rad about X tilts -Z down and
     // slightly toward the camera, putting the cone over the objects near the origin.
     // Cool-tinted, to be told apart from the warm point light at a glance.
+    // Placement matters more than it looks: the windowed falloff is
+    // (win*win)/(d*d+1), so distance dominates. At 7.9 units out with intensity 4
+    // this light contributed ~0.03 against a directional term near 1.0 -- invisible.
+    // At ~4.7 units with intensity 6 it lands near 0.15, comparable to the point
+    // light's ~0.24, which is what makes its cone and its specular actually legible.
     const auto spot = world.create_entity();
     world.add_component<transform::Transform>(spot,
-        transform::Transform{Vec3{0, 7, 2.5f},
-                             mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.1f),
+        transform::Transform{Vec3{0, 4.5f, 2.0f},
+                             mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.012f),
                              Vec3{1, 1, 1}, {}});
     world.add_component<render::SpotLight>(spot,
-        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 4.0f, 12.0f, 0.35f, 0.55f});
+        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 6.0f, 12.0f, 0.35f, 0.55f});
 
     const auto camera = world.create_entity();
     world.add_component<transform::Transform>(camera,
