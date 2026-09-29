@@ -418,8 +418,83 @@ anything shipped; they are capabilities that were never built.
   design question inside it: an impulse applied **at a point** induces
   torque and makes a sphere *roll*, while a center-of-mass impulse makes
   it *slide* — the demo needs the former, so the API must take a world
-  point, not just a direction. **Being built now (2026-09-29) as its own
-  slice.**
+  point, not just a direction. ~~**SHIPPED 2026-09-29**~~ --
+  `PhysicsBackend::apply_impulse(BodyHandle, impulse, world_point)` plus an
+  entity-level `PhysicsSystem::apply_impulse` and a `ClickNudgeSystem` that
+  turns a click into an impulse along the camera ray. See
+  `docs/project/next-steps.md` for the full entry, including the Critical
+  dead-code bug it shipped past a fully green suite.
+- **Angular impulse / torque API.** Box3D exposes
+  `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
+  only the linear-at-a-point call, which already induces spin via torque
+  and is what the demo needs. Deferred 2026-09-29: a direct torque verb
+  has no caller yet, and adding an unused second way to spin a body
+  invites picking the wrong one.
+- **Script (Python) bindings for impulses and raycasts.** Scripts can
+  read and write Transforms but cannot push a body or query the physics
+  world, so "roll this ball when the player presses X" is not yet
+  expressible in a scene's own script. Deferred 2026-09-29: it needs its
+  own binding-surface design (how a script names an entity, what a
+  raycast result looks like in Python) and is a bigger question than the
+  C++ primitive it would wrap. Depends on the impulse API existing first.
+- **Continuous forces, as distinct from instantaneous impulses.** An
+  impulse is a one-shot momentum change; sustained thrust, wind, or
+  magnetism needs a per-tick force accumulator. Deferred 2026-09-29: no
+  caller today, and the two have genuinely different semantics, so
+  bolting `apply_force` onto the impulse call would blur them.
+- **Drag-to-throw.** Click-and-drag to aim, release to launch with a
+  magnitude from the drag vector. Deferred 2026-09-29: it needs pointer
+  press/drag/release state tracking that nothing else in the engine wants
+  yet, whereas a click nudge needs only the press edge already available.
+- **A physics body whose `Transform` is written every tick loses any impulse.**
+  `PhysicsSystem::update` step 2 teleports a body whenever its `Transform`
+  diverges from the pose the system last wrote, and `set_body_transform` zeroes
+  both linear and angular velocity. So if a script, the animation system, or
+  client-side replication drives a `RigidBody` entity's `Transform`, clicking
+  that object does nothing visible -- the impulse is erased on the next tick.
+  Found 2026-09-29 in review; latent, not live, since no demo body is in that
+  category today. Deferred: the fix is a real design question (does an authored
+  Transform win over the simulation, or does the body become kinematic?) rather
+  than a patch.
+- **UI click arbitration is `UiButton`-only.** `UiSystem::press_consumed()` is
+  true only when a press lands on a `UiButton`, so a click on a decorative
+  `UiImage` or `UiText` falls through and nudges whatever world object sits
+  behind it. The demo's HUD bar is a button and is correctly claimed, so the
+  spec's stated criterion is met. Deferred 2026-09-29 as a recorded limitation:
+  generalizing it means deciding which UI element kinds are click-opaque, which
+  is a UI-pillar decision rather than a physics one.
+- **`ClickNudgeSystem` declares no `ComponentAccess`.** It reads `Camera` and
+  `WorldTransform` and causes `Transform` writes through the physics backend,
+  but declares nothing -- matching `UiSystem` and `AudioSystem`, and harmless
+  today because nothing reads `access()`. Deferred 2026-09-29: when a job-system
+  scheduler lands, an empty access set reads as "depends on nothing" and this
+  system becomes a candidate to run concurrently with `PhysicsSystem`. The fix
+  is two `reads<>()` lines, but it should land with whatever actually consumes
+  the access sets, so the declaration and its enforcement are reviewed together.
+- **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
+  dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
+  behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is
+  created, so the guard was always false and clicking did nothing in the real
+  app. Every automated check passed — the unit tests construct the system
+  directly and bypass `main()` entirely, and the launch check only proves the
+  process starts. The gap is structural: `main()` is one long function whose
+  wiring decisions no test can observe. The fix is to extract the registration
+  decisions into small functions that take their inputs explicitly (e.g.
+  `register_windowed_systems(World&, bool windowed, providers...)`) so a test
+  can assert *that* a system is registered under the right conditions.
+  Deferred 2026-09-29 rather than done inside a fix round, because carving a
+  testable seam out of `main()` is a design change that deserves its own
+  review. Depends on nothing.
+- **`ClickNudgeSystem::camera_position` duplicates `studio::pick_entity`'s
+  camera selection.** Both independently implement "first entity with a
+  `Camera` and a `WorldTransform`, take the world matrix translation". They
+  agree today by construction, since both run in the same tick over the same
+  components. Deferred 2026-09-29: the clean fix is for `RaycastHit` to carry
+  the ray origin `pick_entity` already computed, which changes a studio API the
+  editor's picker also consumes — a separate, reviewable change rather than a
+  fix-round edit. If an explicit active-camera policy is ever added and only one
+  site is updated, the nudge would push along a ray from the wrong eye while
+  picking still used the right one.
 - **Static bodies cannot be created rotated.** `BodyDef` carries
   `{type, position, shape, density}` — no rotation — so `create_body`
   always produces an axis-aligned body. A tilted ramp, a slanted wall, or
@@ -441,6 +516,17 @@ anything shipped; they are capabilities that were never built.
   slot (`detail::component_storage_slot<T>()`) instead of the shared
   `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
   avoiding a reintroduction of the earlier "#9 identity drift" bug.
+- **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
+  `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
+  34907, ...). On 2026-09-29 the case "LiveLinkServer start() fails on an
+  already-bound port" failed a GitHub Actions run (1015/1016) and passed on
+  a re-run of the same branch with no code change in that area, which is the
+  signature of a lingering socket in `TIME_WAIT` or a port collision on a
+  shared runner. Each Catch2 case runs as its own process, so the exposure is
+  real. **Do not add a third `-E` exclusion for it** -- the fix is to bind
+  port 0 and ask the OS which port it got, so the tests stop competing for
+  fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
+  test-infrastructure change unrelated to whatever slice is in flight.
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
   `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem

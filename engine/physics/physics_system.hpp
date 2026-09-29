@@ -161,6 +161,22 @@ public:
         return hit;
     }
 
+    // Push a dynamic body. `world_point` is where the impulse is applied -- off-center
+    // to induce spin. A no-op if the entity has no simulated body (never created, or
+    // has no collider component), matching this system's "missing data degrades, does
+    // not throw" contract.
+    void apply_impulse(mosaic::foundation::EntityID entity,
+                       const mosaic::foundation::math::Vec3& impulse,
+                       const mosaic::foundation::math::Vec3& world_point)
+    {
+        const auto it = bodies_.find(entity);
+        if (it == bodies_.end())
+        {
+            return;
+        }
+        backend_->apply_impulse(it->second, impulse, world_point);
+    }
+
 private:
     // Fills `out` from whichever collider-shape component the entity has (box, then sphere,
     // then capsule). Returns false if the entity has no collider-shape component.

@@ -18,6 +18,7 @@
 #include "app/run/import.hpp"
 #include "app/run/mcp.hpp"
 #include "app/run/plugin.hpp"
+#include "app/run/click_nudge.hpp"
 #include "app/run/create.hpp"
 #include "app/run/docs.hpp"
 #include "app/run/demo_scene.hpp"
@@ -49,6 +50,7 @@
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
 #include "engine/ui/pointer.hpp"
+#include "engine/ui/ui_system.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
@@ -293,26 +295,53 @@ int main(int argc, char** argv)
         };
     }
 
+    // One pointer provider shared by UiSystem and ClickNudgeSystem. They MUST agree
+    // about the pointer within a tick, or the UI-claim arbitration breaks.
+    auto glfw_pointer = [&glfw_window]() -> mosaic::engine::ui::PointerState
+    {
+        if (glfw_window == nullptr) { return {}; }
+        int ww = 0, wh = 0;
+        glfwGetWindowSize(glfw_window, &ww, &wh);
+        if (ww <= 0 || wh <= 0) { return {}; }
+        double mx = 0.0, my = 0.0;
+        glfwGetCursorPos(glfw_window, &mx, &my);
+        mosaic::engine::ui::PointerState p;
+        p.x = std::clamp(static_cast<float>(mx / ww), 0.0f, 1.0f);
+        p.y = std::clamp(static_cast<float>(my / wh), 0.0f, 1.0f);
+        p.down = glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        return p;
+    };
+
     auto render_system =
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
                       script_host, options.script_thread, std::move(audio),
-                      [&glfw_window]() -> mosaic::engine::ui::PointerState
-                      {
-                          if (glfw_window == nullptr) { return {}; }
-                          int ww = 0, wh = 0;
-                          glfwGetWindowSize(glfw_window, &ww, &wh);
-                          if (ww <= 0 || wh <= 0) { return {}; }
-                          double mx = 0.0, my = 0.0;
-                          glfwGetCursorPos(glfw_window, &mx, &my);
-                          mosaic::engine::ui::PointerState p;
-                          p.x = std::clamp(static_cast<float>(mx / ww), 0.0f, 1.0f);
-                          p.y = std::clamp(static_cast<float>(my / wh), 0.0f, 1.0f);
-                          p.down = glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-                          return p;
-                      },
+                      glfw_pointer,
                       net_role, net_transport, net_input_provider)
             .render_system;
+
+    // Click-to-nudge, windowed runs only. Registered AFTER setup_runtime, which adds
+    // UiSystem, so it ticks after the UI and sees the UI's verdict on this press.
+    // Gate on options.window, NOT on glfw_window: the window is not created until
+    // later in main(), so glfw_window is still null here. The lambdas below capture it
+    // by reference and read it per frame, by which time it is valid.
+    if (options.window)
+    {
+        world.add_system<mosaic::app::ClickNudgeSystem>(
+            glfw_pointer,
+            [&glfw_window]() -> float
+            {
+                int fbw = 0, fbh = 0;
+                glfwGetFramebufferSize(glfw_window, &fbw, &fbh);
+                return (fbh > 0) ? static_cast<float>(fbw) / static_cast<float>(fbh) : 1.0f;
+            },
+            mosaic::app::kDefaultNudgeStrength,
+            [&world]() -> bool
+            {
+                auto* ui = world.get_system<mosaic::engine::ui::UiSystem>();
+                return ui != nullptr && ui->press_consumed();
+            });
+    }
 
     if (net_role == mosaic::engine::net::Role::Server && net_transport != nullptr)
     {

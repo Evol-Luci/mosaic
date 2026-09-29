@@ -66,6 +66,11 @@ public:
         was_down_ = p.down;
     }
 
+    // True when the most recent press landed on a UiButton, so world-space click
+    // handling (picking, nudging) can decline a click the UI already claimed.
+    // Valid after this system's update() has run for the frame.
+    bool press_consumed() const { return pressed_ != mosaic::foundation::EntityID{}; }
+
 private:
     static bool hit(mosaic::engine::World& world, mosaic::foundation::EntityID e,
                     const PointerState& p, UiButton& b)

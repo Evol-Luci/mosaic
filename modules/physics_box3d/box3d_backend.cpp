@@ -143,6 +143,23 @@ public:
         b3Body_SetAwake(id, true);
     }
 
+    void apply_impulse(ep::BodyHandle body, const Vec3& impulse, const Vec3& world_point) override
+    {
+        if (body == 0 || body > bodies_.size())
+        {
+            return;
+        }
+        const b3BodyId id = bodies_[body - 1];
+        b3Pos          point{};
+        point.x = world_point.x;
+        point.y = world_point.y;
+        point.z = world_point.z;
+        // wake=true is load-bearing: Box3D sleeps rested bodies, and a click on a
+        // settled object is the common case. With wake=false this call succeeds,
+        // reports nothing, and the object does not move.
+        b3Body_ApplyLinearImpulse(id, b3Vec3{impulse.x, impulse.y, impulse.z}, point, true);
+    }
+
     ep::RaycastResult raycast(const Vec3& origin, const Vec3& direction,
                               float max_distance) const override
     {

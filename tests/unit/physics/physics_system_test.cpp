@@ -36,6 +36,15 @@ public:
     int                  steps = 0;
     Pose                 fixed{Vec3{7.0f, 8.0f, 9.0f}, Quat::identity()};
 
+    struct ImpulseCall { BodyHandle body; Vec3 impulse; Vec3 point; };
+    std::vector<ImpulseCall> impulses;
+
+    void apply_impulse(BodyHandle body, const mosaic::foundation::math::Vec3& impulse,
+                       const mosaic::foundation::math::Vec3& world_point) override
+    {
+        impulses.push_back({body, impulse, world_point});
+    }
+
     BodyHandle create_body(const BodyDef& def) override
     {
         created.push_back(def);
@@ -308,4 +317,179 @@ TEST_CASE("a teleported body wakes and simulates from the new location", "[physi
     }
     const float y = world.get_component<Transform>(box)->position.y;
     REQUIRE(y < 2.0f); // fell from y=5 back toward rest (~1.0), i.e. the body woke and simulated
+}
+
+TEST_CASE("PhysicsSystem::apply_impulse forwards to the backend with the entity's handle", "[physics]")
+{
+    World world;
+    auto  backend = std::make_unique<FakeBackend>();
+    auto* fake    = backend.get();
+    world.add_system<PhysicsSystem>(std::move(backend));
+
+    auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{Vec3{1, 2, 3}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(e, RigidBody{true, 1.0f});
+    world.add_component<Collider>(e, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+    world.tick(1.0f / 60.0f); // creates the body
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    physics->apply_impulse(e, Vec3{0.0f, 5.0f, 0.0f}, Vec3{1.0f, 2.5f, 3.0f});
+
+    REQUIRE(fake->impulses.size() == 1);
+    REQUIRE(fake->impulses[0].body == 1); // first created body
+    REQUIRE(fake->impulses[0].impulse.y == Approx(5.0f));
+    REQUIRE(fake->impulses[0].point.y == Approx(2.5f));
+}
+
+TEST_CASE("PhysicsSystem::apply_impulse is a no-op for an entity with no body", "[physics]")
+{
+    // Review Focus 2: a RigidBody with no collider component never gets a backend
+    // body, so the entity is absent from the handle map. Pushing it must do nothing
+    // rather than look up a handle that was never created.
+    World world;
+    auto  backend = std::make_unique<FakeBackend>();
+    auto* fake    = backend.get();
+    world.add_system<PhysicsSystem>(std::move(backend));
+
+    auto no_collider = world.create_entity();
+    world.add_component<Transform>(no_collider,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(no_collider, RigidBody{true, 1.0f});
+    auto never_seen = world.create_entity(); // no components at all
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    physics->apply_impulse(no_collider, Vec3{0, 5, 0}, Vec3{0, 0, 0});
+    physics->apply_impulse(never_seen, Vec3{0, 5, 0}, Vec3{0, 0, 0});
+
+    REQUIRE(fake->impulses.empty());
+}
+
+TEST_CASE("An off-center impulse makes a real sphere roll and not merely slide", "[physics]")
+{
+    // THE test for this slice. A position assertion alone passes even if someone
+    // swaps in b3Body_ApplyLinearImpulseToCenter; the rotation assertion is the only
+    // thing that pins rolling. Do not relax this to "the object moved".
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ball = world.create_entity();
+    world.add_component<Transform>(ball,
+                                   Transform{Vec3{0, 5, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<mosaic::engine::physics::SphereCollider>(
+        ball, mosaic::engine::physics::SphereCollider{0.5f});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    const auto* before = world.get_component<Transform>(ball);
+    REQUIRE(before != nullptr);
+    const Quat rot_before = before->rotation;
+
+    // Horizontal push applied at the BOTTOM of the sphere (center y=5, radius 0.5),
+    // which is off the center of mass and therefore produces torque.
+    physics->apply_impulse(ball, Vec3{2.0f, 0.0f, 0.0f}, Vec3{0.0f, 4.5f, 0.0f});
+
+    for (int i = 0; i < 30; ++i) { world.tick(1.0f / 60.0f); }
+
+    const auto* after = world.get_component<Transform>(ball);
+    REQUIRE(after != nullptr);
+    REQUIRE(after->position.x > 0.05f); // it moved along the push
+    const Quat rot_after = after->rotation;
+    const float dq = std::fabs(rot_after.x - rot_before.x) + std::fabs(rot_after.y - rot_before.y)
+                   + std::fabs(rot_after.z - rot_before.z) + std::fabs(rot_after.w - rot_before.w);
+    REQUIRE(dq > 0.01f); // and it SPUN -- this is the rolling assertion
+}
+
+TEST_CASE("A settled sleeping body still responds to an impulse", "[physics]")
+{
+    // The wake=true guarantee. Box3D sleeps rested bodies, and the demo objects settle
+    // within ~2s, so every click a user would realistically try lands on a sleeping
+    // body. Without wake=true this is a silent no-op that looks like a broken feature.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ground = world.create_entity();
+    world.add_component<Transform>(ground,
+                                   Transform{Vec3{0, -1, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{20.0f, 0.5f, 20.0f}});
+
+    auto ball = world.create_entity();
+    world.add_component<Transform>(ball,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<mosaic::engine::physics::SphereCollider>(
+        ball, mosaic::engine::physics::SphereCollider{0.5f});
+
+    // Long enough to land and fall asleep.
+    for (int i = 0; i < 400; ++i) { world.tick(1.0f / 60.0f); }
+    const float x_asleep = world.get_component<Transform>(ball)->position.x;
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    physics->apply_impulse(ball, Vec3{3.0f, 0.0f, 0.0f}, Vec3{0.0f, -0.5f, 0.0f});
+    for (int i = 0; i < 30; ++i) { world.tick(1.0f / 60.0f); }
+
+    REQUIRE(world.get_component<Transform>(ball)->position.x > x_asleep + 0.05f);
+}
+
+TEST_CASE("An impulse on a static body changes nothing", "[physics]")
+{
+    // Review Focus 1: the ground is static and is the biggest click target on screen,
+    // so this is the most likely real click. It must be harmless.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ground = world.create_entity();
+    world.add_component<Transform>(ground,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    REQUIRE_NOTHROW(physics->apply_impulse(ground, Vec3{50.0f, 50.0f, 0.0f}, Vec3{1.0f, 0.0f, 0.0f}));
+    for (int i = 0; i < 10; ++i) { world.tick(1.0f / 60.0f); }
+
+    const auto* t = world.get_component<Transform>(ground);
+    REQUIRE(t != nullptr);
+    REQUIRE(t->position.x == Approx(0.0f).margin(1e-4));
+    REQUIRE(t->position.y == Approx(0.0f).margin(1e-4));
+}
+
+TEST_CASE("A zero impulse leaves the body and its pose untouched", "[physics]")
+{
+    // Review Focus 4: strength 0 or a zero direction must be inert and must not
+    // introduce NaN into the pose through a normalize-like path.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ball = world.create_entity();
+    world.add_component<Transform>(ball,
+                                   Transform{Vec3{0, 5, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<mosaic::engine::physics::SphereCollider>(
+        ball, mosaic::engine::physics::SphereCollider{0.5f});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+    physics->apply_impulse(ball, Vec3{0.0f, 0.0f, 0.0f}, Vec3{0.0f, 5.0f, 0.0f});
+    world.tick(1.0f / 60.0f);
+
+    const auto* t = world.get_component<Transform>(ball);
+    REQUIRE(t != nullptr);
+    REQUIRE(std::isfinite(t->position.x));
+    REQUIRE(std::isfinite(t->position.y));
+    REQUIRE(std::isfinite(t->position.z));
+    REQUIRE(t->position.x == Approx(0.0f).margin(1e-4)); // no sideways drift from a zero push
 }
