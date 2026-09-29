@@ -48,6 +48,7 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/point_light.hpp"
+#include "engine/render/spot_light.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
@@ -333,7 +334,12 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(ground,
         transform::Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
     world.add_component<render::MeshRenderer>(ground, render::MeshRenderer{render::kCubeMeshId});
-    world.add_component<render::Material>(ground, render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}});
+    // Specular spread across the demo materials, so the highlights can be compared
+    // rather than just observed. The ground keeps a subtle wide sheen: it is where the
+    // shadow gating shows, since directional specular is multiplied by the shadow
+    // factor and shadowed ground must show NO sun glint.
+    world.add_component<render::Material>(ground,
+        render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}, 16.0f, 0.15f});
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
 
@@ -350,7 +356,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box,
         transform::Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box, render::MeshRenderer{render::kCubeMeshId});
-    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex});
+    // Fully matte -- the strength == 0 opt-out, promised to render exactly as it did
+    // before specular existed. Sits right next to the glossiest object on purpose.
+    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.0f});
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -358,7 +366,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kSphereMeshId});
-    world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex});
+    // Tight and bright: the best showcase, since a curved surface gives a clean round
+    // highlight that slides as the sphere rolls and as the camera moves.
+    world.add_component<render::Material>(sphere, render::Material{Vec3{1, 1, 1}, tex, 128.0f, 0.9f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
@@ -373,7 +383,8 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(capsule,
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCapsuleMeshId});
-    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex});
+    // Broad and soft -- the low-exponent end, for contrast with the sphere.
+    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex, 8.0f, 0.6f});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
 
@@ -381,7 +392,8 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box2,
         transform::Transform{Vec3{0, 6, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{render::kCubeMeshId});
-    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex});
+    // The documented defaults, stated explicitly as the middle reference point.
+    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.5f});
     world.add_component<physics::RigidBody>(box2, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box2, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -393,6 +405,19 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(point,
         transform::Transform{Vec3{2, 3, 2}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 3.0f, 8.0f});
+
+    // A spot light, so the demo actually exercises the third light type -- its cone
+    // falloff and its specular. Direction comes from the transform's forward axis
+    // (local -Z), so the rotation is what aims it: -1.1 rad about X tilts -Z down and
+    // slightly toward the camera, putting the cone over the objects near the origin.
+    // Cool-tinted, to be told apart from the warm point light at a glance.
+    const auto spot = world.create_entity();
+    world.add_component<transform::Transform>(spot,
+        transform::Transform{Vec3{0, 7, 2.5f},
+                             mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.1f),
+                             Vec3{1, 1, 1}, {}});
+    world.add_component<render::SpotLight>(spot,
+        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 4.0f, 12.0f, 0.35f, 0.55f});
 
     const auto camera = world.create_entity();
     world.add_component<transform::Transform>(camera,
@@ -450,7 +475,10 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(orbiter,
         transform::Transform{Vec3{3, 2, 0}, Quat::identity(), Vec3{0.5f, 0.5f, 0.5f}, {}});
     world.add_component<render::MeshRenderer>(orbiter, render::MeshRenderer{render::kCubeMeshId});
-    world.add_component<render::Material>(orbiter, render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}});
+    // Very tight and dim: a pinpoint glint on a saturated color, which also shows that
+    // specular takes the LIGHT's color rather than the albedo's green.
+    world.add_component<render::Material>(orbiter,
+        render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 256.0f, 0.35f});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
     // A floating world-space label above the orbiter (U5b): camera-facing 3D text that

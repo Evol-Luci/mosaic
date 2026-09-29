@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <string>
+#include <vector>
 
 #include "app/run/demo_scene.hpp"
 #include "engine/audio/audio_backend.hpp"
@@ -11,6 +13,8 @@
 #include "engine/net/replication_system.hpp"
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/render/builtin_meshes.hpp"
+#include "engine/render/material.hpp"
+#include "engine/render/spot_light.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
@@ -32,9 +36,9 @@ TEST_CASE("build_default_scene creates the demo entities with Transforms", "[app
     int transforms = 0;
     world.for_each<mosaic::engine::transform::Transform>(
         [&](World::EntityID, mosaic::engine::transform::Transform&) { ++transforms; });
-    // ground, box, sphere, capsule, box2, point-light, camera, orbiter carry a Transform (8);
-    // the directional light has none.
-    REQUIRE(transforms == 11); // + the fountain particle emitter + the scripted puffer emitter
+    // ground, box, sphere, capsule, box2, point-light, spot-light, camera, orbiter carry a
+    // Transform (9); the directional light has none.
+    REQUIRE(transforms == 12); // + the fountain particle emitter + the scripted puffer emitter
 }
 
 TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo objects", "[app]")
@@ -141,4 +145,57 @@ TEST_CASE("setup_runtime without a transport wires no networking", "[app]")
         [] { return mosaic::script::python::create_python_script_engine(); });
 
     REQUIRE(world.get_system<mosaic::engine::net::NetworkSystem>() == nullptr);
+}
+
+TEST_CASE("build_default_scene includes a spot light so the demo exercises all three light types", "[app]")
+{
+    // Without this the demo scene lights nothing with a SpotLight, so the spot
+    // specular and cone falloff paths ship with no way to see them running.
+    World world;
+    build_default_scene(world);
+
+    int spots = 0;
+    world.for_each<mosaic::engine::render::SpotLight>(
+        [&](World::EntityID e, mosaic::engine::render::SpotLight& l)
+        {
+            ++spots;
+            REQUIRE(l.range > 0.0f);
+            REQUIRE(l.inner_angle <= l.outer_angle); // inverted cone would fade backwards
+            // Position AND direction both come from the entity's transform, so a spot
+            // light without one contributes nothing at all.
+            REQUIRE(world.get_component<mosaic::engine::transform::Transform>(e) != nullptr);
+        });
+    REQUIRE(spots == 1);
+}
+
+TEST_CASE("build_default_scene varies specular parameters so the highlights are comparable", "[app]")
+{
+    // All six demo materials previously took the same defaults, which shows THAT
+    // specular exists but gives nothing to judge it against. The scene now spans
+    // matte to tight-and-bright, including the strength == 0 opt-out that is promised
+    // to render exactly as it did before specular existed.
+    World world;
+    build_default_scene(world);
+
+    std::vector<float> shininess;
+    std::vector<float> strength;
+    world.for_each<mosaic::engine::render::Material>(
+        [&](World::EntityID, mosaic::engine::render::Material& m)
+        {
+            shininess.push_back(m.shininess);
+            strength.push_back(m.specular_strength);
+        });
+
+    REQUIRE(shininess.size() == 6);
+
+    // At least one fully matte material, as the visual baseline.
+    int matte = 0;
+    for (float s : strength) { if (s == Catch::Approx(0.0f)) { ++matte; } }
+    REQUIRE(matte >= 1);
+
+    // And a genuine spread rather than six copies of the defaults.
+    float lo = shininess[0], hi = shininess[0];
+    for (float e : shininess) { lo = (e < lo) ? e : lo; hi = (e > hi) ? e : hi; }
+    REQUIRE(hi >= 128.0f); // a tight, obvious highlight
+    REQUIRE(lo <= 16.0f);  // a broad, soft one
 }
