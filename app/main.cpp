@@ -318,7 +318,10 @@ int main(int argc, char** argv)
 
     // Click-to-nudge, windowed runs only. Registered AFTER setup_runtime, which adds
     // UiSystem, so it ticks after the UI and sees the UI's verdict on this press.
-    if (glfw_window != nullptr)
+    // Gate on options.window, NOT on glfw_window: the window is not created until
+    // later in main(), so glfw_window is still null here. The lambdas below capture it
+    // by reference and read it per frame, by which time it is valid.
+    if (options.window)
     {
         world.add_system<mosaic::app::ClickNudgeSystem>(
             [&glfw_window]() -> mosaic::engine::ui::PointerState
