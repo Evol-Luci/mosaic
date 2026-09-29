@@ -418,8 +418,12 @@ anything shipped; they are capabilities that were never built.
   design question inside it: an impulse applied **at a point** induces
   torque and makes a sphere *roll*, while a center-of-mass impulse makes
   it *slide* — the demo needs the former, so the API must take a world
-  point, not just a direction. **Being built now (2026-09-29) as its own
-  slice.**
+  point, not just a direction. ~~**SHIPPED 2026-09-29**~~ --
+  `PhysicsBackend::apply_impulse(BodyHandle, impulse, world_point)` plus an
+  entity-level `PhysicsSystem::apply_impulse` and a `ClickNudgeSystem` that
+  turns a click into an impulse along the camera ray. See
+  `docs/project/next-steps.md` for the full entry, including the Critical
+  dead-code bug it shipped past a fully green suite.
 - **Angular impulse / torque API.** Box3D exposes
   `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
   only the linear-at-a-point call, which already induces spin via torque
@@ -512,6 +516,17 @@ anything shipped; they are capabilities that were never built.
   slot (`detail::component_storage_slot<T>()`) instead of the shared
   `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
   avoiding a reintroduction of the earlier "#9 identity drift" bug.
+- **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
+  `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
+  34907, ...). On 2026-09-29 the case "LiveLinkServer start() fails on an
+  already-bound port" failed a GitHub Actions run (1015/1016) and passed on
+  a re-run of the same branch with no code change in that area, which is the
+  signature of a lingering socket in `TIME_WAIT` or a port collision on a
+  shared runner. Each Catch2 case runs as its own process, so the exposure is
+  real. **Do not add a third `-E` exclusion for it** -- the fix is to bind
+  port 0 and ask the OS which port it got, so the tests stop competing for
+  fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
+  test-infrastructure change unrelated to whatever slice is in flight.
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
   `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem
