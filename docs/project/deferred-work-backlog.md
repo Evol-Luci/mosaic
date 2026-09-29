@@ -402,6 +402,38 @@ view that was actually used to pick what to build next as of this writing.
 - Entity lifecycle (`create_entity`/`destroy_entity`) from a threaded
   script — unsupported, documented limitation.
 
+## Physics pillar (gaps found 2026-09-29 while trying to demo specular)
+
+Both were discovered while trying to get the demo sphere rolling so a
+specular highlight could be seen sweeping across it. Neither is a bug in
+anything shipped; they are capabilities that were never built.
+
+- **No way to apply an impulse or set a velocity.** `PhysicsBackend`'s
+  only write path into the simulation is `set_body_transform`, which
+  teleports a body *and resets its velocity*, and `BodyDef` has no
+  initial-velocity field. So a body can be positioned but never pushed —
+  nothing in the engine can make an object move under its own momentum.
+  This blocks click-to-nudge, any gameplay verb (throwing, knockback,
+  jumping), and even a scripted "roll this ball" one-liner. The real
+  design question inside it: an impulse applied **at a point** induces
+  torque and makes a sphere *roll*, while a center-of-mass impulse makes
+  it *slide* — the demo needs the former, so the API must take a world
+  point, not just a direction. **Being built now (2026-09-29) as its own
+  slice.**
+- **Static bodies cannot be created rotated.** `BodyDef` carries
+  `{type, position, shape, density}` — no rotation — so `create_body`
+  always produces an axis-aligned body. A tilted ramp, a slanted wall, or
+  any angled static geometry is therefore unrepresentable: the renderer
+  draws the entity rotated while the collider stays axis-aligned, and the
+  two silently disagree. The only workaround today is to mutate the
+  entity's Transform *after* creation so the "external edit" path calls
+  `set_body_transform`, which does accept a rotation — a hack that
+  depends on a sync heuristic rather than on the API meaning what it
+  says. Deferred 2026-09-29: the fix is to add `rotation` to `BodyDef`
+  and pass it through `create_body`, which is small but touches the
+  backend interface and wants its own tests. Not needed once impulses
+  exist, which is why it is not being folded into that slice.
+
 ## Tech debt
 
 - ~~**Issue #25 — Component TypeID densification**~~ — **SHIPPED**
