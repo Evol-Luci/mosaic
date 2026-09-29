@@ -442,6 +442,30 @@ anything shipped; they are capabilities that were never built.
   magnitude from the drag vector. Deferred 2026-09-29: it needs pointer
   press/drag/release state tracking that nothing else in the engine wants
   yet, whereas a click nudge needs only the press edge already available.
+- **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
+  dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
+  behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is
+  created, so the guard was always false and clicking did nothing in the real
+  app. Every automated check passed — the unit tests construct the system
+  directly and bypass `main()` entirely, and the launch check only proves the
+  process starts. The gap is structural: `main()` is one long function whose
+  wiring decisions no test can observe. The fix is to extract the registration
+  decisions into small functions that take their inputs explicitly (e.g.
+  `register_windowed_systems(World&, bool windowed, providers...)`) so a test
+  can assert *that* a system is registered under the right conditions.
+  Deferred 2026-09-29 rather than done inside a fix round, because carving a
+  testable seam out of `main()` is a design change that deserves its own
+  review. Depends on nothing.
+- **`ClickNudgeSystem::camera_position` duplicates `studio::pick_entity`'s
+  camera selection.** Both independently implement "first entity with a
+  `Camera` and a `WorldTransform`, take the world matrix translation". They
+  agree today by construction, since both run in the same tick over the same
+  components. Deferred 2026-09-29: the clean fix is for `RaycastHit` to carry
+  the ray origin `pick_entity` already computed, which changes a studio API the
+  editor's picker also consumes — a separate, reviewable change rather than a
+  fix-round edit. If an explicit active-camera policy is ever added and only one
+  site is updated, the nudge would push along a ray from the wrong eye while
+  picking still used the right one.
 - **Static bodies cannot be created rotated.** `BodyDef` carries
   `{type, position, shape, density}` — no rotation — so `create_body`
   always produces an axis-aligned body. A tilted ramp, a slanted wall, or
