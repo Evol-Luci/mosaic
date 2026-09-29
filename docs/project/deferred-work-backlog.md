@@ -442,6 +442,31 @@ anything shipped; they are capabilities that were never built.
   magnitude from the drag vector. Deferred 2026-09-29: it needs pointer
   press/drag/release state tracking that nothing else in the engine wants
   yet, whereas a click nudge needs only the press edge already available.
+- **A physics body whose `Transform` is written every tick loses any impulse.**
+  `PhysicsSystem::update` step 2 teleports a body whenever its `Transform`
+  diverges from the pose the system last wrote, and `set_body_transform` zeroes
+  both linear and angular velocity. So if a script, the animation system, or
+  client-side replication drives a `RigidBody` entity's `Transform`, clicking
+  that object does nothing visible -- the impulse is erased on the next tick.
+  Found 2026-09-29 in review; latent, not live, since no demo body is in that
+  category today. Deferred: the fix is a real design question (does an authored
+  Transform win over the simulation, or does the body become kinematic?) rather
+  than a patch.
+- **UI click arbitration is `UiButton`-only.** `UiSystem::press_consumed()` is
+  true only when a press lands on a `UiButton`, so a click on a decorative
+  `UiImage` or `UiText` falls through and nudges whatever world object sits
+  behind it. The demo's HUD bar is a button and is correctly claimed, so the
+  spec's stated criterion is met. Deferred 2026-09-29 as a recorded limitation:
+  generalizing it means deciding which UI element kinds are click-opaque, which
+  is a UI-pillar decision rather than a physics one.
+- **`ClickNudgeSystem` declares no `ComponentAccess`.** It reads `Camera` and
+  `WorldTransform` and causes `Transform` writes through the physics backend,
+  but declares nothing -- matching `UiSystem` and `AudioSystem`, and harmless
+  today because nothing reads `access()`. Deferred 2026-09-29: when a job-system
+  scheduler lands, an empty access set reads as "depends on nothing" and this
+  system becomes a candidate to run concurrently with `PhysicsSystem`. The fix
+  is two `reads<>()` lines, but it should land with whatever actually consumes
+  the access sets, so the declaration and its enforcement are reviewed together.
 - **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
   dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
   behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is

@@ -5,6 +5,8 @@
 
 #include "engine/ecs/system.hpp"
 #include "engine/physics/physics_system.hpp"
+#include "engine/render/camera.hpp"
+#include "engine/transform/transform.hpp"
 #include "engine/ui/pointer.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/math/vec3.hpp"
@@ -12,6 +14,11 @@
 
 namespace mosaic::app
 {
+
+// Impulse magnitude for a click, in N*s. The demo sphere is radius 0.5 at density 1,
+// so mass is about 0.52 kg and this gives roughly 3.8 m/s -- a firm shove that rolls
+// the ball without launching it off the ground plane. Tuned by eye.
+inline constexpr float kDefaultNudgeStrength = 2.0f;
 
 // PointerState is normalized [0,1] with a TOP-LEFT origin; studio::pick_entity wants
 // NDC in [-1,1] with +y UP. The Y flip is the easy thing to drop, and dropping it
