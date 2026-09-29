@@ -80,6 +80,14 @@ public:
                                     const mosaic::foundation::math::Vec3& position,
                                     const mosaic::foundation::math::Quat& rotation) = 0;
 
+    // Apply an instantaneous linear impulse (N*s) to a dynamic body at a world-space
+    // point. Applying it away from the center of mass induces torque -- this is what
+    // makes a struck sphere roll rather than slide, and is why the point is required
+    // rather than optional. A no-op for a static body.
+    virtual void apply_impulse(BodyHandle body,
+                               const mosaic::foundation::math::Vec3& impulse,
+                               const mosaic::foundation::math::Vec3& world_point) = 0;
+
     // Begin/end touch contacts produced by the most recent step().
     virtual std::vector<BodyContact> contact_events() const = 0;
 
