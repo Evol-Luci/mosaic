@@ -420,6 +420,28 @@ anything shipped; they are capabilities that were never built.
   it *slide* — the demo needs the former, so the API must take a world
   point, not just a direction. **Being built now (2026-09-29) as its own
   slice.**
+- **Angular impulse / torque API.** Box3D exposes
+  `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
+  only the linear-at-a-point call, which already induces spin via torque
+  and is what the demo needs. Deferred 2026-09-29: a direct torque verb
+  has no caller yet, and adding an unused second way to spin a body
+  invites picking the wrong one.
+- **Script (Python) bindings for impulses and raycasts.** Scripts can
+  read and write Transforms but cannot push a body or query the physics
+  world, so "roll this ball when the player presses X" is not yet
+  expressible in a scene's own script. Deferred 2026-09-29: it needs its
+  own binding-surface design (how a script names an entity, what a
+  raycast result looks like in Python) and is a bigger question than the
+  C++ primitive it would wrap. Depends on the impulse API existing first.
+- **Continuous forces, as distinct from instantaneous impulses.** An
+  impulse is a one-shot momentum change; sustained thrust, wind, or
+  magnetism needs a per-tick force accumulator. Deferred 2026-09-29: no
+  caller today, and the two have genuinely different semantics, so
+  bolting `apply_force` onto the impulse call would blur them.
+- **Drag-to-throw.** Click-and-drag to aim, release to launch with a
+  magnitude from the drag vector. Deferred 2026-09-29: it needs pointer
+  press/drag/release state tracking that nothing else in the engine wants
+  yet, whereas a click nudge needs only the press edge already available.
 - **Static bodies cannot be created rotated.** `BodyDef` carries
   `{type, position, shape, density}` — no rotation — so `create_body`
   always produces an axis-aligned body. A tilted ramp, a slanted wall, or
