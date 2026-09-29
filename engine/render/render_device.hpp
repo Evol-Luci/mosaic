@@ -50,19 +50,25 @@ struct FrameLighting
     float                          spot_range = 0.0f;  // 0 == no spot light
     float                          spot_cos_inner = 1.0f;
     float                          spot_cos_outer = 1.0f;
+    mosaic::foundation::math::Vec3 camera_position; // world space, for specular
     mosaic::foundation::math::Mat4 light_view_proj;  // for shadow-map sampling
 };
 
-// Per-draw parameters. Lighting lives in FrameLighting now; shading is done in
-// WORLD space, so the backend needs the model matrix (to place the fragment) and
-// the normal matrix (transpose of the inverse model, so normals stay correct
-// under non-uniform scale).
+// Per-draw parameters: the transforms plus the material's own shading parameters.
+// Lighting lives in FrameLighting now; shading is done in WORLD space, so the
+// backend needs the model matrix (to place the fragment) and the normal matrix
+// (transpose of the inverse model, so normals stay correct under non-uniform scale).
 struct DrawParams
 {
     mosaic::foundation::math::Mat4 mvp;
     mosaic::foundation::math::Mat4 model;         // object -> world
     mosaic::foundation::math::Mat4 normal_matrix; // transpose(inverse_affine(model)); upper 3x3 used
     mosaic::foundation::math::Vec3 base_color;
+    // Blinn-Phong specular. Defaults match Material's, so the no-Material draw path
+    // and a default-constructed DrawParams agree. shininess is NOT clamped here; the
+    // shader clamps it to >= 1.
+    float shininess = 32.0f;
+    float specular_strength = 0.5f;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived

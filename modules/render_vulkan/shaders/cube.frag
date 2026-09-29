@@ -10,6 +10,8 @@ layout(push_constant) uniform Push {
     mat4 model;
     mat4 normal_matrix;
     vec4 base_color;
+    float shininess;
+    float specular_strength;
 } pc;
 layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 light_direction; // world space .xyz
@@ -19,6 +21,7 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 spot_position;   // world space .xyz, .w = range
     vec4 spot_direction;  // world space .xyz, .w = cos(outer_angle)
     vec4 spot_color;      // .xyz = color * intensity, .w = cos(inner_angle)
+    vec4 camera_position; // world space .xyz
     mat4 light_view_proj;
 } fl;
 layout(location = 0) out vec4 outColor;
@@ -39,12 +42,34 @@ float shadow_factor()
     return (proj.z - bias > closest) ? 0.0 : 1.0;
 }
 
+// Blinn-Phong specular for one light. L points FROM the fragment TOWARD the light
+// and is unit length. Returns the specular coefficient; the caller multiplies by
+// that light's own attenuation/shadow/cone factor and by the LIGHT's color --
+// never by albedo, which would make every surface read as painted metal.
+float blinn_spec(vec3 n, vec3 v, vec3 L, float shininess, float strength)
+{
+    vec3 hv = v + L;
+    // v == -L (viewer exactly opposite the light) gives a zero-length half-vector,
+    // and normalize() would produce NaN that propagates into the output color as an
+    // undiagnosable pixel. Fall back to the normal, where dot(n, h) == 1.
+    vec3  h = (dot(hv, hv) > 1e-8) ? normalize(hv) : n;
+    // pow(x, 0.0) is 1 everywhere and pow(0, 0) is undefined, so a zero exponent
+    // would wash the entire surface. Clamp rather than trusting authored input.
+    float e = max(shininess, 1.0);
+    // The step() gate kills highlights on geometry facing away from the light, which
+    // the half-vector alone would happily produce -- it reads as light leaking
+    // through the object.
+    return pow(max(dot(n, h), 0.0), e) * strength * step(0.0, dot(n, L));
+}
+
 void main()
 {
     vec3 n = normalize(fragNormal);
     vec3 l = normalize(fl.light_direction.xyz);
-    float lambert = max(0.0, dot(n, -l)) * shadow_factor();
+    float shadow = shadow_factor();
+    float lambert = max(0.0, dot(n, -l)) * shadow;
     vec3 albedo = texture(tex, fragUV).rgb * pc.base_color.xyz;
+    vec3 v = normalize(fl.camera_position.xyz - fragPos);
 
     // Point light (world space): windowed inverse-square attenuation. Formula
     // unchanged from 36e-1; only the space changed, which is what makes the
@@ -59,6 +84,7 @@ void main()
         atten = (win * win) / (d * d + 1.0);
     }
     float pl = max(0.0, dot(n, toL / max(d, 1e-4))) * atten;
+    vec3 pointL = toL / max(d, 1e-4);
 
     // Spot light (world space): same falloff plus the smooth cone edge. Formula
     // unchanged from the spot-lights slice.
@@ -74,9 +100,21 @@ void main()
     float cosAngle = dot(normalize(-toSpotL), fl.spot_direction.xyz);
     float coneAtten = smoothstep(fl.spot_direction.w, fl.spot_color.w, cosAngle); // (cos_outer, cos_inner)
     float spotL = max(0.0, dot(n, toSpotL / max(spotD, 1e-4))) * spotAtten * coneAtten;
+    vec3 spotLdir = toSpotL / max(spotD, 1e-4);
+
+    // Specular is tinted by LIGHT color, not albedo, and each light's highlight is
+    // gated by that same light's own factors -- so shadowed ground gets no sun glint
+    // and a spot's highlight respects its cone.
+    float spec_dir  = blinn_spec(n, v, -l, pc.shininess, pc.specular_strength) * shadow;
+    float spec_pt   = blinn_spec(n, v, pointL, pc.shininess, pc.specular_strength) * atten;
+    float spec_spot = blinn_spec(n, v, spotLdir, pc.shininess, pc.specular_strength)
+                    * spotAtten * coneAtten;
 
     vec3 color = albedo * (0.1 + lambert * fl.light_color.xyz)
                + albedo * pl * fl.point_color.xyz
-               + albedo * spotL * fl.spot_color.xyz;
+               + albedo * spotL * fl.spot_color.xyz
+               + spec_dir * fl.light_color.xyz
+               + spec_pt * fl.point_color.xyz
+               + spec_spot * fl.spot_color.xyz;
     outColor = vec4(color, 1.0);
 }

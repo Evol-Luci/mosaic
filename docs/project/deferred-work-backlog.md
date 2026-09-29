@@ -290,6 +290,37 @@ view that was actually used to pick what to build next as of this writing.
     lighting UBO rather than the per-draw payload — so specular's only
     per-draw additions are shininess and strength (8 bytes). This is
     the natural next rendering slice.
+  - **Perceptual `0..1` gloss remap** — `Material::shininess` ships as a
+    raw Phong exponent, the traditional parameterization but a poor
+    authoring knob: it is perceptually non-linear, so 8 → 16 is a large
+    visual change while 200 → 208 is invisible. Deferred 2026-09-27
+    during the Blinn-Phong design: the remap decision belongs with
+    PBR's roughness parameter below, and shipping a remap now would
+    leave two competing gloss scales in the material system at once.
+    Depends on the PBR material model being designed first.
+  - **Specular/gloss texture maps** — per-texel shininess and specular
+    strength sampled from a map, rather than the two scalar `Material`
+    params the Blinn-Phong slice adds. Deferred 2026-09-27 during that
+    slice's design: it needs a second texture binding and an asset-
+    pipeline answer (how a gloss map is authored, imported, and
+    referenced) that has nothing to do with the shading math itself.
+    Depends on nothing; it is simply a separate, larger question.
+  - **Fresnel / energy conservation on the specular term** — Blinn-Phong
+    v1 is deliberately non-energy-conserving: `specular_strength` is an
+    authored fudge factor, not a physically derived `F0`. Deferred
+    2026-09-27 because a Schlick Fresnel term only makes sense once the
+    BRDF around it is physically based; doing it inside Blinn-Phong
+    would be half a PBR model with none of its coherence. Folded into
+    the full PBR item below rather than tracked as an independent slice.
+  - **Per-light specular color distinct from diffuse color** — each
+    light currently carries one color used for both terms. Deferred
+    2026-09-27: real renderers almost never separate these, and doing
+    so would grow the lighting UBO for a knob nobody has asked for.
+    Low priority; listed only so the omission is deliberate.
+  - **Ambient/environment specular (IBL)** — the flat `0.1` ambient term
+    contributes no highlight. Deferred 2026-09-27: image-based lighting
+    needs cubemap capture, prefiltering, and a BRDF LUT — it is a pillar
+    of the PBR work below, not an add-on to Blinn-Phong.
   - **Full PBR material model** — metallic/roughness workflow,
     Cook-Torrance BRDF, energy-conserving specular. The real thing, not
     a stepping stone; needs its own design decisions (scalar params vs.
@@ -370,6 +401,38 @@ view that was actually used to pick what to build next as of this writing.
   (deliberately excluded — GIL/race reasons, likely permanent).
 - Entity lifecycle (`create_entity`/`destroy_entity`) from a threaded
   script — unsupported, documented limitation.
+
+## Physics pillar (gaps found 2026-09-29 while trying to demo specular)
+
+Both were discovered while trying to get the demo sphere rolling so a
+specular highlight could be seen sweeping across it. Neither is a bug in
+anything shipped; they are capabilities that were never built.
+
+- **No way to apply an impulse or set a velocity.** `PhysicsBackend`'s
+  only write path into the simulation is `set_body_transform`, which
+  teleports a body *and resets its velocity*, and `BodyDef` has no
+  initial-velocity field. So a body can be positioned but never pushed —
+  nothing in the engine can make an object move under its own momentum.
+  This blocks click-to-nudge, any gameplay verb (throwing, knockback,
+  jumping), and even a scripted "roll this ball" one-liner. The real
+  design question inside it: an impulse applied **at a point** induces
+  torque and makes a sphere *roll*, while a center-of-mass impulse makes
+  it *slide* — the demo needs the former, so the API must take a world
+  point, not just a direction. **Being built now (2026-09-29) as its own
+  slice.**
+- **Static bodies cannot be created rotated.** `BodyDef` carries
+  `{type, position, shape, density}` — no rotation — so `create_body`
+  always produces an axis-aligned body. A tilted ramp, a slanted wall, or
+  any angled static geometry is therefore unrepresentable: the renderer
+  draws the entity rotated while the collider stays axis-aligned, and the
+  two silently disagree. The only workaround today is to mutate the
+  entity's Transform *after* creation so the "external edit" path calls
+  `set_body_transform`, which does accept a rotation — a hack that
+  depends on a sync heuristic rather than on the API meaning what it
+  says. Deferred 2026-09-29: the fix is to add `rotation` to `BodyDef`
+  and pass it through `create_body`, which is small but touches the
+  backend interface and wants its own tests. Not needed once impulses
+  exist, which is why it is not being folded into that slice.
 
 ## Tech debt
 
