@@ -166,7 +166,8 @@ public:
     void update_threaded(World& world, float dt)
     {
         // 1. Apply the previous job's writes (main thread).
-        for (const SnapshotContext::Write& w : worker_->collect())
+        const ScriptWorker::WorkerResult batch = worker_->collect();
+        for (const SnapshotContext::Write& w : batch.writes)
         {
             types_.set_value(world, mosaic::foundation::EntityID(w.entity), w.comp, w.value);
         }
