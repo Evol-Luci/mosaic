@@ -87,6 +87,12 @@ private:
     WorkerResult result_;
     bool                    result_ready_ = false;
     bool                    pending_      = false;
+    // True from the moment a job is dequeued until its result is published. Without
+    // it, collect() cannot distinguish "executing right now" from "nothing was ever
+    // dispatched", because pending_ is cleared at dequeue and result_ready_ is not
+    // set until execute() returns -- and execute() runs unlocked for as long as
+    // Python takes.
+    bool                    executing_    = false;
     bool                    stop_         = false;
     std::thread             thread_;
 };

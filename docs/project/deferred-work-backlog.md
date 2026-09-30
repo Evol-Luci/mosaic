@@ -635,6 +635,24 @@ anything shipped; they are capabilities that were never built.
   port 0 and ask the OS which port it got, so the tests stop competing for
   fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
   test-infrastructure change unrelated to whatever slice is in flight.
+- ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ —
+  **ROOT-CAUSED AND FIXED 2026-09-30. It was never a flake.**
+  `ScriptWorker::run()` cleared `pending_` when a job was dequeued but set
+  `result_ready_` only after `execute()` returned — and `execute()` runs
+  *unlocked*, for as long as starting Python and compiling scripts takes. In
+  that window both flags were false, so `collect()`'s early-out
+  (`if (!pending_ && !result_ready_) return {};`) could not distinguish "job
+  executing right now" from "nothing was ever dispatched" and silently
+  returned an empty result, dropping that tick's writes. Fixed by adding an
+  `executing_` flag covering the window, so `collect()` waits for an in-flight
+  job instead of skipping it. Measured: the headline test went from **2/12 to
+  12/12**, the other from flaky to 12/12, and the full suite is green with **no
+  `-E` exclusions**, which have accordingly been removed from the CI gate.
+  **The old entry below understated it as "rare/near-impossible to reproduce
+  locally"; it actually failed ~80% of the time locally.** That mischaracterisation
+  is why a real race sat behind a CI exclusion for nine days — worth remembering
+  the next time something is labelled a flake. Original entry follows.
+
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
   `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem

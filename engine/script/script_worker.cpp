@@ -54,7 +54,7 @@ void ScriptWorker::dispatch(Job job)
 ScriptWorker::WorkerResult ScriptWorker::collect()
 {
     std::unique_lock<std::mutex> lock(mutex_);
-    if (!pending_ && !result_ready_) { return {}; } // nothing in flight
+    if (!pending_ && !executing_ && !result_ready_) { return {}; } // nothing in flight
     cv_.wait(lock, [this] { return result_ready_ || stop_; });
     result_ready_ = false;
     return std::move(result_);
@@ -63,7 +63,7 @@ ScriptWorker::WorkerResult ScriptWorker::collect()
 bool ScriptWorker::has_pending() const
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return pending_ || result_ready_;
+    return pending_ || executing_ || result_ready_;
 }
 
 void ScriptWorker::run()
@@ -78,12 +78,14 @@ void ScriptWorker::run()
             job      = std::move(*job_);
             job_.reset();
             pending_ = false;
+            executing_ = true;
         }
         WorkerResult result = execute(job);
         {
             std::lock_guard<std::mutex> lock(mutex_);
             result_       = std::move(result);
             result_ready_ = true;
+            executing_ = false;
         }
         cv_.notify_all();
     }

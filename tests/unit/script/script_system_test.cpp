@@ -281,12 +281,14 @@ TEST_CASE("threaded ScriptSystem replays buffered impulses through the host", "[
         "def on_update(dt):\n"
         "    apply_impulse(entity, [4.0, 0.0, 0.0], [0.0, 0.25, 0.0])\n"});
 
-    // THREE ticks, not two. The first tick creates the engine and compiles the script,
-    // so it produces no result; the second dispatches a job that actually runs; the
-    // third collects it. Measured, not assumed: at two ticks these pass 0/10, at three
-    // they pass 12/12. The "one-tick pipeline" the surrounding comments describe is the
-    // steady-state lag, not the latency of the FIRST result.
-    for (int i = 0; i < 3; ++i) { world.tick(1.0f / 60.0f); }
+    // Tick 1 dispatches the job; tick 2 collects and replays it. That one-tick lag is
+    // the threaded path's existing contract for component writes, and impulses now
+    // follow it. This needed three ticks until collect()'s dequeue-vs-ready race was
+    // fixed: pending_ was cleared when a job was dequeued while result_ready_ was not
+    // set until execute() returned, so a collect() landing in that window returned
+    // empty and silently dropped a tick's results.
+    world.tick(1.0f / 60.0f);
+    world.tick(1.0f / 60.0f);
 
     REQUIRE(seen.size() >= 1);
     REQUIRE(seen[0].entity == e.value());
@@ -322,12 +324,14 @@ TEST_CASE("threaded ScriptSystem handles a tick with impulses but no component w
         "def on_update(dt):\n"
         "    apply_impulse(entity, [1.0, 0.0, 0.0], [0.0, 0.0, 0.0])\n"});
 
-    // THREE ticks, not two. The first tick creates the engine and compiles the script,
-    // so it produces no result; the second dispatches a job that actually runs; the
-    // third collects it. Measured, not assumed: at two ticks these pass 0/10, at three
-    // they pass 12/12. The "one-tick pipeline" the surrounding comments describe is the
-    // steady-state lag, not the latency of the FIRST result.
-    for (int i = 0; i < 3; ++i) { world.tick(1.0f / 60.0f); }
+    // Tick 1 dispatches the job; tick 2 collects and replays it. That one-tick lag is
+    // the threaded path's existing contract for component writes, and impulses now
+    // follow it. This needed three ticks until collect()'s dequeue-vs-ready race was
+    // fixed: pending_ was cleared when a job was dequeued while result_ready_ was not
+    // set until execute() returned, so a collect() landing in that window returned
+    // empty and silently dropped a tick's results.
+    world.tick(1.0f / 60.0f);
+    world.tick(1.0f / 60.0f);
 
     REQUIRE(calls >= 1);
 }
