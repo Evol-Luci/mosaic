@@ -478,6 +478,28 @@ anything shipped; they are capabilities that were never built.
   deferred-call list) is the better change than adding a third parallel
   vector — but two is not yet a pattern, and generalising now would be
   speculative.
+- **Snapshot-served ray geometry.** The physics backend mutex makes a
+  worker raycast wait for the main thread's physics update. The only
+  approach that removes the dependency entirely is answering rays against
+  collider geometry captured in the job snapshot, with no shared state at
+  all. Deferred 2026-09-30: it means reimplementing ray-vs-box/sphere/
+  capsule outside Box3D and keeping two intersection implementations in
+  agreement forever, whose failure mode is silent divergence from the real
+  physics world. This is the right answer only if blocking ever shows up
+  in a profile.
+- **Other engine systems are not thread-safe, and nothing enforces that
+  future `ScriptHost` hooks are.** The physics boundary is closed because
+  it is the one scripts reach. `set_playing` and `request_stop` were
+  verified safe (they write an atomic), but that is a property of today's
+  implementations rather than a rule anything checks. Deferred 2026-09-30:
+  a general answer means deciding what thread-safety contract `ScriptHost`
+  imposes on its implementors, which is a design question rather than a
+  patch.
+- **Reader-writer or lock-free refinement of the physics lock.** A plain
+  mutex serializes a worker raycast against the whole physics update.
+  Deferred 2026-09-30 as speculative: there is no measured contention, and
+  a finer-grained lock is the classic way to turn a correct coarse lock
+  into a subtly wrong fine one.
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
   engines, and while `apply_impulse` is now deliberately left unwired there,
