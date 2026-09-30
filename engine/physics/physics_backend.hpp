@@ -26,6 +26,12 @@ struct BodyDef
 {
     BodyType                       type = BodyType::Dynamic;
     mosaic::foundation::math::Vec3 position{};
+    // Initial world rotation. Quat's default is w=1, i.e. identity, so a caller that
+    // never sets this gets an axis-aligned body exactly as before. Without it a body
+    // is always created axis-aligned: a rotated STATIC collider silently disagrees
+    // with the mesh drawn for it, and a rotated DYNAMIC body has its authored
+    // rotation overwritten by the pose write-back on the very first tick.
+    mosaic::foundation::math::Quat rotation{};
     Shape                          shape{};
     float                          density = 1.0f; // ignored for static bodies
 };

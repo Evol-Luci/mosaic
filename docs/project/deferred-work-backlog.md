@@ -508,6 +508,18 @@ anything shipped; they are capabilities that were never built.
   fix-round edit. If an explicit active-camera policy is ever added and only one
   site is updated, the nudge would push along a ray from the wrong eye while
   picking still used the right one.
+- ~~**Static bodies cannot be created rotated**~~ — **SHIPPED 2026-09-29.**
+  `BodyDef` gained a `rotation` field, passed through from the entity's
+  `Transform` and into `b3BodyDef::rotation` (which already existed and was
+  simply never wired). Investigation found this was **two** live bugs, not the
+  one recorded: a rotated *static* body kept its Transform rotation while its
+  collider stayed axis-aligned, and a rotated *dynamic* body had its authored
+  rotation **overwritten with identity by the pose write-back on the first
+  tick** — visibly flattening itself the instant physics started. Nothing
+  pinned the old behavior (no test used a non-identity rotation on a physics
+  body, and no `BodyDef{...}` aggregate-init sites existed), so the fix was a
+  clean addition. Original entry follows for context.
+
 - **Static bodies cannot be created rotated.** `BodyDef` carries
   `{type, position, shape, density}` — no rotation — so `create_body`
   always produces an axis-aligned body. A tilted ramp, a slanted wall, or
