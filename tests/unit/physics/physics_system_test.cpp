@@ -1,6 +1,8 @@
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <thread>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -592,4 +594,69 @@ TEST_CASE("A body authored with no rotation still simulates unrotated", "[physic
     REQUIRE(t->rotation.z == Approx(0.0f).margin(1e-4));
     REQUIRE(t->rotation.w == Approx(1.0f).margin(1e-4));
     REQUIRE(t->position.y < 10.0f); // it fell
+}
+
+TEST_CASE("PhysicsSystem::raycast is callable from another thread while update runs", "[physics]")
+{
+    // Review Focus 3 and 5: the ordinary main-thread raycast path must still work, and
+    // a second thread hammering raycast while the main thread ticks must neither
+    // deadlock nor crash. This is the smoke test; the overlap DETECTOR is Task 2.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ground = world.create_entity();
+    world.add_component<Transform>(ground,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+
+    std::atomic<bool> stop{false};
+    std::atomic<int>  hits{0};
+    std::thread reader(
+        [&]
+        {
+            while (!stop.load())
+            {
+                if (physics->raycast(Vec3{0, 5, 0}, Vec3{0, -1, 0}, 10.0f).hit) { ++hits; }
+            }
+        });
+
+    for (int i = 0; i < 200; ++i) { world.tick(1.0f / 60.0f); }
+    stop.store(true);
+    reader.join();
+
+    REQUIRE(hits.load() > 0); // the ray really was hitting the ground, not just not-crashing
+}
+
+TEST_CASE("PhysicsSystem locked methods do not re-enter one another", "[physics]")
+{
+    // Review Focus 4: a plain std::mutex self-deadlocks on re-entry. The claim is that
+    // update() never calls raycast/apply_impulse/has_body and vice versa. If that ever
+    // stops being true this test hangs rather than failing quietly, which is the point.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto ball = world.create_entity();
+    world.add_component<Transform>(ball,
+                                   Transform{Vec3{0, 5, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<SphereCollider>(ball, SphereCollider{0.5f});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+
+    // Each of these takes the lock; calling them back to back on one thread proves the
+    // lock is released between calls.
+    REQUIRE(physics->has_body(ball));
+    REQUIRE_NOTHROW(physics->apply_impulse(ball, Vec3{1, 0, 0}, Vec3{0, 4.5f, 0}));
+    REQUIRE_NOTHROW(physics->raycast(Vec3{0, 10, 0}, Vec3{0, -1, 0}, 20.0f));
+    REQUIRE_NOTHROW(world.tick(1.0f / 60.0f));
+    REQUIRE(physics->has_body(ball));
 }
