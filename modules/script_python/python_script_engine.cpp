@@ -67,6 +67,25 @@ struct InterpreterInit
     InterpreterInit() { ensure_interpreter(); }
 };
 
+// Reads a 3-element Python sequence into a Vec3. Returns false instead of throwing
+// for a short sequence or a non-numeric element, so one malformed script argument
+// fails that call rather than aborting the tick.
+bool to_vec3(const py::sequence& s, mosaic::foundation::math::Vec3& out)
+{
+    if (py::len(s) < 3) { return false; }
+    try
+    {
+        out.x = s[0].cast<float>();
+        out.y = s[1].cast<float>();
+        out.z = s[2].cast<float>();
+    }
+    catch (const py::cast_error&)
+    {
+        return false;
+    }
+    return true;
+}
+
 class PythonScriptEngine final
     : private InterpreterInit // must be first — initializes CPython before py::dict globals_
     , public mosaic::engine::script::ScriptEngine
@@ -273,6 +292,25 @@ public:
                 out["normal"] = normal;
                 return out;
             });
+
+        // apply_impulse(entity, impulse, point) -> bool. impulse/point are 3-element
+        // sequences (matching raycast). Malformed input returns False rather than
+        // raising: a raising binding would abort the whole tick over one bad call.
+        globals_["apply_impulse"] = py::cpp_function(
+            [this](std::uint64_t entity, py::sequence impulse, py::sequence point) -> bool
+            {
+                using mosaic::foundation::math::Vec3;
+                if (!host_.apply_impulse) { return false; }
+                Vec3 i{}, p{};
+                if (!to_vec3(impulse, i) || !to_vec3(point, p)) { return false; }
+                return host_.apply_impulse(entity, i, p);
+            },
+            py::doc("Apply an instantaneous impulse to a dynamic body at a world-space "
+                    "point; impulse and point are 3-element sequences. Applying it away "
+                    "from the body's centre induces spin, which is what makes a sphere "
+                    "roll rather than slide. Returns False if there is no physics "
+                    "system, the entity has no simulated body, or an argument is "
+                    "malformed."));
     }
 
     void bind_context(mosaic::engine::script::ScriptContext& context) override
