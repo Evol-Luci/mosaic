@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <mutex>
 #include <unordered_map>
 
 #include "engine/ecs/system.hpp"
@@ -53,6 +54,7 @@ public:
 
     void update(World& world, float dt) override
     {
+        const std::lock_guard<std::mutex> lock(backend_mutex_);
         // 1. Lazily create a backend body for each physics entity we have not seen.
         world.for_each<RigidBody>(
             [&](mosaic::foundation::EntityID e, RigidBody& rb)
@@ -146,6 +148,7 @@ public:
                        const mosaic::foundation::math::Vec3& direction,
                        float max_distance) const
     {
+        const std::lock_guard<std::mutex> lock(backend_mutex_);
         const RaycastResult r = backend_->raycast(origin, direction, max_distance);
         RaycastHit          hit;
         if (!r.hit)
@@ -170,6 +173,7 @@ public:
     // returns void and no-ops silently for an entity with no body.
     bool has_body(mosaic::foundation::EntityID entity) const
     {
+        const std::lock_guard<std::mutex> lock(backend_mutex_);
         return bodies_.find(entity) != bodies_.end();
     }
 
@@ -181,6 +185,7 @@ public:
                        const mosaic::foundation::math::Vec3& impulse,
                        const mosaic::foundation::math::Vec3& world_point)
     {
+        const std::lock_guard<std::mutex> lock(backend_mutex_);
         const auto it = bodies_.find(entity);
         if (it == bodies_.end())
         {
@@ -221,6 +226,14 @@ private:
                t.rotation.y == p.rotation.y && t.rotation.z == p.rotation.z &&
                t.rotation.w == p.rotation.w;
     }
+
+    // Serializes every entry point that touches backend_ or the handle maps. Scripts
+    // can run on a worker thread (--script-thread), and a raycast from there would
+    // otherwise run concurrently with the main thread's update() -- reading a Box3D
+    // world mid-step, and reading bodies_/handle_to_entity_ mid-insert. Held across
+    // the whole of update() rather than around individual calls: four narrow critical
+    // sections inside one function is the shape that grows a bug later.
+    mutable std::mutex backend_mutex_;
 
     std::unique_ptr<PhysicsBackend>                              backend_;
     std::unordered_map<mosaic::foundation::EntityID, BodyHandle> bodies_;

@@ -478,6 +478,92 @@ anything shipped; they are capabilities that were never built.
   deferred-call list) is the better change than adding a third parallel
   vector — but two is not yet a pattern, and generalising now would be
   speculative.
+- **Snapshot-served ray geometry.** The physics backend mutex makes a
+  worker raycast wait for the main thread's physics update. The only
+  approach that removes the dependency entirely is answering rays against
+  collider geometry captured in the job snapshot, with no shared state at
+  all. Deferred 2026-09-30: it means reimplementing ray-vs-box/sphere/
+  capsule outside Box3D and keeping two intersection implementations in
+  agreement forever, whose failure mode is silent divergence from the real
+  physics world. This is the right answer only if blocking ever shows up
+  in a profile.
+- **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
+  holding `backend_mutex_` — a lock-ordering constraint, not just a
+  re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
+  `EventBus::emit` dispatches immediate subscribers on the same stack, so a
+  subscriber runs inside the lock. The narrow risk is a subscriber that calls
+  `raycast`/`has_body`/`apply_impulse` and hangs on a plain `std::mutex`;
+  today's two subscribers were checked (one logs, one re-emits onto the
+  *deferred* bus) and neither does. The wider and already-live consequence is
+  that **every lock a synchronous subscriber takes is now ordered *under*
+  `backend_mutex_`** — which today includes the global logger mutex, since the
+  contact logger calls `log::info` once per contact inside the lock. Nothing
+  inverts that ordering right now, but it is an unwritten invariant: a future
+  log sink, or any sync subscriber holding a lock that another thread holds
+  while waiting on `backend_mutex_`, deadlocks in a way that looks nothing
+  like the re-entrancy case. There is a performance half to the same point: a
+  worker `raycast()` can wait behind per-contact logging and the `Table`
+  construction in the contact-to-`ScriptEvent` bridge — work with nothing to
+  do with the backend. The spec accepts holding the lock across ECS
+  traversal explicitly; it never considered holding it across subscriber
+  dispatch. Deferred 2026-09-30: the fix is to collect contacts under the
+  lock and emit them after releasing it, which changes when subscribers
+  observe a contact relative to the pose write-back — a behaviour decision
+  worth its own slice. A recursive mutex would hide the re-entrant hang
+  without making the read correct, and would do nothing about the ordering.
+- **The two concurrent physics tests busy-spin their reader thread** with no
+  `yield` or `sleep`. Found 2026-09-30 in review. On a 1-vCPU CI runner the
+  reader monopolizes a core, so the interleaving profile differs sharply from
+  a dev box and the overlap detector's sensitivity becomes
+  machine-dependent. Not a correctness issue, and the detector is
+  empirically sensitive where it has been measured (it fails 5/5 runs under
+  the removed-lock mutation locally). Deferred 2026-09-30 deliberately
+  rather than "fixed" by adding a yield: throttling the reader would
+  *reduce* the overlap pressure the detector depends on, so the change needs
+  a re-run of the mutation probe on CI hardware to show it still fails
+  without the lock. Doing that blind would trade a measured detector for an
+  unmeasured one.
+- **Nothing enforces that the script worker is joined before
+  `PhysicsSystem` is destroyed.** Found 2026-09-30 in review. A worker
+  thread blocked on `backend_mutex_` while `PhysicsSystem` is being
+  destroyed is undefined behaviour: the mutex and `backend_` die with the
+  system. It is safe today only by registration order — `ScriptSystem` is
+  added before `PhysicsSystem` in `setup_runtime`, and the system vector
+  destroys front to back, so `ScriptWorker`'s destructor joins the thread
+  first. Entirely pre-existing; the mutex neither introduces nor worsens it.
+  Recorded because the new lock *reads* as though lifetime were handled,
+  which makes the real invariant easier to break by reordering two
+  `add_system` calls. Deferred 2026-09-30: the fix is an explicit
+  shutdown ordering or a `PhysicsSystem` that outlives its readers by
+  construction, which is a lifetime-design question rather than a patch.
+- **Other engine systems are not thread-safe, and nothing enforces that
+  future `ScriptHost` hooks are.** The physics boundary is closed because
+  it is the one scripts reach. `set_playing` and `request_stop` were
+  verified safe (they write an atomic), but that is a property of today's
+  implementations rather than a rule anything checks. Deferred 2026-09-30:
+  a general answer means deciding what thread-safety contract `ScriptHost`
+  imposes on its implementors, which is a design question rather than a
+  patch.
+- **Reader-writer or lock-free refinement of the physics lock.** A plain
+  mutex serializes a worker raycast against the whole physics update.
+  Deferred 2026-09-30 as speculative: there is no measured contention, and
+  a finer-grained lock is the classic way to turn a correct coarse lock
+  into a subtly wrong fine one.
+- ~~**`raycast()` still runs off the script-worker thread**~~ — **SHIPPED
+  2026-09-30.** Closed with a `mutable std::mutex` on `PhysicsSystem`, taken by
+  `update()`, `raycast()`, `apply_impulse()` **and** `has_body()`. The lock
+  protects two things, not one: the seven `backend_` call sites, and the
+  `bodies_`/`handle_to_entity_` maps that `update()` writes while the other
+  three read them — so `has_body()` needs it despite never touching the
+  backend, and `apply_impulse()` needs it despite being main-thread-only
+  (it runs from `ScriptSystem::update_threaded`'s replay, *outside*
+  `update()`). The entry below guessed this needed the same buffering/snapshot
+  design as the impulse work; it did not — blocking a worker raycast for the
+  duration of one physics update is bounded and was the user's call. Evidence:
+  the new concurrent smoke test **segfaults 3/3 runs** without the lock, and a
+  dedicated overlap-detecting fake backend **fails 5/5 runs** when the
+  `lock_guard` is removed from `raycast()` alone. Original entry follows.
+
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
   engines, and while `apply_impulse` is now deliberately left unwired there,
