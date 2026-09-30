@@ -1,6 +1,10 @@
 #include <string>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+
+#include "engine/physics/physics_components.hpp"
+#include "foundation/math/vec3.hpp"
 
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/script/script_component.hpp"
@@ -244,4 +248,86 @@ TEST_CASE("scripts communicate via emit + on_event, one tick later", "[script]")
 
     world.tick(0.016f); // drain delivers 'ping' -> B.on_event
     REQUIRE(world.get_component<Transform>(b)->position.x == 1.0f);
+}
+
+TEST_CASE("threaded ScriptSystem replays buffered impulses through the host", "[script]")
+{
+    // The impulses must reach the main thread and go out through the SAME neutral
+    // callback the single-threaded path uses -- ScriptSystem must never learn what
+    // physics is.
+    struct Seen { std::uint64_t entity; float ix; float py; };
+    std::vector<Seen> seen;
+
+    mosaic::engine::script::ScriptHost host;
+    host.apply_impulse = [&](std::uint64_t e, mosaic::foundation::math::Vec3 imp,
+                             mosaic::foundation::math::Vec3 pt) -> bool
+    { seen.push_back({e, imp.x, pt.y}); return true; };
+
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+
+    World world;
+    world.add_system<ScriptSystem>(types, [] { return create_python_script_engine(); },
+                                   host, nullptr, /*script_thread=*/true);
+
+    auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{});
+    world.add_component<mosaic::engine::physics::RigidBody>(
+        e, mosaic::engine::physics::RigidBody{true, 1.0f});
+    world.add_component<mosaic::engine::physics::SphereCollider>(
+        e, mosaic::engine::physics::SphereCollider{0.5f});
+    world.add_component<ScriptComponent>(e, ScriptComponent{
+        "def on_update(dt):\n"
+        "    apply_impulse(entity, [4.0, 0.0, 0.0], [0.0, 0.25, 0.0])\n"});
+
+    // THREE ticks, not two. The first tick creates the engine and compiles the script,
+    // so it produces no result; the second dispatches a job that actually runs; the
+    // third collects it. Measured, not assumed: at two ticks these pass 0/10, at three
+    // they pass 12/12. The "one-tick pipeline" the surrounding comments describe is the
+    // steady-state lag, not the latency of the FIRST result.
+    for (int i = 0; i < 3; ++i) { world.tick(1.0f / 60.0f); }
+
+    REQUIRE(seen.size() >= 1);
+    REQUIRE(seen[0].entity == e.value());
+    REQUIRE(seen[0].ix == Catch::Approx(4.0f));
+    REQUIRE(seen[0].py == Catch::Approx(0.25f));
+}
+
+TEST_CASE("threaded ScriptSystem handles a tick with impulses but no component writes", "[script]")
+{
+    // Review Focus 4: the two channels are independent. A shared "did anything
+    // happen" flag would drop one of them; this script writes no component at all.
+    int calls = 0;
+    mosaic::engine::script::ScriptHost host;
+    host.apply_impulse = [&](std::uint64_t, mosaic::foundation::math::Vec3,
+                             mosaic::foundation::math::Vec3) -> bool
+    { ++calls; return true; };
+
+    TypeRegistry reg;
+    ComponentReflection types;
+    register_builtin_components(reg, types);
+
+    World world;
+    world.add_system<ScriptSystem>(types, [] { return create_python_script_engine(); },
+                                   host, nullptr, /*script_thread=*/true);
+
+    auto e = world.create_entity();
+    world.add_component<Transform>(e, Transform{});
+    world.add_component<mosaic::engine::physics::RigidBody>(
+        e, mosaic::engine::physics::RigidBody{true, 1.0f});
+    world.add_component<mosaic::engine::physics::Collider>(
+        e, mosaic::engine::physics::Collider{mosaic::foundation::math::Vec3{0.5f, 0.5f, 0.5f}});
+    world.add_component<ScriptComponent>(e, ScriptComponent{
+        "def on_update(dt):\n"
+        "    apply_impulse(entity, [1.0, 0.0, 0.0], [0.0, 0.0, 0.0])\n"});
+
+    // THREE ticks, not two. The first tick creates the engine and compiles the script,
+    // so it produces no result; the second dispatches a job that actually runs; the
+    // third collects it. Measured, not assumed: at two ticks these pass 0/10, at three
+    // they pass 12/12. The "one-tick pipeline" the surrounding comments describe is the
+    // steady-state lag, not the latency of the FIRST result.
+    for (int i = 0; i < 3; ++i) { world.tick(1.0f / 60.0f); }
+
+    REQUIRE(calls >= 1);
 }
