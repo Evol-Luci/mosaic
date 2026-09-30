@@ -120,6 +120,7 @@ add_executable(mosaic_unit_tests
   unit/physics/falling_box_test.cpp
   unit/physics/physics_components_test.cpp
   unit/physics/physics_system_test.cpp
+  unit/physics/physics_concurrency_test.cpp
   unit/physics/physics_raycast_test.cpp
   unit/physics/physics_contacts_test.cpp
   unit/script/script_engine_test.cpp
