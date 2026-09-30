@@ -437,6 +437,14 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- **`raycast()`'s script binding indexes its sequence arguments without a
+  length check.** `python_script_engine.cpp`'s `raycast` reads
+  `origin[0..2]` and `direction[0..2]` directly, so a script passing a
+  two-element list raises out of pybind11 rather than returning a miss,
+  killing the tick. Found 2026-09-29 while adding `apply_impulse` (which
+  guards its own reads). Deferred: pre-existing, and tightening it would
+  change behaviour a script might already depend on, so it wants its own
+  change rather than riding along silently.
 - **Other physics verbs from scripts** — setting a body's velocity
   directly, teleporting a body, and overlap/shape queries. Deferred
   2026-09-29 during the scripting-bindings design: impulse and raycast are
