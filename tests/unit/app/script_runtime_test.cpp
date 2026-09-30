@@ -333,3 +333,46 @@ TEST_CASE("a script can push a body via setup_runtime", "[app]")
     for (int i = 0; i < 40; ++i) { world.tick(1.0f / 60.0f); }
     REQUIRE(world.get_component<Transform>(ball)->position.x > 0.1f);
 }
+
+TEST_CASE("a script can push a body on the threaded path via setup_runtime", "[app]")
+{
+    // This is what the guard made impossible: under --script-thread, apply_impulse was
+    // not wired at all, so a script that works single-threaded silently did nothing.
+    // The push is now buffered on the worker and replayed on the main thread.
+    using mosaic::engine::physics::Collider;
+    using mosaic::engine::physics::PhysicsSystem;
+    using mosaic::engine::physics::RigidBody;
+    using mosaic::engine::physics::SphereCollider;
+    using mosaic::foundation::math::Quat;
+    using mosaic::foundation::math::Vec3;
+
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    AssetRegistry registry;
+
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(
+        ground, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    const auto ball = world.create_entity();
+    world.add_component<Transform>(
+        ball, Transform{Vec3{0, 1, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<SphereCollider>(ball, SphereCollider{0.5f});
+    world.add_component<ScriptComponent>(ball, ScriptComponent{
+        "_done = False\n"
+        "def on_update(dt):\n"
+        "    global _done\n"
+        "    if not _done:\n"
+        "        if apply_impulse(entity, [3.0, 0.0, 0.0], [0.0, 0.5, 0.0]):\n"
+        "            _done = True\n"});
+
+    setup_runtime(world, registry, types, [] { return create_python_script_engine(); },
+                  mosaic::engine::script::ScriptHost{}, /*script_thread=*/true);
+
+    for (int i = 0; i < 60; ++i) { world.tick(1.0f / 60.0f); }
+
+    REQUIRE(world.get_component<Transform>(ball)->position.x > 0.1f);
+}

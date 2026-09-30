@@ -473,6 +473,14 @@ anything shipped; they are capabilities that were never built.
   unproven: removing it fails nothing, because the only invalid-id test uses
   an id that also fails `has_body`. A test that destroys a bodied entity and
   pushes it in the same tick would make it load-bearing.
+- ~~**Script-thread impulses are disabled, not buffered**~~ — **SHIPPED
+  2026-09-30.** Impulses are now recorded by `ScriptWorker` against the job
+  snapshot and replayed on the main thread through the neutral host callback,
+  so the same script works on both paths with the one-tick lag the threaded
+  path already has for component writes. The `!script_thread` guard is gone.
+  `raycast`'s off-thread read is unchanged and still tracked below. Original
+  entry follows for context.
+
 - **Script-thread impulses are disabled, not buffered.** On the
   `--script-thread` path, `on_update` runs on a worker thread while the main
   thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes

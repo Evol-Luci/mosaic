@@ -184,18 +184,11 @@ inline RuntimeScene setup_runtime(
 
     // Give scripts a raycast() backed by this world's physics (unless the caller already wired one).
     if (!host.raycast) { host.raycast = make_physics_raycast(world); }
-    // Physics writes are wired only on the single-threaded script path. On the
-    // --script-thread path, on_update runs on a worker thread while the main thread
-    // may be inside PhysicsSystem's step, and apply_impulse writes straight into the
-    // live Box3D body -- an unsynchronized write during a step is undefined behaviour.
-    // Leaving the hook unset makes apply_impulse return False there, which is
-    // ScriptHost's documented contract for an unset hook, rather than corrupting the
-    // simulation. Buffering impulses like component writes is the real fix and is
-    // tracked in the backlog.
-    if (!host.apply_impulse && !script_thread)
-    {
-        host.apply_impulse = make_physics_apply_impulse(world);
-    }
+    // Scripts get apply_impulse() on both paths. On --script-thread the ScriptWorker
+    // binds its own recording version over this one, buffering the impulse and
+    // replaying it on the main thread, so this callback is never invoked from the
+    // worker thread even though it is wired unconditionally.
+    if (!host.apply_impulse) { host.apply_impulse = make_physics_apply_impulse(world); }
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
