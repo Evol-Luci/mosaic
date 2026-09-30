@@ -19,6 +19,7 @@
 #include "app/run/mcp.hpp"
 #include "app/run/plugin.hpp"
 #include "app/run/click_nudge.hpp"
+#include "app/run/windowed_systems.hpp"
 #include "app/run/create.hpp"
 #include "app/run/docs.hpp"
 #include "app/run/demo_scene.hpp"
@@ -320,27 +321,27 @@ int main(int argc, char** argv)
                       net_role, net_transport, net_input_provider)
             .render_system;
 
-    // Click-to-nudge, windowed runs only. Registered AFTER setup_runtime, which adds
-    // UiSystem, so it ticks after the UI and sees the UI's verdict on this press.
-    // Gate on options.window, NOT on glfw_window: the window is not created until
-    // later in main(), so glfw_window is still null here. The lambdas below capture it
-    // by reference and read it per frame, by which time it is valid.
-    if (options.window)
+    // Windowed-only systems. Registered AFTER setup_runtime, which adds UiSystem, so
+    // ClickNudgeSystem ticks after the UI and sees its verdict on the same press.
+    // `options.window` is passed straight through: the parsed flag, with no
+    // intermediate variable that could be stale at this point in main(). A stale
+    // intermediate (glfw_window, still null here) is what once made this registration
+    // dead code that a fully green suite could not see.
     {
-        world.add_system<mosaic::app::ClickNudgeSystem>(
-            glfw_pointer,
-            [&glfw_window]() -> float
-            {
-                int fbw = 0, fbh = 0;
-                glfwGetFramebufferSize(glfw_window, &fbw, &fbh);
-                return (fbh > 0) ? static_cast<float>(fbw) / static_cast<float>(fbh) : 1.0f;
-            },
-            mosaic::app::kDefaultNudgeStrength,
-            [&world]() -> bool
-            {
-                auto* ui = world.get_system<mosaic::engine::ui::UiSystem>();
-                return ui != nullptr && ui->press_consumed();
-            });
+        mosaic::app::WindowedSystemDeps windowed_deps;
+        windowed_deps.pointer = glfw_pointer;
+        windowed_deps.aspect = [&glfw_window]() -> float
+        {
+            int fbw = 0, fbh = 0;
+            glfwGetFramebufferSize(glfw_window, &fbw, &fbh);
+            return (fbh > 0) ? static_cast<float>(fbw) / static_cast<float>(fbh) : 1.0f;
+        };
+        windowed_deps.ui_claimed = [&world]() -> bool
+        {
+            auto* ui = world.get_system<mosaic::engine::ui::UiSystem>();
+            return ui != nullptr && ui->press_consumed();
+        };
+        mosaic::app::register_windowed_systems(world, options.window, std::move(windowed_deps));
     }
 
     if (net_role == mosaic::engine::net::Role::Server && net_transport != nullptr)

@@ -471,6 +471,19 @@ anything shipped; they are capabilities that were never built.
   system becomes a candidate to run concurrently with `PhysicsSystem`. The fix
   is two `reads<>()` lines, but it should land with whatever actually consumes
   the access sets, so the declaration and its enforcement are reviewed together.
+- ~~**`app/main.cpp`'s system wiring is untestable**~~ — **SHIPPED 2026-09-29.**
+  `app/run/windowed_systems.hpp`'s `register_windowed_systems()` now owns the
+  conditional registration, and tests assert what is registered under which
+  condition. Investigation narrowed the problem first: `setup_runtime` was
+  already a testable seam with five test callers registering eleven systems,
+  and the dead feature had simply been wired *outside* it. Only conditional
+  registration carries this risk — an unconditional one cannot silently
+  vanish — so `TransformSystem` stayed where it is. Known limit, stated in the
+  header: this makes the registration decision testable but cannot verify the
+  caller passes the right condition; `main()` therefore passes the parsed CLI
+  flag straight through with no intermediate that can go stale. Original entry
+  follows for context.
+
 - **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
   dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
   behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is
