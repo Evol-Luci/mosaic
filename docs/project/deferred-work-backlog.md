@@ -437,6 +437,28 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- **Other physics verbs from scripts** — setting a body's velocity
+  directly, teleporting a body, and overlap/shape queries. Deferred
+  2026-09-29 during the scripting-bindings design: impulse and raycast are
+  the two with a caller today, and each of the others needs its own
+  semantics decision (does a script-set velocity survive the next tick's
+  Transform sync? does a teleport wake the body?) rather than being a
+  matching pass-through.
+- **Raycast layer masks and all-hits queries from scripts** — the backend
+  exposes closest-hit only, so anything richer starts with a
+  `PhysicsBackend` change rather than a binding. Deferred 2026-09-29.
+- **A `Vec3` Python class instead of dicts** — nicer ergonomics than
+  `{'x':…,'y':…,'z':…}` for hand-written literals, but it would introduce a
+  second vector representation alongside the dicts every existing global
+  already uses, and the two would have to coexist indefinitely. Deferred
+  2026-09-29: worth doing only as a deliberate migration of the whole
+  scripting surface, not per-binding.
+- **Surfacing scripting-binding failures to the log** — every binding
+  returns `False`/`None` on bad input rather than raising, which is right
+  for a game loop (a raising binding kills the tick) but gives a script
+  author with a typo'd key no feedback at all. Deferred 2026-09-29: the
+  fix is a logging/diagnostics decision spanning every global, not just
+  the physics ones.
 - **Continuous forces, as distinct from instantaneous impulses.** An
   impulse is a one-shot momentum change; sustained thrust, wind, or
   magnetism needs a per-tick force accumulator. Deferred 2026-09-29: no
