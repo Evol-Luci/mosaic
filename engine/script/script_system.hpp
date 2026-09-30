@@ -165,10 +165,22 @@ public:
 
     void update_threaded(World& world, float dt)
     {
-        // 1. Apply the previous job's writes (main thread).
-        for (const SnapshotContext::Write& w : worker_->collect())
+        // 1. Apply the PREVIOUS tick's buffered results on the main thread.
+        const ScriptWorker::WorkerResult batch = worker_->collect();
+        for (const SnapshotContext::Write& w : batch.writes)
         {
             types_.set_value(world, mosaic::foundation::EntityID(w.entity), w.comp, w.value);
+        }
+        // Impulses go back out through the same neutral host callback the
+        // single-threaded path uses, so this system still never depends on physics.
+        // ScriptSystem is registered before PhysicsSystem, so a replayed impulse lands
+        // before this tick's step.
+        if (host_.apply_impulse)
+        {
+            for (const DeferredImpulse& imp : batch.impulses)
+            {
+                host_.apply_impulse(imp.entity, imp.impulse, imp.point);
+            }
         }
         // 2. Snapshot every scripted entity's components + resolve its source.
         ScriptWorker::Job job;

@@ -445,6 +445,39 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
+- **Five small `ScriptWorker` tidy-ups found in review 2026-09-30, none with a
+  live failure.** (a) `host_` is now write-only — read once to seed
+  `worker_host_` and never again, so the class retains a full `ScriptHost`
+  copy with no reader. (b) `has_pending()` has no callers anywhere in the
+  repo, so its correctness is unverified by anything. (c) `dispatch()` still
+  clears `result_ready_` unconditionally, which is the one remaining
+  silent-result-drop path — unreachable via `ScriptSystem`, since `collect()`
+  always precedes `dispatch()`, but worth a comment now that the class's other
+  silent drop cost nine days of a CI exclusion. (d) `execute()` clears
+  `pending_impulses_` after `std::move`-ing it, a no-op. (e) Theoretical: a
+  script-spawned Python thread calling `apply_impulse` after `on_update`
+  returns would race `execute()`'s tail; `SnapshotContext` has the identical
+  exposure, so it is not a new hazard class.
+- **`apply_impulse`'s return value is optimistic for non-scripted targets.**
+  The worker answers exactly for entities in the job snapshot, but an entity
+  absent from it cannot be judged, so the push is buffered and `True` is
+  returned; the main-thread replay re-checks `has_body` and drops it if there
+  is none. Consequence: a script that latches on the return value when pushing
+  some *other* object can latch on a push that is later dropped, and an
+  invented entity id now returns `True` rather than `False`. Chosen 2026-09-30
+  over the alternative, which was to refuse every unjudgeable push — that made
+  a controller script pushing a crate silently do nothing under
+  `--script-thread`, which is a far worse failure than an imprecise bool. The
+  real fix is to snapshot the physics-relevant components of bodied
+  non-scripted entities too, so the worker can answer exactly in every case.
+- **Deferred host calls are not a general mechanism.** Only
+  `apply_impulse` is buffered across the script-worker boundary; the
+  collected result carries a writes channel and an impulses channel as two
+  parallel vectors. Deferred 2026-09-30 during the buffering design: if a
+  third deferrable verb appears, generalising the channel (a tagged
+  deferred-call list) is the better change than adding a third parallel
+  vector — but two is not yet a pattern, and generalising now would be
+  speculative.
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
   engines, and while `apply_impulse` is now deliberately left unwired there,
@@ -465,6 +498,14 @@ anything shipped; they are capabilities that were never built.
   unproven: removing it fails nothing, because the only invalid-id test uses
   an id that also fails `has_body`. A test that destroys a bodied entity and
   pushes it in the same tick would make it load-bearing.
+- ~~**Script-thread impulses are disabled, not buffered**~~ — **SHIPPED
+  2026-09-30.** Impulses are now recorded by `ScriptWorker` against the job
+  snapshot and replayed on the main thread through the neutral host callback,
+  so the same script works on both paths with the one-tick lag the threaded
+  path already has for component writes. The `!script_thread` guard is gone.
+  `raycast`'s off-thread read is unchanged and still tracked below. Original
+  entry follows for context.
+
 - **Script-thread impulses are disabled, not buffered.** On the
   `--script-thread` path, `on_update` runs on a worker thread while the main
   thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
@@ -627,6 +668,31 @@ anything shipped; they are capabilities that were never built.
   port 0 and ask the OS which port it got, so the tests stop competing for
   fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
   test-infrastructure change unrelated to whatever slice is in flight.
+- ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ —
+  **ROOT-CAUSED AND FIXED 2026-09-30. It was never a flake.**
+  `ScriptWorker::run()` cleared `pending_` when a job was dequeued but set
+  `result_ready_` only after `execute()` returned — and `execute()` runs
+  *unlocked*, for as long as starting Python and compiling scripts takes. In
+  that window both flags were false, so `collect()`'s early-out
+  (`if (!pending_ && !result_ready_) return {};`) could not distinguish "job
+  executing right now" from "nothing was ever dispatched" and silently
+  returned an empty result, dropping that tick's writes. Fixed by adding an
+  `executing_` flag covering the window, so `collect()` waits for an in-flight
+  job instead of skipping it. Measured: the headline test went from **2/12 to
+  12/12**, the other from flaky to 12/12, and the full suite is green with **no
+  `-E` exclusions**, which have accordingly been removed from the CI gate.
+  **The old entry below understated it as "rare/near-impossible to reproduce
+  locally"; it actually failed ~80% of the time locally.** That mischaracterisation
+  is why a real race sat behind a CI exclusion for nine days — worth remembering
+  the next time something is labelled a flake.
+  **One caveat, stated rather than buried:** the original entry recorded TWO
+  failure modes, and this fix explains only one. The SIGSEGV under full-suite
+  ordering, attributed to embedded-Python interpreter init/teardown across
+  threads, is untouched by an `executing_` flag and remains unexplained. It has
+  not reproduced since, and is now gated by CI rather than excluded from it --
+  but if a segfault returns, this is the thread to pull.
+  Original entry follows.
+
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
   `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem
