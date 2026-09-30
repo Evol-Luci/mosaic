@@ -445,6 +445,14 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
+- **Deferred host calls are not a general mechanism.** Only
+  `apply_impulse` is buffered across the script-worker boundary; the
+  collected result carries a writes channel and an impulses channel as two
+  parallel vectors. Deferred 2026-09-30 during the buffering design: if a
+  third deferrable verb appears, generalising the channel (a tagged
+  deferred-call list) is the better change than adding a third parallel
+  vector — but two is not yet a pattern, and generalising now would be
+  speculative.
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
   engines, and while `apply_impulse` is now deliberately left unwired there,
