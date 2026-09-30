@@ -74,6 +74,10 @@ public:
                 BodyDef def;
                 def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
                 def.position = t->position;
+                // Pass the authored rotation through, so the body the backend creates
+                // matches the Transform. This also makes the synced_pose_ record below
+                // truthful -- it has always claimed the body carried t->rotation.
+                def.rotation = t->rotation;
                 def.shape = shape;
                 def.density = rb.density;
                 const BodyHandle handle = backend_->create_body(def);

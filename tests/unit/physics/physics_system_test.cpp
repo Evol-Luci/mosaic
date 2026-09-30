@@ -493,3 +493,103 @@ TEST_CASE("A zero impulse leaves the body and its pose untouched", "[physics]")
     REQUIRE(std::isfinite(t->position.z));
     REQUIRE(t->position.x == Approx(0.0f).margin(1e-4)); // no sideways drift from a zero push
 }
+
+TEST_CASE("A rotated static body gets a rotated collider and not just a rotated Transform", "[physics]")
+{
+    // The discriminating test. A thin horizontal plate (half extents 2 x 0.1 x 2)
+    // rotated 90 degrees about Z stands up vertical, so a horizontal ray at y = 1
+    // hits it. Unrotated, that ray passes over the plate entirely and misses. A pose
+    // assertion alone would pass today, because the write-back skips static bodies and
+    // leaves the Transform's rotation alone -- only the collider is wrong. This is what
+    // catches that.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto plate = world.create_entity();
+    world.add_component<Transform>(
+        plate, Transform{Vec3{0, 0, 0},
+                         mosaic::foundation::math::from_axis_angle(Vec3{0, 0, 1}, 1.5707963f),
+                         Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(plate, RigidBody{false, 1.0f});
+    world.add_component<Collider>(plate, Collider{Vec3{2.0f, 0.1f, 2.0f}});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+
+    const auto hit = physics->raycast(Vec3{-5.0f, 1.0f, 0.0f}, Vec3{1.0f, 0.0f, 0.0f}, 10.0f);
+    REQUIRE(hit.hit);
+    REQUIRE(hit.entity == plate);
+}
+
+TEST_CASE("An unrotated plate is missed by the same ray", "[physics]")
+{
+    // The guard for the test above: if this ray hit an UNROTATED plate too, the test
+    // above would prove nothing about rotation.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto plate = world.create_entity();
+    world.add_component<Transform>(
+        plate, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(plate, RigidBody{false, 1.0f});
+    world.add_component<Collider>(plate, Collider{Vec3{2.0f, 0.1f, 2.0f}});
+    world.tick(1.0f / 60.0f);
+
+    auto* physics = world.get_system<PhysicsSystem>();
+    REQUIRE(physics != nullptr);
+
+    REQUIRE_FALSE(physics->raycast(Vec3{-5.0f, 1.0f, 0.0f}, Vec3{1.0f, 0.0f, 0.0f}, 10.0f).hit);
+}
+
+TEST_CASE("A rotated dynamic body keeps its rotation instead of snapping to identity", "[physics]")
+{
+    // Dynamic bodies ARE written back every tick, so before this fix a rotated crate
+    // was created unrotated and then had its authored rotation overwritten with the
+    // simulation's identity on the very first tick -- visibly flattening itself the
+    // instant physics started.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    const Quat tilted = mosaic::foundation::math::from_axis_angle(Vec3{0, 0, 1}, 1.5707963f);
+    auto crate = world.create_entity();
+    world.add_component<Transform>(crate,
+                                   Transform{Vec3{0, 10, 0}, tilted, Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(crate, RigidBody{true, 1.0f});
+    world.add_component<Collider>(crate, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    world.tick(1.0f / 60.0f); // free fall, nothing to collide with, so no spin is induced
+
+    const auto* t = world.get_component<Transform>(crate);
+    REQUIRE(t != nullptr);
+    REQUIRE(t->rotation.z == Approx(tilted.z).margin(1e-3));
+    REQUIRE(t->rotation.w == Approx(tilted.w).margin(1e-3));
+}
+
+TEST_CASE("A body authored with no rotation still simulates unrotated", "[physics]")
+{
+    // No-regression guard: the default Quat is w=1 (identity), so bodies that never
+    // asked for a rotation must behave exactly as they did before.
+    World world;
+    world.add_system<PhysicsSystem>(
+        mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
+
+    auto box = world.create_entity();
+    world.add_component<Transform>(box,
+                                   Transform{Vec3{0, 10, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    world.tick(1.0f / 60.0f);
+
+    const auto* t = world.get_component<Transform>(box);
+    REQUIRE(t != nullptr);
+    REQUIRE(t->rotation.x == Approx(0.0f).margin(1e-4));
+    REQUIRE(t->rotation.y == Approx(0.0f).margin(1e-4));
+    REQUIRE(t->rotation.z == Approx(0.0f).margin(1e-4));
+    REQUIRE(t->rotation.w == Approx(1.0f).margin(1e-4));
+    REQUIRE(t->position.y < 10.0f); // it fell
+}

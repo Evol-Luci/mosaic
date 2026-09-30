@@ -37,6 +37,8 @@ public:
         bd.position.x = def.position.x;
         bd.position.y = def.position.y;
         bd.position.z = def.position.z;
+        bd.rotation.v = b3Vec3{def.rotation.x, def.rotation.y, def.rotation.z};
+        bd.rotation.s = def.rotation.w;
         b3BodyId id = b3CreateBody(world_, &bd);
 
         b3ShapeDef sd = b3DefaultShapeDef();
