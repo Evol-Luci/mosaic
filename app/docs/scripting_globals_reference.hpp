@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 namespace mosaic::app
 {
@@ -14,4 +15,9 @@ namespace mosaic::app
 // hand-written prose, since those three names are plain dict keys a plugin file
 // declares -- there's no registration call to introspect for them.
 std::string generate_scripting_globals_reference_markdown();
+
+// The non-imgui globals the reference documents, in the order it renders them.
+// Exposed so the reference test asserts against what is actually INSTALLED rather
+// than against a second copy of a hardcoded list.
+std::vector<std::string> documented_world_global_names();
 } // namespace mosaic::app
