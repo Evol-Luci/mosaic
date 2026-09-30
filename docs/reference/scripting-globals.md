@@ -6,22 +6,22 @@ Every global available to gameplay `ScriptComponent` scripts, Studio menu-item/p
 
 ## World & Entity Globals
 
-### get_component
+### add_component
 
 ```
-(arg0: int, arg1: str) -> object
+(arg0: int, arg1: str) -> bool
 ```
 
-Return a reflected component's fields as a dict, or None if the entity doesn't have it.
+Attach a default-constructed component to an entity by name; returns False if the name is unknown.
 
 
-### set_component
+### component_names
 
 ```
-(arg0: int, arg1: str, arg2: object) -> bool
+(arg0: int) -> list
 ```
 
-Set a reflected component's fields from a dict; routes through the undo stack when one is bound, returns False if the set failed.
+Return the names of every component currently attached to an entity.
 
 
 ### create_entity
@@ -42,13 +42,13 @@ Create a new entity and return its id.
 Destroy an entity (deferred to the next World::tick); returns False if the id isn't valid.
 
 
-### entity_count
+### emit
 
 ```
-() -> int
+(name: str, payload: object = None) -> None
 ```
 
-Return the number of live entities in the world.
+Emit a named ScriptEvent with an optional payload onto the world's event bus.
 
 
 ### entities
@@ -60,31 +60,31 @@ Return the number of live entities in the world.
 Return a list of every live entity's id.
 
 
-### is_valid
+### entities_with
 
 ```
-(arg0: int) -> bool
+(arg0: str) -> list
 ```
 
-Return whether an entity id currently refers to a live entity.
+Return the ids of every entity that currently has the named component.
 
 
-### add_component
-
-```
-(arg0: int, arg1: str) -> bool
-```
-
-Attach a default-constructed component to an entity by name; returns False if the name is unknown.
-
-
-### remove_component
+### entity_count
 
 ```
-(arg0: int, arg1: str) -> bool
+() -> int
 ```
 
-Remove a component from an entity by name; returns False if it wasn't present.
+Return the number of live entities in the world.
+
+
+### get_component
+
+```
+(arg0: int, arg1: str) -> object
+```
+
+Return a reflected component's fields as a dict, or None if the entity doesn't have it.
 
 
 ### has_component
@@ -96,40 +96,13 @@ Remove a component from an entity by name; returns False if it wasn't present.
 Return whether an entity currently has a component by name.
 
 
-### component_names
+### is_valid
 
 ```
-(arg0: int) -> list
+(arg0: int) -> bool
 ```
 
-Return the names of every component currently attached to an entity.
-
-
-### entities_with
-
-```
-(arg0: str) -> list
-```
-
-Return the ids of every entity that currently has the named component.
-
-
-### emit
-
-```
-(name: str, payload: object = None) -> None
-```
-
-Emit a named ScriptEvent with an optional payload onto the world's event bus.
-
-
-### undo
-
-```
-() -> bool
-```
-
-Undo the last recorded command; returns False if there's nothing to undo or no stack is bound.
+Return whether an entity id currently refers to a live entity.
 
 
 ### redo
@@ -141,6 +114,33 @@ Undo the last recorded command; returns False if there's nothing to undo or no s
 Redo the last undone command; returns False if there's nothing to redo or no stack is bound.
 
 
+### remove_component
+
+```
+(arg0: int, arg1: str) -> bool
+```
+
+Remove a component from an entity by name; returns False if it wasn't present.
+
+
+### set_component
+
+```
+(arg0: int, arg1: str, arg2: object) -> bool
+```
+
+Set a reflected component's fields from a dict; routes through the undo stack when one is bound, returns False if the set failed.
+
+
+### undo
+
+```
+() -> bool
+```
+
+Undo the last recorded command; returns False if there's nothing to undo or no stack is bound.
+
+
 ### undo_depth
 
 ```
@@ -150,44 +150,66 @@ Redo the last undone command; returns False if there's nothing to redo or no sta
 Return how many commands are currently undoable.
 
 
+## Gameplay Script Globals
+
+Available only inside a gameplay `ScriptComponent`. These come from the script host, which Studio menu-item/panel plugins and asset importers do not bind -- calling them there raises `NameError`.
+
+### apply_impulse
+
+```
+(arg0: int, arg1: Sequence, arg2: Sequence) -> bool
+```
+
+Apply an instantaneous impulse to a dynamic body at a world-space point; impulse and point are 3-element sequences. Applying it away from the body's centre induces spin, which is what makes a sphere roll rather than slide. Returns False if there is no physics system, the entity has no simulated body, or an argument is malformed.
+
+
+### pause
+
+```
+() -> None
+```
+
+Pause the simulation clock. Has no effect if already paused.
+
+
+### play
+
+```
+() -> None
+```
+
+Resume the simulation clock. Has no effect if already playing.
+
+
+### raycast
+
+```
+(arg0: Sequence, arg1: Sequence, arg2: float) -> dict
+```
+
+Cast a ray into the scene and return hit data as a dictionary.
+
+
+### stop
+
+```
+() -> None
+```
+
+Stop the simulation and revert world state to the initial snapshot.
+
+
 ## Studio Panel (`imgui_*`) Globals
 
 Available only inside a `MOSAIC_PANELS` draw function.
 
-### imgui_text
+### imgui_begin_child
 
 ```
-(arg0: str) -> None
+(arg0: str, arg1: float) -> None
 ```
 
-Draw unformatted text in the current panel.
-
-
-### imgui_separator
-
-```
-() -> None
-```
-
-Draw a horizontal separator line.
-
-
-### imgui_same_line
-
-```
-() -> None
-```
-
-Keep the next widget on the same line as the previous one.
-
-
-### imgui_spacing
-
-```
-() -> None
-```
-
-Add a small vertical gap.
+Begin a scrollable child region with the given id and height; must be matched by imgui_end_child.
 
 
 ### imgui_button
@@ -208,6 +230,15 @@ Draw a clickable button; returns True on the frame it's clicked.
 Draw a checkbox with the given label and current value; returns the (possibly toggled) value.
 
 
+### imgui_end_child
+
+```
+() -> None
+```
+
+End the most recently opened child region started by imgui_begin_child.
+
+
 ### imgui_input_text
 
 ```
@@ -215,6 +246,24 @@ Draw a checkbox with the given label and current value; returns the (possibly to
 ```
 
 Draw a single-line text field with the given label and current value; returns the (possibly edited) value.
+
+
+### imgui_same_line
+
+```
+() -> None
+```
+
+Keep the next widget on the same line as the previous one.
+
+
+### imgui_separator
+
+```
+() -> None
+```
+
+Draw a horizontal separator line.
 
 
 ### imgui_slider_float
@@ -226,22 +275,22 @@ Draw a single-line text field with the given label and current value; returns th
 Draw a float slider between lo and hi with the given label and current value; returns the (possibly changed) value.
 
 
-### imgui_begin_child
-
-```
-(arg0: str, arg1: float) -> None
-```
-
-Begin a scrollable child region with the given id and height; must be matched by imgui_end_child.
-
-
-### imgui_end_child
+### imgui_spacing
 
 ```
 () -> None
 ```
 
-End the most recently opened child region started by imgui_begin_child.
+Add a small vertical gap.
+
+
+### imgui_text
+
+```
+(arg0: str) -> None
+```
+
+Draw unformatted text in the current panel.
 
 
 ## Plugin Conventions

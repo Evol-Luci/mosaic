@@ -138,6 +138,7 @@ add_executable(mosaic_unit_tests
   unit/script/script_stdlib_test.cpp
   unit/script/script_authoring_test.cpp
   unit/script/script_raycast_test.cpp
+  unit/script/script_apply_impulse_test.cpp
   unit/script/script_events_test.cpp
   unit/script/script_profiler_test.cpp
   unit/script/script_debugger_test.cpp

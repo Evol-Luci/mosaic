@@ -437,6 +437,81 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- **`raycast()`'s script binding indexes its sequence arguments without a
+  length check.** `python_script_engine.cpp`'s `raycast` reads
+  `origin[0..2]` and `direction[0..2]` directly, so a script passing a
+  two-element list raises out of pybind11 rather than returning a miss,
+  killing the tick. Found 2026-09-29 while adding `apply_impulse` (which
+  guards its own reads). Deferred: pre-existing, and tightening it would
+  change behaviour a script might already depend on, so it wants its own
+  change rather than riding along silently.
+- **`raycast()` still runs off the script-worker thread.** The
+  `--script-thread` path binds the same `ScriptHost` into worker-thread
+  engines, and while `apply_impulse` is now deliberately left unwired there,
+  `raycast` is not: it queries the live physics world from the worker thread
+  while the main thread may be inside `PhysicsSystem`'s step. It is a *read*
+  rather than a write and predates all of this, which is why it was not
+  changed alongside the impulse guard — but it is the same boundary, and a
+  read racing a step can still return torn or mid-integration results.
+  Deferred 2026-09-30: fixing it properly means the same buffering/snapshot
+  design decision the impulse entry above needs, and the two should be solved
+  together rather than one at a time.
+- **Two thin spots in the new physics-binding tests.** Found 2026-09-30 in
+  review, both real but neither load-bearing today. (a) The demo ball-pusher
+  test asserts only `fabs(delta) > 0.05`, which would not distinguish the
+  intended origin-seeking oscillation from a wrong-sign runaway that rolls the
+  sphere off the platform — bounding the sphere's `|x|` would pin the actual
+  intent. (b) `make_physics_apply_impulse`'s `world.is_valid(e)` guard is
+  unproven: removing it fails nothing, because the only invalid-id test uses
+  an id that also fails `has_body`. A test that destroys a bodied entity and
+  pushes it in the same tick would make it load-bearing.
+- **Script-thread impulses are disabled, not buffered.** On the
+  `--script-thread` path, `on_update` runs on a worker thread while the main
+  thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
+  straight into the live Box3D body -- an unsynchronized write during a step
+  is undefined behaviour. Found 2026-09-30 in whole-branch review, once the
+  default demo scene began calling `apply_impulse` and made the hazard
+  reachable with no user code. Mitigated by NOT wiring the hook on that path,
+  so it returns `False` there per `ScriptHost`'s unset-hook contract. That is
+  a guard, not a fix: a script that works single-threaded silently does
+  nothing under `--script-thread`. The real fix is to buffer impulses the way
+  the threaded path already buffers component writes, and apply them on the
+  main thread -- which needs a design decision about ordering against the
+  physics step. Note `raycast` still runs off-thread on that path; it is a
+  read and pre-existing, but it is the same boundary.
+- **A dict passed to `apply_impulse` raises instead of returning `False`.**
+  The spec says a malformed argument returns `False` rather than raising, but
+  that only covers malformations *within* a sequence. A non-sequence -- and
+  the single most likely wrong argument here is a **dict**, because this same
+  scripting surface uses dicts for component values (`tr['position']`) -- is
+  rejected by pybind11's dispatcher before the binding's own guard runs, so
+  `apply_impulse(e, {'x':1,'y':0,'z':0}, ...)` raises and aborts that
+  script's `on_update` for the tick. Found 2026-09-30 in review. Deferred:
+  it mirrors `raycast`'s existing behaviour exactly, and tightening it means
+  taking `py::object` and hand-rolling the sequence check for both bindings,
+  which is its own change.
+- **Other physics verbs from scripts** — setting a body's velocity
+  directly, teleporting a body, and overlap/shape queries. Deferred
+  2026-09-29 during the scripting-bindings design: impulse and raycast are
+  the two with a caller today, and each of the others needs its own
+  semantics decision (does a script-set velocity survive the next tick's
+  Transform sync? does a teleport wake the body?) rather than being a
+  matching pass-through.
+- **Raycast layer masks and all-hits queries from scripts** — the backend
+  exposes closest-hit only, so anything richer starts with a
+  `PhysicsBackend` change rather than a binding. Deferred 2026-09-29.
+- **A `Vec3` Python class instead of dicts** — nicer ergonomics than
+  `{'x':…,'y':…,'z':…}` for hand-written literals, but it would introduce a
+  second vector representation alongside the dicts every existing global
+  already uses, and the two would have to coexist indefinitely. Deferred
+  2026-09-29: worth doing only as a deliberate migration of the whole
+  scripting surface, not per-binding.
+- **Surfacing scripting-binding failures to the log** — every binding
+  returns `False`/`None` on bad input rather than raising, which is right
+  for a game loop (a raising binding kills the tick) but gives a script
+  author with a typo'd key no feedback at all. Deferred 2026-09-29: the
+  fix is a logging/diagnostics decision spanning every global, not just
+  the physics ones.
 - **Continuous forces, as distinct from instantaneous impulses.** An
   impulse is a one-shot momentum change; sustained thrust, wind, or
   magnetism needs a per-tick force accumulator. Deferred 2026-09-29: no

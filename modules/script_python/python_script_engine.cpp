@@ -19,6 +19,7 @@
 #include "modules/script_python/restricted_builtins.hpp"
 #include "modules/script_python/value_marshal.hpp"
 #include "modules/script_python/world_globals.hpp"
+#include "modules/script_python/host_globals.hpp"
 
 namespace py = pybind11;
 
@@ -66,6 +67,86 @@ struct InterpreterInit
 {
     InterpreterInit() { ensure_interpreter(); }
 };
+
+// Reads a 3-element Python sequence into a Vec3. Returns false instead of throwing
+// for a short sequence or a non-numeric element, so one malformed script argument
+// fails that call rather than aborting the tick.
+bool to_vec3(const py::sequence& s, mosaic::foundation::math::Vec3& out)
+{
+    if (py::len(s) < 3) { return false; }
+    try
+    {
+        out.x = s[0].cast<float>();
+        out.y = s[1].cast<float>();
+        out.z = s[2].cast<float>();
+    }
+    catch (const py::cast_error&)
+    {
+        return false;
+    }
+    return true;
+}
+
+void install_host_globals(py::dict& globals, const mosaic::engine::script::ScriptHost& host)
+{
+    globals["play"] = py::cpp_function(
+        [host] { if (host.set_playing) { host.set_playing(true); } },
+        py::doc("Resume the simulation clock. Has no effect if already playing."));
+    globals["pause"] = py::cpp_function(
+        [host] { if (host.set_playing) { host.set_playing(false); } },
+        py::doc("Pause the simulation clock. Has no effect if already paused."));
+    globals["stop"] = py::cpp_function(
+        [host] { if (host.request_stop) { host.request_stop(); } },
+        py::doc("Stop the simulation and revert world state to the initial snapshot."));
+    
+    // raycast(origin, direction, max_distance) -> dict. origin/direction are 3-element
+    // sequences; result is {hit, entity, distance, point:{x,y,z}, normal:{x,y,z}}.
+    globals["raycast"] = py::cpp_function(
+        [host](py::sequence origin, py::sequence direction, float max_distance) -> py::dict
+        {
+            using mosaic::foundation::math::Vec3;
+            mosaic::engine::script::ScriptRayHit h;
+            if (host.raycast)
+            {
+                const Vec3 o{origin[0].cast<float>(), origin[1].cast<float>(),
+                             origin[2].cast<float>()};
+                const Vec3 d{direction[0].cast<float>(), direction[1].cast<float>(),
+                             direction[2].cast<float>()};
+                h = host.raycast(o, d, max_distance);
+            }
+            py::dict point;
+            point["x"] = h.point.x; point["y"] = h.point.y; point["z"] = h.point.z;
+            py::dict normal;
+            normal["x"] = h.normal.x; normal["y"] = h.normal.y; normal["z"] = h.normal.z;
+            py::dict out;
+            out["hit"] = h.hit;
+            out["entity"] = h.entity;
+            out["distance"] = h.distance;
+            out["point"] = point;
+            out["normal"] = normal;
+            return out;
+        },
+        py::doc("Cast a ray into the scene and return hit data as a dictionary."));
+
+    // apply_impulse(entity, impulse, point) -> bool. impulse/point are 3-element
+    // sequences (matching raycast). Malformed input returns False rather than
+    // raising: a raising binding would abort the whole tick over one bad call.
+    globals["apply_impulse"] = py::cpp_function(
+        [host](std::uint64_t entity, py::sequence impulse, py::sequence point) -> bool
+        {
+            using mosaic::foundation::math::Vec3;
+            if (!host.apply_impulse) { return false; }
+            Vec3 i{}, p{};
+            if (!to_vec3(impulse, i) || !to_vec3(point, p)) { return false; }
+            return host.apply_impulse(entity, i, p);
+        },
+        py::doc("Apply an instantaneous impulse to a dynamic body at a world-space "
+                "point; impulse and point are 3-element sequences. Applying it away "
+                "from the body's centre induces spin, which is what makes a sphere "
+                "roll rather than slide. Returns False if there is no physics "
+                "system, the entity has no simulated body, or an argument is "
+                "malformed."));
+}
 
 class PythonScriptEngine final
     : private InterpreterInit // must be first — initializes CPython before py::dict globals_
@@ -240,39 +321,7 @@ public:
     void bind_host(const mosaic::engine::script::ScriptHost& host) override
     {
         host_ = host;
-        globals_["play"] = py::cpp_function(
-            [this] { if (host_.set_playing) { host_.set_playing(true); } });
-        globals_["pause"] = py::cpp_function(
-            [this] { if (host_.set_playing) { host_.set_playing(false); } });
-        globals_["stop"] = py::cpp_function(
-            [this] { if (host_.request_stop) { host_.request_stop(); } });
-        // raycast(origin, direction, max_distance) -> dict. origin/direction are 3-element
-        // sequences; result is {hit, entity, distance, point:{x,y,z}, normal:{x,y,z}}.
-        globals_["raycast"] = py::cpp_function(
-            [this](py::sequence origin, py::sequence direction, float max_distance) -> py::dict
-            {
-                using mosaic::foundation::math::Vec3;
-                mosaic::engine::script::ScriptRayHit h;
-                if (host_.raycast)
-                {
-                    const Vec3 o{origin[0].cast<float>(), origin[1].cast<float>(),
-                                 origin[2].cast<float>()};
-                    const Vec3 d{direction[0].cast<float>(), direction[1].cast<float>(),
-                                 direction[2].cast<float>()};
-                    h = host_.raycast(o, d, max_distance);
-                }
-                py::dict point;
-                point["x"] = h.point.x; point["y"] = h.point.y; point["z"] = h.point.z;
-                py::dict normal;
-                normal["x"] = h.normal.x; normal["y"] = h.normal.y; normal["z"] = h.normal.z;
-                py::dict out;
-                out["hit"] = h.hit;
-                out["entity"] = h.entity;
-                out["distance"] = h.distance;
-                out["point"] = point;
-                out["normal"] = normal;
-                return out;
-            });
+        install_host_globals(globals_, host_);
     }
 
     void bind_context(mosaic::engine::script::ScriptContext& context) override
@@ -359,5 +408,11 @@ std::unique_ptr<mosaic::engine::script::ScriptEngine> create_python_script_engin
 std::unique_ptr<mosaic::engine::script::ScriptEngine> create_restricted_python_script_engine()
 {
     return std::make_unique<PythonScriptEngine>(/*restricted=*/true);
+}
+
+void install_host_globals_for_docs(py::dict& globals)
+{
+    static const mosaic::engine::script::ScriptHost dummy_host{};
+    install_host_globals(globals, dummy_host);
 }
 } // namespace mosaic::script::python

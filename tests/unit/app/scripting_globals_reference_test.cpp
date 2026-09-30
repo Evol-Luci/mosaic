@@ -1,4 +1,5 @@
 #include <string>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -16,23 +17,36 @@ TEST_CASE("scripting globals reference documents every world global under its se
 {
     const std::string md = generate_scripting_globals_reference_markdown();
     const std::size_t world_section = md.find("## World & Entity Globals");
+    const std::size_t gameplay_section = md.find("## Gameplay Script Globals");
     const std::size_t panel_section = md.find("## Studio Panel");
     REQUIRE(world_section != std::string::npos);
+    REQUIRE(gameplay_section != std::string::npos);
     REQUIRE(panel_section != std::string::npos);
-    REQUIRE(world_section < panel_section);
+    REQUIRE(world_section < gameplay_section);
+    REQUIRE(gameplay_section < panel_section);
 
-    const char* world_names[] = {"get_component", "set_component", "create_entity",
-                                 "destroy_entity", "entity_count", "entities", "is_valid",
-                                 "add_component", "remove_component", "has_component",
-                                 "component_names", "entities_with", "emit", "undo", "redo",
-                                 "undo_depth"};
-    for (const char* name : world_names)
+    // Every global the generator INSTALLS must be documented. The previous version of
+    // this test checked a hardcoded array that duplicated the generator's own array,
+    // so a binding added without touching both lists failed nothing -- which is how
+    // raycast, play, pause and stop all ended up undocumented.
+    for (const auto& name : mosaic::app::documented_world_global_names())
     {
         const std::string heading = std::string("### ") + name;
         const std::size_t pos = md.find(heading);
         INFO("global: " << name);
         REQUIRE(pos != std::string::npos);
         REQUIRE(pos > world_section);
+        REQUIRE(pos < panel_section);
+    }
+
+    // The four host globals that were invisible before this change.
+    for (const char* name : {"raycast", "play", "pause", "stop", "apply_impulse"})
+    {
+        INFO("host global: " << name);
+        const std::string heading = std::string("### ") + name;
+        const std::size_t pos = md.find(heading);
+        REQUIRE(pos != std::string::npos);
+        REQUIRE(pos > gameplay_section);
         REQUIRE(pos < panel_section);
     }
 }

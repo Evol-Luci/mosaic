@@ -126,6 +126,29 @@ make_physics_raycast(mosaic::engine::World& world)
     };
 }
 
+// A neutral impulse callback backed by the world's PhysicsSystem (looked up lazily at
+// call time, so system-add order doesn't matter). Injected into the ScriptHost by
+// setup_runtime so scripts get apply_impulse() while the script backend stays
+// physics-agnostic. Capturing &world is safe: the world owns the systems that own the
+// ScriptHost copies. Returns false when there is no PhysicsSystem or the entity has no
+// simulated body, matching ScriptHost's "unset hook is a silent no-op" contract.
+inline std::function<bool(std::uint64_t, mosaic::foundation::math::Vec3,
+                          mosaic::foundation::math::Vec3)>
+make_physics_apply_impulse(mosaic::engine::World& world)
+{
+    return [&world](std::uint64_t entity, mosaic::foundation::math::Vec3 impulse,
+                    mosaic::foundation::math::Vec3 point) -> bool
+    {
+        auto* phys = world.get_system<mosaic::engine::physics::PhysicsSystem>();
+        if (phys == nullptr) { return false; }
+        const auto e = mosaic::foundation::EntityID(entity);
+        if (!world.is_valid(e)) { return false; }
+        if (!phys->has_body(e)) { return false; }
+        phys->apply_impulse(e, impulse, point);
+        return true;
+    };
+}
+
 inline void register_builtin_font(mosaic::engine::assets::AssetRegistry& registry)
 {
     const std::optional<std::string> bytes =
@@ -161,6 +184,18 @@ inline RuntimeScene setup_runtime(
 
     // Give scripts a raycast() backed by this world's physics (unless the caller already wired one).
     if (!host.raycast) { host.raycast = make_physics_raycast(world); }
+    // Physics writes are wired only on the single-threaded script path. On the
+    // --script-thread path, on_update runs on a worker thread while the main thread
+    // may be inside PhysicsSystem's step, and apply_impulse writes straight into the
+    // live Box3D body -- an unsynchronized write during a step is undefined behaviour.
+    // Leaving the hook unset makes apply_impulse return False there, which is
+    // ScriptHost's documented contract for an unset hook, rather than corrupting the
+    // simulation. Buffering impulses like component writes is the real fix and is
+    // tracked in the backlog.
+    if (!host.apply_impulse && !script_thread)
+    {
+        host.apply_impulse = make_physics_apply_impulse(world);
+    }
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
@@ -302,6 +337,25 @@ def on_update(dt):
     set_component(entity, 'Transform', tr)
 )py";
 
+// Script-driven physics: nudge the sphere every ~3s so the impulse binding has a
+// visible user. Applied off-centre (at the ball's underside) so it ROLLS rather than
+// slides -- the same distinction the C++ impulse API turns on. The push always heads
+// back toward the origin: a constant +x impulse accumulates velocity and would roll
+// the ball off the 10x10 ground within ~15s, silently losing the specular showcase
+// object partway through a long run.
+inline constexpr const char* kBallPusherScript = R"py(
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    if _t >= 3.0:
+        _t -= 3.0
+        tr = get_component(entity, 'Transform')
+        p = tr['position']
+        sx = -1.5 if p['x'] > 0.0 else 1.5
+        apply_impulse(entity, [sx, 0.0, 0.0], [p['x'], p['y'] - 0.5, p['z']])
+)py";
+
 // Script-driven emission: bump the emitter's burst_trigger every ~1.2s so the
 // ParticleSystem re-arms a burst (a script is the trigger stimulus). Reflected
 // ScriptComponent, so it serializes with the scene and survives build/run.
@@ -383,6 +437,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     sphere_trail.max_points      = 40;
     sphere_trail.sample_interval = 0.02f;
     world.add_component<mosaic::engine::vfx::TrailRenderer>(sphere, sphere_trail);
+
+    world.add_component<mosaic::engine::script::ScriptComponent>(
+        sphere, mosaic::engine::script::ScriptComponent{kBallPusherScript});
 
     const auto capsule = world.create_entity();
     world.add_component<transform::Transform>(capsule,

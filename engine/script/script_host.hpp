@@ -33,5 +33,14 @@ struct ScriptHost
                                mosaic::foundation::math::Vec3 direction,
                                float max_distance)>
         raycast;
+
+    // Push a dynamic body with an instantaneous impulse applied at a world point;
+    // unset => no-op returning false. Kept neutral (entity id + Vec3 in, bool out)
+    // for the same reason as raycast: the script backend never depends on the
+    // physics system.
+    std::function<bool(std::uint64_t entity,
+                       mosaic::foundation::math::Vec3 impulse,
+                       mosaic::foundation::math::Vec3 point)>
+        apply_impulse;
 };
 } // namespace mosaic::engine::script

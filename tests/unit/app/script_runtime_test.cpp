@@ -9,6 +9,7 @@
 #include "engine/physics/physics_components.hpp"
 #include "engine/physics/physics_system.hpp"
 #include "engine/script/script_source.hpp"
+#include <cmath>
 #include <memory>
 #include "engine/reflection/builtin_components.hpp"
 #include "engine/script/script_component.hpp"
@@ -220,4 +221,115 @@ TEST_CASE("physics contacts are bridged to scripts as 'contact' events", "[app]"
     for (int i = 0; i < 180; ++i) { world.tick(1.0f / 60.0f); }
     // The box landing produced at least one begin-contact, bridged to the probe's on_event.
     REQUIRE(world.get_component<Transform>(probe)->position.x >= 1.0f);
+}
+
+TEST_CASE("make_physics_apply_impulse resolves the world's PhysicsSystem", "[app]")
+{
+    using mosaic::app::make_physics_apply_impulse;
+    using mosaic::engine::physics::PhysicsSystem;
+    using mosaic::engine::physics::RigidBody;
+    using mosaic::engine::physics::SphereCollider;
+    using mosaic::engine::physics::WorldDef;
+    using mosaic::foundation::math::Quat;
+    using mosaic::foundation::math::Vec3;
+    using mosaic::physics::box3d::create_box3d_backend;
+
+    World world;
+    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+    const auto ball = world.create_entity();
+    world.add_component<Transform>(
+        ball, Transform{Vec3{0, 5, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<SphereCollider>(ball, SphereCollider{0.5f});
+    world.tick(1.0f / 60.0f); // create the backend body + handle->entity map
+
+    auto push = make_physics_apply_impulse(world);
+    // Applied at the bottom of the ball, off the centre of mass, so it spins too.
+    REQUIRE(push(ball.value(), Vec3{2.0f, 0.0f, 0.0f}, Vec3{0.0f, 4.5f, 0.0f}));
+
+    const Quat before = world.get_component<Transform>(ball)->rotation;
+    for (int i = 0; i < 30; ++i) { world.tick(1.0f / 60.0f); }
+    const auto* after = world.get_component<Transform>(ball);
+    REQUIRE(after != nullptr);
+    REQUIRE(after->position.x > 0.05f); // it moved along the push
+
+    // Review Focus 6 from the spec: off-centre means it SPINS, not just translates.
+    const Quat r = after->rotation;
+    const float dq = std::fabs(r.x - before.x) + std::fabs(r.y - before.y)
+                   + std::fabs(r.z - before.z) + std::fabs(r.w - before.w);
+    REQUIRE(dq > 0.01f);
+}
+
+TEST_CASE("make_physics_apply_impulse returns false for an entity with no body", "[app]")
+{
+    // Review Focus 3: a destroyed or never-simulated entity must report failure
+    // rather than silently claiming the push landed.
+    using mosaic::app::make_physics_apply_impulse;
+    using mosaic::engine::physics::PhysicsSystem;
+    using mosaic::engine::physics::WorldDef;
+    using mosaic::foundation::math::Vec3;
+    using mosaic::physics::box3d::create_box3d_backend;
+
+    World world;
+    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+    const auto bare = world.create_entity(); // no RigidBody, no collider
+    world.tick(1.0f / 60.0f);
+
+    auto push = make_physics_apply_impulse(world);
+    REQUIRE_FALSE(push(bare.value(), Vec3{1, 0, 0}, Vec3{0, 0, 0}));
+    REQUIRE_FALSE(push(999999u, Vec3{1, 0, 0}, Vec3{0, 0, 0})); // never existed
+}
+
+TEST_CASE("make_physics_apply_impulse returns false with no physics system", "[app]")
+{
+    // Review Focus 4: scripts also run under the MCP server and asset importers,
+    // which have no PhysicsSystem at all.
+    using mosaic::app::make_physics_apply_impulse;
+    using mosaic::foundation::math::Vec3;
+
+    World world; // deliberately no PhysicsSystem
+    auto  push = make_physics_apply_impulse(world);
+    REQUIRE_FALSE(push(1u, Vec3{1, 0, 0}, Vec3{0, 0, 0}));
+}
+
+TEST_CASE("a script can push a body via setup_runtime", "[app]")
+{
+    using mosaic::engine::physics::Collider;
+    using mosaic::engine::physics::RigidBody;
+    using mosaic::engine::physics::SphereCollider;
+    using mosaic::foundation::math::Quat;
+    using mosaic::foundation::math::Vec3;
+
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    AssetRegistry registry;
+
+    // A static ground box.
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(
+        ground, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    // A dynamic ball above it, with a script that pushes it once.
+    const auto ball = world.create_entity();
+    world.add_component<Transform>(
+        ball, Transform{Vec3{0, 1, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<SphereCollider>(ball, SphereCollider{0.5f});
+    // Scripts tick before physics, so the first attempt lands before the body exists and returns False
+    // — latching on success is what makes the test exercise the binding's return value rather than assume it.
+    world.add_component<ScriptComponent>(ball, ScriptComponent{
+        "_done = False\n"
+        "def on_update(dt):\n"
+        "    global _done\n"
+        "    if not _done:\n"
+        "        if apply_impulse(entity, [3.0, 0.0, 0.0], [0.0, 0.5, 0.0]):\n"
+        "            _done = True\n"});
+
+    setup_runtime(world, registry, types, [] { return create_python_script_engine(); });
+
+    // Scripts run before physics, so the ball's backend body exists from tick 2 on.
+    for (int i = 0; i < 40; ++i) { world.tick(1.0f / 60.0f); }
+    REQUIRE(world.get_component<Transform>(ball)->position.x > 0.1f);
 }
