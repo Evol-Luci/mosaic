@@ -16,9 +16,25 @@ ScriptWorker::ScriptWorker(EngineFactory factory, ScriptHost host)
                                         mosaic::foundation::math::Vec3 impulse,
                                         mosaic::foundation::math::Vec3 point) -> bool
     {
+        if (!host_.apply_impulse) { return false; }
         if (current_job_ == nullptr) { return false; }
         const auto ent = current_job_->snapshot.find(entity);
-        if (ent == current_job_->snapshot.end()) { return false; }
+        if (ent == current_job_->snapshot.end())
+        {
+            // Not a scripted entity, so it is absent from the snapshot and we cannot
+            // tell whether it has a body. Buffer it and let the main-thread replay be
+            // the authority -- make_physics_apply_impulse re-checks has_body there and
+            // drops it if there is none. Answering False here instead would make a
+            // controller script that pushes some OTHER object work single-threaded and
+            // silently do nothing under --script-thread.
+            pending_impulses_.push_back(DeferredImpulse{entity, impulse, point});
+            return true;
+        }
+        // In the snapshot, so we can answer exactly. Body creation needs a Transform, a
+        // RigidBody and one of the three collider components -- PhysicsSystem::update
+        // bails without a Transform, so omitting it would answer True for an entity the
+        // main thread will refuse.
+        if (ent->second.find("Transform") == ent->second.end()) { return false; }
         if (ent->second.find("RigidBody") == ent->second.end()) { return false; }
         const bool has_collider = ent->second.find("Collider") != ent->second.end()
                                || ent->second.find("SphereCollider") != ent->second.end()

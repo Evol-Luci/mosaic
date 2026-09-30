@@ -59,6 +59,9 @@ jobs:
         # dequeue while result_ready_ was only set after execute() returned, so a collect()
         # landing in that window silently dropped a tick's results. With that fixed both
         # pass 12/12 locally and the full suite is green with no exclusions.
+        # The separately-recorded SIGSEGV-under-full-suite-ordering mode is NOT explained
+        # by that fix; it has not reproduced since, and is now gated by CI rather than
+        # excluded from it.
         run: >
           ctest --preset debug --output-on-failure
 

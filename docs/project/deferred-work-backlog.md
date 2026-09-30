@@ -659,7 +659,14 @@ anything shipped; they are capabilities that were never built.
   **The old entry below understated it as "rare/near-impossible to reproduce
   locally"; it actually failed ~80% of the time locally.** That mischaracterisation
   is why a real race sat behind a CI exclusion for nine days — worth remembering
-  the next time something is labelled a flake. Original entry follows.
+  the next time something is labelled a flake.
+  **One caveat, stated rather than buried:** the original entry recorded TWO
+  failure modes, and this fix explains only one. The SIGSEGV under full-suite
+  ordering, attributed to embedded-Python interpreter init/teardown across
+  threads, is untouched by an `executing_` flag and remains unexplained. It has
+  not reproduced since, and is now gated by CI rather than excluded from it --
+  but if a segfault returns, this is the thread to pull.
+  Original entry follows.
 
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
