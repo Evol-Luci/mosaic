@@ -165,6 +165,14 @@ public:
         return hit;
     }
 
+    // Whether this entity currently has a simulated body. Callers that must report
+    // success -- the scripting binding does -- need this, because apply_impulse
+    // returns void and no-ops silently for an entity with no body.
+    bool has_body(mosaic::foundation::EntityID entity) const
+    {
+        return bodies_.find(entity) != bodies_.end();
+    }
+
     // Push a dynamic body. `world_point` is where the impulse is applied -- off-center
     // to induce spin. A no-op if the entity has no simulated body (never created, or
     // has no collider component), matching this system's "missing data degrades, does

@@ -126,6 +126,29 @@ make_physics_raycast(mosaic::engine::World& world)
     };
 }
 
+// A neutral impulse callback backed by the world's PhysicsSystem (looked up lazily at
+// call time, so system-add order doesn't matter). Injected into the ScriptHost by
+// setup_runtime so scripts get apply_impulse() while the script backend stays
+// physics-agnostic. Capturing &world is safe: the world owns the systems that own the
+// ScriptHost copies. Returns false when there is no PhysicsSystem or the entity has no
+// simulated body, matching ScriptHost's "unset hook is a silent no-op" contract.
+inline std::function<bool(std::uint64_t, mosaic::foundation::math::Vec3,
+                          mosaic::foundation::math::Vec3)>
+make_physics_apply_impulse(mosaic::engine::World& world)
+{
+    return [&world](std::uint64_t entity, mosaic::foundation::math::Vec3 impulse,
+                    mosaic::foundation::math::Vec3 point) -> bool
+    {
+        auto* phys = world.get_system<mosaic::engine::physics::PhysicsSystem>();
+        if (phys == nullptr) { return false; }
+        const auto e = mosaic::foundation::EntityID(entity);
+        if (!world.is_valid(e)) { return false; }
+        if (!phys->has_body(e)) { return false; }
+        phys->apply_impulse(e, impulse, point);
+        return true;
+    };
+}
+
 inline void register_builtin_font(mosaic::engine::assets::AssetRegistry& registry)
 {
     const std::optional<std::string> bytes =
@@ -161,6 +184,7 @@ inline RuntimeScene setup_runtime(
 
     // Give scripts a raycast() backed by this world's physics (unless the caller already wired one).
     if (!host.raycast) { host.raycast = make_physics_raycast(world); }
+    if (!host.apply_impulse) { host.apply_impulse = make_physics_apply_impulse(world); }
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
