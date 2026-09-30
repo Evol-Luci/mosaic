@@ -445,6 +445,26 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
+- **`raycast()` still runs off the script-worker thread.** The
+  `--script-thread` path binds the same `ScriptHost` into worker-thread
+  engines, and while `apply_impulse` is now deliberately left unwired there,
+  `raycast` is not: it queries the live physics world from the worker thread
+  while the main thread may be inside `PhysicsSystem`'s step. It is a *read*
+  rather than a write and predates all of this, which is why it was not
+  changed alongside the impulse guard — but it is the same boundary, and a
+  read racing a step can still return torn or mid-integration results.
+  Deferred 2026-09-30: fixing it properly means the same buffering/snapshot
+  design decision the impulse entry above needs, and the two should be solved
+  together rather than one at a time.
+- **Two thin spots in the new physics-binding tests.** Found 2026-09-30 in
+  review, both real but neither load-bearing today. (a) The demo ball-pusher
+  test asserts only `fabs(delta) > 0.05`, which would not distinguish the
+  intended origin-seeking oscillation from a wrong-sign runaway that rolls the
+  sphere off the platform — bounding the sphere's `|x|` would pin the actual
+  intent. (b) `make_physics_apply_impulse`'s `world.is_valid(e)` guard is
+  unproven: removing it fails nothing, because the only invalid-id test uses
+  an id that also fails `has_body`. A test that destroys a bodied entity and
+  pushes it in the same tick would make it load-bearing.
 - **Script-thread impulses are disabled, not buffered.** On the
   `--script-thread` path, `on_update` runs on a worker thread while the main
   thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
