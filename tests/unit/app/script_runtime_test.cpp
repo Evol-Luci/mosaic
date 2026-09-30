@@ -291,3 +291,45 @@ TEST_CASE("make_physics_apply_impulse returns false with no physics system", "[a
     auto  push = make_physics_apply_impulse(world);
     REQUIRE_FALSE(push(1u, Vec3{1, 0, 0}, Vec3{0, 0, 0}));
 }
+
+TEST_CASE("a script can push a body via setup_runtime", "[app]")
+{
+    using mosaic::engine::physics::Collider;
+    using mosaic::engine::physics::RigidBody;
+    using mosaic::engine::physics::SphereCollider;
+    using mosaic::foundation::math::Quat;
+    using mosaic::foundation::math::Vec3;
+
+    TypeRegistry reg; ComponentReflection types; register_builtin_components(reg, types);
+    World world;
+    AssetRegistry registry;
+
+    // A static ground box.
+    const auto ground = world.create_entity();
+    world.add_component<Transform>(
+        ground, Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    // A dynamic ball above it, with a script that pushes it once.
+    const auto ball = world.create_entity();
+    world.add_component<Transform>(
+        ball, Transform{Vec3{0, 1, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(ball, RigidBody{true, 1.0f});
+    world.add_component<SphereCollider>(ball, SphereCollider{0.5f});
+    // Scripts tick before physics, so the first attempt lands before the body exists and returns False
+    // — latching on success is what makes the test exercise the binding's return value rather than assume it.
+    world.add_component<ScriptComponent>(ball, ScriptComponent{
+        "_done = False\n"
+        "def on_update(dt):\n"
+        "    global _done\n"
+        "    if not _done:\n"
+        "        if apply_impulse(entity, [3.0, 0.0, 0.0], [0.0, 0.5, 0.0]):\n"
+        "            _done = True\n"});
+
+    setup_runtime(world, registry, types, [] { return create_python_script_engine(); });
+
+    // Scripts run before physics, so the ball's backend body exists from tick 2 on.
+    for (int i = 0; i < 40; ++i) { world.tick(1.0f / 60.0f); }
+    REQUIRE(world.get_component<Transform>(ball)->position.x > 0.1f);
+}

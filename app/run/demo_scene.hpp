@@ -326,6 +326,21 @@ def on_update(dt):
     set_component(entity, 'Transform', tr)
 )py";
 
+// Script-driven physics: nudge the sphere every ~3s so the impulse binding has a
+// visible user. Applied off-centre (at the ball's underside) so it ROLLS rather than
+// slides -- the same distinction the C++ impulse API turns on.
+inline constexpr const char* kBallPusherScript = R"py(
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    if _t >= 3.0:
+        _t -= 3.0
+        tr = get_component(entity, 'Transform')
+        p = tr['position']
+        apply_impulse(entity, [1.5, 0.0, 0.0], [p['x'], p['y'] - 0.5, p['z']])
+)py";
+
 // Script-driven emission: bump the emitter's burst_trigger every ~1.2s so the
 // ParticleSystem re-arms a burst (a script is the trigger stimulus). Reflected
 // ScriptComponent, so it serializes with the scene and survives build/run.
@@ -407,6 +422,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     sphere_trail.max_points      = 40;
     sphere_trail.sample_interval = 0.02f;
     world.add_component<mosaic::engine::vfx::TrailRenderer>(sphere, sphere_trail);
+
+    world.add_component<mosaic::engine::script::ScriptComponent>(
+        sphere, mosaic::engine::script::ScriptComponent{kBallPusherScript});
 
     const auto capsule = world.create_entity();
     world.add_component<transform::Transform>(capsule,

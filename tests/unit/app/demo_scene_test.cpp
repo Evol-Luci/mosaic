@@ -53,7 +53,7 @@ TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo obje
             ++scripted;
             REQUIRE(sc.source.find("on_update") != std::string::npos);
         });
-    REQUIRE(scripted == 2); // the orbiter cube + the scripted puffer emitter
+    REQUIRE(scripted == 3); // the orbiter cube + the scripted puffer emitter + the ball pusher
 }
 
 TEST_CASE("setup_runtime registers built-in meshes + demo textures and returns a render system",
@@ -198,4 +198,20 @@ TEST_CASE("build_default_scene varies specular parameters so the highlights are 
     for (float e : shininess) { lo = (e < lo) ? e : lo; hi = (e > hi) ? e : hi; }
     REQUIRE(hi >= 128.0f); // a tight, obvious highlight
     REQUIRE(lo <= 16.0f);  // a broad, soft one
+}
+
+TEST_CASE("build_default_scene includes a script that pushes a body", "[app]")
+{
+    // The binding needs a visible user, and a scripted push is the one thing that
+    // proves the whole path -- script -> ScriptHost -> PhysicsSystem -- in a real run.
+    World world;
+    build_default_scene(world);
+
+    int pushers = 0;
+    world.for_each<mosaic::engine::script::ScriptComponent>(
+        [&](World::EntityID, mosaic::engine::script::ScriptComponent& sc)
+        {
+            if (sc.source.find("apply_impulse") != std::string::npos) { ++pushers; }
+        });
+    REQUIRE(pushers == 1);
 }
