@@ -487,6 +487,18 @@ anything shipped; they are capabilities that were never built.
   agreement forever, whose failure mode is silent divergence from the real
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
+- **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
+  holding `backend_mutex_`.** Found 2026-09-30 in review of the mutex slice.
+  `EventBus::emit` dispatches immediate subscribers on the same stack, so a
+  subscriber runs inside the lock. Today's two subscribers (one logs, one
+  re-emits onto the *deferred* bus) never call back into `PhysicsSystem`, so
+  there is no live self-deadlock — but the first synchronous `ContactEvent`
+  subscriber that calls `raycast`/`has_body`/`apply_impulse` will hang on a
+  plain `std::mutex`. Deferred 2026-09-30: the fix is to collect the contacts
+  under the lock and emit them after releasing it, which changes when
+  subscribers observe a contact relative to the pose write-back — a behaviour
+  question worth its own decision rather than a fix-round edit. A recursive
+  mutex would hide the hang without making the re-entrant read correct.
 - **Other engine systems are not thread-safe, and nothing enforces that
   future `ScriptHost` hooks are.** The physics boundary is closed because
   it is the one scripts reach. `set_playing` and `request_stop` were
@@ -500,6 +512,21 @@ anything shipped; they are capabilities that were never built.
   Deferred 2026-09-30 as speculative: there is no measured contention, and
   a finer-grained lock is the classic way to turn a correct coarse lock
   into a subtly wrong fine one.
+- ~~**`raycast()` still runs off the script-worker thread**~~ — **SHIPPED
+  2026-09-30.** Closed with a `mutable std::mutex` on `PhysicsSystem`, taken by
+  `update()`, `raycast()`, `apply_impulse()` **and** `has_body()`. The lock
+  protects two things, not one: the seven `backend_` call sites, and the
+  `bodies_`/`handle_to_entity_` maps that `update()` writes while the other
+  three read them — so `has_body()` needs it despite never touching the
+  backend, and `apply_impulse()` needs it despite being main-thread-only
+  (it runs from `ScriptSystem::update_threaded`'s replay, *outside*
+  `update()`). The entry below guessed this needed the same buffering/snapshot
+  design as the impulse work; it did not — blocking a worker raycast for the
+  duration of one physics update is bounded and was the user's call. Evidence:
+  the new concurrent smoke test **segfaults 3/3 runs** without the lock, and a
+  dedicated overlap-detecting fake backend **fails 5/5 runs** when the
+  `lock_guard` is removed from `raycast()` alone. Original entry follows.
+
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
   engines, and while `apply_impulse` is now deliberately left unwired there,
