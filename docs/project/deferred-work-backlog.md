@@ -445,6 +445,31 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
+- **Five small `ScriptWorker` tidy-ups found in review 2026-09-30, none with a
+  live failure.** (a) `host_` is now write-only — read once to seed
+  `worker_host_` and never again, so the class retains a full `ScriptHost`
+  copy with no reader. (b) `has_pending()` has no callers anywhere in the
+  repo, so its correctness is unverified by anything. (c) `dispatch()` still
+  clears `result_ready_` unconditionally, which is the one remaining
+  silent-result-drop path — unreachable via `ScriptSystem`, since `collect()`
+  always precedes `dispatch()`, but worth a comment now that the class's other
+  silent drop cost nine days of a CI exclusion. (d) `execute()` clears
+  `pending_impulses_` after `std::move`-ing it, a no-op. (e) Theoretical: a
+  script-spawned Python thread calling `apply_impulse` after `on_update`
+  returns would race `execute()`'s tail; `SnapshotContext` has the identical
+  exposure, so it is not a new hazard class.
+- **`apply_impulse`'s return value is optimistic for non-scripted targets.**
+  The worker answers exactly for entities in the job snapshot, but an entity
+  absent from it cannot be judged, so the push is buffered and `True` is
+  returned; the main-thread replay re-checks `has_body` and drops it if there
+  is none. Consequence: a script that latches on the return value when pushing
+  some *other* object can latch on a push that is later dropped, and an
+  invented entity id now returns `True` rather than `False`. Chosen 2026-09-30
+  over the alternative, which was to refuse every unjudgeable push — that made
+  a controller script pushing a crate silently do nothing under
+  `--script-thread`, which is a far worse failure than an imprecise bool. The
+  real fix is to snapshot the physics-relevant components of bodied
+  non-scripted entities too, so the worker can answer exactly in every case.
 - **Deferred host calls are not a general mechanism.** Only
   `apply_impulse` is buffered across the script-worker boundary; the
   collected result carries a writes channel and an impulses channel as two
