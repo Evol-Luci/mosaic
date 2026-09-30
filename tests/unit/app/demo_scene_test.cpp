@@ -1,7 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
+#include <cmath>
 #include <string>
 #include <vector>
+
+#include "engine/physics/physics_components.hpp"
 
 #include "app/run/demo_scene.hpp"
 #include "engine/audio/audio_backend.hpp"
@@ -19,6 +22,7 @@
 #include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
+#include "foundation/core/entity_id.hpp"
 #include "foundation/reflection/type_registry.hpp"
 #include "modules/script_python/python_script_engine.hpp"
 
@@ -214,4 +218,40 @@ TEST_CASE("build_default_scene includes a script that pushes a body", "[app]")
             if (sc.source.find("apply_impulse") != std::string::npos) { ++pushers; }
         });
     REQUIRE(pushers == 1);
+}
+
+TEST_CASE("the demo's ball-pusher script actually moves the sphere", "[app]")
+{
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry     reg;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+
+    build_default_scene(world);
+    auto runtime = setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); });
+
+    mosaic::foundation::EntityID target_sphere{};
+    world.for_each<mosaic::engine::script::ScriptComponent>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::script::ScriptComponent&)
+        {
+            if (world.get_component<mosaic::engine::physics::SphereCollider>(e) != nullptr)
+            {
+                target_sphere = e;
+            }
+        });
+    REQUIRE(target_sphere != mosaic::foundation::EntityID{});
+
+    auto* tf = world.get_component<mosaic::engine::transform::Transform>(target_sphere);
+    REQUIRE(tf != nullptr);
+    float start_x = tf->position.x;
+
+    for (int i = 0; i < 220; ++i)
+    {
+        world.tick(1.0f / 60.0f);
+    }
+
+    REQUIRE(std::fabs(tf->position.x - start_x) > 0.05f);
 }

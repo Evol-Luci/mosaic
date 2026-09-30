@@ -84,8 +84,27 @@ std::string generate_scripting_globals_reference_markdown()
            "`imgui_*` drawing globals and the plugin registration conventions. See "
            "`docs/design/scripting.md` for the full narrative.\n\n";
 
+    py::dict host_dict;
+    mosaic::script::python::install_host_globals_for_docs(host_dict);
+    std::vector<std::string> host_names;
+    for (auto item : host_dict)
+    {
+        host_names.push_back(py::str(item.first).cast<std::string>());
+    }
+    std::sort(host_names.begin(), host_names.end());
+
     out << "## World & Entity Globals\n\n";
     for (const std::string& name : world_names_from(globals))
+    {
+        if (std::find(host_names.begin(), host_names.end(), name) != host_names.end()) { continue; }
+        render_global(out, globals, name.c_str());
+    }
+
+    out << "## Gameplay Script Globals\n\n";
+    out << "Available only inside a gameplay `ScriptComponent`. These come from the "
+           "script host, which Studio menu-item/panel plugins and asset importers do "
+           "not bind -- calling them there raises `NameError`.\n\n";
+    for (const std::string& name : host_names)
     {
         render_global(out, globals, name.c_str());
     }

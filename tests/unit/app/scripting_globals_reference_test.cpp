@@ -17,10 +17,13 @@ TEST_CASE("scripting globals reference documents every world global under its se
 {
     const std::string md = generate_scripting_globals_reference_markdown();
     const std::size_t world_section = md.find("## World & Entity Globals");
+    const std::size_t gameplay_section = md.find("## Gameplay Script Globals");
     const std::size_t panel_section = md.find("## Studio Panel");
     REQUIRE(world_section != std::string::npos);
+    REQUIRE(gameplay_section != std::string::npos);
     REQUIRE(panel_section != std::string::npos);
-    REQUIRE(world_section < panel_section);
+    REQUIRE(world_section < gameplay_section);
+    REQUIRE(gameplay_section < panel_section);
 
     // Every global the generator INSTALLS must be documented. The previous version of
     // this test checked a hardcoded array that duplicated the generator's own array,
@@ -40,7 +43,11 @@ TEST_CASE("scripting globals reference documents every world global under its se
     for (const char* name : {"raycast", "play", "pause", "stop", "apply_impulse"})
     {
         INFO("host global: " << name);
-        REQUIRE(md.find(std::string("### ") + name) != std::string::npos);
+        const std::string heading = std::string("### ") + name;
+        const std::size_t pos = md.find(heading);
+        REQUIRE(pos != std::string::npos);
+        REQUIRE(pos > gameplay_section);
+        REQUIRE(pos < panel_section);
     }
 }
 

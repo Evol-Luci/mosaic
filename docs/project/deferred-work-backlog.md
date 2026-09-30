@@ -445,6 +445,31 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
+- **Script-thread impulses are disabled, not buffered.** On the
+  `--script-thread` path, `on_update` runs on a worker thread while the main
+  thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
+  straight into the live Box3D body -- an unsynchronized write during a step
+  is undefined behaviour. Found 2026-09-30 in whole-branch review, once the
+  default demo scene began calling `apply_impulse` and made the hazard
+  reachable with no user code. Mitigated by NOT wiring the hook on that path,
+  so it returns `False` there per `ScriptHost`'s unset-hook contract. That is
+  a guard, not a fix: a script that works single-threaded silently does
+  nothing under `--script-thread`. The real fix is to buffer impulses the way
+  the threaded path already buffers component writes, and apply them on the
+  main thread -- which needs a design decision about ordering against the
+  physics step. Note `raycast` still runs off-thread on that path; it is a
+  read and pre-existing, but it is the same boundary.
+- **A dict passed to `apply_impulse` raises instead of returning `False`.**
+  The spec says a malformed argument returns `False` rather than raising, but
+  that only covers malformations *within* a sequence. A non-sequence -- and
+  the single most likely wrong argument here is a **dict**, because this same
+  scripting surface uses dicts for component values (`tr['position']`) -- is
+  rejected by pybind11's dispatcher before the binding's own guard runs, so
+  `apply_impulse(e, {'x':1,'y':0,'z':0}, ...)` raises and aborts that
+  script's `on_update` for the tick. Found 2026-09-30 in review. Deferred:
+  it mirrors `raycast`'s existing behaviour exactly, and tightening it means
+  taking `py::object` and hand-rolling the sequence check for both bindings,
+  which is its own change.
 - **Other physics verbs from scripts** — setting a body's velocity
   directly, teleporting a body, and overlap/shape queries. Deferred
   2026-09-29 during the scripting-bindings design: impulse and raycast are

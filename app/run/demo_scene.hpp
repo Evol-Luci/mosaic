@@ -184,7 +184,18 @@ inline RuntimeScene setup_runtime(
 
     // Give scripts a raycast() backed by this world's physics (unless the caller already wired one).
     if (!host.raycast) { host.raycast = make_physics_raycast(world); }
-    if (!host.apply_impulse) { host.apply_impulse = make_physics_apply_impulse(world); }
+    // Physics writes are wired only on the single-threaded script path. On the
+    // --script-thread path, on_update runs on a worker thread while the main thread
+    // may be inside PhysicsSystem's step, and apply_impulse writes straight into the
+    // live Box3D body -- an unsynchronized write during a step is undefined behaviour.
+    // Leaving the hook unset makes apply_impulse return False there, which is
+    // ScriptHost's documented contract for an unset hook, rather than corrupting the
+    // simulation. Buffering impulses like component writes is the real fix and is
+    // tracked in the backlog.
+    if (!host.apply_impulse && !script_thread)
+    {
+        host.apply_impulse = make_physics_apply_impulse(world);
+    }
 
     // Gameplay scripts run BEFORE physics: a script-only object (no RigidBody) is left untouched
     // by physics, and a physics object's write-back wins over any script that also touches it.
@@ -328,7 +339,10 @@ def on_update(dt):
 
 // Script-driven physics: nudge the sphere every ~3s so the impulse binding has a
 // visible user. Applied off-centre (at the ball's underside) so it ROLLS rather than
-// slides -- the same distinction the C++ impulse API turns on.
+// slides -- the same distinction the C++ impulse API turns on. The push always heads
+// back toward the origin: a constant +x impulse accumulates velocity and would roll
+// the ball off the 10x10 ground within ~15s, silently losing the specular showcase
+// object partway through a long run.
 inline constexpr const char* kBallPusherScript = R"py(
 _t = 0.0
 def on_update(dt):
@@ -338,7 +352,8 @@ def on_update(dt):
         _t -= 3.0
         tr = get_component(entity, 'Transform')
         p = tr['position']
-        apply_impulse(entity, [1.5, 0.0, 0.0], [p['x'], p['y'] - 0.5, p['z']])
+        sx = -1.5 if p['x'] > 0.0 else 1.5
+        apply_impulse(entity, [sx, 0.0, 0.0], [p['x'], p['y'] - 0.5, p['z']])
 )py";
 
 // Script-driven emission: bump the emitter's burst_trigger every ~1.2s so the

@@ -15,15 +15,6 @@ Every global available to gameplay `ScriptComponent` scripts, Studio menu-item/p
 Attach a default-constructed component to an entity by name; returns False if the name is unknown.
 
 
-### apply_impulse
-
-```
-(arg0: int, arg1: Sequence, arg2: Sequence) -> bool
-```
-
-Apply an instantaneous impulse to a dynamic body at a world-space point; impulse and point are 3-element sequences. Applying it away from the body's centre induces spin, which is what makes a sphere roll rather than slide. Returns False if there is no physics system, the entity has no simulated body, or an argument is malformed.
-
-
 ### component_names
 
 ```
@@ -114,33 +105,6 @@ Return whether an entity currently has a component by name.
 Return whether an entity id currently refers to a live entity.
 
 
-### pause
-
-```
-() -> None
-```
-
-Pause the simulation clock. Has no effect if already paused.
-
-
-### play
-
-```
-() -> None
-```
-
-Resume the simulation clock. Has no effect if already playing.
-
-
-### raycast
-
-```
-(arg0: Sequence, arg1: Sequence, arg2: float) -> dict
-```
-
-Cast a ray into the scene and return hit data as a dictionary.
-
-
 ### redo
 
 ```
@@ -168,15 +132,6 @@ Remove a component from an entity by name; returns False if it wasn't present.
 Set a reflected component's fields from a dict; routes through the undo stack when one is bound, returns False if the set failed.
 
 
-### stop
-
-```
-() -> None
-```
-
-Stop the simulation and revert world state to the initial snapshot.
-
-
 ### undo
 
 ```
@@ -193,6 +148,55 @@ Undo the last recorded command; returns False if there's nothing to undo or no s
 ```
 
 Return how many commands are currently undoable.
+
+
+## Gameplay Script Globals
+
+Available only inside a gameplay `ScriptComponent`. These come from the script host, which Studio menu-item/panel plugins and asset importers do not bind -- calling them there raises `NameError`.
+
+### apply_impulse
+
+```
+(arg0: int, arg1: Sequence, arg2: Sequence) -> bool
+```
+
+Apply an instantaneous impulse to a dynamic body at a world-space point; impulse and point are 3-element sequences. Applying it away from the body's centre induces spin, which is what makes a sphere roll rather than slide. Returns False if there is no physics system, the entity has no simulated body, or an argument is malformed.
+
+
+### pause
+
+```
+() -> None
+```
+
+Pause the simulation clock. Has no effect if already paused.
+
+
+### play
+
+```
+() -> None
+```
+
+Resume the simulation clock. Has no effect if already playing.
+
+
+### raycast
+
+```
+(arg0: Sequence, arg1: Sequence, arg2: float) -> dict
+```
+
+Cast a ray into the scene and return hit data as a dictionary.
+
+
+### stop
+
+```
+() -> None
+```
+
+Stop the simulation and revert world state to the initial snapshot.
 
 
 ## Studio Panel (`imgui_*`) Globals
