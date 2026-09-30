@@ -488,17 +488,54 @@ anything shipped; they are capabilities that were never built.
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
 - **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
-  holding `backend_mutex_`.** Found 2026-09-30 in review of the mutex slice.
+  holding `backend_mutex_` — a lock-ordering constraint, not just a
+  re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
   `EventBus::emit` dispatches immediate subscribers on the same stack, so a
-  subscriber runs inside the lock. Today's two subscribers (one logs, one
-  re-emits onto the *deferred* bus) never call back into `PhysicsSystem`, so
-  there is no live self-deadlock — but the first synchronous `ContactEvent`
-  subscriber that calls `raycast`/`has_body`/`apply_impulse` will hang on a
-  plain `std::mutex`. Deferred 2026-09-30: the fix is to collect the contacts
-  under the lock and emit them after releasing it, which changes when
-  subscribers observe a contact relative to the pose write-back — a behaviour
-  question worth its own decision rather than a fix-round edit. A recursive
-  mutex would hide the hang without making the re-entrant read correct.
+  subscriber runs inside the lock. The narrow risk is a subscriber that calls
+  `raycast`/`has_body`/`apply_impulse` and hangs on a plain `std::mutex`;
+  today's two subscribers were checked (one logs, one re-emits onto the
+  *deferred* bus) and neither does. The wider and already-live consequence is
+  that **every lock a synchronous subscriber takes is now ordered *under*
+  `backend_mutex_`** — which today includes the global logger mutex, since the
+  contact logger calls `log::info` once per contact inside the lock. Nothing
+  inverts that ordering right now, but it is an unwritten invariant: a future
+  log sink, or any sync subscriber holding a lock that another thread holds
+  while waiting on `backend_mutex_`, deadlocks in a way that looks nothing
+  like the re-entrancy case. There is a performance half to the same point: a
+  worker `raycast()` can wait behind per-contact logging and the `Table`
+  construction in the contact-to-`ScriptEvent` bridge — work with nothing to
+  do with the backend. The spec accepts holding the lock across ECS
+  traversal explicitly; it never considered holding it across subscriber
+  dispatch. Deferred 2026-09-30: the fix is to collect contacts under the
+  lock and emit them after releasing it, which changes when subscribers
+  observe a contact relative to the pose write-back — a behaviour decision
+  worth its own slice. A recursive mutex would hide the re-entrant hang
+  without making the read correct, and would do nothing about the ordering.
+- **The two concurrent physics tests busy-spin their reader thread** with no
+  `yield` or `sleep`. Found 2026-09-30 in review. On a 1-vCPU CI runner the
+  reader monopolizes a core, so the interleaving profile differs sharply from
+  a dev box and the overlap detector's sensitivity becomes
+  machine-dependent. Not a correctness issue, and the detector is
+  empirically sensitive where it has been measured (it fails 5/5 runs under
+  the removed-lock mutation locally). Deferred 2026-09-30 deliberately
+  rather than "fixed" by adding a yield: throttling the reader would
+  *reduce* the overlap pressure the detector depends on, so the change needs
+  a re-run of the mutation probe on CI hardware to show it still fails
+  without the lock. Doing that blind would trade a measured detector for an
+  unmeasured one.
+- **Nothing enforces that the script worker is joined before
+  `PhysicsSystem` is destroyed.** Found 2026-09-30 in review. A worker
+  thread blocked on `backend_mutex_` while `PhysicsSystem` is being
+  destroyed is undefined behaviour: the mutex and `backend_` die with the
+  system. It is safe today only by registration order — `ScriptSystem` is
+  added before `PhysicsSystem` in `setup_runtime`, and the system vector
+  destroys front to back, so `ScriptWorker`'s destructor joins the thread
+  first. Entirely pre-existing; the mutex neither introduces nor worsens it.
+  Recorded because the new lock *reads* as though lifetime were handled,
+  which makes the real invariant easier to break by reordering two
+  `add_system` calls. Deferred 2026-09-30: the fix is an explicit
+  shutdown ordering or a `PhysicsSystem` that outlives its readers by
+  construction, which is a lifetime-design question rather than a patch.
 - **Other engine systems are not thread-safe, and nothing enforces that
   future `ScriptHost` hooks are.** The physics boundary is closed because
   it is the one scripts reach. `set_playing` and `request_stop` were

@@ -42,6 +42,13 @@ public:
     std::atomic<int>  depth{0};
     std::atomic<bool> overlap_seen{false};
 
+    // Pins that the READER thread actually reached the backend. Without this the test can
+    // pass vacuously: an early-out added to PhysicsSystem::raycast() later would stop the
+    // reader entering Guard at all, depth would never rise, and a green run would be
+    // measuring nothing. update()'s own step() calls cannot substitute -- they happen
+    // whether or not the reader is alive. `mutable` because raycast() is a const member.
+    mutable std::atomic<int> raycast_calls{0};
+
     struct Guard
     {
         OverlapDetectingBackend* b;
@@ -72,6 +79,7 @@ public:
     mosaic::engine::physics::RaycastResult raycast(const Vec3&, const Vec3&,
                                                    float) const override
     {
+        raycast_calls.fetch_add(1);
         Guard g(const_cast<OverlapDetectingBackend*>(this));
         return mosaic::engine::physics::RaycastResult{};
     }
@@ -124,5 +132,7 @@ TEST_CASE("PhysicsSystem never has two backend calls in flight at once", "[physi
     stop.store(true);
     reader.join();
 
+    // Not a formality: this is what stops a green run from meaning "the reader never ran".
+    REQUIRE(probe->raycast_calls.load() > 0);
     REQUIRE_FALSE(probe->overlap_seen.load());
 }

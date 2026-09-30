@@ -118,8 +118,24 @@ Plus:
   no-regression guard, since the rejected alternative was to make it miss.
 - The single-threaded path is unchanged: existing raycast tests pass
   untouched.
-- `has_body()` under concurrency: the overlap detector covers it, since it
-  shares the lock.
+- **`has_body()`'s lock is the one guard on this slice with no failing mutation
+  behind it**, and this is stated rather than glossed. The overlap detector
+  cannot see it: `has_body()` makes no backend call, so it never enters the
+  detector's `Guard` and never increments the depth counter. Removing its
+  `lock_guard` leaves the detector green. Catching the `bodies_` map race
+  directly would need ThreadSanitizer, which this slice does not add.
+  The lock stays regardless: it is free, it is correct by construction, and
+  it is the right shape for the next hook. But in a slice whose whole thesis
+  is that an unfalsifiable concurrency test is worthless, an unfalsified
+  guard is worth naming as such.
+- **A note on how live the `bodies_` hazard actually is.** `ScriptWorker`
+  rebinds `apply_impulse` with its own recording version, so
+  `make_physics_apply_impulse` -- the only non-test caller of `has_body()` --
+  never runs on the worker thread. The worker reaches only `raycast()`, which
+  reads `handle_to_entity_`. So `bodies_` has no live concurrent
+  writer/reader pair today, and the rationale above is stronger than the
+  current code warrants. It is a guard against the next hook, not against a
+  bug in flight.
 
 ## Risks
 
