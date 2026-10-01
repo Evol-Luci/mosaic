@@ -424,6 +424,24 @@ anything shipped; they are capabilities that were never built.
   turns a click into an impulse along the camera ray. See
   `docs/project/next-steps.md` for the full entry, including the Critical
   dead-code bug it shipped past a fully green suite.
+- **Destroying an entity never destroys its physics body.** Found 2026-10-01
+  while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
+  `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
+  and `bodies_`, `handle_to_entity_` and `synced_pose_` are only ever inserted
+  into. So destroying a simulated entity leaks its Box3D body, which keeps
+  stepping and keeps generating contacts forever, while the three maps keep
+  stale entries that grow without bound over a long session. `update()` happens
+  to tolerate it -- step 2 and step 4 both `continue` when `get_component`
+  returns null, and step 5 drops contacts whose handles are unmapped -- which is
+  exactly why this has stayed invisible. Deferred 2026-10-01: the fix adds a
+  pure virtual (`destroy_body`) to `PhysicsBackend`, which every backend must
+  then implement, plus a decision about how `PhysicsSystem` learns an entity
+  died (poll the ECS each tick for vanished bodies, or an explicit
+  entity-destroyed event it subscribes to). That is an interface change and a
+  design question, not a patch. Noted now because the ContactEvent fix lets a
+  subscriber call back into `PhysicsSystem` for the first time, which makes
+  "handler destroys a colliding entity" a reachable shape rather than a
+  hypothetical one -- it is still safe today, but it is one step closer.
 - **Angular impulse / torque API.** Box3D exposes
   `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
   only the linear-at-a-point call, which already induces spin via torque
