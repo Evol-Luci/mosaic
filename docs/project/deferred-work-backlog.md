@@ -543,10 +543,30 @@ anything shipped; they are capabilities that were never built.
   observe a contact relative to the pose write-back — a behaviour decision
   worth its own slice. A recursive mutex would hide the re-entrant hang
   without making the read correct, and would do nothing about the ordering.
+- **A spurious watchdog trip in the contact-reentry tests degrades into a
+  use-after-free instead of the named failure it is designed to produce.**
+  Found 2026-10-01 in review of the contact-emit slice.
+  `tests/unit/physics/physics_contact_reentry_test.cpp`'s `tick_with_watchdog`
+  runs the tick on a detached thread capturing `&world`, so when the main
+  thread times out and `REQUIRE` throws, `world` is destroyed at scope exit
+  while that thread may still be using it. In the genuine-deadlock case the
+  thread is parked on a mutex that is then destroyed -- UB, though observed to
+  unwind cleanly and print the assertion. In the case the 3000 ms margin is
+  actually guarding against (a loaded runner, no deadlock), the thread is
+  *actively ticking* a destroyed `World`, so the run reports a segfault rather
+  than "the tick did not return" -- defeating the whole reason the watchdog was
+  chosen over a ctest `TIMEOUT`. Damage is bounded: `catch_discover_tests` gives
+  each case its own process, so it cannot take other cases down. Deferred
+  2026-10-01: the fix is to heap-allocate the `World` on the watchdog path and
+  deliberately leak it when the flag never sets, which turns both failure modes
+  into a clean named assertion. Not folded into that slice because it only
+  affects a failure path that the four-orders-of-magnitude timing margin makes
+  very unlikely, and leaking a `World` on purpose wants its own justification
+  in the test's comments rather than arriving as a fix-round edit.
 - **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
   a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
   calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
-  1500s default applies to all 1063 cases: any test that hangs costs 25 minutes
+  1500s default applies to every case in the suite: any test that hangs costs 25 minutes
   of CI before it fails, and says only "Timeout" when it does. Deferred
   2026-10-01 rather than folded into that slice, which solves its own hang with
   an in-test watchdog instead -- the watchdog gives a named failure in seconds

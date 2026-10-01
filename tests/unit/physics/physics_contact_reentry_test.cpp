@@ -63,8 +63,10 @@ bool tick_with_watchdog(World& world, int count)
     return done->load();
 }
 
-// Ground plus a box dropped onto it: produces a Begin contact within ~90 ticks.
-void build_falling_box_scene(World& world)
+// Ground plus a box dropped onto it: produces a Begin contact within ~90 ticks. Returns the
+// box, so a caller can assert against the entity a ray hit rather than merely that it hit
+// something -- the ground slab is also under the ray.
+mosaic::foundation::EntityID build_falling_box_scene(World& world)
 {
     const auto ground = world.create_entity();
     world.add_component<Transform>(ground,
@@ -76,6 +78,7 @@ void build_falling_box_scene(World& world)
     world.add_component<Transform>(box, Transform{Vec3{0, 3, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
     world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+    return box;
 }
 } // namespace
 
@@ -87,22 +90,25 @@ TEST_CASE("a ContactEvent handler can raycast without deadlocking", "[physics]")
     REQUIRE(physics != nullptr);
 
     int  handler_calls = 0;
-    bool ray_hit = false;
+    bool hit_the_box = false;
+    mosaic::foundation::EntityID box{};
     world.events().subscribe<ContactEvent>(
         [&](const ContactEvent&)
         {
             ++handler_calls;
-            // Review Focus 4: not merely "it returned" -- step 4 wrote the poses before this
-            // handler ran, so a ray straight down must actually hit the resting body. A miss
-            // would mean the handler is observing a world mid-update.
-            if (physics->raycast(Vec3{0, 10, 0}, Vec3{0, -1, 0}, 20.0f).hit) { ray_hit = true; }
+            // Review Focus 4: not merely "it returned", and not merely that it hit SOMETHING
+            // -- the ground slab lies under this ray too, so a bare `.hit` would be true even
+            // with the box's pose wrong or its body missing. Step 4 wrote the poses before
+            // this handler ran, so the closest hit on the way down must be the box itself.
+            const auto r = physics->raycast(Vec3{0, 10, 0}, Vec3{0, -1, 0}, 20.0f);
+            if (r.hit && r.entity == box) { hit_the_box = true; }
         });
 
-    build_falling_box_scene(world);
+    box = build_falling_box_scene(world);
 
     REQUIRE(tick_with_watchdog(world, 180)); // false == the handler's raycast deadlocked
     REQUIRE(handler_calls > 0);              // the scenario really produced a contact
-    REQUIRE(ray_hit);
+    REQUIRE(hit_the_box);
 }
 
 TEST_CASE("a ContactEvent handler can apply an impulse without deadlocking", "[physics]")
@@ -139,7 +145,7 @@ TEST_CASE("a ContactEvent handler can apply an impulse without deadlocking", "[p
             }
         });
 
-    build_falling_box_scene(world);
+    (void)build_falling_box_scene(world);
 
     REQUIRE(tick_with_watchdog(world, 240)); // false == the handler's apply_impulse deadlocked
     REQUIRE(handler_calls > 0);

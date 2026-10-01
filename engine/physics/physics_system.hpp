@@ -248,9 +248,14 @@ private:
     // Serializes every entry point that touches backend_ or the handle maps. Scripts
     // can run on a worker thread (--script-thread), and a raycast from there would
     // otherwise run concurrently with the main thread's update() -- reading a Box3D
-    // world mid-step, and reading bodies_/handle_to_entity_ mid-insert. Held across
-    // the whole of update() rather than around individual calls: four narrow critical
-    // sections inside one function is the shape that grows a bug later.
+    // world mid-step, and reading bodies_/handle_to_entity_ mid-insert.
+    //
+    // In update() it is held across steps 1 to 5a as one braced block -- every access to
+    // backend_ and to the three maps, and no more. Contact emission runs *after* that block
+    // closes, deliberately: a synchronous subscriber runs on update()'s stack, and one that
+    // called raycast()/has_body()/apply_impulse() would self-deadlock here. Do not widen the
+    // block to cover the emit again, and do not replace it with a manual unlock -- the brace
+    // is what stops a future call-out being added inside the locked region unnoticed.
     mutable std::mutex backend_mutex_;
 
     std::unique_ptr<PhysicsBackend>                              backend_;
