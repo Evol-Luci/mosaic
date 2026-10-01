@@ -743,6 +743,23 @@ anything shipped; they are capabilities that were never built.
   slot (`detail::component_storage_slot<T>()`) instead of the shared
   `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
   avoiding a reintroduction of the earlier "#9 identity drift" bug.
+- ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ —
+  **SHIPPED 2026-09-30.** All eight now call `start(0)` and ask the kernel for a
+  free ephemeral port. `start(0)` was already possible; what was missing was any
+  way to learn the kernel's choice, so `LiveLinkServer` gained
+  `port()` (via `getsockname()`, reset to 0 by `stop()`). Production is
+  unchanged: `studio_app` still calls `start(kDefaultLiveLinkPort)` and `port()`
+  returns exactly that. The already-bound-port case got *stronger* rather than
+  merely portable — it now binds a port it **knows** is taken
+  (`server1.port()`) instead of hoping a hard-coded number is free.
+  The mutation probe turned up a second defect worth recording: `TestClient`
+  ignored `connect()`'s return value, and `send_text()` on a never-connected
+  socket raises **SIGPIPE**, killing the whole test binary as a bare exit 141
+  with no named assertion — which is exactly how the original port collision
+  would have presented on CI. With `connected()` asserted, removing
+  `getsockname()` now fails **7 named assertions across 7 cases**. Original
+  entry follows.
+
 - **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
   `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
   34907, ...). On 2026-09-29 the case "LiveLinkServer start() fails on an
@@ -754,6 +771,18 @@ anything shipped; they are capabilities that were never built.
   port 0 and ask the OS which port it got, so the tests stop competing for
   fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
   test-infrastructure change unrelated to whatever slice is in flight.
+- **`enet_transport_test.cpp` hard-codes six UDP ports too** (34001-34006).
+  Found 2026-09-30 while scoping the `LiveLinkServer` ephemeral-port fix, which
+  covers the TCP side only. Same failure signature is available to it: a fixed
+  port colliding with anything else on a shared CI runner. Not folded into that
+  slice because the fix is materially bigger — ENet's `enet_host_create` accepts
+  port 0 and records the kernel's choice in `host->address.port`, but Mosaic's
+  transport sits behind its own neutral interface, so learning the bound port
+  means adding an accessor to that interface and threading it through the
+  backend. Deferred 2026-09-30: a one-file test change on the TCP side versus an
+  interface change on the UDP side is the difference between two slices, and the
+  UDP tests have not actually flaked yet where the LiveLink one has. Depends on
+  nothing; pick it up if a net test ever fails on CI.
 - ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ —
   **ROOT-CAUSED AND FIXED 2026-09-30. It was never a flake.**
   `ScriptWorker::run()` cleared `pending_` when a job was dequeued but set

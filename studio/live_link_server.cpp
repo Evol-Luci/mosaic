@@ -50,6 +50,24 @@ bool LiveLinkServer::start(std::uint16_t port)
     }
     set_nonblocking(listen_fd_);
 
+    // Ask the socket what it actually bound. Identical to `port` when that was non-zero,
+    // but with port 0 the kernel chose for us and this is the only way to find out.
+    //
+    // A failure here fails start(), rather than listening on a port we cannot name: port()
+    // promises a non-zero value whenever state() != Off, and swallowing this would quietly
+    // break that for every caller. Not reachable in practice on a freshly bound, freshly
+    // listening fd, and there is no test for it -- a syscall that cannot be made to fail
+    // from a unit test gets a stated invariant, not a pretend one.
+    sockaddr_in bound{};
+    socklen_t   bound_len = sizeof(bound);
+    if (getsockname(listen_fd_, reinterpret_cast<sockaddr*>(&bound), &bound_len) != 0)
+    {
+        close(listen_fd_);
+        listen_fd_ = -1;
+        return false;
+    }
+    port_ = ntohs(bound.sin_port);
+
     state_ = LiveLinkState::Listening;
     return true;
 }
@@ -58,6 +76,7 @@ void LiveLinkServer::stop()
 {
     if (peer_fd_ >= 0) { close(peer_fd_); peer_fd_ = -1; }
     if (listen_fd_ >= 0) { close(listen_fd_); listen_fd_ = -1; }
+    port_ = 0;
     recv_buffer_.clear();
     state_ = LiveLinkState::Off;
 }
