@@ -505,6 +505,20 @@ anything shipped; they are capabilities that were never built.
   agreement forever, whose failure mode is silent divergence from the real
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
+- ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding
+  `backend_mutex_`**~~ — **SHIPPED 2026-10-01.** `update()` now maps contacts
+  into a local vector inside a braced block holding the lock, and emits after
+  the block closes. The extent is delimited lexically on purpose: a `unique_lock`
+  plus `unlock()` would have been a smaller diff but would leave the locked
+  region ending at an unmarked statement, so a later edit adding a call-out above
+  it would reintroduce exactly this bug. The pose write-back already preceded
+  emission, so handler-visible ordering did not change -- the entry below, and the
+  #209 summary it came from, were wrong to claim it would. Evidence: both new
+  re-entrancy tests fail on a 3000 ms watchdog with the emit back under the lock
+  and pass with it outside; the watchdog runs the tick on a detached thread so the
+  failure is a named assertion in seconds rather than a 25-minute ctest stall.
+  Original entry follows.
+
 - **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
   holding `backend_mutex_` — a lock-ordering constraint, not just a
   re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
