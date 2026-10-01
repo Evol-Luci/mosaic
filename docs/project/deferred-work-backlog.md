@@ -529,6 +529,26 @@ anything shipped; they are capabilities that were never built.
   observe a contact relative to the pose write-back — a behaviour decision
   worth its own slice. A recursive mutex would hide the re-entrant hang
   without making the read correct, and would do nothing about the ordering.
+- **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
+  a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
+  calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
+  1500s default applies to all 1063 cases: any test that hangs costs 25 minutes
+  of CI before it fails, and says only "Timeout" when it does. Deferred
+  2026-10-01 rather than folded into that slice, which solves its own hang with
+  an in-test watchdog instead -- the watchdog gives a named failure in seconds
+  and works when running the test binary directly, which a ctest property does
+  not. A suite-wide timeout is still worth having as a backstop for the next
+  hang nobody anticipated; it needs its own value chosen against the slowest
+  legitimate test rather than a number picked to fit one case.
+- **Nothing enforces that a system never calls user code while holding an
+  internal lock.** Recorded 2026-10-01 as a non-goal of the ContactEvent slice,
+  which fixes the single live instance. `PhysicsSystem` is the only system that
+  holds a mutex today, so there is currently nothing else to audit -- but the
+  rule it now follows ("collect under the lock, call out after releasing it")
+  exists only as a comment and a test in one file. Deferred 2026-10-01: a real
+  enforcement mechanism means either a lock-order-checking wrapper around the
+  mutex or a convention the dependency linter could verify, and inventing either
+  before a second system takes a lock would be speculative.
 - **The two concurrent physics tests busy-spin their reader thread** with no
   `yield` or `sleep`. Found 2026-09-30 in review. On a 1-vCPU CI runner the
   reader monopolizes a core, so the interleaving profile differs sharply from
