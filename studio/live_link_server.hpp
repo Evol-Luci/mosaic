@@ -22,7 +22,14 @@ public:
     LiveLinkServer& operator=(const LiveLinkServer&) = delete;
 
     // Binds and listens on `port`. Returns false on bind failure (e.g. port in use).
+    // Pass 0 to let the kernel pick a free ephemeral port, then read it back with port().
     bool start(std::uint16_t port);
+
+    // The port actually bound, or 0 when state() == Off. Equal to the port passed to
+    // start() when that was non-zero; when start(0) was used this is the only way to
+    // learn the kernel's choice, which is what lets tests stop competing for fixed
+    // numbers on a shared machine.
+    std::uint16_t port() const { return port_; }
 
     // Closes any listening/connected socket. state() -> Off. Safe to call when
     // already Off.
@@ -45,6 +52,7 @@ public:
 private:
     int listen_fd_ = -1;
     int peer_fd_ = -1;
+    std::uint16_t port_ = 0;
     LiveLinkState state_ = LiveLinkState::Off;
     std::string recv_buffer_;
 };

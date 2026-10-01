@@ -26,8 +26,14 @@ public:
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
         inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-        connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+        connected_ = connect(fd_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
     }
+
+    // Whether connect() succeeded. Worth asserting rather than ignoring: send_text() on a
+    // socket that never connected raises SIGPIPE and takes the whole test binary down with
+    // it, so a failed connect used to surface as a bare exit 141 with no named assertion.
+    // That is exactly how a hard-coded-port collision would have presented on CI.
+    bool connected() const { return connected_; }
     ~TestClient() { if (fd_ >= 0) { close(fd_); } }
 
     void send_text(const std::string& s) { send(fd_, s.data(), s.size(), 0); }
@@ -41,7 +47,8 @@ public:
     void close_now() { close(fd_); fd_ = -1; }
 
 private:
-    int fd_ = -1;
+    int  fd_ = -1;
+    bool connected_ = false;
 };
 
 // poll() is non-blocking; give the kernel a moment to deliver connect()/send()
@@ -70,7 +77,7 @@ TEST_CASE("LiveLinkServer starts Off and start() moves it to Listening", "[studi
 {
     LiveLinkServer server;
     REQUIRE(server.state() == LiveLinkState::Off);
-    REQUIRE(server.start(34901));
+    REQUIRE(server.start(0));
     REQUIRE(server.state() == LiveLinkState::Listening);
     server.stop();
     REQUIRE(server.state() == LiveLinkState::Off);
@@ -79,9 +86,10 @@ TEST_CASE("LiveLinkServer starts Off and start() moves it to Listening", "[studi
 TEST_CASE("LiveLinkServer transitions to Connected when a client connects", "[studio]")
 {
     LiveLinkServer server;
-    REQUIRE(server.start(34902));
+    REQUIRE(server.start(0));
 
-    TestClient client(34902);
+    TestClient client(server.port());
+    REQUIRE(client.connected());
     poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
 
     REQUIRE(server.state() == LiveLinkState::Connected);
@@ -90,8 +98,9 @@ TEST_CASE("LiveLinkServer transitions to Connected when a client connects", "[st
 TEST_CASE("LiveLinkServer poll() returns a complete line sent in one write", "[studio]")
 {
     LiveLinkServer server;
-    REQUIRE(server.start(34903));
-    TestClient client(34903);
+    REQUIRE(server.start(0));
+    TestClient client(server.port());
+    REQUIRE(client.connected());
     poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
 
     client.send_text("hello\n");
@@ -106,8 +115,9 @@ TEST_CASE("LiveLinkServer poll() returns a complete line sent in one write", "[s
 TEST_CASE("LiveLinkServer buffers a line split across two sends", "[studio]")
 {
     LiveLinkServer server;
-    REQUIRE(server.start(34904));
-    TestClient client(34904);
+    REQUIRE(server.start(0));
+    TestClient client(server.port());
+    REQUIRE(client.connected());
     poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
 
     client.send_text("hel");
@@ -123,8 +133,9 @@ TEST_CASE("LiveLinkServer buffers a line split across two sends", "[studio]")
 TEST_CASE("LiveLinkServer returns to Listening when the client disconnects", "[studio]")
 {
     LiveLinkServer server;
-    REQUIRE(server.start(34905));
-    TestClient client(34905);
+    REQUIRE(server.start(0));
+    TestClient client(server.port());
+    REQUIRE(client.connected());
     poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
 
     client.close_now();
@@ -135,17 +146,20 @@ TEST_CASE("LiveLinkServer returns to Listening when the client disconnects", "[s
 
 TEST_CASE("LiveLinkServer start() fails on an already-bound port", "[studio]")
 {
+    // Against a port we KNOW is bound, rather than hoping a hard-coded number is free --
+    // which is how this very case failed a CI run on 2026-09-29 and passed on re-run.
     LiveLinkServer server1;
-    REQUIRE(server1.start(34906));
+    REQUIRE(server1.start(0));
     LiveLinkServer server2;
-    REQUIRE_FALSE(server2.start(34906));
+    REQUIRE_FALSE(server2.start(server1.port()));
 }
 
 TEST_CASE("LiveLinkServer::send delivers a line to the connected client", "[studio]")
 {
     LiveLinkServer server;
-    REQUIRE(server.start(34907));
-    TestClient client(34907);
+    REQUIRE(server.start(0));
+    TestClient client(server.port());
+    REQUIRE(client.connected());
     poll_until(server, [&] { return server.state() == LiveLinkState::Connected; });
 
     server.send("hello");
@@ -163,7 +177,35 @@ TEST_CASE("LiveLinkServer::send is a silent no-op when there is no connected pee
 {
     LiveLinkServer server;
     server.send("hello"); // Off: must not throw or crash
-    REQUIRE(server.start(34908));
+    REQUIRE(server.start(0));
     server.send("hello"); // Listening, no peer yet: must not throw or crash
     REQUIRE(server.state() == LiveLinkState::Listening);
+}
+
+TEST_CASE("LiveLinkServer::port reports the kernel-assigned port after start(0)", "[studio]")
+{
+    // start(0) asks the kernel for an ephemeral port. Without port() there is no way to
+    // learn which one, which is why every test in this file used to hard-code a number --
+    // and why one of them failed a real CI run when 34906 was not free.
+    LiveLinkServer server;
+    REQUIRE(server.port() == 0); // Off: nothing is bound
+    REQUIRE(server.start(0));
+    REQUIRE(server.port() != 0);
+    server.stop();
+    REQUIRE(server.port() == 0); // stop() must not leave a stale port behind
+}
+
+TEST_CASE("LiveLinkServer::port reports an explicitly requested port verbatim", "[studio]")
+{
+    // Guards against port() being a function that merely returns something plausible:
+    // with a port we chose, it must return that exact number and not the kernel's idea
+    // of one. Bound via start(0) first so the number is known-free rather than hoped-free.
+    LiveLinkServer probe;
+    REQUIRE(probe.start(0));
+    const std::uint16_t known_free = probe.port();
+    probe.stop();
+
+    LiveLinkServer server;
+    REQUIRE(server.start(known_free));
+    REQUIRE(server.port() == known_free);
 }
