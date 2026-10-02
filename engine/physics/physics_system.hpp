@@ -3,6 +3,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
 
 #include "engine/ecs/system.hpp"
 #include "engine/physics/physics_backend.hpp"
@@ -54,92 +55,109 @@ public:
 
     void update(World& world, float dt) override
     {
-        const std::lock_guard<std::mutex> lock(backend_mutex_);
-        // 1. Lazily create a backend body for each physics entity we have not seen.
-        world.for_each<RigidBody>(
-            [&](mosaic::foundation::EntityID e, RigidBody& rb)
-            {
-                if (bodies_.find(e) != bodies_.end())
+        // Contacts are mapped under the lock but emitted outside it. A synchronous
+        // ContactEvent subscriber runs on this stack, and a subscriber that calls
+        // raycast()/has_body()/apply_impulse() would self-deadlock on a plain std::mutex if
+        // the lock were still held. Holding it across subscriber dispatch also ordered every
+        // lock a subscriber takes -- the global logger mutex among them -- underneath this
+        // one. The braced block below is what keeps that from coming back: the locked region
+        // is delimited lexically, so a call-out cannot be added inside it unnoticed.
+        std::vector<ContactEvent> contacts;
+        {
+            const std::lock_guard<std::mutex> lock(backend_mutex_);
+            // 1. Lazily create a backend body for each physics entity we have not seen.
+            world.for_each<RigidBody>(
+                [&](mosaic::foundation::EntityID e, RigidBody& rb)
                 {
-                    return;
-                }
+                    if (bodies_.find(e) != bodies_.end())
+                    {
+                        return;
+                    }
+                    const transform::Transform* t = world.get_component<transform::Transform>(e);
+                    if (t == nullptr)
+                    {
+                        return;
+                    }
+                    Shape shape;
+                    if (!shape_for(world, e, shape))
+                    {
+                        return;
+                    }
+                    BodyDef def;
+                    def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
+                    def.position = t->position;
+                    // Pass the authored rotation through, so the body the backend creates
+                    // matches the Transform. This also makes the synced_pose_ record below
+                    // truthful -- it has always claimed the body carried t->rotation.
+                    def.rotation = t->rotation;
+                    def.shape = shape;
+                    def.density = rb.density;
+                    const BodyHandle handle = backend_->create_body(def);
+                    bodies_[e] = handle;
+                    handle_to_entity_[handle] = e;
+                    synced_pose_[e] = Pose{t->position, t->rotation};
+                });
+
+            // 2. Push external Transform edits (e.g. inspector drags) into the simulation:
+            // if an entity's Transform no longer matches the pose we last wrote to it, the
+            // user moved it, so teleport the body to the new Transform.
+            for (const auto& [e, handle] : bodies_)
+            {
                 const transform::Transform* t = world.get_component<transform::Transform>(e);
                 if (t == nullptr)
                 {
-                    return;
+                    continue;
                 }
-                Shape shape;
-                if (!shape_for(world, e, shape))
+                if (!pose_matches(*t, synced_pose_[e]))
                 {
-                    return;
+                    backend_->set_body_transform(handle, t->position, t->rotation);
+                    synced_pose_[e] = Pose{t->position, t->rotation};
                 }
-                BodyDef def;
-                def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
-                def.position = t->position;
-                // Pass the authored rotation through, so the body the backend creates
-                // matches the Transform. This also makes the synced_pose_ record below
-                // truthful -- it has always claimed the body carried t->rotation.
-                def.rotation = t->rotation;
-                def.shape = shape;
-                def.density = rb.density;
-                const BodyHandle handle = backend_->create_body(def);
-                bodies_[e] = handle;
-                handle_to_entity_[handle] = e;
-                synced_pose_[e] = Pose{t->position, t->rotation};
-            });
-
-        // 2. Push external Transform edits (e.g. inspector drags) into the simulation:
-        // if an entity's Transform no longer matches the pose we last wrote to it, the
-        // user moved it, so teleport the body to the new Transform.
-        for (const auto& [e, handle] : bodies_)
-        {
-            const transform::Transform* t = world.get_component<transform::Transform>(e);
-            if (t == nullptr)
-            {
-                continue;
             }
-            if (!pose_matches(*t, synced_pose_[e]))
+
+            // 3. Advance the simulation one fixed step.
+            backend_->step(dt, substeps_);
+
+            // 4. Write dynamic-body poses back into Transform (static bodies do not move).
+            // Record the written pose so the next tick's step 2 can tell a genuine external
+            // edit from our own write-back (exact compare: we assign Transform = pose here).
+            for (const auto& [e, handle] : bodies_)
             {
-                backend_->set_body_transform(handle, t->position, t->rotation);
-                synced_pose_[e] = Pose{t->position, t->rotation};
+                const RigidBody* rb = world.get_component<RigidBody>(e);
+                if (rb == nullptr || !rb->dynamic)
+                {
+                    continue;
+                }
+                transform::Transform* t = world.get_component<transform::Transform>(e);
+                if (t == nullptr)
+                {
+                    continue;
+                }
+                const Pose pose = backend_->body_pose(handle);
+                t->position = pose.position;
+                t->rotation = pose.rotation;
+                synced_pose_[e] = pose;
+            }
+
+            // 5a. Map backend contacts to entity-level events. Still inside the lock: this
+            // reads handle_to_entity_, and contacts whose handle is unmapped are dropped.
+            for (const BodyContact& c : backend_->contact_events())
+            {
+                const auto ia = handle_to_entity_.find(c.a);
+                const auto ib = handle_to_entity_.find(c.b);
+                if (ia == handle_to_entity_.end() || ib == handle_to_entity_.end())
+                {
+                    continue;
+                }
+                contacts.push_back(ContactEvent{c.phase, ia->second, ib->second, c.point, c.normal,
+                                                c.separation, c.normal_impulse});
             }
         }
 
-        // 3. Advance the simulation one fixed step.
-        backend_->step(dt, substeps_);
-
-        // 4. Write dynamic-body poses back into Transform (static bodies do not move).
-        // Record the written pose so the next tick's step 2 can tell a genuine external
-        // edit from our own write-back (exact compare: we assign Transform = pose here).
-        for (const auto& [e, handle] : bodies_)
+        // 5b. Outside the lock: subscribers may now call back into this system.
+        for (const ContactEvent& e : contacts)
         {
-            const RigidBody* rb = world.get_component<RigidBody>(e);
-            if (rb == nullptr || !rb->dynamic)
-            {
-                continue;
-            }
-            transform::Transform* t = world.get_component<transform::Transform>(e);
-            if (t == nullptr)
-            {
-                continue;
-            }
-            const Pose pose = backend_->body_pose(handle);
-            t->position = pose.position;
-            t->rotation = pose.rotation;
-            synced_pose_[e] = pose;
-        }
-
-        // 5. Emit contact events (mapped to entities) on the world's event bus.
-        for (const BodyContact& c : backend_->contact_events())
-        {
-            const auto ia = handle_to_entity_.find(c.a);
-            const auto ib = handle_to_entity_.find(c.b);
-            if (ia == handle_to_entity_.end() || ib == handle_to_entity_.end())
-            {
-                continue;
-            }
-            world.events().emit<ContactEvent>(ContactEvent{c.phase, ia->second, ib->second, c.point,
-                                                           c.normal, c.separation, c.normal_impulse});
+            world.events().emit<ContactEvent>(e);
         }
     }
 
@@ -230,9 +248,14 @@ private:
     // Serializes every entry point that touches backend_ or the handle maps. Scripts
     // can run on a worker thread (--script-thread), and a raycast from there would
     // otherwise run concurrently with the main thread's update() -- reading a Box3D
-    // world mid-step, and reading bodies_/handle_to_entity_ mid-insert. Held across
-    // the whole of update() rather than around individual calls: four narrow critical
-    // sections inside one function is the shape that grows a bug later.
+    // world mid-step, and reading bodies_/handle_to_entity_ mid-insert.
+    //
+    // In update() it is held across steps 1 to 5a as one braced block -- every access to
+    // backend_ and to the three maps, and no more. Contact emission runs *after* that block
+    // closes, deliberately: a synchronous subscriber runs on update()'s stack, and one that
+    // called raycast()/has_body()/apply_impulse() would self-deadlock here. Do not widen the
+    // block to cover the emit again, and do not replace it with a manual unlock -- the brace
+    // is what stops a future call-out being added inside the locked region unnoticed.
     mutable std::mutex backend_mutex_;
 
     std::unique_ptr<PhysicsBackend>                              backend_;

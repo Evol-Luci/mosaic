@@ -192,3 +192,98 @@ TEST_CASE("the contact-event stream is deterministic across runs", "[physics]")
     REQUIRE(record_contacts() == record_contacts());
     REQUIRE_FALSE(record_contacts().empty()); // the scenario actually produced contacts
 }
+
+TEST_CASE("PhysicsSystem emits each contact exactly once", "[physics]")
+{
+    // Review Focus 1: the determinism case above compares two runs to each other, so an
+    // emit-twice bug duplicates identically in both and passes it. The presence cases scan
+    // for begin_seen, never a count. Nothing in this suite counts, so nothing here would
+    // notice collect-then-emit delivering a contact twice.
+    World world;
+    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+
+    int begin_count = 0;
+    const auto ground = world.create_entity();
+    const auto box = world.create_entity();
+
+    world.events().subscribe<ContactEvent>(
+        [&](const ContactEvent& c)
+        {
+            if (c.phase == ContactPhase::Begin && is_entity_pair(c, box, ground)) { ++begin_count; }
+        });
+
+    world.add_component<Transform>(ground,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    world.add_component<Transform>(box, Transform{Vec3{0, 3, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    for (int i = 0; i < 180; ++i) { world.tick(1.0f / 60.0f); }
+
+    // Exactly one: the box lands once and stays put. Two means duplication; zero means the
+    // scenario stopped producing contacts and the test would be vacuous.
+    REQUIRE(begin_count == 1);
+}
+
+TEST_CASE("PhysicsSystem fires no ContactEvent on a tick with no contacts", "[physics]")
+{
+    // Review Focus 2: the empty-collection path is the common case -- most ticks have zero
+    // contacts -- and the one a collect-then-emit bug would most easily turn into a
+    // re-emission of a stale buffer.
+    World world;
+    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+
+    int emitted = 0;
+    world.events().subscribe<ContactEvent>([&](const ContactEvent&) { ++emitted; });
+
+    // One dynamic box falling through empty space: nothing to touch.
+    const auto box = world.create_entity();
+    world.add_component<Transform>(box, Transform{Vec3{0, 50, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    for (int i = 0; i < 30; ++i) { world.tick(1.0f / 60.0f); }
+
+    REQUIRE(emitted == 0);
+    REQUIRE(world.get_component<Transform>(box)->position.y < 50.0f); // it really did simulate
+}
+
+TEST_CASE("PhysicsSystem preserves contact order across the collection buffer", "[physics]")
+{
+    // Review Focus 3: a reversed or re-sorted buffer still satisfies run-to-run determinism
+    // and still contains every event, so the determinism case cannot see it. Begin must
+    // still arrive before End for the same pair.
+    World world;
+    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+
+    const auto ground = world.create_entity();
+    const auto box = world.create_entity();
+
+    std::vector<ContactPhase> phases;
+    world.events().subscribe<ContactEvent>(
+        [&](const ContactEvent& c)
+        {
+            if (is_entity_pair(c, box, ground)) { phases.push_back(c.phase); }
+        });
+
+    world.add_component<Transform>(ground,
+                                   Transform{Vec3{0, 0, 0}, Quat::identity(), Vec3{10, 1, 10}, {}});
+    world.add_component<RigidBody>(ground, RigidBody{false, 1.0f});
+    world.add_component<Collider>(ground, Collider{Vec3{5.0f, 0.5f, 5.0f}});
+
+    world.add_component<Transform>(box, Transform{Vec3{0, 3, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<RigidBody>(box, RigidBody{true, 1.0f});
+    world.add_component<Collider>(box, Collider{Vec3{0.5f, 0.5f, 0.5f}});
+
+    for (int i = 0; i < 180; ++i) { world.tick(1.0f / 60.0f); } // lands -> Begin
+
+    world.get_component<Transform>(box)->position = Vec3{0, 50, 0};
+    for (int i = 0; i < 30; ++i) { world.tick(1.0f / 60.0f); }  // separates -> End
+
+    REQUIRE(phases.size() >= 2);
+    REQUIRE(phases.front() == ContactPhase::Begin);
+    REQUIRE(phases.back() == ContactPhase::End);
+}

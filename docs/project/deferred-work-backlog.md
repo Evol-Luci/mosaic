@@ -424,6 +424,24 @@ anything shipped; they are capabilities that were never built.
   turns a click into an impulse along the camera ray. See
   `docs/project/next-steps.md` for the full entry, including the Critical
   dead-code bug it shipped past a fully green suite.
+- **Destroying an entity never destroys its physics body.** Found 2026-10-01
+  while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
+  `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
+  and `bodies_`, `handle_to_entity_` and `synced_pose_` are only ever inserted
+  into. So destroying a simulated entity leaks its Box3D body, which keeps
+  stepping and keeps generating contacts forever, while the three maps keep
+  stale entries that grow without bound over a long session. `update()` happens
+  to tolerate it -- step 2 and step 4 both `continue` when `get_component`
+  returns null, and step 5 drops contacts whose handles are unmapped -- which is
+  exactly why this has stayed invisible. Deferred 2026-10-01: the fix adds a
+  pure virtual (`destroy_body`) to `PhysicsBackend`, which every backend must
+  then implement, plus a decision about how `PhysicsSystem` learns an entity
+  died (poll the ECS each tick for vanished bodies, or an explicit
+  entity-destroyed event it subscribes to). That is an interface change and a
+  design question, not a patch. Noted now because the ContactEvent fix lets a
+  subscriber call back into `PhysicsSystem` for the first time, which makes
+  "handler destroys a colliding entity" a reachable shape rather than a
+  hypothetical one -- it is still safe today, but it is one step closer.
 - **Angular impulse / torque API.** Box3D exposes
   `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
   only the linear-at-a-point call, which already induces spin via torque
@@ -487,6 +505,20 @@ anything shipped; they are capabilities that were never built.
   agreement forever, whose failure mode is silent divergence from the real
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
+- ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding
+  `backend_mutex_`**~~ — **SHIPPED 2026-10-01.** `update()` now maps contacts
+  into a local vector inside a braced block holding the lock, and emits after
+  the block closes. The extent is delimited lexically on purpose: a `unique_lock`
+  plus `unlock()` would have been a smaller diff but would leave the locked
+  region ending at an unmarked statement, so a later edit adding a call-out above
+  it would reintroduce exactly this bug. The pose write-back already preceded
+  emission, so handler-visible ordering did not change -- the entry below, and the
+  #209 summary it came from, were wrong to claim it would. Evidence: both new
+  re-entrancy tests fail on a 3000 ms watchdog with the emit back under the lock
+  and pass with it outside; the watchdog runs the tick on a detached thread so the
+  failure is a named assertion in seconds rather than a 25-minute ctest stall.
+  Original entry follows.
+
 - **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
   holding `backend_mutex_` — a lock-ordering constraint, not just a
   re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
@@ -511,6 +543,46 @@ anything shipped; they are capabilities that were never built.
   observe a contact relative to the pose write-back — a behaviour decision
   worth its own slice. A recursive mutex would hide the re-entrant hang
   without making the read correct, and would do nothing about the ordering.
+- **A spurious watchdog trip in the contact-reentry tests degrades into a
+  use-after-free instead of the named failure it is designed to produce.**
+  Found 2026-10-01 in review of the contact-emit slice.
+  `tests/unit/physics/physics_contact_reentry_test.cpp`'s `tick_with_watchdog`
+  runs the tick on a detached thread capturing `&world`, so when the main
+  thread times out and `REQUIRE` throws, `world` is destroyed at scope exit
+  while that thread may still be using it. In the genuine-deadlock case the
+  thread is parked on a mutex that is then destroyed -- UB, though observed to
+  unwind cleanly and print the assertion. In the case the 3000 ms margin is
+  actually guarding against (a loaded runner, no deadlock), the thread is
+  *actively ticking* a destroyed `World`, so the run reports a segfault rather
+  than "the tick did not return" -- defeating the whole reason the watchdog was
+  chosen over a ctest `TIMEOUT`. Damage is bounded: `catch_discover_tests` gives
+  each case its own process, so it cannot take other cases down. Deferred
+  2026-10-01: the fix is to heap-allocate the `World` on the watchdog path and
+  deliberately leak it when the flag never sets, which turns both failure modes
+  into a clean named assertion. Not folded into that slice because it only
+  affects a failure path that the four-orders-of-magnitude timing margin makes
+  very unlikely, and leaking a `World` on purpose wants its own justification
+  in the test's comments rather than arriving as a fix-round edit.
+- **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
+  a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
+  calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
+  1500s default applies to every case in the suite: any test that hangs costs 25 minutes
+  of CI before it fails, and says only "Timeout" when it does. Deferred
+  2026-10-01 rather than folded into that slice, which solves its own hang with
+  an in-test watchdog instead -- the watchdog gives a named failure in seconds
+  and works when running the test binary directly, which a ctest property does
+  not. A suite-wide timeout is still worth having as a backstop for the next
+  hang nobody anticipated; it needs its own value chosen against the slowest
+  legitimate test rather than a number picked to fit one case.
+- **Nothing enforces that a system never calls user code while holding an
+  internal lock.** Recorded 2026-10-01 as a non-goal of the ContactEvent slice,
+  which fixes the single live instance. `PhysicsSystem` is the only system that
+  holds a mutex today, so there is currently nothing else to audit -- but the
+  rule it now follows ("collect under the lock, call out after releasing it")
+  exists only as a comment and a test in one file. Deferred 2026-10-01: a real
+  enforcement mechanism means either a lock-order-checking wrapper around the
+  mutex or a convention the dependency linter could verify, and inventing either
+  before a second system takes a lock would be speculative.
 - **The two concurrent physics tests busy-spin their reader thread** with no
   `yield` or `sleep`. Found 2026-09-30 in review. On a 1-vCPU CI runner the
   reader monopolizes a core, so the interleaving profile differs sharply from
