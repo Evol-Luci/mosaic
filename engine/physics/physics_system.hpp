@@ -65,6 +65,32 @@ public:
         std::vector<ContactEvent> contacts;
         {
             const std::lock_guard<std::mutex> lock(backend_mutex_);
+            // 0. Reap bodies whose entity is gone. destroy_entity() is deferred to the end
+            // of tick() and on_destroy() erases every component, so an entry whose
+            // RigidBody has vanished belongs to a destroyed entity -- or to a living one
+            // someone removed RigidBody from, which should also stop simulating. Either way
+            // the body must go: left alone it keeps stepping and keeps colliding, an
+            // invisible obstacle with no mesh to explain it.
+            //
+            // handle_to_entity_ is erased here too, and that matters within THIS tick, not
+            // across ticks: the Box3D backend clears its contact buffer at the top of every
+            // step(), but b3DestroyBody pushes an end-touch event for the destroyed body's
+            // shapes, which step 3 then surfaces. The backend filters those on shape
+            // validity first; this erase is the second line of defence, so step 5a cannot
+            // map a destroyed body's handle back to an entity.
+            for (auto it = bodies_.begin(); it != bodies_.end();)
+            {
+                if (world.get_component<RigidBody>(it->first) != nullptr)
+                {
+                    ++it;
+                    continue;
+                }
+                backend_->destroy_body(it->second);
+                handle_to_entity_.erase(it->second);
+                synced_pose_.erase(it->first);
+                it = bodies_.erase(it);
+            }
+
             // 1. Lazily create a backend body for each physics entity we have not seen.
             world.for_each<RigidBody>(
                 [&](mosaic::foundation::EntityID e, RigidBody& rb)
@@ -250,7 +276,7 @@ private:
     // otherwise run concurrently with the main thread's update() -- reading a Box3D
     // world mid-step, and reading bodies_/handle_to_entity_ mid-insert.
     //
-    // In update() it is held across steps 1 to 5a as one braced block -- every access to
+    // In update() it is held across steps 0 to 5a as one braced block -- every access to
     // backend_ and to the three maps, and no more. Contact emission runs *after* that block
     // closes, deliberately: a synchronous subscriber runs on update()'s stack, and one that
     // called raycast()/has_body()/apply_impulse() would self-deadlock here. Do not widen the
