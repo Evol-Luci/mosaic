@@ -424,6 +424,30 @@ anything shipped; they are capabilities that were never built.
   turns a click into an impulse along the camera ray. See
   `docs/project/next-steps.md` for the full entry, including the Critical
   dead-code bug it shipped past a fully green suite.
+- **Handle reuse / a free list for the Box3D backend's `bodies_` vector.**
+  Recorded 2026-10-02 as a non-goal of the body-destruction slice. That slice
+  tombstones a destroyed slot with `b3_nullBodyId` rather than erasing it,
+  because `handle == index + 1` and erasing would shift every later handle. So
+  the vector only ever grows: a session that spawns and destroys many bodies
+  accumulates dead slots even though the Box3D bodies themselves are freed.
+  Strictly better than leaking the bodies, but a leak of a different size
+  rather than its absence. Deferred 2026-10-02: a free list would reuse slots
+  but reintroduces the ABA problem that the generational `EntityID` solves on
+  the ECS side -- a recycled handle could be mistaken for the body that
+  previously held it -- so it wants a generational `BodyHandle`, which is an
+  interface change. No measured pressure yet.
+- **Changing a physics body's shape or type in place.** Recorded 2026-10-02 as
+  a non-goal of the body-destruction slice. `BodyDef` is consumed once at
+  `create_body` and nothing can alter a live body's shape, collider extents, or
+  static/dynamic type afterwards. The body-destruction slice makes
+  destroy-and-recreate possible for the first time, but deliberately does not
+  expose it. Deferred 2026-10-02: a scene editor changing a collider's extents,
+  or gameplay toggling a body between static and dynamic, both want this, and
+  both need a decision about whether velocity and accumulated state carry over
+  across the recreate. Related: reaping a body when its *collider* component is
+  removed while `RigidBody` stays -- the body currently persists with the shape
+  it was created with, and arguably should be recreated instead, which makes it
+  the same question rather than a separate one.
 - **Destroying an entity never destroys its physics body.** Found 2026-10-01
   while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
   `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
