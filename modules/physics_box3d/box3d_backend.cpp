@@ -124,7 +124,17 @@ public:
             const b3ShapeId sb = ev.endEvents[i].shapeIdB;
             if (!b3Shape_IsValid(sa) || !b3Shape_IsValid(sb))
             {
-                continue; // a shape was destroyed with its body; skip
+                // LOAD-BEARING as of 2026-10-02, and do not delete this as dead code.
+                // b3DestroyBody pushes a b3ContactEndTouchEvent for each of the destroyed
+                // body's shapes (box3d src/contact.c), and the event buffer is swapped at
+                // the end of b3World_Step -- so a body destroyed by PhysicsSystem's reap at
+                // step 0 produces an end event that this loop reads after step 3 of the
+                // same tick. Without this filter b3Shape_GetBody dereferences a freed shape:
+                // a debug assert, or a bogus body id in release. Before bodies could be
+                // destroyed at all this branch was unreachable and this comment was
+                // speculative; it is now the first line of defence, and removing it makes
+                // the "emits no ContactEvent naming a reaped entity" test crash.
+                continue;
             }
             last_contacts_.push_back(ep::BodyContact{
                 ep::ContactPhase::End, handle_of(b3Shape_GetBody(sa)),

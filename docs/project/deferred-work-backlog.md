@@ -424,21 +424,24 @@ anything shipped; they are capabilities that were never built.
   turns a click into an impulse along the camera ray. See
   `docs/project/next-steps.md` for the full entry, including the Critical
   dead-code bug it shipped past a fully green suite.
-- **Review Focus 4 of the body-destruction slice is covered by reasoning, not
-  by a falsifiable test.** Measured 2026-10-02 during that slice. The concern
-  was that a contact recorded in the previous `step()` could name a reaped
-  handle and be emitted with a destroyed entity; step 5a's unmapped-handle drop
-  prevents it, but the test written to pin that ordering **cannot be made to
-  fail**. Probed directly: with `handle_to_entity_.erase` deliberately removed
-  from the reap -- leaving step 5a able to resolve a destroyed body -- the test
-  still passes, because Box3D emits no contact event referencing a body it
-  destroys and a settled stack produces no further events. The test is kept as a
-  cheap regression guard against a future Box3D that did emit an end-touch on
-  destroy, and its comment now states what it does not prove. Deferred
-  2026-10-02: pinning it for real would mean a fake backend that synthesises a
-  contact for a handle the system has just reaped, which tests the system's
-  handle resolution rather than the real integration -- worth doing if the
-  unmapped-handle drop is ever changed, not before.
+- **The Box3D backend's end-event shape-validity filter became load-bearing on
+  2026-10-02 and nothing but a comment records it.** Found in review of the
+  body-destruction slice. `b3DestroyBody` pushes a `b3ContactEndTouchEvent` for
+  each of the destroyed body's shapes (box3d `src/contact.c`), and the event
+  buffer is swapped at the end of `b3World_Step` -- so a body destroyed by the
+  reap at step 0 produces an end event that `step()` reads after step 3 of the
+  same tick. The `if (!b3Shape_IsValid(sa) || !b3Shape_IsValid(sb)) continue;`
+  branch in `box3d_backend.cpp` drops it. Before this slice nothing could
+  destroy a body, so that branch was unreachable and its comment speculative.
+  It is now the first line of defence, and removing it makes the
+  "emits no ContactEvent naming a reaped entity" test crash on
+  `b3Shape_GetBody` over a freed shape. Deferred 2026-10-02: the comment now
+  says all of this, which is enough to stop someone deleting it as dead code,
+  but there is no test that fails if ONLY that filter is removed and the
+  handle_to_entity_ erase is kept -- the crash masks the cleaner assertion. A
+  fake backend that synthesises an end event for a just-reaped handle would
+  separate the two guards properly; worth doing if either is ever changed.
+
 - **Handle reuse / a free list for the Box3D backend's `bodies_` vector.**
   Recorded 2026-10-02 as a non-goal of the body-destruction slice. That slice
   tombstones a destroyed slot with `b3_nullBodyId` rather than erasing it,

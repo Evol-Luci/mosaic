@@ -694,7 +694,10 @@ TEST_CASE("PhysicsSystem destroys the body of a destroyed entity", "[physics]")
     // Review Focus 5: a script can hold an entity id across a destroy. Both of these are
     // reachable from the Python bindings shipped in #207.
     REQUIRE_FALSE(physics->has_body(box));
-    REQUIRE_NOTHROW(physics->apply_impulse(box, Vec3{10, 0, 0}, Vec3{0, 0, 0}));
+    physics->apply_impulse(box, Vec3{10, 0, 0}, Vec3{0, 0, 0});
+    // Not merely "it did not throw": FakeBackend records every impulse it is handed, so an
+    // empty log is what actually proves the stale handle never reached the backend.
+    REQUIRE(fake->impulses.empty());
 }
 
 TEST_CASE("PhysicsSystem reaps a body when RigidBody is removed from a living entity", "[physics]")
@@ -781,7 +784,10 @@ TEST_CASE("PhysicsSystem keeps surviving bodies when one is reaped", "[physics]"
     world.tick(1.0f / 60.0f);
 
     REQUIRE(fake->destroyed.size() == 1);
-    REQUIRE(fake->destroyed[0] != 0);
+    // The handle of boxes[2] specifically. FakeBackend hands out 1..5 in creation order, so
+    // asserting `!= 0` would be true for any of them and would not catch a reap that
+    // destroyed an arbitrary entry instead of the dead one.
+    REQUIRE(fake->destroyed[0] == 3);
     for (std::size_t i = 0; i < boxes.size(); ++i)
     {
         if (i == 2) { REQUIRE_FALSE(physics->has_body(boxes[i])); }
@@ -791,20 +797,20 @@ TEST_CASE("PhysicsSystem keeps surviving bodies when one is reaped", "[physics]"
 
 TEST_CASE("PhysicsSystem emits no ContactEvent naming a reaped entity", "[physics]")
 {
-    // Review Focus 4, and an honest label on what this does NOT prove.
+    // Review Focus 4: a contact naming a reaped body must never reach a subscriber.
     //
-    // The intent was: step 5a drops contacts whose handle is unmapped, which covers a
-    // destroyed body ONLY because the reap erases handle_to_entity_ first. Measured
-    // 2026-10-02, that hazard turns out not to be reachable through Box3D: leaving
-    // handle_to_entity_ deliberately intact in the reap does NOT make this test fail,
-    // because destroying a body emits no contact event referencing it, and a settled stack
-    // produces no further events either. So the unmapped-handle drop is defence against a
-    // shape this backend does not currently produce.
+    // There are TWO guards, and this test covers both. b3DestroyBody pushes an end-touch
+    // event for the destroyed body's shapes, and the buffer is swapped at the end of
+    // b3World_Step -- so the reap at step 0 produces an event that step 3 surfaces in the
+    // same tick. First the Box3D backend's step() drops end events whose shapes are no
+    // longer valid; then step 5a drops any contact whose handle is missing from
+    // handle_to_entity_, which the reap erased.
     //
-    // The test is kept as a cheap regression guard -- it would catch a future Box3D that
-    // did emit an end-touch event on destroy, or a step 5a that resolved handles
-    // differently -- but it is NOT a falsifiable pin on the ordering, and saying so here is
-    // better than letting a green tick imply one.
+    // Falsifiable, and measured: removing the backend's shape-validity filter makes this
+    // test fail (it crashes on b3Shape_GetBody over a freed shape). An earlier note here
+    // claimed the test "cannot be made to fail" because Box3D emitted no event -- that was
+    // wrong on the mechanism, and review caught it; the probe had only been run against the
+    // second guard, which the first one shields.
     World world;
     world.add_system<PhysicsSystem>(
         mosaic::physics::box3d::create_box3d_backend(mosaic::engine::physics::WorldDef{}));
