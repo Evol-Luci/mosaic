@@ -442,6 +442,19 @@ anything shipped; they are capabilities that were never built.
   fake backend that synthesises an end event for a just-reaped handle would
   separate the two guards properly; worth doing if either is ever changed.
 
+- **Nothing enforces the GIL rule the scripting module now depends on.**
+  Recorded 2026-10-03 with the GIL fix. The rule is "no thread owns the GIL
+  implicitly; every entry into CPython acquires", and it is held together by
+  guards a human has to remember to add: a new `ScriptEngine` entry point, a
+  new `py::` member (which must also be emptied in the guarded destructor), a
+  new static `py::object` (which must leak), or a new direct pybind11 caller
+  outside the engines will all compile and then abort or crash at runtime.
+  The two new cases in `script_gil_test.cpp` catch the worker-thread shape,
+  but nothing catches a missed guard on a specific method. Deferred
+  2026-10-03: the real answer is probably to stop exposing raw `py::` types
+  across the module boundary at all, so there is only one place that can
+  touch CPython — which is a bigger refactor than the bug warranted. Until
+  then the destructor comment and this entry are the enforcement.
 - **Handle reuse / a free list for the Box3D backend's `bodies_` vector.**
   Recorded 2026-10-02 as a non-goal of the body-destruction slice. That slice
   tombstones a destroyed slot with `b3_nullBodyId` rather than erasing it,
@@ -515,6 +528,33 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- ~~**The `[script]` SIGSEGV**~~ — **ROOT-CAUSED AND FIXED 2026-10-03. It was
+  never a flake, and the cause was written in our own comment.**
+  `ensure_interpreter` noted that after init "the calling (main) thread holds
+  the GIL ... no explicit GIL handoff" — so whoever won the `std::call_once`
+  race kept the GIL for the process. The threaded script test passed alone
+  because the `ScriptWorker` thread won and held it; it died after any other
+  engine had been created on the main thread, because the worker then called
+  `PyDict_New()` with no GIL. `ctest` never saw it because
+  `catch_discover_tests` gives every `TEST_CASE` its own process, so the worker
+  was always first — **the gate was green and blind at the same time.**
+  Fixed by making the invariant real: no thread owns the GIL implicitly, and
+  every entry into CPython acquires. Four things that were not obvious going
+  in, each of which cost a failing-gate iteration: `globals_` had to become a
+  `std::optional<py::dict>` in both engines, because a `py::dict` *member* is
+  built before the constructor body and destroyed after the destructor body,
+  leaving no scope in which to guard `PyDict_New`; `restricted_builtins`'
+  function-local static `ProxyClasses` had to start leaking, because
+  `__cxa_atexit` destroys it with no GIL and `dec_ref` aborts; `trace_fn_` had
+  to be emptied inside the guarded destructor, since a `py::` member outlives
+  the body; and every direct pybind11 user outside the engines — the docs
+  generator and four test files that build their own `py::dict` — had to
+  acquire too. Evidence: `[script]` in one process is 5/5 clean where it was
+  RC=139 every time, the whole binary now runs in a single process (1081
+  cases, 31577 assertions) which the crash made impossible, and removing the
+  release makes the new tests **deadlock** rather than crash.
+  The entry that called this "unexplained" follows for context.
+
 - **The `[script]` SIGSEGV now has a deterministic, one-command reproduction,
   and `ctest` structurally cannot see it.** Found 2026-10-03 while guarding
   `raycast`'s sequence reads. #208's entry recorded this failure mode as
