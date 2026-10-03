@@ -77,6 +77,13 @@ class PhysicsBackend
 public:
     virtual ~PhysicsBackend() = default;
     virtual BodyHandle create_body(const BodyDef& def) = 0;
+
+    // Destroy a body previously returned by create_body. The handle is invalid afterwards.
+    // A no-op for an unknown or already-destroyed handle, matching how the other
+    // handle-taking methods degrade. Required rather than defaulted: a no-op default would
+    // silently leak a body that keeps simulating and keeps colliding -- an invisible
+    // obstacle with no mesh to explain it.
+    virtual void destroy_body(BodyHandle body) = 0;
     virtual void       step(float dt, int substeps) = 0;
     virtual Pose       body_pose(BodyHandle body) const = 0;
 

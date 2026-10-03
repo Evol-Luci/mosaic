@@ -78,6 +78,18 @@ public:
         return handle;
     }
 
+    void destroy_body(ep::BodyHandle body) override
+    {
+        const b3BodyId* slot = live_body(body);
+        if (slot == nullptr)
+        {
+            return;
+        }
+        const b3BodyId id = *slot;         // copy before tombstoning the slot
+        bodies_[body - 1] = b3_nullBodyId; // handles are indices; never erase
+        b3DestroyBody(id);
+    }
+
     void step(float dt, int substeps) override
     {
         b3World_Step(world_, dt, substeps);
@@ -125,11 +137,12 @@ public:
     void set_body_transform(ep::BodyHandle body, const Vec3& position,
                             const Quat& rotation) override
     {
-        if (body == 0 || body > bodies_.size())
+        const b3BodyId* slot = live_body(body);
+        if (slot == nullptr)
         {
             return;
         }
-        const b3BodyId id = bodies_[body - 1];
+        const b3BodyId id = *slot;
         b3Pos          pos{};
         pos.x = position.x;
         pos.y = position.y;
@@ -147,11 +160,12 @@ public:
 
     void apply_impulse(ep::BodyHandle body, const Vec3& impulse, const Vec3& world_point) override
     {
-        if (body == 0 || body > bodies_.size())
+        const b3BodyId* slot = live_body(body);
+        if (slot == nullptr)
         {
             return;
         }
-        const b3BodyId id = bodies_[body - 1];
+        const b3BodyId id = *slot;
         b3Pos          point{};
         point.x = world_point.x;
         point.y = world_point.y;
@@ -195,12 +209,13 @@ public:
 
     ep::Pose body_pose(ep::BodyHandle body) const override
     {
-        if (body == 0 || body > bodies_.size())
+        const b3BodyId* slot = live_body(body);
+        if (slot == nullptr)
         {
             return ep::Pose{};
         }
-        const auto   p = b3Body_GetPosition(bodies_[body - 1]); // b3Pos == b3Vec3 {x,y,z}
-        const b3Quat q = b3Body_GetRotation(bodies_[body - 1]); // b3Quat {b3Vec3 v; float s;}
+        const auto   p = b3Body_GetPosition(*slot); // b3Pos == b3Vec3 {x,y,z}
+        const b3Quat q = b3Body_GetRotation(*slot); // b3Quat {b3Vec3 v; float s;}
         return ep::Pose{Vec3{p.x, p.y, p.z}, Quat{q.v.x, q.v.y, q.v.z, q.s}};
     }
 
@@ -209,6 +224,21 @@ private:
     {
         return static_cast<ep::BodyHandle>(
             reinterpret_cast<std::uintptr_t>(b3Body_GetUserData(id)));
+    }
+
+    // The b3BodyId for a handle, or nullptr when the handle is out of range or names a
+    // body that has been destroyed. Every handle-taking method goes through this. A
+    // destroyed slot is tombstoned with b3_nullBodyId rather than erased, because
+    // handle == index + 1 and erasing would shift every later handle.
+    const b3BodyId* live_body(ep::BodyHandle body) const
+    {
+        if (body == 0 || body > bodies_.size())
+        {
+            return nullptr;
+        }
+        const b3BodyId& id = bodies_[body - 1];
+        // b3Body_IsValid returns false when index1 < 1, so this is safe on b3_nullBodyId.
+        return b3Body_IsValid(id) ? &id : nullptr;
     }
 
     b3WorldId                    world_{};

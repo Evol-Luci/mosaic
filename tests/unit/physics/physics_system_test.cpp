@@ -40,6 +40,7 @@ public:
 
     struct ImpulseCall { BodyHandle body; Vec3 impulse; Vec3 point; };
     std::vector<ImpulseCall> impulses;
+    std::vector<BodyHandle>  destroyed;
 
     void apply_impulse(BodyHandle body, const mosaic::foundation::math::Vec3& impulse,
                        const mosaic::foundation::math::Vec3& world_point) override
@@ -52,6 +53,7 @@ public:
         created.push_back(def);
         return static_cast<BodyHandle>(created.size());
     }
+    void destroy_body(BodyHandle body) override { destroyed.push_back(body); }
     void step(float, int) override { ++steps; }
     Pose body_pose(BodyHandle) const override { return fixed; }
     void set_body_transform(BodyHandle, const mosaic::foundation::math::Vec3&,

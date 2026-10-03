@@ -68,6 +68,7 @@ public:
         Guard g(this);
         return ++next_;
     }
+    void destroy_body(BodyHandle) override { Guard g(this); }
     void step(float, int) override { Guard g(this); }
     Pose body_pose(BodyHandle) const override
     {
