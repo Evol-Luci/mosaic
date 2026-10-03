@@ -424,6 +424,21 @@ anything shipped; they are capabilities that were never built.
   turns a click into an impulse along the camera ray. See
   `docs/project/next-steps.md` for the full entry, including the Critical
   dead-code bug it shipped past a fully green suite.
+- **Review Focus 4 of the body-destruction slice is covered by reasoning, not
+  by a falsifiable test.** Measured 2026-10-02 during that slice. The concern
+  was that a contact recorded in the previous `step()` could name a reaped
+  handle and be emitted with a destroyed entity; step 5a's unmapped-handle drop
+  prevents it, but the test written to pin that ordering **cannot be made to
+  fail**. Probed directly: with `handle_to_entity_.erase` deliberately removed
+  from the reap -- leaving step 5a able to resolve a destroyed body -- the test
+  still passes, because Box3D emits no contact event referencing a body it
+  destroys and a settled stack produces no further events. The test is kept as a
+  cheap regression guard against a future Box3D that did emit an end-touch on
+  destroy, and its comment now states what it does not prove. Deferred
+  2026-10-02: pinning it for real would mean a fake backend that synthesises a
+  contact for a handle the system has just reaped, which tests the system's
+  handle resolution rather than the real integration -- worth doing if the
+  unmapped-handle drop is ever changed, not before.
 - **Handle reuse / a free list for the Box3D backend's `bodies_` vector.**
   Recorded 2026-10-02 as a non-goal of the body-destruction slice. That slice
   tombstones a destroyed slot with `b3_nullBodyId` rather than erasing it,
@@ -448,6 +463,24 @@ anything shipped; they are capabilities that were never built.
   removed while `RigidBody` stays -- the body currently persists with the shape
   it was created with, and arguably should be recreated instead, which makes it
   the same question rather than a separate one.
+- ~~**Destroying an entity never destroys its physics body**~~ — **SHIPPED
+  2026-10-02.** `PhysicsBackend` gained a pure-virtual `destroy_body`, and
+  `PhysicsSystem::update()` gained a reap as step 0 inside the existing lock:
+  any entry in `bodies_` whose `RigidBody` has vanished loses its body and its
+  three map entries. The predicate is "`RigidBody` is gone" rather than "the
+  entity is invalid", which covers `destroy_entity` committing, `World::clear()`
+  (which bypasses the deferred queue and runs no systems), and removing
+  `RigidBody` from a living entity -- all three with one check. The Box3D side
+  was the bulk of it: `handle == index + 1` in an insert-only vector, so a
+  destroyed slot is tombstoned with `b3_nullBodyId` and all four handle-taking
+  methods now route through one `live_body()` guard, where three of them
+  previously checked only the range. Evidence: with the backend
+  call dropped but the maps still erased, the call-counting tests fail merely
+  because the call is absent while the stacked-boxes test fails
+  `1.99934 < 1.49934` -- the upper box still propped up by a ghost. That
+  asymmetry is why a positional test was written instead of a call-counting one.
+  Original entry follows.
+
 - **Destroying an entity never destroys its physics body.** Found 2026-10-01
   while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
   `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
