@@ -30,7 +30,7 @@ struct InterpreterInit
 };
 
 class StudioPluginScriptEngine final
-    : private InterpreterInit // must be first — initializes CPython before py::dict globals_
+    : private InterpreterInit // must be first — the ctor body's gil_scoped_acquire needs a live interpreter
     , public mosaic::engine::script::ScriptEngine
 {
 public:
@@ -42,7 +42,18 @@ public:
         // body, leaving no scope in which to guard PyDict_New.
         const py::gil_scoped_acquire gil;
         globals_.emplace();
-        mosaic::script::python::install_restricted_builtins(*globals_);
+        // On a throw, locals die before member subobjects, so `gil` would release before
+        // globals_ is destroyed -- an unguarded decref, the same abort this change removes.
+        // install_restricted_builtins throws py::error_already_set if PyModule_New fails.
+        try
+        {
+            mosaic::script::python::install_restricted_builtins(*globals_);
+        }
+        catch (...)
+        {
+            globals_.reset();
+            throw;
+        }
     }
 
     // Dropping Python references needs the GIL exactly as acquiring them did.
@@ -87,7 +98,7 @@ public:
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
     {
-        const py::gil_scoped_acquire gil;
+        const py::gil_scoped_acquire gil;  // uniformity, not necessity: no Python here
         stack_ = &stack;
     }
 

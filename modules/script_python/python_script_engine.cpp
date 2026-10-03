@@ -26,8 +26,12 @@ namespace py = pybind11;
 namespace mosaic::script::python
 {
 // CPython allows a single interpreter and is fragile across finalize/re-init, so initialize once
-// per process and never finalize (the process reclaims it at exit). After init, the calling
-// (main) thread holds the GIL; v0.1 scripting is single-threaded, so no explicit GIL handoff.
+// per process and never finalize (the process reclaims it at exit). After init this function
+// RELEASES the GIL, so no thread owns it implicitly and every entry into CPython must acquire
+// it -- see the block below. This comment used to say the opposite ("the calling (main) thread
+// holds the GIL ... no explicit GIL handoff"), and that was the bug: whoever won the
+// std::call_once race kept the GIL, so an engine built on a worker thread called PyDict_New()
+// with no GIL and segfaulted.
 // Exported (declared in python_script_engine.hpp) so modules/script_python_studio's
 // StudioPluginScriptEngine can share the SAME process-wide std::call_once guard --
 // calling py::initialize_interpreter() from two independent std::call_once flags would
@@ -70,11 +74,12 @@ void ensure_interpreter()
 
 namespace
 {
-// Helper base class: initializes CPython before any pybind11 member objects are
-// constructed. py::dict's default constructor calls PyDict_New() immediately, so
-// the interpreter must be running before the member initializers run.
-// C++ initializes base classes (in declaration order) before member variables,
-// so placing InterpreterInit first guarantees the interpreter is up in time.
+// Helper base class: initializes CPython before the engine's constructor body runs.
+// The requirement is still real but the reason has changed: globals_ is now an optional
+// emplaced inside the body, so this is no longer about beating a py::dict member
+// initializer -- it is that the body's very first act is py::gil_scoped_acquire, which
+// needs a live interpreter. Base classes are constructed before the body, so placing
+// InterpreterInit first guarantees that.
 struct InterpreterInit
 {
     InterpreterInit() { ensure_interpreter(); }
@@ -172,7 +177,7 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
 }
 
 class PythonScriptEngine final
-    : private InterpreterInit // must be first — initializes CPython before py::dict globals_
+    : private InterpreterInit // must be first — the ctor body's gil_scoped_acquire needs a live interpreter
     , public mosaic::engine::script::ScriptEngine
 {
 public:
@@ -182,6 +187,13 @@ public:
         // GIL, so take it before touching CPython at all -- including constructing globals_.
         const py::gil_scoped_acquire gil;
         globals_.emplace();
+        // On a throw from here, locals are destroyed before member subobjects -- so `gil`
+        // would release and only THEN would globals_ be destroyed, decref'ing with no GIL:
+        // structurally the same abort this whole change exists to remove. Reset it while the
+        // guard is still alive. Practically unreachable (it needs OOM, or an interpreter
+        // already wedged) -- which is precisely how the original bug stayed hidden.
+        try
+        {
         if (restricted)
         {
             // allow_open=true: this constructor path is only ever reached via
@@ -193,6 +205,12 @@ public:
         {
             // Give the namespace access to builtins (print, etc.).
             (*globals_)["__builtins__"] = py::module_::import("builtins");
+        }
+        }
+        catch (...)
+        {
+            globals_.reset();
+            throw;
         }
     }
 
@@ -359,7 +377,7 @@ public:
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
     {
-        const py::gil_scoped_acquire gil;
+        const py::gil_scoped_acquire gil;  // uniformity, not necessity: no Python here
         // undo/redo/undo_depth are installed in bind_world and read stack_ at call time, so
         // binding the stack here activates them for all subsequent script calls.
         stack_ = &stack;
@@ -392,7 +410,7 @@ public:
 
     void bind_debugger(mosaic::engine::script::ScriptDebugger* debugger) override
     {
-        const py::gil_scoped_acquire gil;
+        const py::gil_scoped_acquire gil;  // uniformity, not necessity: no Python here
         debugger_ = debugger;
     }
 
