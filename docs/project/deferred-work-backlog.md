@@ -515,6 +515,52 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- **The `[script]` SIGSEGV now has a deterministic, one-command reproduction,
+  and `ctest` structurally cannot see it.** Found 2026-10-03 while guarding
+  `raycast`'s sequence reads. #208's entry recorded this failure mode as
+  unexplained and said it "has not reproduced since". It reproduces **3/3 on
+  pristine `main`** with no local changes at all:
+
+  ```
+  ./build/debug/tests/mosaic_unit_tests "[script]"   # RC=139, every run
+  ```
+
+  The failing case is `script_system_test.cpp`'s "threaded ScriptSystem applies
+  script writes one tick later", which **passes in isolation** -- so it is the
+  in-process ordering of the `[script]` cases that kills it, almost certainly
+  embedded-CPython interpreter init/teardown across threads, as #208 guessed.
+  Verified it is not caused by anything in flight: reverting a local engine
+  change and then the new tests too left it failing identically on untouched
+  `main`.
+
+  **Why CI has stayed green through all of this:**
+  `catch_discover_tests(mosaic_unit_tests)` registers each `TEST_CASE` as its
+  own ctest test, so every case runs in a fresh process and the ordering that
+  triggers the crash never occurs. The gate reporting 1079/1079 is therefore
+  true and also blind to this. Anyone running the tag directly -- which is the
+  normal way to work on scripting -- hits it immediately.
+
+  Deferred 2026-10-03 rather than fixed: the cause is interpreter lifetime
+  across threads, which is the same machinery #208 spent nine days in, and it
+  deserves its own slice rather than riding along with an unrelated binding
+  fix. But it is no longer "cannot reproduce" -- the command above is the
+  starting point, and `script_system_test.cpp:195` is the assertion that goes
+  first.
+- ~~**`raycast()`'s script binding indexes its sequence arguments without a
+  length check**~~ — **SHIPPED 2026-10-03.** It now uses the same `to_vec3`
+  helper `apply_impulse` has used since #207, so a short sequence or a
+  non-numeric element yields the miss dict the call already returns when no
+  host callback is set, rather than raising out of pybind11 and aborting the
+  tick. The host is deliberately not called at all on malformed input --
+  zero-filling the missing components would hand the simulation a ray the
+  script never asked for -- which the tests pin with a call counter. On the
+  behaviour-change worry recorded below: what goes away is an *undocumented*
+  exception. `raycast`'s `py::doc` promised only "hit data as a dictionary" and
+  never promised to raise; it now states the miss-on-malformed rule explicitly.
+  Each of the three new sections asserts both the miss AND that the script
+  keeps running, and all three fail under the mutation that restores unguarded
+  indexing. Original entry follows.
+
 - **`raycast()`'s script binding indexes its sequence arguments without a
   length check.** `python_script_engine.cpp`'s `raycast` reads
   `origin[0..2]` and `direction[0..2]` directly, so a script passing a

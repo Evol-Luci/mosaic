@@ -48,3 +48,56 @@ TEST_CASE("raycast() with no host callback returns a miss", "[script]")
     auto r = engine->run_string("assert raycast([0,0,0], [0,0,-1], 1.0)['hit'] is False\n");
     REQUIRE(r.ok);
 }
+
+TEST_CASE("raycast() returns a miss for a malformed sequence instead of raising", "[script]")
+{
+    // raycast read origin[0..2]/direction[0..2] with no length or type check, so one bad
+    // argument raised out of pybind11 and -- uncaught -- aborted the whole tick. apply_impulse
+    // has guarded its reads since it shipped; this brings raycast to the same convention.
+    //
+    // Each case asserts TWO things: the call reports a miss, and the script keeps running
+    // afterwards. The second is the point -- a binding that raises would fail the run even if
+    // the dict it never returned would have said hit == False.
+    int  calls = 0;
+    ScriptHost host;
+    host.raycast = [&](Vec3, Vec3, float) -> ScriptRayHit
+    {
+        ++calls;
+        ScriptRayHit h;
+        h.hit = true; // deliberately a HIT: a guarded call must not reach the host at all
+        return h;
+    };
+
+    auto engine = create_python_script_engine();
+    engine->bind_host(host);
+
+    SECTION("origin too short")
+    {
+        auto r = engine->run_string("h = raycast([0.0, 5.0], [0.0, -1.0, 0.0], 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0); // the host was never called with a half-built Vec3
+    }
+
+    SECTION("direction too short")
+    {
+        auto r = engine->run_string("h = raycast([0.0, 5.0, 0.0], [0.0, -1.0], 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+
+    SECTION("non-numeric element")
+    {
+        auto r = engine->run_string("h = raycast([0.0, 'up', 0.0], [0.0, -1.0, 0.0], 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+}

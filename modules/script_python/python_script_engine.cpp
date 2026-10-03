@@ -108,11 +108,18 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
             mosaic::engine::script::ScriptRayHit h;
             if (host.raycast)
             {
-                const Vec3 o{origin[0].cast<float>(), origin[1].cast<float>(),
-                             origin[2].cast<float>()};
-                const Vec3 d{direction[0].cast<float>(), direction[1].cast<float>(),
-                             direction[2].cast<float>()};
-                h = host.raycast(o, d, max_distance);
+                // Guarded, like apply_impulse's: a short sequence or a non-numeric element
+                // used to raise out of pybind11 and -- uncaught -- abort the whole tick over
+                // one bad call. On malformed input `h` stays default-constructed, so this
+                // returns exactly the miss dict it already returns when no host callback is
+                // set, rather than inventing a second failure shape. The host is deliberately
+                // not called at all: filling the missing components with zeros and casting
+                // anyway would hand the simulation a ray the script never asked for.
+                Vec3 o{}, d{};
+                if (to_vec3(origin, o) && to_vec3(direction, d))
+                {
+                    h = host.raycast(o, d, max_distance);
+                }
             }
             py::dict point;
             point["x"] = h.point.x; point["y"] = h.point.y; point["z"] = h.point.z;
@@ -126,7 +133,11 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
             out["normal"] = normal;
             return out;
         },
-        py::doc("Cast a ray into the scene and return hit data as a dictionary."));
+        py::doc("Cast a ray into the scene and return hit data as a dictionary. origin and "
+                "direction are 3-element sequences. Reports a miss (hit False) if there is "
+                "no physics system or an argument is malformed -- a short sequence or a "
+                "non-numeric element -- rather than raising, since a raising binding would "
+                "abort the whole tick over one bad call."));
 
     // apply_impulse(entity, impulse, point) -> bool. impulse/point are 3-element
     // sequences (matching raycast). Malformed input returns False rather than
