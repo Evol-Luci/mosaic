@@ -41,16 +41,41 @@ namespace
 // If a loaded runner ever trips this spuriously, raise it; do not delete the test.
 constexpr int kWatchdogMs = 3000;
 
+// Everything the detached tick thread can still reach after the TEST_CASE has unwound.
+//
+// Heap-owned on purpose. These used to be TEST_CASE stack locals captured by reference, which
+// made a tripped watchdog undefined behaviour: REQUIRE throws, the case unwinds, the World and
+// these locals die, and the thread is either parked on a destroyed mutex or -- in the case the
+// 3000 ms margin actually guards against, a slow runner rather than a deadlock -- still
+// actively ticking them. Measured 2026-10-03: that crashed with SIGABRT or SIGSEGV *after*
+// printing the assertion, so a CI run saw a signal instead of the named failure this watchdog
+// exists to produce. Now the thread holds its World and Probe alive and they simply LEAK on a
+// trip, which is strictly better than a use-after-free.
+struct Probe
+{
+    int                          handler_calls = 0;
+    bool                         hit_the_box = false;
+    bool                         pushed = false;
+    mosaic::foundation::EntityID box{};
+};
+
 // Ticks `world` `count` times on a detached thread and waits up to kWatchdogMs for it to
-// finish. Returns false if it did not. The flag is heap-owned via shared_ptr so the
-// detached thread never touches a dead stack local if it outlives this call.
-bool tick_with_watchdog(World& world, int count)
+// finish. Returns false if it did not. Both shared_ptrs are captured BY VALUE, so a thread
+// that outlives this call keeps what it touches alive.
+//
+// Probe deliberately does NOT own the World: the subscriber lambda stored in the World's
+// EventBus captures the Probe, so a Probe owning the World back would close a reference cycle
+// and leak both on the PASSING path too. The handlers hold the World and PhysicsSystem as raw
+// non-owning pointers instead -- safe because a handler only ever runs inside a tick, and a
+// tick only happens on the thread that is holding the World alive.
+bool tick_with_watchdog(std::shared_ptr<World> world, std::shared_ptr<Probe> probe, int count)
 {
     auto done = std::make_shared<std::atomic<bool>>(false);
     std::thread(
-        [&world, count, done]
+        [world, probe, count, done]
         {
-            for (int i = 0; i < count; ++i) { world.tick(1.0f / 60.0f); }
+            (void)probe; // captured solely to extend its lifetime past a tripped watchdog
+            for (int i = 0; i < count; ++i) { world->tick(1.0f / 60.0f); }
             done->store(true);
         })
         .detach();
@@ -84,53 +109,51 @@ mosaic::foundation::EntityID build_falling_box_scene(World& world)
 
 TEST_CASE("a ContactEvent handler can raycast without deadlocking", "[physics]")
 {
-    World world;
-    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
-    auto* physics = world.get_system<PhysicsSystem>();
+    auto world = std::make_shared<World>();
+    world->add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+    auto* physics = world->get_system<PhysicsSystem>();
     REQUIRE(physics != nullptr);
 
-    int  handler_calls = 0;
-    bool hit_the_box = false;
-    mosaic::foundation::EntityID box{};
-    world.events().subscribe<ContactEvent>(
-        [&](const ContactEvent&)
+    auto probe = std::make_shared<Probe>();
+    world->events().subscribe<ContactEvent>(
+        [probe, physics](const ContactEvent&)
         {
-            ++handler_calls;
+            ++probe->handler_calls;
             // Review Focus 4: not merely "it returned", and not merely that it hit SOMETHING
             // -- the ground slab lies under this ray too, so a bare `.hit` would be true even
             // with the box's pose wrong or its body missing. Step 4 wrote the poses before
             // this handler ran, so the closest hit on the way down must be the box itself.
             const auto r = physics->raycast(Vec3{0, 10, 0}, Vec3{0, -1, 0}, 20.0f);
-            if (r.hit && r.entity == box) { hit_the_box = true; }
+            if (r.hit && r.entity == probe->box) { probe->hit_the_box = true; }
         });
 
-    box = build_falling_box_scene(world);
+    probe->box = build_falling_box_scene(*world);
 
-    REQUIRE(tick_with_watchdog(world, 180)); // false == the handler's raycast deadlocked
-    REQUIRE(handler_calls > 0);              // the scenario really produced a contact
-    REQUIRE(hit_the_box);
+    REQUIRE(tick_with_watchdog(world, probe, 180)); // false == the raycast deadlocked
+    REQUIRE(probe->handler_calls > 0);              // the scenario really produced a contact
+    REQUIRE(probe->hit_the_box);
 }
 
 TEST_CASE("a ContactEvent handler can apply an impulse without deadlocking", "[physics]")
 {
-    World world;
-    world.add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
-    auto* physics = world.get_system<PhysicsSystem>();
+    auto world = std::make_shared<World>();
+    world->add_system<PhysicsSystem>(create_box3d_backend(WorldDef{}));
+    auto* physics = world->get_system<PhysicsSystem>();
     REQUIRE(physics != nullptr);
 
-    int  handler_calls = 0;
-    bool pushed = false;
-    world.events().subscribe<ContactEvent>(
-        [&](const ContactEvent& c)
+    auto   probe = std::make_shared<Probe>();
+    World* raw_world = world.get(); // non-owning: see tick_with_watchdog's note on the cycle
+    world->events().subscribe<ContactEvent>(
+        [probe, physics, raw_world](const ContactEvent& c)
         {
-            ++handler_calls;
+            ++probe->handler_calls;
             // Push the DYNAMIC side of the pair. Box3D does not guarantee which of a/b is
             // which, and apply_impulse is documented as a no-op for a static body -- so
             // pushing c.a blindly silently does nothing whenever a is the ground, and the
             // test would then be asserting against a push that never happened.
-            const auto is_dynamic = [&](mosaic::foundation::EntityID e)
+            const auto is_dynamic = [raw_world](mosaic::foundation::EntityID e)
             {
-                const RigidBody* rb = world.get_component<RigidBody>(e);
+                const RigidBody* rb = raw_world->get_component<RigidBody>(e);
                 return rb != nullptr && rb->dynamic;
             };
             const mosaic::foundation::EntityID target =
@@ -138,18 +161,18 @@ TEST_CASE("a ContactEvent handler can apply an impulse without deadlocking", "[p
 
             // has_body() takes the same lock and touches no backend call, so it is the
             // cheapest proof the maps are readable from here.
-            if (!pushed && physics->has_body(target))
+            if (!probe->pushed && physics->has_body(target))
             {
                 physics->apply_impulse(target, Vec3{25, 0, 0}, Vec3{0, 0, 0});
-                pushed = true;
+                probe->pushed = true;
             }
         });
 
-    (void)build_falling_box_scene(world);
+    (void)build_falling_box_scene(*world);
 
-    REQUIRE(tick_with_watchdog(world, 240)); // false == the handler's apply_impulse deadlocked
-    REQUIRE(handler_calls > 0);
-    REQUIRE(pushed);
+    REQUIRE(tick_with_watchdog(world, probe, 240)); // false == apply_impulse deadlocked
+    REQUIRE(probe->handler_calls > 0);
+    REQUIRE(probe->pushed);
 
     // Review Focus 5: the impulse must reach the simulation, not merely be accepted. The box
     // starts at x == 0 and nothing else pushes it sideways.
@@ -160,11 +183,11 @@ TEST_CASE("a ContactEvent handler can apply an impulse without deadlocking", "[p
     // impulse just gave it. If this test ever starts failing with the box unmoved, that
     // external-edit heuristic is the first thing to check.
     bool moved_in_x = false;
-    world.for_each<RigidBody>(
+    world->for_each<RigidBody>(
         [&](mosaic::foundation::EntityID e, RigidBody& rb)
         {
             if (!rb.dynamic) { return; }
-            const Transform* t = world.get_component<Transform>(e);
+            const Transform* t = world->get_component<Transform>(e);
             if (t != nullptr && std::abs(t->position.x) > 0.1f) { moved_in_x = true; }
         });
     REQUIRE(moved_in_x);

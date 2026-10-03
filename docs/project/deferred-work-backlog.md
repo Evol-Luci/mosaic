@@ -603,6 +603,25 @@ anything shipped; they are capabilities that were never built.
   observe a contact relative to the pose write-back — a behaviour decision
   worth its own slice. A recursive mutex would hide the re-entrant hang
   without making the read correct, and would do nothing about the ordering.
+- ~~**A spurious watchdog trip in the contact-reentry tests degrades into a
+  use-after-free**~~ — **SHIPPED 2026-10-03.** The World and the state the
+  handlers write are now heap-owned (`std::shared_ptr<World>` plus a `Probe`
+  struct), and `tick_with_watchdog` captures both by value, so a thread that
+  outlives the `TEST_CASE` keeps what it touches alive and they simply leak on a
+  trip. **The entry below understated the hazard:** heap-allocating the World
+  alone would not have fixed it, because the subscriber lambdas also captured
+  `handler_calls`/`hit_the_box`/`pushed`/`box` by reference -- all `TEST_CASE`
+  stack locals, reachable from inside the World's own EventBus. The ordering
+  that makes the fix correct: `Probe` deliberately does NOT own the World, since
+  the EventBus holds a lambda owning the Probe, and a Probe owning the World
+  back would close a reference cycle and leak on the *passing* path too; the
+  handlers hold World and PhysicsSystem as raw non-owning pointers instead.
+  Measured both ways with a 50 ms watchdog against 4,000,000 ticks, so the
+  thread is certainly still running when the case unwinds: before, RC=134
+  (SIGABRT) and RC=139 (SIGSEGV), printing the assertion and *then* dying on a
+  signal; after, **RC=1 five times out of five** with the clean named failure.
+  Original entry follows.
+
 - **A spurious watchdog trip in the contact-reentry tests degrades into a
   use-after-free instead of the named failure it is designed to produce.**
   Found 2026-10-01 in review of the contact-emit slice.
