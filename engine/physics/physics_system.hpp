@@ -65,6 +65,27 @@ public:
         std::vector<ContactEvent> contacts;
         {
             const std::lock_guard<std::mutex> lock(backend_mutex_);
+            // 0. Reap bodies whose entity is gone. destroy_entity() is deferred to the end
+            // of tick() and on_destroy() erases every component, so an entry whose
+            // RigidBody has vanished belongs to a destroyed entity -- or to a living one
+            // someone removed RigidBody from, which should also stop simulating. Either way
+            // the body must go: left alone it keeps stepping and keeps colliding, an
+            // invisible obstacle with no mesh to explain it. handle_to_entity_ is erased
+            // here too, which is what lets step 5a drop a contact recorded for this body by
+            // the previous step.
+            for (auto it = bodies_.begin(); it != bodies_.end();)
+            {
+                if (world.get_component<RigidBody>(it->first) != nullptr)
+                {
+                    ++it;
+                    continue;
+                }
+                backend_->destroy_body(it->second);
+                handle_to_entity_.erase(it->second);
+                synced_pose_.erase(it->first);
+                it = bodies_.erase(it);
+            }
+
             // 1. Lazily create a backend body for each physics entity we have not seen.
             world.for_each<RigidBody>(
                 [&](mosaic::foundation::EntityID e, RigidBody& rb)
