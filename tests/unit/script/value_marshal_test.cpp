@@ -17,7 +17,8 @@ using mosaic::script::python::value_to_py;
 
 namespace
 {
-// Force the process-once interpreter up (GIL held on this thread) for the marshal calls.
+// Force the process-once interpreter up. It no longer leaves the GIL held on this
+// thread -- nothing does -- so each case below takes it explicitly.
 void ensure_interpreter()
 {
     static auto engine = create_python_script_engine();
@@ -28,6 +29,7 @@ void ensure_interpreter()
 TEST_CASE("value marshaling round-trips every DOM scalar and container", "[script]")
 {
     ensure_interpreter();
+    const pybind11::gil_scoped_acquire gil;
     auto rt = [](const Value& v) { return py_to_value(value_to_py(v)); };
 
     REQUIRE(rt(Value{}) == Value{});                                    // monostate <-> None
@@ -54,6 +56,7 @@ TEST_CASE("value marshaling round-trips every DOM scalar and container", "[scrip
 TEST_CASE("value_to_py marshals a uint64 to a Python int", "[script]")
 {
     ensure_interpreter();
+    const pybind11::gil_scoped_acquire gil;
     // py_to_value collapses Python int -> int64, so a uint64 Value does not round-trip as uint64.
     // Exercise the uint64 arm of value_to_py directly.
     namespace py = pybind11;

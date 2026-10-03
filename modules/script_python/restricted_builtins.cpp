@@ -270,7 +270,17 @@ struct ProxyClasses
 
 const ProxyClasses& proxy_classes()
 {
-    static const ProxyClasses classes = []
+    // Heap-allocated and deliberately never deleted. These are py::objects with static
+    // storage duration, and a function-local static is destroyed at exit via __cxa_atexit --
+    // by which point no thread holds the GIL, so the destructor's dec_ref aborts with
+    // "PyGILState_Check() failure". That was invisible while the main thread happened to
+    // hold the GIL for the whole process; it is not, now that nothing does.
+    //
+    // Leaking is the right answer rather than a workaround: the interpreter is never
+    // finalized either (see ensure_interpreter), so these classes are meant to live for the
+    // process. Re-acquiring the GIL in a destructor instead would depend on static
+    // destruction order across translation units, which is unspecified.
+    static const ProxyClasses* const classes = new ProxyClasses([]
     {
         PyObject* raw_module = PyModule_New("_mosaic_sandbox_internal");
         if (raw_module == nullptr) { throw py::error_already_set(); }
@@ -288,8 +298,8 @@ const ProxyClasses& proxy_classes()
             internal_module.attr("_RestrictedModuleProxy"),
             internal_module.attr("_RestrictedCallableProxy"),
         };
-    }();
-    return classes;
+    }());
+    return *classes;
 }
 
 py::object make_module_proxy(py::object module_obj)

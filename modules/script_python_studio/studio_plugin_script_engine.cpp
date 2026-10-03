@@ -36,15 +36,29 @@ class StudioPluginScriptEngine final
 public:
     StudioPluginScriptEngine()
     {
-        mosaic::script::python::install_restricted_builtins(globals_);
+        // No thread holds the GIL implicitly (see ensure_interpreter), so take it before
+        // touching CPython -- including constructing globals_, which is why that member is an
+        // optional rather than a plain py::dict: members are built before the constructor
+        // body, leaving no scope in which to guard PyDict_New.
+        const py::gil_scoped_acquire gil;
+        globals_.emplace();
+        mosaic::script::python::install_restricted_builtins(*globals_);
+    }
+
+    // Dropping Python references needs the GIL exactly as acquiring them did.
+    ~StudioPluginScriptEngine() override
+    {
+        const py::gil_scoped_acquire gil;
+        globals_.reset();
     }
 
     mosaic::engine::script::ScriptResult run_string(const std::string& code) override
     {
+        const py::gil_scoped_acquire gil;
         mosaic::engine::script::ScriptResult result;
         try
         {
-            py::exec(code, globals_);
+            py::exec(code, *globals_);
             result.ok = true;
         }
         catch (py::error_already_set& e)
@@ -63,31 +77,35 @@ public:
     void bind_world(mosaic::engine::World& world,
                     const mosaic::engine::reflection::ComponentReflection& types) override
     {
+        const py::gil_scoped_acquire gil;
         world_ = &world;
         types_ = &types;
-        mosaic::script::python::install_world_globals(globals_, &world_, &types_, &stack_);
+        mosaic::script::python::install_world_globals(*globals_, &world_, &types_, &stack_);
         mosaic::script::python_studio::install_imgui_globals(
-            globals_, [this] { require_drawing(); }, &child_depth_);
+            *globals_, [this] { require_drawing(); }, &child_depth_);
     }
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
     {
+        const py::gil_scoped_acquire gil;
         stack_ = &stack;
     }
 
     void set_global(const std::string& name,
                     const mosaic::foundation::serialization::Value& value) override
     {
-        globals_[py::str(name)] = mosaic::script::python::value_to_py(value);
+        const py::gil_scoped_acquire gil;
+        (*globals_)[py::str(name)] = mosaic::script::python::value_to_py(value);
     }
 
     std::optional<mosaic::foundation::serialization::Value>
     get_global(const std::string& name) override
     {
-        if (!globals_.contains(name)) { return std::nullopt; }
+        const py::gil_scoped_acquire gil;
+        if (!globals_->contains(name)) { return std::nullopt; }
         try
         {
-            return mosaic::script::python::py_to_value(globals_[py::str(name)]);
+            return mosaic::script::python::py_to_value((*globals_)[py::str(name)]);
         }
         catch (const std::exception&)
         {
@@ -97,8 +115,9 @@ public:
 
     mosaic::engine::script::ScriptResult call_function(const std::string& name) override
     {
+        const py::gil_scoped_acquire gil;
         mosaic::engine::script::ScriptResult result;
-        if (!globals_.contains(name) || !py::isinstance<py::function>(globals_[py::str(name)]))
+        if (!globals_->contains(name) || !py::isinstance<py::function>((*globals_)[py::str(name)]))
         {
             result.error = "'" + name + "' is not a defined function";
             return result;
@@ -134,7 +153,7 @@ public:
 
             try
             {
-                globals_[py::str(name)]();
+                (*globals_)[py::str(name)]();
                 result.ok = true;
             }
             catch (py::error_already_set& e)
@@ -176,7 +195,7 @@ private:
         }
     }
 
-    py::dict globals_;
+    std::optional<py::dict> globals_; // explicitly managed so the GIL can cover it
     mosaic::engine::World* world_ = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;

@@ -10,6 +10,7 @@ namespace py = pybind11;
 TEST_CASE("install_restricted_builtins removes dangerous builtins", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -24,6 +25,7 @@ TEST_CASE("install_restricted_builtins removes dangerous builtins", "[script]")
 TEST_CASE("install_restricted_builtins keeps safe builtins and class definitions working", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -37,6 +39,7 @@ TEST_CASE("install_restricted_builtins keeps safe builtins and class definitions
 TEST_CASE("install_restricted_builtins allows the module allowlist", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -49,6 +52,7 @@ TEST_CASE("install_restricted_builtins allows the module allowlist", "[script]")
 TEST_CASE("install_restricted_builtins blocks everything not on the module allowlist", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -72,6 +76,7 @@ TEST_CASE("install_restricted_builtins allows random/collections/enum/dataclasse
     // modules were restored to the allowlist -- useful functionality that
     // was unnecessarily lost is now safe again.
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -95,6 +100,7 @@ TEST_CASE("install_restricted_builtins closes the module-attribute-graph bug cla
     // submodule is refused regardless of how deep a dangerous name sits
     // beyond it.
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -120,6 +126,7 @@ TEST_CASE("the module proxy itself does not leak the real module via its own sto
     // dict was still reachable via ordinary reflection independent of
     // storage scheme: type(proxy).__getattr__.__globals__['_module_store'].
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -150,6 +157,7 @@ TEST_CASE("the module proxy blocks __dict__/__loader__/__spec__, which leak real
     // all. All three are denied by name now, before the isinstance<> check
     // even runs.
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -178,6 +186,7 @@ TEST_CASE("functions returned from allowed modules don't leak the real module vi
     // CallableProxy, which forwards __call__ but denies the same
     // reflection-attribute set on the callable itself.
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -214,6 +223,7 @@ TEST_CASE("a callable's return value is guarded too, closing the factory-functio
     // CPython's `except` semantics and operator dispatch make a correct
     // class/instance proxy impossible, not merely expensive.
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);
@@ -237,6 +247,7 @@ TEST_CASE("a callable's return value is guarded too, closing the factory-functio
 TEST_CASE("install_restricted_builtins blocks open by default but allows it with allow_open", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     py::dict blocked_globals;
     blocked_globals["__builtins__"] = py::module_::import("builtins");
@@ -252,6 +263,7 @@ TEST_CASE("install_restricted_builtins blocks open by default but allows it with
 TEST_CASE("install_restricted_builtins does not mutate the real builtins module", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
     mosaic::script::python::install_restricted_builtins(globals);

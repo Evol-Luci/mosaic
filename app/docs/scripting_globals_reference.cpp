@@ -67,6 +67,7 @@ void render_global(std::ostringstream& out, const py::dict& globals, const char*
 std::string generate_scripting_globals_reference_markdown()
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     mosaic::engine::World* world_ptr = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ptr = nullptr;
@@ -148,6 +149,7 @@ std::string generate_scripting_globals_reference_markdown()
 std::vector<std::string> documented_world_global_names()
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
     mosaic::engine::World* world_ptr = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ptr = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ptr = nullptr;

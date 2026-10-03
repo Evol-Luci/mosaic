@@ -53,6 +53,18 @@ void ensure_interpreter()
 #else
         py::initialize_interpreter();
 #endif
+        // Hand the GIL back so NO thread owns it implicitly. initialize_interpreter() leaves
+        // it held by whoever called it, and for a long time nothing handed it off -- so an
+        // engine created on a worker thread called PyDict_New() with no GIL and segfaulted,
+        // but only when some earlier engine had already been created on the main thread.
+        // Releasing here makes the rule stateable and uniform: every entry into CPython
+        // acquires, and no caller is privileged by having won the std::call_once race.
+        //
+        // Deliberately leaked: this interpreter is never finalized (see above), so the saved
+        // thread state must outlive every engine, and there is nothing to restore it to.
+        static py::gil_scoped_release* const release_gil_forever = new py::gil_scoped_release();
+        (void)release_gil_forever;
+
     });
 }
 
@@ -166,23 +178,42 @@ class PythonScriptEngine final
 public:
     explicit PythonScriptEngine(bool restricted = false)
     {
-        // Interpreter is already running (InterpreterInit ran first).
+        // Interpreter is already running (InterpreterInit ran first), but no thread holds the
+        // GIL, so take it before touching CPython at all -- including constructing globals_.
+        const py::gil_scoped_acquire gil;
+        globals_.emplace();
         if (restricted)
         {
             // allow_open=true: this constructor path is only ever reached via
             // create_restricted_python_script_engine(), used exclusively for asset
             // importers, whose entire purpose is reading their own source file.
-            install_restricted_builtins(globals_, /*allow_open=*/true);
+            install_restricted_builtins(*globals_, /*allow_open=*/true);
         }
         else
         {
             // Give the namespace access to builtins (print, etc.).
-            globals_["__builtins__"] = py::module_::import("builtins");
+            (*globals_)["__builtins__"] = py::module_::import("builtins");
         }
+    }
+
+    // Releasing Python references needs the GIL just as much as acquiring them did, and a
+    // py:: member is destroyed AFTER this body runs -- by which point any guard declared here
+    // is gone. So every py:: member must be emptied HERE, under the guard: resetting leaves a
+    // null handle whose later destruction decrefs nothing.
+    //
+    // If you add a py:: member to this class, empty it here too. Forgetting trace_fn_ cost an
+    // abort ("dec_ref() PyGILState_Check() failure" on a builtin_function_or_method) that only
+    // showed up once a debugger had been attached, because the member is otherwise null.
+    ~PythonScriptEngine() override
+    {
+        const py::gil_scoped_acquire gil;
+        trace_fn_ = py::object{};
+        globals_.reset();
     }
 
     mosaic::engine::script::ScriptResult run_string(const std::string& code) override
     {
+        const py::gil_scoped_acquire gil;
         mosaic::engine::script::ScriptResult result;
         try
         {
@@ -221,7 +252,7 @@ public:
 
             try
             {
-                py::exec(code, globals_);
+                py::exec(code, *globals_);
                 result.ok = true;
             }
             catch (py::error_already_set& e)
@@ -247,24 +278,27 @@ public:
     void bind_world(mosaic::engine::World& world,
                     const mosaic::engine::reflection::ComponentReflection& types) override
     {
+        const py::gil_scoped_acquire gil;
         world_ = &world;
         types_ = &types;
-        install_world_globals(globals_, &world_, &types_, &stack_);
+        install_world_globals(*globals_, &world_, &types_, &stack_);
     }
 
     void set_global(const std::string& name,
                     const mosaic::foundation::serialization::Value& value) override
     {
-        globals_[py::str(name)] = value_to_py(value);
+        const py::gil_scoped_acquire gil;
+        (*globals_)[py::str(name)] = value_to_py(value);
     }
 
     std::optional<mosaic::foundation::serialization::Value>
     get_global(const std::string& name) override
     {
-        if (!globals_.contains(name)) { return std::nullopt; }
+        const py::gil_scoped_acquire gil;
+        if (!globals_->contains(name)) { return std::nullopt; }
         try
         {
-            return py_to_value(globals_[py::str(name)]);
+            return py_to_value((*globals_)[py::str(name)]);
         }
         catch (const std::exception&)
         {
@@ -274,8 +308,9 @@ public:
 
     mosaic::engine::script::ScriptResult call_function(const std::string& name) override
     {
+        const py::gil_scoped_acquire gil;
         mosaic::engine::script::ScriptResult result;
-        if (!globals_.contains(name) || !py::isinstance<py::function>(globals_[py::str(name)]))
+        if (!globals_->contains(name) || !py::isinstance<py::function>((*globals_)[py::str(name)]))
         {
             result.error = "'" + name + "' is not a defined function";
             return result;
@@ -304,7 +339,7 @@ public:
 
             try
             {
-                globals_[py::str(name)]();
+                (*globals_)[py::str(name)]();
                 result.ok = true;
             }
             catch (py::error_already_set& e)
@@ -324,6 +359,7 @@ public:
 
     void bind_commands(mosaic::foundation::commands::CommandStack& stack) override
     {
+        const py::gil_scoped_acquire gil;
         // undo/redo/undo_depth are installed in bind_world and read stack_ at call time, so
         // binding the stack here activates them for all subsequent script calls.
         stack_ = &stack;
@@ -331,20 +367,22 @@ public:
 
     void bind_host(const mosaic::engine::script::ScriptHost& host) override
     {
+        const py::gil_scoped_acquire gil;
         host_ = host;
-        install_host_globals(globals_, host_);
+        install_host_globals(*globals_, host_);
     }
 
     void bind_context(mosaic::engine::script::ScriptContext& context) override
     {
+        const py::gil_scoped_acquire gil;
         context_ = &context;
-        globals_["get_component"] = py::cpp_function(
+        (*globals_)["get_component"] = py::cpp_function(
             [this](std::uint64_t eid, const std::string& name) -> py::object
             {
                 auto v = context_->get(mosaic::foundation::EntityID(eid), name);
                 return v ? value_to_py(*v) : py::none();
             });
-        globals_["set_component"] = py::cpp_function(
+        (*globals_)["set_component"] = py::cpp_function(
             [this](std::uint64_t eid, const std::string& name, py::handle value) -> bool
             {
                 return context_->set(mosaic::foundation::EntityID(eid), name,
@@ -354,6 +392,7 @@ public:
 
     void bind_debugger(mosaic::engine::script::ScriptDebugger* debugger) override
     {
+        const py::gil_scoped_acquire gil;
         debugger_ = debugger;
     }
 
@@ -400,7 +439,14 @@ private:
         return true;
     }
 
-    py::dict globals_; // this engine's isolated namespace (interpreter outlives it)
+    // Explicitly managed rather than a plain py::dict member, and the reason is ordering:
+    // py::dict's constructor calls PyDict_New(), members are constructed BEFORE the
+    // constructor body runs, and destroyed AFTER the destructor body -- so a plain member
+    // leaves no scope in which to hold the GIL for its own construction and destruction,
+    // which are exactly the calls that used to crash. An optional moves both into ordinary
+    // statements this class can wrap. A GIL-holding base class would get the ordering right
+    // but would hold the GIL for the engine's whole lifetime and block every other thread.
+    std::optional<py::dict> globals_; // this engine's isolated namespace (interpreter outlives it)
     mosaic::engine::World* world_ = nullptr;
     const mosaic::engine::reflection::ComponentReflection* types_ = nullptr;
     mosaic::foundation::commands::CommandStack* stack_ = nullptr;

@@ -23,6 +23,7 @@ namespace py = pybind11;
 TEST_CASE("install_world_globals exposes create_entity/is_valid/entity_count", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     World world;
     TypeRegistry reg;
@@ -47,6 +48,7 @@ TEST_CASE("install_world_globals exposes create_entity/is_valid/entity_count", "
 TEST_CASE("install_world_globals: set_component without a stack applies directly", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     World world;
     TypeRegistry reg;
@@ -73,6 +75,7 @@ TEST_CASE("install_world_globals: set_component without a stack applies directly
 TEST_CASE("install_world_globals: undo/redo/undo_depth read *stack_ptr at call time", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     World world;
     TypeRegistry reg;
@@ -111,6 +114,7 @@ TEST_CASE("install_world_globals: undo/redo/undo_depth read *stack_ptr at call t
 TEST_CASE("install_world_globals: every global has a non-empty docstring", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     World world;
     TypeRegistry reg;
