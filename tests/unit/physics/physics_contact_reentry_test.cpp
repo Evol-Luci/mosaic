@@ -49,8 +49,15 @@ constexpr int kWatchdogMs = 3000;
 // 3000 ms margin actually guards against, a slow runner rather than a deadlock -- still
 // actively ticking them. Measured 2026-10-03: that crashed with SIGABRT or SIGSEGV *after*
 // printing the assertion, so a CI run saw a signal instead of the named failure this watchdog
-// exists to produce. Now the thread holds its World and Probe alive and they simply LEAK on a
-// trip, which is strictly better than a use-after-free.
+// exists to produce. Now the thread holds its World and Probe alive and they LEAK on a trip,
+// which is strictly better than a use-after-free.
+//
+// Two trip kinds, two leak durations -- worth distinguishing. A spurious trip (slow runner, no
+// deadlock) is self-healing: the thread finishes its ticks late, drops its references, and the
+// objects go. A genuine deadlock trip is not: the thread parks forever on a mutex and the
+// objects live for the rest of the test PROCESS, because Catch2 keeps running later cases
+// after a failed REQUIRE. Both are bounded by process exit, and the mutex is per-instance, so
+// a leaked parked thread cannot block the next case's own World.
 struct Probe
 {
     int                          handler_calls = 0;
@@ -74,7 +81,11 @@ bool tick_with_watchdog(std::shared_ptr<World> world, std::shared_ptr<Probe> pro
     std::thread(
         [world, probe, count, done]
         {
-            (void)probe; // captured solely to extend its lifetime past a tripped watchdog
+            // `probe` is unused here on purpose: naming it in the capture list above is what
+            // extends its lifetime past a tripped watchdog (a by-value capture becomes a
+            // closure member whether the body reads it or not). This cast only silences the
+            // unused-capture warning -- it is not what keeps the Probe alive.
+            (void)probe;
             for (int i = 0; i < count; ++i) { world->tick(1.0f / 60.0f); }
             done->store(true);
         })

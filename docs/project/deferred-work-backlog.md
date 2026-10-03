@@ -607,8 +607,12 @@ anything shipped; they are capabilities that were never built.
   use-after-free**~~ — **SHIPPED 2026-10-03.** The World and the state the
   handlers write are now heap-owned (`std::shared_ptr<World>` plus a `Probe`
   struct), and `tick_with_watchdog` captures both by value, so a thread that
-  outlives the `TEST_CASE` keeps what it touches alive and they simply leak on a
-  trip. **The entry below understated the hazard:** heap-allocating the World
+  outlives the `TEST_CASE` keeps what it touches alive and they leak on a trip --
+  self-healingly for a spurious slow-runner trip (the thread finishes late and
+  drops its references), but for the rest of the test *process* on a genuine
+  deadlock trip, since Catch2 keeps running later cases after a failed
+  `REQUIRE`. Both are bounded by process exit, and `backend_mutex_` is
+  per-instance, so a leaked parked thread cannot block the next case. **The entry below understated the hazard:** heap-allocating the World
   alone would not have fixed it, because the subscriber lambdas also captured
   `handler_calls`/`hit_the_box`/`pushed`/`box` by reference -- all `TEST_CASE`
   stack locals, reachable from inside the World's own EventBus. The ordering
