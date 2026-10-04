@@ -321,11 +321,29 @@ view that was actually used to pick what to build next as of this writing.
     contributes no highlight. Deferred 2026-09-27: image-based lighting
     needs cubemap capture, prefiltering, and a BRDF LUT — it is a pillar
     of the PBR work below, not an add-on to Blinn-Phong.
-  - **Full PBR material model** — metallic/roughness workflow,
-    Cook-Torrance BRDF, energy-conserving specular. The real thing, not
-    a stepping stone; needs its own design decisions (scalar params vs.
-    texture maps for v1) and likely its own sub-decomposition, not a
-    single slice.
+  - **Full PBR material model** — **DECOMPOSED 2026-10-04** into four
+    slices; see `docs/superpowers/specs/2026-10-04-pbr-decomposition-and-tone-mapping-design.md`
+    for the reasoning and the measured starting state. (1) **Tone
+    mapping** — specced in that document and taken first, because an
+    energy-conserving BRDF produces values above 1.0 routinely and the
+    8-bit sRGB target clips them, so doing the BRDF first would make the
+    renderer look *worse* until tone mapping landed. It also pays for
+    itself now: specular already clips. (2) **Metallic/roughness plus a
+    GGX Cook-Torrance BRDF** with Schlick Fresnel and energy
+    conservation — this *absorbs* the "perceptual `0..1` gloss remap"
+    item above (roughness **is** that parameter) and the "Fresnel /
+    energy conservation" item. Migration settled as a **clean break**:
+    remove `shininess`/`specular_strength`, update `scene.json` and the
+    four test files referencing them, since the engine is pre-1.0 with no
+    external consumers and carrying both parameter sets is the exact
+    "two competing gloss scales" the remap was deferred to avoid.
+    (3) **Texture maps** (metallic/roughness/normal) — needs further
+    texture bindings plus an asset-pipeline answer. (4) **Image-based
+    lighting** — the largest; the ambient term stays a flat `0.1` until
+    it lands. Explicitly outside the decomposition: multi-light
+    accumulation (orthogonal — a change to light gathering, not the
+    BRDF) and per-light specular colour (already a deliberate omission).
+    Each of 2–4 gets its own spec when its turn comes.
   - ~~**Shading-data UBO migration**~~ — **SHIPPED 2026-09-27.**
     Lighting moved into the codebase's first uniform buffer (descriptor
     set 2, one per frame-in-flight) and shading from object space to
@@ -335,6 +353,32 @@ view that was actually used to pick what to build next as of this writing.
     scale 1; a uniform scale `s != 1` shifts point/spot attenuation
     brightness by `s`, since the old object-space distance input was
     `world_distance / s` — the new behavior is the correct one).
+  - **An offscreen HDR render target with a fullscreen resolve pass.**
+    The correct-compositing form of tone mapping, and the prerequisite
+    for bloom. Deferred 2026-10-04 during the tone-mapping design:
+    nothing in the renderer blends additively today — every pipeline in
+    `vulkan_render_device.cpp` is `SRC_ALPHA`, with
+    `VK_BLEND_FACTOR_ONE` only on the alpha channel — so per-shader tone
+    mapping lerps between mapped values, which is a defensible
+    approximation rather than an error. The HDR target would cost a
+    render target, a render pass, a pipeline, and a decision about where
+    UI draws relative to the resolve, for little gain. **The trigger is
+    specific, not vague: the moment any additive pipeline is added, the
+    reasoning above is invalidated and this becomes necessary** —
+    `tonemap(a) + tonemap(b) != tonemap(a + b)`. Related and deliberate:
+    the four unlit scene shaders (`particle`, `ribbon`, `decal`,
+    `world_text`) are *not* tone mapped, because they cannot exceed 1.0
+    and every reasonable curve maps 1.0 to about 0.8 — mapping them
+    would darken authored colour for nothing. A test pins that, so a
+    later "consistency" edit has to argue with it.
+  - **Bloom.** Depends on the HDR render target above; there is nowhere
+    to read bright pixels back from until that exists. Deferred
+    2026-10-04.
+  - **Exposure control.** Tone mapping ships with a hard-coded curve.
+    Deferred 2026-10-04 during its design: exposure is a camera concern
+    rather than a material or lighting one, and adding the knob now would
+    mean deciding where it lives (a `Camera` member? the lighting UBO? a
+    push constant?) for no current caller.
   - **Move `view_proj` per-frame and drop `mvp` from push constants** —
     a further per-draw reduction available on top of the UBO migration
     (the vertex shader would compute `view_proj * model` instead of
