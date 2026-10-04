@@ -76,8 +76,8 @@ Every built-in engine component, with its fields and their default values. Field
   - `y`: 0.800000
   - `z`: 0.800000
 - `texture`: 00000000-0000-0000-0000-000000000000
-- `shininess`: 32.000000
-- `specular_strength`: 0.500000
+- `metallic`: 0.000000
+- `roughness`: 0.500000
 
 ## MeshRenderer
 

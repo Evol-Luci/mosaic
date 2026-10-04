@@ -45,8 +45,8 @@ struct PushConstants
     float normal_matrix[16]; // transpose(inverse(model)); only the upper 3x3 is used
     float base_color[4];     // xyz
     // Push-constant blocks are std430: these two floats pack tight after the vec4.
-    float shininess;
-    float specular_strength;
+    float metallic;
+    float roughness;
 };
 static_assert(sizeof(PushConstants) == 216, "push constant layout must match the shader");
 
@@ -753,8 +753,8 @@ public:
         pc.base_color[0] = params.base_color.x;
         pc.base_color[1] = params.base_color.y;
         pc.base_color[2] = params.base_color.z;
-        pc.shininess = params.shininess;
-        pc.specular_strength = params.specular_strength;
+        pc.metallic = params.metallic;
+        pc.roughness = params.roughness;
         vkCmdPushConstants(cmd_[frame_], pipeline_layout_,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);

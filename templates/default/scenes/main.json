@@ -270,9 +270,9 @@
       "components": {
         "DirectionalLight": {
           "color": {
-            "x": 1.0,
-            "y": 1.0,
-            "z": 1.0
+            "x": 3.142,
+            "y": 3.142,
+            "z": 3.142
           },
           "direction": {
             "x": -0.5,
@@ -291,7 +291,7 @@
             "y": 0.8500000238418579,
             "z": 0.6000000238418579
           },
-          "intensity": 3.0,
+          "intensity": 9.425,
           "range": 8.0
         },
         "Transform": {

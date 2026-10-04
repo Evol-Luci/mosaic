@@ -47,8 +47,8 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
     auto e = src.create_entity();
     Material mat{Vec3{0.1f, 0.2f, 0.3f}};
     mat.texture = tex_id;
-    mat.shininess = 64.0f;
-    mat.specular_strength = 0.25f;
+    mat.metallic = 1.0f;
+    mat.roughness = 0.25f;
     src.add_component<Material>(e, mat);
     src.add_component<DirectionalLight>(e, DirectionalLight{Vec3{0, -1, 0}, Vec3{0.5f, 0.6f, 0.7f}});
 
@@ -64,8 +64,8 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
         REQUIRE(m.base_color.x == Approx(0.1f));
         REQUIRE(m.base_color.z == Approx(0.3f));
         REQUIRE(m.texture == tex_id); // texture AssetID round-trips
-        REQUIRE(m.shininess == Approx(64.0f));
-        REQUIRE(m.specular_strength == Approx(0.25f));
+        REQUIRE(m.metallic == Approx(1.0f));
+        REQUIRE(m.roughness == Approx(0.25f));
     });
     dst.for_each<DirectionalLight>([&](World::EntityID, DirectionalLight& l) {
         REQUIRE(l.color.y == Approx(0.6f));
@@ -73,12 +73,13 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
     });
 }
 
-TEST_CASE("Material specular defaults and out-of-range values survive a round-trip", "[reflection]")
+TEST_CASE("Material shading defaults and out-of-range values survive a round-trip", "[reflection]")
 {
-    // Review Focus 4: shininess is authorable by hand in a scene file. A zero or
-    // negative exponent must round-trip UNCHANGED -- the shader clamps to >= 1, the
-    // engine deliberately does not, and an engine-side clamp added later would make
-    // the two silently disagree about what a scene file means.
+    // metallic and roughness are authorable by hand in a scene file, so an out-of-range
+    // value must round-trip UNCHANGED -- cube.frag clamps roughness to >= 0.045, the
+    // engine deliberately does not, and an engine-side clamp added later would make the
+    // two silently disagree about what a scene file means.
+    // shader_specular_contract_test.cpp pins the shader half of that contract.
     TypeRegistry registry;
     ComponentReflection types;
     register_builtin_components(registry, types);
@@ -88,8 +89,8 @@ TEST_CASE("Material specular defaults and out-of-range values survive a round-tr
     src.add_component<Material>(defaults, Material{});
     auto weird = src.create_entity();
     Material odd{};
-    odd.shininess = -4.0f;
-    odd.specular_strength = 2.5f;
+    odd.metallic = 2.0f;
+    odd.roughness = -1.0f;
     src.add_component<Material>(weird, odd);
 
     const std::string json = mosaic::engine::scene::save_to_json(src, types);
@@ -100,16 +101,16 @@ TEST_CASE("Material specular defaults and out-of-range values survive a round-tr
     World dst;
     REQUIRE_NOTHROW(mosaic::engine::scene::load_from_json(json, dst, types2));
 
-    std::vector<float> shininess;
-    std::vector<float> strength;
+    std::vector<float> metallic;
+    std::vector<float> roughness;
     dst.for_each<Material>([&](World::EntityID, Material& m) {
-        shininess.push_back(m.shininess);
-        strength.push_back(m.specular_strength);
+        metallic.push_back(m.metallic);
+        roughness.push_back(m.roughness);
     });
-    REQUIRE(shininess.size() == 2);
+    REQUIRE(metallic.size() == 2);
     // Order follows entity creation order.
-    REQUIRE(shininess[0] == Approx(32.0f));   // documented default
-    REQUIRE(strength[0] == Approx(0.5f));     // documented default
-    REQUIRE(shininess[1] == Approx(-4.0f));   // NOT clamped by the engine
-    REQUIRE(strength[1] == Approx(2.5f));     // NOT clamped by the engine
+    REQUIRE(metallic[0] == Approx(0.0f));    // documented default: dielectric
+    REQUIRE(roughness[0] == Approx(0.5f));   // documented default
+    REQUIRE(metallic[1] == Approx(2.0f));    // NOT clamped by the engine
+    REQUIRE(roughness[1] == Approx(-1.0f));  // NOT clamped by the engine
 }

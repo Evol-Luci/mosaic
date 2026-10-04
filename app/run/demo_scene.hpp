@@ -386,7 +386,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // shadow gating shows, since directional specular is multiplied by the shadow
     // factor and shadowed ground must show NO sun glint.
     world.add_component<render::Material>(ground,
-        render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}, 16.0f, 0.15f});
+        render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}, 0.0f, 0.333f});
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
 
@@ -403,9 +403,14 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box,
         transform::Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box, render::MeshRenderer{render::kCubeMeshId});
-    // Fully matte -- the strength == 0 opt-out, promised to render exactly as it did
-    // before specular existed. Sits right next to the glossiest object on purpose.
-    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.0f});
+    // The matte end of the scene's range. Sits right next to the glossiest object on
+    // purpose. This surface was previously the specular_strength == 0 opt-out; the
+    // mechanical sqrt(2/(shininess+2)) conversion would have put it at 0.243, which is
+    // one of the GLOSSIEST values here and identical to box2 below -- so the scene
+    // would have lost both its matte baseline and one of its six distinct materials.
+    // The conversion exists to land each surface in the right perceptual neighbourhood,
+    // not to preserve appearance, and this one's neighbourhood is "matte".
+    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.9f});
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -413,14 +418,29 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kSphereMeshId});
-    // The showcase. Deliberately UNTEXTURED and solid red: a checker texture
-    // camouflages a specular highlight completely (white highlight on a white square
-    // is invisible, on a black square it is a few pixels), which defeats the point of
-    // having a showcase object. A white highlight on a red surface also makes the
-    // "specular takes the LIGHT's color, never the albedo" rule visible at a glance --
-    // if this highlight ever looks red, that rule has been broken.
+    // The showcase, and the scene's one metal. Deliberately UNTEXTURED and solid red: a
+    // checker texture camouflages a specular highlight completely (white highlight on a
+    // white square is invisible, on a black square it is a few pixels), which defeats
+    // the point of having a showcase object.
+    //
+    // This comment used to add that a red-looking highlight here meant the "specular
+    // takes the LIGHT's color, never the albedo" rule had been broken. That rule was
+    // correct for Blinn-Phong and is WRONG for PBR, which is why the spec devoted a
+    // section to it: with metallic == 1, F0 == base_color, so this highlight MUST read
+    // red. A metal's specular colour is what distinguishes gold from silver. If it ever
+    // looks white again, the metallic path has been broken.
+    //
+    // EXPECTED, NOT A BUG: this sphere reads near-BLACK, not dark red. Metals have no
+    // diffuse lobe, so a metal's whole appearance is reflections of its surroundings --
+    // and our surroundings are three lights and nothing else. cube.frag's ambient is
+    // albedo * 0.1 * kD, and kD = (1 - F)(1 - metallic) is exactly ZERO at metallic == 1,
+    // so this is the one surface in the scene that receives no ambient at all. With
+    // roughness 0.174 the GGX lobe is tight, so what is left is two small red specular
+    // dots on black. That is what a mirror-ish ball in a void looks like. Image-based
+    // lighting (PBR slice 4) is what gives it something to reflect; until then the flat
+    // 0.1 ambient cannot help a metal by construction. Confirmed visually 2026-10-04.
     world.add_component<render::Material>(sphere,
-        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 64.0f, 0.9f});
+        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 0.174f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
@@ -439,7 +459,7 @@ inline void build_default_scene(mosaic::engine::World& world)
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCapsuleMeshId});
     // Broad and soft -- the low-exponent end, for contrast with the sphere.
-    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex, 8.0f, 0.6f});
+    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.447f});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
 
@@ -447,19 +467,26 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box2,
         transform::Transform{Vec3{0, 6, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{render::kCubeMeshId});
-    // The documented defaults, stated explicitly as the middle reference point.
-    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.5f});
+    // The middle of the scene's range. Note this is NOT Material's documented default
+    // any more -- that is roughness 0.5, and this is the shininess-32 conversion.
+    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.243f});
     world.add_component<physics::RigidBody>(box2, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box2, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
     const auto light = world.create_entity();
     world.add_component<render::DirectionalLight>(light,
-        render::DirectionalLight{Vec3{-0.5f, -1.0f, -0.3f}, Vec3{1, 1, 1}});
+        render::DirectionalLight{Vec3{-0.5f, -1.0f, -0.3f},
+                                 // x pi: diffuse is now albedo/pi, so an intensity authored
+                                 // against the old non-conserving term reads ~3.14x too dark.
+                                 // DirectionalLight has no intensity field, so the compensation
+                                 // lives in the colour -- which is radiance here, not a display
+                                 // colour, so leaving 0..1 is expected.
+                                 Vec3{3.142f, 3.142f, 3.142f}});
 
     const auto point = world.create_entity();
     world.add_component<transform::Transform>(point,
         transform::Transform{Vec3{2, 3, 2}, Quat::identity(), Vec3{1, 1, 1}, {}});
-    world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 3.0f, 8.0f});
+    world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 9.425f, 8.0f});
 
     // A spot light, so the demo actually exercises the third light type -- its cone
     // falloff and its specular. Direction comes from the transform's forward axis
@@ -467,17 +494,20 @@ inline void build_default_scene(mosaic::engine::World& world)
     // slightly toward the camera, putting the cone over the objects near the origin.
     // Cool-tinted, to be told apart from the warm point light at a glance.
     // Placement matters more than it looks: the windowed falloff is
-    // (win*win)/(d*d+1), so distance dominates. At 7.9 units out with intensity 4
-    // this light contributed ~0.03 against a directional term near 1.0 -- invisible.
-    // At ~4.7 units with intensity 6 it lands near 0.15, comparable to the point
-    // light's ~0.24, which is what makes its cone and its specular actually legible.
+    // (win*win)/(d*d+1), so distance dominates. At 7.9 units out with the old
+    // intensity 4 this light contributed ~0.03 against a directional term near 1.0 --
+    // invisible. Moving it to ~4.7 units and raising the intensity made its cone and
+    // its specular legible. Those figures were from the pre-PBR scale; every intensity
+    // here has since been multiplied by pi, because energy-conserving diffuse divides
+    // by it. The RATIOS between the three lights are unchanged, which is what that
+    // reasoning actually depended on.
     const auto spot = world.create_entity();
     world.add_component<transform::Transform>(spot,
         transform::Transform{Vec3{0, 4.5f, 2.0f},
                              mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.012f),
                              Vec3{1, 1, 1}, {}});
     world.add_component<render::SpotLight>(spot,
-        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 6.0f, 12.0f, 0.35f, 0.55f});
+        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 18.850f, 12.0f, 0.35f, 0.55f});
 
     const auto camera = world.create_entity();
     world.add_component<transform::Transform>(camera,
@@ -535,10 +565,12 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(orbiter,
         transform::Transform{Vec3{3, 2, 0}, Quat::identity(), Vec3{0.5f, 0.5f, 0.5f}, {}});
     world.add_component<render::MeshRenderer>(orbiter, render::MeshRenderer{render::kCubeMeshId});
-    // Very tight and dim: a pinpoint glint on a saturated color, which also shows that
-    // specular takes the LIGHT's color rather than the albedo's green.
+    // Very tight and dim: a pinpoint glint on a saturated color. Its highlight stays
+    // white rather than green because this surface is a DIELECTRIC (metallic == 0, so
+    // F0 is the flat 0.04) -- not because specular never takes the albedo. The red
+    // sphere above is the metal where it does.
     world.add_component<render::Material>(orbiter,
-        render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 256.0f, 0.35f});
+        render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 0.0f, 0.088f});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
     // A floating world-space label above the orbiter (U5b): camera-facing 3D text that

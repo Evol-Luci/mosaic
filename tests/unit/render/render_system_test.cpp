@@ -1356,23 +1356,24 @@ TEST_CASE("RenderSystem forwards a Material's specular parameters to the draw ca
     world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
     world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
     Material mat{Vec3{0.2f, 0.4f, 0.6f}};
-    mat.shininess = 128.0f;
-    mat.specular_strength = 0.75f;
+    mat.metallic = 1.0f;
+    mat.roughness = 0.25f;
     world.add_component<Material>(mesh, mat);
 
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
     const DrawParams& p = device.draws[0].params;
-    REQUIRE(p.shininess == Approx(128.0f));
-    REQUIRE(p.specular_strength == Approx(0.75f));
+    REQUIRE(p.metallic == Approx(1.0f));
+    REQUIRE(p.roughness == Approx(0.25f));
 }
 
-TEST_CASE("RenderSystem uses the documented specular defaults with and without a Material", "[render]")
+TEST_CASE("RenderSystem uses the documented shading defaults with and without a Material", "[render]")
 {
-    // Review Focus 5: a Material that exists but leaves the specular fields alone is
+    // Review Focus 5: a Material that exists but leaves the shading fields alone is
     // the common real case, and it is a DIFFERENT code path from having no Material
-    // at all. Both must yield 32.0 / 0.5.
+    // at all. Both must yield metallic 0.0 / roughness 0.5 -- Material's documented
+    // defaults, which render_system.hpp's own comment requires these to match.
     World world;
     FakeRenderDevice device;
     AssetRegistry registry;
@@ -1395,18 +1396,21 @@ TEST_CASE("RenderSystem uses the documented specular defaults with and without a
     REQUIRE(device.draws.size() == 2);
     for (const auto& d : device.draws)
     {
-        REQUIRE(d.params.shininess == Approx(32.0f));
-        REQUIRE(d.params.specular_strength == Approx(0.5f));
+        REQUIRE(d.params.metallic == Approx(0.0f));
+        REQUIRE(d.params.roughness == Approx(0.5f));
     }
 }
 
-TEST_CASE("RenderSystem forwards a zero specular strength and a negative shininess unchanged", "[render]")
+TEST_CASE("RenderSystem forwards out-of-range shading parameters unchanged", "[render]")
 {
-    // Review Focus 3: strength 0 is how a material opts OUT of specular. If a
-    // falsy-zero bug substituted the 0.5 default, every material would be glossy with
-    // no way to turn it off.
-    // Review Focus 4: the engine must not clamp shininess -- the shader does. An
-    // engine-side clamp added later would silently diverge from the shader.
+    // The engine must not clamp roughness or metallic -- cube.frag does, and
+    // shader_specular_contract_test.cpp pins that it still does. An engine-side clamp
+    // added later would silently diverge from the shader, and a scene file would stop
+    // round-tripping byte-for-byte.
+    //
+    // This replaces a case about specular_strength 0 being the opt-out from specular.
+    // There is no opt-out under PBR: a dielectric's F0 is a fixed 0.04, not a knob, so
+    // that half of the old contract has no successor rather than a renamed one.
     World world;
     FakeRenderDevice device;
     AssetRegistry registry;
@@ -1419,13 +1423,13 @@ TEST_CASE("RenderSystem forwards a zero specular strength and a negative shinine
     world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::identity()});
     world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
     Material mat{};
-    mat.shininess = -4.0f;
-    mat.specular_strength = 0.0f;
+    mat.roughness = -1.0f;
+    mat.metallic = 2.0f;
     world.add_component<Material>(mesh, mat);
 
     rs.render(world, device, registry);
 
     REQUIRE(device.draws.size() == 1);
-    REQUIRE(device.draws[0].params.specular_strength == Approx(0.0f));
-    REQUIRE(device.draws[0].params.shininess == Approx(-4.0f));
+    REQUIRE(device.draws[0].params.roughness == Approx(-1.0f));
+    REQUIRE(device.draws[0].params.metallic == Approx(2.0f));
 }

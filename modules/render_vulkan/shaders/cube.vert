@@ -7,8 +7,8 @@ layout(push_constant) uniform Push {
     mat4 model;         // object -> world
     mat4 normal_matrix; // transpose(inverse(model)); upper 3x3 used
     vec4 base_color;    // .xyz
-    float shininess;
-    float specular_strength;
+    float metallic;
+    float roughness;
 } pc;
 layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 light_direction; // world space .xyz
