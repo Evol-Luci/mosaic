@@ -420,7 +420,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // "specular takes the LIGHT's color, never the albedo" rule visible at a glance --
     // if this highlight ever looks red, that rule has been broken.
     world.add_component<render::Material>(sphere,
-        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 0.0f, 0.174f});
+        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 0.174f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
@@ -454,12 +454,18 @@ inline void build_default_scene(mosaic::engine::World& world)
 
     const auto light = world.create_entity();
     world.add_component<render::DirectionalLight>(light,
-        render::DirectionalLight{Vec3{-0.5f, -1.0f, -0.3f}, Vec3{1, 1, 1}});
+        render::DirectionalLight{Vec3{-0.5f, -1.0f, -0.3f},
+                                 // x pi: diffuse is now albedo/pi, so an intensity authored
+                                 // against the old non-conserving term reads ~3.14x too dark.
+                                 // DirectionalLight has no intensity field, so the compensation
+                                 // lives in the colour -- which is radiance here, not a display
+                                 // colour, so leaving 0..1 is expected.
+                                 Vec3{3.142f, 3.142f, 3.142f}});
 
     const auto point = world.create_entity();
     world.add_component<transform::Transform>(point,
         transform::Transform{Vec3{2, 3, 2}, Quat::identity(), Vec3{1, 1, 1}, {}});
-    world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 3.0f, 8.0f});
+    world.add_component<render::PointLight>(point, render::PointLight{Vec3{1, 0.85f, 0.6f}, 9.425f, 8.0f});
 
     // A spot light, so the demo actually exercises the third light type -- its cone
     // falloff and its specular. Direction comes from the transform's forward axis
@@ -467,17 +473,20 @@ inline void build_default_scene(mosaic::engine::World& world)
     // slightly toward the camera, putting the cone over the objects near the origin.
     // Cool-tinted, to be told apart from the warm point light at a glance.
     // Placement matters more than it looks: the windowed falloff is
-    // (win*win)/(d*d+1), so distance dominates. At 7.9 units out with intensity 4
-    // this light contributed ~0.03 against a directional term near 1.0 -- invisible.
-    // At ~4.7 units with intensity 6 it lands near 0.15, comparable to the point
-    // light's ~0.24, which is what makes its cone and its specular actually legible.
+    // (win*win)/(d*d+1), so distance dominates. At 7.9 units out with the old
+    // intensity 4 this light contributed ~0.03 against a directional term near 1.0 --
+    // invisible. Moving it to ~4.7 units and raising the intensity made its cone and
+    // its specular legible. Those figures were from the pre-PBR scale; every intensity
+    // here has since been multiplied by pi, because energy-conserving diffuse divides
+    // by it. The RATIOS between the three lights are unchanged, which is what that
+    // reasoning actually depended on.
     const auto spot = world.create_entity();
     world.add_component<transform::Transform>(spot,
         transform::Transform{Vec3{0, 4.5f, 2.0f},
                              mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.012f),
                              Vec3{1, 1, 1}, {}});
     world.add_component<render::SpotLight>(spot,
-        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 6.0f, 12.0f, 0.35f, 0.55f});
+        render::SpotLight{Vec3{0.5f, 0.7f, 1.0f}, 18.850f, 12.0f, 0.35f, 0.55f});
 
     const auto camera = world.create_entity();
     world.add_component<transform::Transform>(camera,

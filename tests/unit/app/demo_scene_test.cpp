@@ -201,6 +201,14 @@ TEST_CASE("build_default_scene varies specular parameters so the highlights are 
     for (float r : roughness) { lo = (r < lo) ? r : lo; hi = (r > hi) ? r : hi; }
     REQUIRE(hi >= 0.4f);  // a broad, soft highlight
     REQUIRE(lo <= 0.1f);  // a tight, obvious one
+
+    // The metallic parameter needs a visible user, or the slice ships a knob nothing
+    // exercises. Exactly one metal keeps Task 2's visual change to one variable --
+    // and seeing metal look like metal is the one thing a human check is for, since no
+    // test here can show the BRDF is correct.
+    int metals = 0;
+    for (float m : metallic) { if (m >= 0.5f) { ++metals; } }
+    REQUIRE(metals == 1);
 }
 
 TEST_CASE("build_default_scene includes a script that pushes a body", "[app]")
