@@ -85,11 +85,22 @@ struct InterpreterInit
     InterpreterInit() { ensure_interpreter(); }
 };
 
-// Reads a 3-element Python sequence into a Vec3. Returns false instead of throwing
-// for a short sequence or a non-numeric element, so one malformed script argument
+// Reads a 3-element Python sequence into a Vec3. Returns false instead of throwing for a
+// non-sequence, a short sequence, or a non-numeric element, so one malformed script argument
 // fails that call rather than aborting the tick.
-bool to_vec3(const py::sequence& s, mosaic::foundation::math::Vec3& out)
+//
+// Takes py::handle rather than py::sequence deliberately. With py::sequence in a binding's
+// signature, pybind11's dispatcher rejects a non-sequence BEFORE the binding body runs, so
+// this guard never got a chance and the TypeError aborted the tick. A dict is the likeliest
+// wrong argument -- component values on this same scripting surface are dicts
+// (tr['position']['x']) -- so it is a reasonable mistake, not a perverse one.
+//
+// Note that str passes PySequence_Check, so a string falls through to the element casts
+// below and fails there instead. Two layers, both ending in false.
+bool to_vec3(const py::handle& obj, mosaic::foundation::math::Vec3& out)
 {
+    if (!py::isinstance<py::sequence>(obj)) { return false; }
+    const auto s = py::reinterpret_borrow<py::sequence>(obj);
     if (py::len(s) < 3) { return false; }
     try
     {
@@ -119,7 +130,7 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
     // raycast(origin, direction, max_distance) -> dict. origin/direction are 3-element
     // sequences; result is {hit, entity, distance, point:{x,y,z}, normal:{x,y,z}}.
     globals["raycast"] = py::cpp_function(
-        [host](py::sequence origin, py::sequence direction, float max_distance) -> py::dict
+        [host](py::object origin, py::object direction, float max_distance) -> py::dict
         {
             using mosaic::foundation::math::Vec3;
             mosaic::engine::script::ScriptRayHit h;
@@ -152,15 +163,16 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
         },
         py::doc("Cast a ray into the scene and return hit data as a dictionary. origin and "
                 "direction are 3-element sequences. Reports a miss (hit False) if there is "
-                "no physics system or an argument is malformed -- a short sequence or a "
-                "non-numeric element -- rather than raising, since a raising binding would "
-                "abort the whole tick over one bad call."));
+                "no physics system or an argument is malformed -- not a sequence at all "
+                "(a dict, for instance), too short, or holding a non-number -- rather than "
+                "raising, since a raising binding would abort the whole tick over one bad "
+                "call."));
 
     // apply_impulse(entity, impulse, point) -> bool. impulse/point are 3-element
     // sequences (matching raycast). Malformed input returns False rather than
     // raising: a raising binding would abort the whole tick over one bad call.
     globals["apply_impulse"] = py::cpp_function(
-        [host](std::uint64_t entity, py::sequence impulse, py::sequence point) -> bool
+        [host](std::uint64_t entity, py::object impulse, py::object point) -> bool
         {
             using mosaic::foundation::math::Vec3;
             if (!host.apply_impulse) { return false; }
@@ -173,7 +185,16 @@ void install_host_globals(py::dict& globals, const mosaic::engine::script::Scrip
                 "from the body's centre induces spin, which is what makes a sphere "
                 "roll rather than slide. Returns False if there is no physics "
                 "system, the entity has no simulated body, or an argument is "
-                "malformed."));
+                "malformed -- not a sequence at all (a dict, for instance), too "
+                "short, or holding a non-number.\n\n"
+                "Under --script-thread, True means 'accepted for replay on the main "
+                "thread', not 'a body was pushed'. The worker can judge only "
+                "entities in its own job snapshot; a push aimed at anything else -- "
+                "including an entity id that does not exist -- is buffered and "
+                "returns True, and the main-thread replay drops it if there is no "
+                "body. Pushing some OTHER object is the normal case this protects, "
+                "since answering False there would make a working single-threaded "
+                "script silently do nothing under the flag."));
 }
 
 class PythonScriptEngine final

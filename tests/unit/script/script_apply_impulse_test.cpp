@@ -98,3 +98,59 @@ TEST_CASE("apply_impulse propagates a False result from the host", "[script]")
         "assert ok is False\n");
     REQUIRE(r.ok);
 }
+
+TEST_CASE("apply_impulse returns False for a non-sequence argument", "[script]")
+{
+    // The spec's "a malformed argument returns False" only ever covered malformations
+    // WITHIN a sequence. A non-sequence never reached the binding's guard: with
+    // py::sequence in the signature, pybind11's dispatcher rejected the call first and the
+    // TypeError aborted the tick.
+    //
+    // A dict is the likeliest mistake, and an understandable one -- component values on
+    // this same scripting surface ARE dicts (tr['position']['x']), so reaching for
+    // {'x':..,'y':..,'z':..} here is a reasonable wrong guess.
+    bool       called = false;
+    ScriptHost host;
+    host.apply_impulse = [&](std::uint64_t, Vec3, Vec3) -> bool { called = true; return true; };
+
+    auto engine = create_python_script_engine();
+    engine->bind_host(host);
+
+    SECTION("a dict for the impulse")
+    {
+        auto r = engine->run_string(
+            "ok = apply_impulse(1, {'x': 1.0, 'y': 0.0, 'z': 0.0}, [0.0, 0.0, 0.0])\n"
+            "assert ok is False\n"
+            "after = 42\n");
+        REQUIRE(r.ok);
+        REQUIRE_FALSE(called);
+    }
+
+    SECTION("a dict for the point")
+    {
+        auto r = engine->run_string(
+            "ok = apply_impulse(1, [1.0, 0.0, 0.0], {'x': 0.0, 'y': 0.0, 'z': 0.0})\n"
+            "assert ok is False\n"
+            "after = 42\n");
+        REQUIRE(r.ok);
+        REQUIRE_FALSE(called);
+    }
+
+    SECTION("an int for the impulse")
+    {
+        auto r = engine->run_string("ok = apply_impulse(1, 7, [0.0, 0.0, 0.0])\n"
+                                    "assert ok is False\n"
+                                    "after = 42\n");
+        REQUIRE(r.ok);
+        REQUIRE_FALSE(called);
+    }
+
+    SECTION("None for the point")
+    {
+        auto r = engine->run_string("ok = apply_impulse(1, [1.0, 0.0, 0.0], None)\n"
+                                    "assert ok is False\n"
+                                    "after = 42\n");
+        REQUIRE(r.ok);
+        REQUIRE_FALSE(called);
+    }
+}
