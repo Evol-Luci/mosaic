@@ -76,12 +76,6 @@ ScriptWorker::WorkerResult ScriptWorker::collect()
     return std::move(result_);
 }
 
-bool ScriptWorker::has_pending() const
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    return pending_ || executing_ || result_ready_;
-}
-
 void ScriptWorker::run()
 {
     for (;;)
