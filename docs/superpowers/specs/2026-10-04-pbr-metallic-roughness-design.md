@@ -97,13 +97,27 @@ lit surface by about 3.14, on top of slice 1's tone curve already mapping
 compensate.** Confirmed with the user. The demo scene's values are
 multiplied by π:
 
-| Light | Before | After |
-|---|---|---|
-| Directional | 1.0 (implicit) | 3.14 |
-| Point | 3.0 | 9.42 |
-| Spot | 6.0 | 18.85 |
+| Light | Field | Before | After |
+|---|---|---|---|
+| Directional | `color` | `{1, 1, 1}` | `{3.142, 3.142, 3.142}` |
+| Point | `intensity` | 3.0 | 9.425 |
+| Spot | `intensity` | 6.0 | 18.850 |
 
-`scene.json`'s lights get the same treatment.
+Three precisions, all measured rather than assumed while planning:
+
+- **`DirectionalLight` has no `intensity` field** — only `direction` and
+  `color` (`engine/render/directional_light.hpp`). Its π therefore goes
+  into the colour, which also means it is the one light whose "intensity"
+  cannot exceed 1 without the colour leaving the 0..1 range. That is fine
+  — the shader multiplies by it as radiance, not as a display colour —
+  but it reads oddly in a scene file and is worth knowing.
+- **`scene.json` carries no material specular fields at all.** Its
+  `Material` entries serialize only what differs from the defaults, and
+  neither `shininess` nor `specular_strength` appears. So the rename needs
+  no material edits there; the deserializer drops the absent old keys and
+  the new fields take their defaults.
+- **`scene.json` has exactly one light to re-author**: a `PointLight` with
+  `intensity: 3.0`, which becomes 9.425. There is no `SpotLight` in it.
 
 The rejected alternative was to skip the `/π` and document that intensity
 implicitly absorbs it. That keeps the demo looking identical and requires
@@ -173,7 +187,8 @@ rather than rediscovered:
 - `modules/render_vulkan/shaders/cube.frag` — the push-constant block and
   the shading math.
 - `app/run/demo_scene.hpp` — six materials and three light intensities.
-- `scene.json` — materials and lights.
+- `scene.json` — one `PointLight` intensity. Its `Material` entries carry
+  no specular fields, so they need no edit.
 - Tests: `render_system_test.cpp`, `shader_specular_contract_test.cpp`,
   `lighting_reflection_test.cpp`, `demo_scene_test.cpp`.
 
