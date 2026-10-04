@@ -95,6 +95,7 @@ add_executable(mosaic_unit_tests
   unit/render/shape_meshes_test.cpp
   unit/render/render_device_hooks_test.cpp
   unit/render/shader_specular_contract_test.cpp
+  unit/render/shader_tonemap_contract_test.cpp
   unit/render/shadow_test.cpp
   unit/reflection/lighting_reflection_test.cpp
   unit/reflection/component_value_test.cpp

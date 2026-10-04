@@ -62,6 +62,25 @@ float blinn_spec(vec3 n, vec3 v, vec3 L, float shininess, float strength)
     return pow(max(dot(n, h), 0.0), e) * strength * step(0.0, dot(n, L));
 }
 
+// ACES filmic approximation (Narkowicz). Maps linear HDR to the linear display range
+// so bright highlights roll off instead of clipping flat against the 8-bit target.
+//
+// This must NOT also gamma-correct: the swapchain is B8G8R8A8_SRGB, so the hardware
+// encodes linear -> sRGB on write. A pow(c, 1.0/2.2) here would double-correct.
+//
+// Applied in cube.frag only. The other scene shaders are unlit -- they output authored
+// colour times alpha and cannot exceed 1.0 -- so mapping them would darken authored
+// colour, since this curve takes 1.0 to roughly 0.8.
+vec3 tonemap_aces(vec3 x)
+{
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 void main()
 {
     vec3 n = normalize(fragNormal);
@@ -116,5 +135,5 @@ void main()
                + spec_dir * fl.light_color.xyz
                + spec_pt * fl.point_color.xyz
                + spec_spot * fl.spot_color.xyz;
-    outColor = vec4(color, 1.0);
+    outColor = vec4(tonemap_aces(color), 1.0);
 }
