@@ -6,50 +6,15 @@
 // `mosaic run --window`, and the spec says so rather than letting a green suite
 // imply more.
 
-#include <cctype>
-#include <fstream>
-#include <sstream>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
 
-namespace
-{
-std::string read_shader(const std::string& name)
-{
-    const std::string path = std::string(MOSAIC_TEST_DIR) + "/../modules/render_vulkan/shaders/" + name;
-    std::ifstream in(path);
-    REQUIRE(in.good());
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
+#include "shader_source.hpp"
 
-// Shader source with // comments removed. The gamma check below searches for a literal
-// `2.2`, and a raw text search cannot tell code from prose -- it tripped on cube.frag's
-// own comment explaining that a pow(c, 1.0/2.2) would double-correct. A test that forbids
-// documenting the decision it enforces is the wrong test, so strip comments first and
-// check the code.
-std::string code_only(const std::string& src)
-{
-    std::string out;
-    out.reserve(src.size());
-    std::size_t i = 0;
-    while (i < src.size())
-    {
-        if (src[i] == '/' && i + 1 < src.size() && src[i + 1] == '/')
-        {
-            while (i < src.size() && src[i] != '\n') { ++i; }
-        }
-        else
-        {
-            out += src[i];
-            ++i;
-        }
-    }
-    return out;
-}
-} // namespace
+using mosaic::tests::code_only;
+using mosaic::tests::count_assignments;
+using mosaic::tests::read_shader;
 
 TEST_CASE("cube.frag tone maps its output with the ACES approximation", "[render]")
 {
@@ -91,22 +56,7 @@ TEST_CASE("cube.frag writes only the tone-mapped colour to its attachment", "[re
     //
     // So: find each `outColor`, skip whitespace and any `.rgb`/`.xyz`/`.r` swizzle, and
     // count it if what follows is a single `=` (not `==`).
-    std::size_t writes = 0;
-    for (std::size_t i = frag.find("outColor"); i != std::string::npos;
-         i = frag.find("outColor", i + 1))
-    {
-        std::size_t j = i + std::string("outColor").size();
-        if (j < frag.size() && frag[j] == '.')
-        {
-            ++j;
-            while (j < frag.size() && std::isalpha(static_cast<unsigned char>(frag[j]))) { ++j; }
-        }
-        while (j < frag.size() && (frag[j] == ' ' || frag[j] == '\t')) { ++j; }
-        if (j < frag.size() && frag[j] == '=' && (j + 1 >= frag.size() || frag[j + 1] != '='))
-        {
-            ++writes;
-        }
-    }
+    const std::size_t writes = count_assignments(frag, "outColor");
     INFO("cube.frag must assign outColor exactly once, and from tonemap_aces(). If you "
          "added a second write -- a debug visualisation, an early-out, or a component "
          "write like outColor.rgb = ... -- the tone map is being bypassed for those "

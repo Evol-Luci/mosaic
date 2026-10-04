@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <cmath>
 #include <string>
+#include <algorithm>
 #include <vector>
 
 #include "engine/physics/physics_components.hpp"
@@ -172,7 +173,7 @@ TEST_CASE("build_default_scene includes a spot light so the demo exercises all t
     REQUIRE(spots == 1);
 }
 
-TEST_CASE("build_default_scene varies specular parameters so the highlights are comparable", "[app]")
+TEST_CASE("build_default_scene varies metallic and roughness so the highlights are comparable", "[app]")
 {
     // All six demo materials previously took the same defaults, which shows THAT
     // specular exists but gives nothing to judge it against. The scene now spans
@@ -199,8 +200,16 @@ TEST_CASE("build_default_scene varies specular parameters so the highlights are 
     // what that assertion was really checking.
     float lo = roughness[0], hi = roughness[0];
     for (float r : roughness) { lo = (r < lo) ? r : lo; hi = (r > hi) ? r : hi; }
-    REQUIRE(hi >= 0.4f);  // a broad, soft highlight
+    REQUIRE(hi >= 0.8f);  // a genuinely matte surface
     REQUIRE(lo <= 0.1f);  // a tight, obvious one
+
+    // And no two surfaces identical. The mechanical shininess -> roughness conversion
+    // mapped two different materials -- the matte box and the defaults box -- onto the
+    // same 0.243, which silently cost the scene one of its six distinct surfaces while
+    // every assertion above still passed. Found in review 2026-10-04.
+    std::vector<float> sorted = roughness;
+    std::sort(sorted.begin(), sorted.end());
+    REQUIRE(std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end());
 
     // The metallic parameter needs a visible user, or the slice ships a knob nothing
     // exercises. Exactly one metal keeps Task 2's visual change to one variable --

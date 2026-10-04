@@ -4,11 +4,15 @@
 # generates them. Regenerates both, then diffs the generated files against
 # what's on disk -- if regeneration changes anything, the commit is stale.
 #
-# Known limitation: the component/scripting-globals reference check only
-# reflects whatever "mosaic" binary is currently built -- it does NOT check
-# that binary is newer than the source you're committing. Editing a
-# reflected component and forgetting to rebuild before committing will
-# pass silently. Rebuild before relying on this check to catch that case.
+# Known limitation: the component/scripting-globals reference check can only
+# reflect whatever "mosaic" binary is built. It picks the NEWEST of the
+# candidate build directories and warns when that binary is older than
+# something you are committing -- it used to take the FIRST candidate found,
+# which let a months-old build/app/mosaic outrank a fresh build/debug one and
+# regenerate the reference from stale reflection data, passing the check while
+# committing docs that documented deleted fields. That happened; see
+# review 2026-10-04. The warning is advisory, not a block: rebuild and commit
+# again if you see it.
 #
 # Enable once per clone: git config core.hooksPath .githooks
 # This REPLACES, not augments, any hooks already in .git/hooks/ for this
@@ -22,11 +26,23 @@ python3 tools/ci/check_dependency_rules.py
 
 mosaic_bin=""
 for candidate in build/app/mosaic build/debug/app/mosaic build/release/app/mosaic; do
-    if [ -x "$candidate" ]; then
+    if [ -x "$candidate" ] && { [ -z "$mosaic_bin" ] || [ "$candidate" -nt "$mosaic_bin" ]; }; then
         mosaic_bin="$candidate"
-        break
     fi
 done
+
+# A binary older than the code being committed cannot reflect it.
+if [ -n "$mosaic_bin" ]; then
+    for staged in $(git diff --cached --name-only --diff-filter=ACM); do
+        if [ -f "$staged" ] && [ "$staged" -nt "$mosaic_bin" ]; then
+            echo "pre-commit: WARNING -- $mosaic_bin is older than $staged, so the" \
+                 "component/scripting-globals reference below was regenerated from" \
+                 "stale reflection data. Rebuild and commit again if either file" \
+                 "describes reflected components." >&2
+            break
+        fi
+    done
+fi
 
 if [ -z "$mosaic_bin" ]; then
     echo "pre-commit: no built 'mosaic' binary found (looked in build/app," \

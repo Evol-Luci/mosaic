@@ -290,28 +290,68 @@ view that was actually used to pick what to build next as of this writing.
     lighting UBO rather than the per-draw payload — so specular's only
     per-draw additions are shininess and strength (8 bytes). This is
     the natural next rendering slice.
-  - **Perceptual `0..1` gloss remap** — `Material::shininess` ships as a
-    raw Phong exponent, the traditional parameterization but a poor
-    authoring knob: it is perceptually non-linear, so 8 → 16 is a large
-    visual change while 200 → 208 is invisible. Deferred 2026-09-27
-    during the Blinn-Phong design: the remap decision belongs with
-    PBR's roughness parameter below, and shipping a remap now would
-    leave two competing gloss scales in the material system at once.
-    Depends on the PBR material model being designed first.
-  - **Specular/gloss texture maps** — per-texel shininess and specular
-    strength sampled from a map, rather than the two scalar `Material`
-    params the Blinn-Phong slice adds. Deferred 2026-09-27 during that
-    slice's design: it needs a second texture binding and an asset-
-    pipeline answer (how a gloss map is authored, imported, and
-    referenced) that has nothing to do with the shading math itself.
-    Depends on nothing; it is simply a separate, larger question.
-  - **Fresnel / energy conservation on the specular term** — Blinn-Phong
-    v1 is deliberately non-energy-conserving: `specular_strength` is an
+  - ~~**Perceptual `0..1` gloss remap**~~ — **resolved 2026-10-04 by PBR
+    slice 2.** `Material::shininess` was a raw Phong exponent and a poor
+    authoring knob: perceptually non-linear, so 8 → 16 was a large visual
+    change while 200 → 208 was invisible. It was deferred 2026-09-27
+    because the remap decision belonged with PBR's roughness parameter and
+    shipping one earlier would have left two competing gloss scales in the
+    material system at once. `roughness` **is** that remap — the deferral
+    was resolved by the parameter replacing the exponent outright rather
+    than by a second scale being added beside it.
+  - **Metallic/roughness texture maps** — per-texel `metallic` and
+    `roughness` sampled from a map, rather than the two scalar `Material`
+    params. Deferred 2026-09-27 during the Blinn-Phong slice's design,
+    when it was framed as shininess and specular-strength maps; PBR
+    slice 2 replaced those parameters, so this now reads against
+    metallic/roughness and is PBR **slice 3**, decomposed but not yet
+    specced. It needs a second texture binding and an asset-pipeline
+    answer (how such a map is authored, imported, and referenced) that
+    has nothing to do with the shading math itself. It is also the
+    reason intermediate `metallic` values exist at all — they are for
+    texture blending, not for authoring by hand.
+  - ~~**Fresnel / energy conservation on the specular term**~~ —
+    **resolved 2026-10-04 by PBR slice 2.** Blinn-Phong v1 was
+    deliberately non-energy-conserving: `specular_strength` was an
     authored fudge factor, not a physically derived `F0`. Deferred
     2026-09-27 because a Schlick Fresnel term only makes sense once the
-    BRDF around it is physically based; doing it inside Blinn-Phong
-    would be half a PBR model with none of its coherence. Folded into
-    the full PBR item below rather than tracked as an independent slice.
+    BRDF around it is physically based; doing it inside Blinn-Phong would
+    have been half a PBR model with none of its coherence. Slice 2 ships
+    Schlick Fresnel with `F0 = mix(vec3(0.04), base_color, metallic)` and
+    `kD = (1 - F)(1 - metallic)`, so diffuse and specular are now
+    energy-conserving relative to each other; `specular_strength`
+    dissolved rather than migrating. **Still open from this item:** the
+    multi-scatter / energy-compensation term — single-scatter GGX loses
+    energy at high roughness, and the Fdez-Agüera or LUT correction is a
+    refinement on a working BRDF, listed separately below.
+  - **The light components' default intensities still mean the pre-π
+    thing** — `PointLight::intensity` and `SpotLight::intensity` default
+    to `1.0f` and `DirectionalLight::color` to `{1,1,1}`, all authored
+    against the non-energy-conserving diffuse term. Since PBR slice 2
+    divides diffuse by π, a light a user adds with the defaults now
+    renders ~3.14× dimmer than the identical light did before, and a
+    "unit" light is no longer a unit of anything. Deferred 2026-10-04:
+    the slice-2 spec considered moving the π into the component defaults
+    and rejected it with an argued reason — the demo's explicitly-set
+    values would still have needed re-authoring, so it would hide where
+    the constant went without avoiding the work. Recorded because the
+    consequence outlives the decision; the real fix is a defined unit for
+    light intensity (lumens or candela), which is its own design
+    question. Surfaced by the slice-2 branch review.
+  - **`metallic` outside `0..1` gives a material its diffuse lobe back**
+    — the engine deliberately does not clamp shading parameters, and
+    tests now explicitly guarantee an out-of-range `metallic` reaches the
+    GPU unchanged. At `metallic = 2`, `F0 = 2·albedo − 0.04` can exceed 1
+    and `kD = (1 − F)(1 − metallic)` flips sign twice to become `F − 1`,
+    so a "more than metal" surface is both over-energetic in specular and
+    diffuse-lit again. Finite and tone-map-clamped, so it is a wrong
+    image rather than a NaN. Deferred 2026-10-04: the spec defines
+    `metallic` only on `0..1` and calls intermediate values physically
+    meaningless, so there is no stated requirement to violate — but the
+    shader already bounds `roughness` on both sides for the same reason,
+    and the asymmetry is the kind that reads as an oversight later.
+    Depends on nothing; a one-line `clamp` in `cube.frag`. Surfaced by
+    the slice-2 branch review.
   - **Per-light specular color distinct from diffuse color** — each
     light currently carries one color used for both terms. Deferred
     2026-09-27: real renderers almost never separate these, and doing
@@ -330,13 +370,18 @@ view that was actually used to pick what to build next as of this writing.
     renderer look *worse* until tone mapping landed. It also pays for
     itself now: specular already clips. (2) **Metallic/roughness plus a
     GGX Cook-Torrance BRDF** with Schlick Fresnel and energy
-    conservation — this *absorbs* the "perceptual `0..1` gloss remap"
-    item above (roughness **is** that parameter) and the "Fresnel /
-    energy conservation" item. Migration settled as a **clean break**:
-    remove `shininess`/`specular_strength`, update `scene.json` and the
-    four test files referencing them, since the engine is pre-1.0 with no
-    external consumers and carrying both parameter sets is the exact
-    "two competing gloss scales" the remap was deferred to avoid.
+    conservation — **SHIPPED 2026-10-04.** It *absorbed* the "perceptual
+    `0..1` gloss remap" item above (roughness **is** that parameter) and
+    the "Fresnel / energy conservation" item. Migration settled as a
+    **clean break**: remove `shininess`/`specular_strength` and update
+    the committed scene and the test files referencing them, since the
+    engine is pre-1.0 with no external consumers and carrying both
+    parameter sets is the exact "two competing gloss scales" the remap
+    was deferred to avoid. **Correction for slices 3 and 4:** this entry
+    and both PBR specs named `scene.json` as the committed scene. It is
+    not — `.gitignore` lists it; it is a local export. The committed
+    scene is `templates/default/scenes/main.json`, and it holds two
+    lights, not one.
     (3) **Texture maps** (metallic/roughness/normal) — needs further
     texture bindings plus an asset-pipeline answer. (4) **Image-based
     lighting** — the largest; the ambient term stays a flat `0.1` until
@@ -1323,7 +1368,7 @@ implementation starts.
 |---|---|
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| Rendering: full PBR material model — **decomposed 2026-10-04**, slice 1 (tone mapping) shipped; slices 2–4 remain (metallic/roughness + GGX BRDF, texture maps, IBL) | High |
+| Rendering: full PBR material model — **decomposed 2026-10-04**, slices 1 (tone mapping) and 2 (metallic/roughness + GGX Cook-Torrance BRDF) shipped; slices 3 (texture maps) and 4 (IBL) remain, decomposed but unspecced | High |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
 | UI pillar gaps | High if interactive-game UI is a near-term goal, else Low |
 | Networking gaps | High if shipping real multiplayer soon, else Low |

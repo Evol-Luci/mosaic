@@ -157,10 +157,12 @@ Available only inside a gameplay `ScriptComponent`. These come from the script h
 ### apply_impulse
 
 ```
-(arg0: int, arg1: Sequence, arg2: Sequence) -> bool
+(arg0: int, arg1: object, arg2: object) -> bool
 ```
 
-Apply an instantaneous impulse to a dynamic body at a world-space point; impulse and point are 3-element sequences. Applying it away from the body's centre induces spin, which is what makes a sphere roll rather than slide. Returns False if there is no physics system, the entity has no simulated body, or an argument is malformed.
+Apply an instantaneous impulse to a dynamic body at a world-space point; impulse and point are 3-element sequences. Applying it away from the body's centre induces spin, which is what makes a sphere roll rather than slide. Returns False if there is no physics system, the entity has no simulated body, or an argument is malformed -- not a sequence at all (a dict, for instance), too short, or holding a non-number.
+
+Under --script-thread, True means 'accepted for replay on the main thread', not 'a body was pushed'. The worker can judge only entities in its own job snapshot; a push aimed at anything else -- including an entity id that does not exist -- is buffered and returns True, and the main-thread replay drops it if there is no body. Pushing some OTHER object is the normal case this protects, since answering False there would make a working single-threaded script silently do nothing under the flag.
 
 
 ### pause
@@ -184,10 +186,10 @@ Resume the simulation clock. Has no effect if already playing.
 ### raycast
 
 ```
-(arg0: Sequence, arg1: Sequence, arg2: float) -> dict
+(arg0: object, arg1: object, arg2: float) -> dict
 ```
 
-Cast a ray into the scene and return hit data as a dictionary.
+Cast a ray into the scene and return hit data as a dictionary. origin and direction are 3-element sequences. Reports a miss (hit False) if there is no physics system or an argument is malformed -- not a sequence at all (a dict, for instance), too short, or holding a non-number -- rather than raising, since a raising binding would abort the whole tick over one bad call.
 
 
 ### stop

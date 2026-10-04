@@ -403,9 +403,14 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box,
         transform::Transform{Vec3{0, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box, render::MeshRenderer{render::kCubeMeshId});
-    // Fully matte -- the strength == 0 opt-out, promised to render exactly as it did
-    // before specular existed. Sits right next to the glossiest object on purpose.
-    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.243f});
+    // The matte end of the scene's range. Sits right next to the glossiest object on
+    // purpose. This surface was previously the specular_strength == 0 opt-out; the
+    // mechanical sqrt(2/(shininess+2)) conversion would have put it at 0.243, which is
+    // one of the GLOSSIEST values here and identical to box2 below -- so the scene
+    // would have lost both its matte baseline and one of its six distinct materials.
+    // The conversion exists to land each surface in the right perceptual neighbourhood,
+    // not to preserve appearance, and this one's neighbourhood is "matte".
+    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.9f});
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -413,12 +418,17 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(sphere,
         transform::Transform{Vec3{-2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(sphere, render::MeshRenderer{render::kSphereMeshId});
-    // The showcase. Deliberately UNTEXTURED and solid red: a checker texture
-    // camouflages a specular highlight completely (white highlight on a white square
-    // is invisible, on a black square it is a few pixels), which defeats the point of
-    // having a showcase object. A white highlight on a red surface also makes the
-    // "specular takes the LIGHT's color, never the albedo" rule visible at a glance --
-    // if this highlight ever looks red, that rule has been broken.
+    // The showcase, and the scene's one metal. Deliberately UNTEXTURED and solid red: a
+    // checker texture camouflages a specular highlight completely (white highlight on a
+    // white square is invisible, on a black square it is a few pixels), which defeats
+    // the point of having a showcase object.
+    //
+    // This comment used to add that a red-looking highlight here meant the "specular
+    // takes the LIGHT's color, never the albedo" rule had been broken. That rule was
+    // correct for Blinn-Phong and is WRONG for PBR, which is why the spec devoted a
+    // section to it: with metallic == 1, F0 == base_color, so this highlight MUST read
+    // red. A metal's specular colour is what distinguishes gold from silver. If it ever
+    // looks white again, the metallic path has been broken.
     world.add_component<render::Material>(sphere,
         render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 0.174f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
@@ -447,7 +457,8 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(box2,
         transform::Transform{Vec3{0, 6, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{render::kCubeMeshId});
-    // The documented defaults, stated explicitly as the middle reference point.
+    // The middle of the scene's range. Note this is NOT Material's documented default
+    // any more -- that is roughness 0.5, and this is the shininess-32 conversion.
     world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.243f});
     world.add_component<physics::RigidBody>(box2, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box2, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
@@ -544,8 +555,10 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<transform::Transform>(orbiter,
         transform::Transform{Vec3{3, 2, 0}, Quat::identity(), Vec3{0.5f, 0.5f, 0.5f}, {}});
     world.add_component<render::MeshRenderer>(orbiter, render::MeshRenderer{render::kCubeMeshId});
-    // Very tight and dim: a pinpoint glint on a saturated color, which also shows that
-    // specular takes the LIGHT's color rather than the albedo's green.
+    // Very tight and dim: a pinpoint glint on a saturated color. Its highlight stays
+    // white rather than green because this surface is a DIELECTRIC (metallic == 0, so
+    // F0 is the flat 0.04) -- not because specular never takes the albedo. The red
+    // sphere above is the metal where it does.
     world.add_component<render::Material>(orbiter,
         render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 0.0f, 0.088f});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,

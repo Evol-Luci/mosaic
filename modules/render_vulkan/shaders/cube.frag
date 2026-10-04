@@ -80,8 +80,12 @@ vec3 fresnel_schlick(float cos_theta, vec3 F0)
 vec3 brdf(vec3 n, vec3 v, vec3 L, vec3 albedo, float metallic, float roughness)
 {
     // alpha == 0 makes D infinite at NdotH == 1. The engine does not clamp, by design,
-    // so this is the only guard.
-    float alpha = max(roughness, 0.045);
+    // so this is the only guard. It is bounded above as well: the engine's tests
+    // explicitly guarantee that an out-of-range authored roughness reaches the GPU
+    // unchanged, and a2 is roughness^4, which overflows float somewhere above
+    // roughness ~4300 -- making D = inf/inf = NaN, and clamp(NaN, 0, 1) undefined. A
+    // typo'd 1e6 in a scene file is a garbage pixel, not an error. Review 2026-10-04.
+    float alpha = clamp(roughness, 0.045, 1.0);
     alpha = alpha * alpha;
 
     // Both appear in the 4 * NdotV * NdotL denominator, and NdotV goes to zero at every

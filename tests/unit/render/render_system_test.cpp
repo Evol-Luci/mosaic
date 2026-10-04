@@ -1370,9 +1370,10 @@ TEST_CASE("RenderSystem forwards a Material's specular parameters to the draw ca
 
 TEST_CASE("RenderSystem uses the documented shading defaults with and without a Material", "[render]")
 {
-    // Review Focus 5: a Material that exists but leaves the specular fields alone is
+    // Review Focus 5: a Material that exists but leaves the shading fields alone is
     // the common real case, and it is a DIFFERENT code path from having no Material
-    // at all. Both must yield 32.0 / 0.5.
+    // at all. Both must yield metallic 0.0 / roughness 0.5 -- Material's documented
+    // defaults, which render_system.hpp's own comment requires these to match.
     World world;
     FakeRenderDevice device;
     AssetRegistry registry;
