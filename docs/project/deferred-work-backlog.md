@@ -321,11 +321,29 @@ view that was actually used to pick what to build next as of this writing.
     contributes no highlight. Deferred 2026-09-27: image-based lighting
     needs cubemap capture, prefiltering, and a BRDF LUT — it is a pillar
     of the PBR work below, not an add-on to Blinn-Phong.
-  - **Full PBR material model** — metallic/roughness workflow,
-    Cook-Torrance BRDF, energy-conserving specular. The real thing, not
-    a stepping stone; needs its own design decisions (scalar params vs.
-    texture maps for v1) and likely its own sub-decomposition, not a
-    single slice.
+  - **Full PBR material model** — **DECOMPOSED 2026-10-04** into four
+    slices; see `docs/superpowers/specs/2026-10-04-pbr-decomposition-and-tone-mapping-design.md`
+    for the reasoning and the measured starting state. (1) **Tone
+    mapping** — specced in that document and taken first, because an
+    energy-conserving BRDF produces values above 1.0 routinely and the
+    8-bit sRGB target clips them, so doing the BRDF first would make the
+    renderer look *worse* until tone mapping landed. It also pays for
+    itself now: specular already clips. (2) **Metallic/roughness plus a
+    GGX Cook-Torrance BRDF** with Schlick Fresnel and energy
+    conservation — this *absorbs* the "perceptual `0..1` gloss remap"
+    item above (roughness **is** that parameter) and the "Fresnel /
+    energy conservation" item. Migration settled as a **clean break**:
+    remove `shininess`/`specular_strength`, update `scene.json` and the
+    four test files referencing them, since the engine is pre-1.0 with no
+    external consumers and carrying both parameter sets is the exact
+    "two competing gloss scales" the remap was deferred to avoid.
+    (3) **Texture maps** (metallic/roughness/normal) — needs further
+    texture bindings plus an asset-pipeline answer. (4) **Image-based
+    lighting** — the largest; the ambient term stays a flat `0.1` until
+    it lands. Explicitly outside the decomposition: multi-light
+    accumulation (orthogonal — a change to light gathering, not the
+    BRDF) and per-light specular colour (already a deliberate omission).
+    Each of 2–4 gets its own spec when its turn comes.
   - ~~**Shading-data UBO migration**~~ — **SHIPPED 2026-09-27.**
     Lighting moved into the codebase's first uniform buffer (descriptor
     set 2, one per frame-in-flight) and shading from object space to
@@ -335,6 +353,33 @@ view that was actually used to pick what to build next as of this writing.
     scale 1; a uniform scale `s != 1` shifts point/spot attenuation
     brightness by `s`, since the old object-space distance input was
     `world_distance / s` — the new behavior is the correct one).
+  - **An offscreen HDR render target with a fullscreen resolve pass.**
+    The correct-compositing form of tone mapping, and the prerequisite
+    for bloom. Deferred 2026-10-04 during the tone-mapping design:
+    nothing in the renderer blends additively today — every pipeline in
+    `vulkan_render_device.cpp` is either `SRC_ALPHA` (eight of nine, with
+    `VK_BLEND_FACTOR_ONE` only as `srcAlphaBlendFactor`) or, for the opaque
+    mesh pipeline that actually renders `cube.frag`, `blendEnable = VK_FALSE` — so per-shader tone
+    mapping lerps between mapped values, which is a defensible
+    approximation rather than an error. The HDR target would cost a
+    render target, a render pass, a pipeline, and a decision about where
+    UI draws relative to the resolve, for little gain. **The trigger is
+    specific, not vague: the moment any additive pipeline is added, the
+    reasoning above is invalidated and this becomes necessary** —
+    `tonemap(a) + tonemap(b) != tonemap(a + b)`. Related and deliberate:
+    the four unlit scene shaders (`particle`, `ribbon`, `decal`,
+    `world_text`) are *not* tone mapped, because they cannot exceed 1.0
+    and every reasonable curve maps 1.0 to about 0.8 — mapping them
+    would darken authored colour for nothing. A test pins that, so a
+    later "consistency" edit has to argue with it.
+  - **Bloom.** Depends on the HDR render target above; there is nowhere
+    to read bright pixels back from until that exists. Deferred
+    2026-10-04.
+  - **Exposure control.** Tone mapping ships with a hard-coded curve.
+    Deferred 2026-10-04 during its design: exposure is a camera concern
+    rather than a material or lighting one, and adding the knob now would
+    mean deciding where it lives (a `Camera` member? the lighting UBO? a
+    push constant?) for no current caller.
   - **Move `view_proj` per-frame and drop `mvp` from push constants** —
     a further per-draw reduction available on top of the UBO migration
     (the vertex shader would compute `view_proj * model` instead of
@@ -1228,13 +1273,30 @@ Re-derive again once real new work has landed since the last pass — don't
 immediately re-run a fourth time expecting different material from the
 same unchanged source docs.
 
+**Re-derived 2026-10-04** after eleven slices landed (#209–#219). Two
+genuine quick wins now exist, both surfaced by those slices rather than by
+re-reading the same source docs:
+
+| Item | Why it is a quick win |
+|---|---|
+| **Exposure control** | One `float` through the existing lighting UBO (which already carries `camera_position`), one multiply before the tone map. The design question — where the knob lives — is the only real work. |
+| **A suite-wide ctest `TIMEOUT`** | One `set_tests_properties` call. Recorded three times as a backstop; this session produced two hang-shaped bugs (the watchdog use-after-free and the GIL deadlock), so it is no longer hypothetical. The work is choosing the value against the slowest legitimate test, not writing the line. |
+
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 **Empty as of 2026-09-21.** All five original items shipped: Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
 + versioning (PR #194), plugin live file-watching/hot-reload
 (PR #195), Studio theme system + persistence (PR #196), Studio
-recent-projects list (PR #197). The next pick comes from the 🔴 Large
+recent-projects list (PR #197).
+
+**Re-derived 2026-10-04.** One genuine medium item now exists:
+
+| Item | Shape |
+|---|---|
+| **An offscreen HDR render target plus a fullscreen resolve pass** | New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+
+Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before
 implementation starts.
 
@@ -1244,7 +1306,7 @@ implementation starts.
 |---|---|
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| Rendering: full PBR material model | High |
+| Rendering: full PBR material model — **decomposed 2026-10-04**, slice 1 (tone mapping) shipped; slices 2–4 remain (metallic/roughness + GGX BRDF, texture maps, IBL) | High |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
 | UI pillar gaps | High if interactive-game UI is a near-term goal, else Low |
 | Networking gaps | High if shipping real multiplayer soon, else Low |
