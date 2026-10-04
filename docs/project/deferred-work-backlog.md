@@ -353,6 +353,23 @@ view that was actually used to pick what to build next as of this writing.
     scale 1; a uniform scale `s != 1` shifts point/spot attenuation
     brightness by `s`, since the old object-space distance input was
     `world_distance / s` — the new behavior is the correct one).
+  - **A multi-scatter / energy-compensation term for the GGX specular.**
+    Single-scatter GGX loses energy at high roughness — a rough dielectric
+    comes out darker than it should, because light that would have
+    bounced between microfacets is simply dropped. The correction is
+    either the Fdez-Agüera analytic fit or a precomputed LUT. Deferred
+    2026-10-04 during the metallic/roughness design: it is a refinement
+    on top of a working BRDF, not part of standing one up, and the error
+    it fixes is only obvious at roughness values the demo does not use.
+  - **Anisotropic roughness.** One scalar `roughness` assumes isotropic
+    microfacets, so brushed metal and hair cannot be represented.
+    Deferred 2026-10-04: anisotropy needs a per-vertex tangent frame,
+    which the vertex format does not carry — so this is a mesh-format
+    change before it is a shading change.
+  - **Material layers: clear-coat, sheen, transmission.** The
+    metallic/roughness workflow is the base model; each layer is its own
+    feature with its own parameters and its own BRDF lobe. Deferred
+    2026-10-04 as out of scope for standing up the base.
   - **An offscreen HDR render target with a fullscreen resolve pass.**
     The correct-compositing form of tone mapping, and the prerequisite
     for bloom. Deferred 2026-10-04 during the tone-mapping design:
