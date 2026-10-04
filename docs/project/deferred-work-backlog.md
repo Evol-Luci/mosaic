@@ -358,7 +358,13 @@ view that was actually used to pick what to build next as of this writing.
     so would grow the lighting UBO for a knob nobody has asked for.
     Low priority; listed only so the omission is deliberate.
   - **Ambient/environment specular (IBL)** — the flat `0.1` ambient term
-    contributes no highlight. Deferred 2026-09-27: image-based lighting
+    contributes no highlight, and since PBR slice 2 made the ambient
+    `kD`-weighted it contributes *nothing whatsoever* to a metal:
+    `kD = (1 - F)(1 - metallic)` is exactly zero at `metallic == 1`. The
+    demo's metal sphere therefore renders near-black with two small
+    specular highlights, which was confirmed visually 2026-10-04 and
+    accepted as correct — a metal with nothing to reflect has nothing to
+    show. It is the most visible single argument for this item. Deferred 2026-09-27: image-based lighting
     needs cubemap capture, prefiltering, and a BRDF LUT — it is a pillar
     of the PBR work below, not an add-on to Blinn-Phong.
   - **Full PBR material model** — **DECOMPOSED 2026-10-04** into four

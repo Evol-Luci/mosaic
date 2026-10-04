@@ -429,6 +429,16 @@ inline void build_default_scene(mosaic::engine::World& world)
     // section to it: with metallic == 1, F0 == base_color, so this highlight MUST read
     // red. A metal's specular colour is what distinguishes gold from silver. If it ever
     // looks white again, the metallic path has been broken.
+    //
+    // EXPECTED, NOT A BUG: this sphere reads near-BLACK, not dark red. Metals have no
+    // diffuse lobe, so a metal's whole appearance is reflections of its surroundings --
+    // and our surroundings are three lights and nothing else. cube.frag's ambient is
+    // albedo * 0.1 * kD, and kD = (1 - F)(1 - metallic) is exactly ZERO at metallic == 1,
+    // so this is the one surface in the scene that receives no ambient at all. With
+    // roughness 0.174 the GGX lobe is tight, so what is left is two small red specular
+    // dots on black. That is what a mirror-ish ball in a void looks like. Image-based
+    // lighting (PBR slice 4) is what gives it something to reflect; until then the flat
+    // 0.1 ambient cannot help a metal by construction. Confirmed visually 2026-10-04.
     world.add_component<render::Material>(sphere,
         render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 0.174f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
