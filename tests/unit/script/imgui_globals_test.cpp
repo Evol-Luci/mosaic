@@ -12,6 +12,7 @@ namespace py = pybind11;
 TEST_CASE("install_imgui_globals registers all 10 names without invoking them", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");
@@ -34,6 +35,7 @@ TEST_CASE("install_imgui_globals registers all 10 names without invoking them", 
 TEST_CASE("install_imgui_globals: every global has a non-empty docstring", "[script]")
 {
     mosaic::script::python::ensure_interpreter();
+    const py::gil_scoped_acquire gil;
 
     py::dict globals;
     globals["__builtins__"] = py::module_::import("builtins");

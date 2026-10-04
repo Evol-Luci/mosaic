@@ -442,6 +442,59 @@ anything shipped; they are capabilities that were never built.
   fake backend that synthesises an end event for a just-reaped handle would
   separate the two guards properly; worth doing if either is ever changed.
 
+- **Nothing enforces the GIL rule the scripting module now depends on.**
+  Recorded 2026-10-03 with the GIL fix. The rule is "no thread owns the GIL
+  implicitly; every entry into CPython acquires", and it is held together by
+  guards a human has to remember to add: a new `ScriptEngine` entry point, a
+  new `py::` member (which must also be emptied in the guarded destructor), a
+  new static `py::object` (which must leak), or a new direct pybind11 caller
+  outside the engines will all compile and then abort or crash at runtime.
+  The two new cases in `script_gil_test.cpp` catch the worker-thread shape,
+  but nothing catches a missed guard on a specific method. Deferred
+  2026-10-03: the real answer is probably to stop exposing raw `py::` types
+  across the module boundary at all, so there is only one place that can
+  touch CPython — which is a bigger refactor than the bug warranted. Until
+  then the destructor comment and this entry are the enforcement.
+
+  Two specifics worth naming, both from the 2026-10-03 review. **`value_to_py`
+  (`value_marshal.hpp`) is the single weakest point** in the otherwise
+  self-enforcing argument: every other unguarded public function takes an existing
+  `py::dict&`/`py::handle`, so a caller cannot reach it without already holding the
+  GIL, but `value_to_py(const Value&) -> py::object` *mints* a Python object from
+  non-Python input, so a future caller in `app/` or `studio/` could call it with no
+  GIL and the returned object's destructor would decref unguarded too. And **the
+  main thread's `tstate->gilstate_counter` immediately after init was not verified**
+  from source (CPython's `pystate.c` is not vendored). If it is >=1, main-thread
+  guards nest harmlessly, which is the intended and almost certainly actual
+  behaviour. If it is 0, the first main-thread guard's release would tear down and
+  recreate the main thread state on every call -- quiet per-call churn plus a lost
+  main-thread `sys` thread dict, not a crash. The one-line check is to print
+  `PyThreadState_Get()->gilstate_counter` right after `initialize_interpreter`
+  returns; worth doing if unexplained main-thread Python state loss ever appears.
+- **The threaded script path creates and destroys a `PyThreadState` per engine call.**
+  Found 2026-10-03 in review of the GIL fix. `ScriptWorker::execute` makes three
+  independent guarded calls per scripted entity per job (`bind_context`,
+  `set_global("dt")`, `run_string`), and on a worker thread each guard's release drops
+  the counter to zero, so `PyThreadState_Clear` + `PyThreadState_DeleteCurrent` run and
+  the next acquire calls `PyThreadState_New`. At 100 scripted entities and 60 Hz under
+  `--script-thread` that is roughly 18,000 thread-state create/destroy pairs a second --
+  precisely the case pybind11's own `gil.h` comment warns about. Correctness is
+  unaffected and the main-thread path does not churn. Deferred 2026-10-03 because the
+  cheap fix is unavailable where it belongs: nesting is free, so one guard spanning
+  `execute(job)` would make every inner acquire a counter bump -- but
+  `engine/script/script_worker.cpp` is deliberately pybind11-free, so it needs a neutral
+  hook on `ScriptEngine` (an opaque scoped batch token), and adding an interface method
+  wants its own design rather than riding along with a crash fix.
+- **`app/run/editor.cpp`'s shutdown-safety comment is slightly stronger than the code
+  supports.** Pre-existing, noted 2026-10-03 in review. It argues the engine destructors
+  are safe because they "only drop their `py::dict`" and never dereference the bound
+  `world`/`reflection` -- but dropping the dict can run `__del__` on script-defined
+  objects, and those can call the installed `get_component`/`set_component`/host
+  callbacks, which *do* dereference `world_`/`context_`/`host_`. Unchanged by the GIL
+  work (the dict was always destroyed there, and now at least the GIL is correctly held
+  while it happens). Deferred: the fix is either to clear the namespace before unbinding,
+  or to say plainly in the comment that teardown order depends on no script holding a
+  live object with a `__del__` that touches the world.
 - **Handle reuse / a free list for the Box3D backend's `bodies_` vector.**
   Recorded 2026-10-02 as a non-goal of the body-destruction slice. That slice
   tombstones a destroyed slot with `b3_nullBodyId` rather than erasing it,
@@ -515,6 +568,36 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
+- ~~**The `[script]` SIGSEGV**~~ — **ROOT-CAUSED AND FIXED 2026-10-03. It was
+  never a flake, and the cause was written in our own comment.**
+  `ensure_interpreter` noted that after init "the calling (main) thread holds
+  the GIL ... no explicit GIL handoff" — so whoever won the `std::call_once`
+  race kept the GIL for the process. The threaded script test passed alone
+  because the `ScriptWorker` thread won and held it; it died after any other
+  engine had been created on the main thread, because the worker then called
+  `PyDict_New()` with no GIL. `ctest` never saw it because
+  `catch_discover_tests` gives every `TEST_CASE` its own process, so the worker
+  was always first — **the gate was green and blind at the same time.**
+  Fixed by making the invariant real: no thread owns the GIL implicitly, and
+  every entry into CPython acquires. Four things that were not obvious going
+  in, each of which cost a failing-gate iteration: `globals_` had to become a
+  `std::optional<py::dict>` in both engines, because a `py::dict` *member* is
+  built before the constructor body and destroyed after the destructor body,
+  leaving no scope in which to guard `PyDict_New`; `restricted_builtins`'
+  function-local static `ProxyClasses` had to start leaking, because
+  `__cxa_atexit` destroys it with no GIL and `dec_ref` aborts -- and that abort is a
+  *debug* symptom only (`PYBIND11_ASSERT_GIL_HELD_INCREF_DECREF` is defined when
+  `NDEBUG` is unset), so in a Release build the same path is a silent unguarded
+  `Py_XDECREF`: the leak is **more** necessary there, not less; `trace_fn_` had
+  to be emptied inside the guarded destructor, since a `py::` member outlives
+  the body; and every direct pybind11 user outside the engines — the docs
+  generator and four test files that build their own `py::dict` — had to
+  acquire too. Evidence: `[script]` in one process is 5/5 clean where it was
+  RC=139 every time, the whole binary now runs in a single process (1081
+  cases, 31577 assertions) which the crash made impossible, and removing the
+  release makes the new tests **deadlock** rather than crash.
+  The entry that called this "unexplained" follows for context.
+
 - **The `[script]` SIGSEGV now has a deterministic, one-command reproduction,
   and `ctest` structurally cannot see it.** Found 2026-10-03 while guarding
   `raycast`'s sequence reads. #208's entry recorded this failure mode as
