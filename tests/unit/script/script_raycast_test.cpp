@@ -101,3 +101,66 @@ TEST_CASE("raycast() returns a miss for a malformed sequence instead of raising"
         REQUIRE(calls == 0);
     }
 }
+
+TEST_CASE("raycast() returns a miss for a non-sequence argument instead of raising", "[script]")
+{
+    // #214 made raycast degrade for malformations WITHIN a sequence. A non-sequence never
+    // reached that guard at all: with py::sequence in the binding signature, pybind11's
+    // dispatcher rejected the call before the body ran, so the TypeError aborted the tick.
+    //
+    // A dict is the likeliest mistake here, because component values on this very surface
+    // ARE dicts -- tr['position']['x'] -- so a script author reaching for {'x':..,'y':..}
+    // is making an understandable error, not a perverse one.
+    int        calls = 0;
+    ScriptHost host;
+    host.raycast = [&](Vec3, Vec3, float) -> ScriptRayHit
+    {
+        ++calls;
+        ScriptRayHit h;
+        h.hit = true; // a guarded call must not reach the host at all
+        return h;
+    };
+
+    auto engine = create_python_script_engine();
+    engine->bind_host(host);
+
+    SECTION("a dict for origin")
+    {
+        auto r = engine->run_string("h = raycast({'x': 0.0, 'y': 5.0, 'z': 0.0}, [0,-1,0], 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+
+    SECTION("an int for direction")
+    {
+        auto r = engine->run_string("h = raycast([0,5,0], 7, 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+
+    SECTION("None for origin")
+    {
+        auto r = engine->run_string("h = raycast(None, [0,-1,0], 10.0)['hit']\n"
+                                    "survived = True\n"
+                                    "assert h is False\n"
+                                    "assert survived is True\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+
+    SECTION("a string is a sequence, and still reports a miss on its elements")
+    {
+        // PySequence_Check is true for str, so this passes the new sequence guard and is
+        // caught one layer deeper by the element casts. Pinned so the two layers stay honest.
+        auto r = engine->run_string("h = raycast('abc', [0,-1,0], 10.0)['hit']\n"
+                                    "assert h is False\n");
+        REQUIRE(r.ok);
+        REQUIRE(calls == 0);
+    }
+}

@@ -732,6 +732,12 @@ anything shipped; they are capabilities that were never built.
   incorrect claims in it. A recorded finding is a hypothesis until someone
   re-checks it against the code.
 - **`apply_impulse`'s return value is optimistic for non-scripted targets.**
+  **DOCUMENTED 2026-10-04** at the binding's `py::doc` rather than changed -- the
+  behaviour below is still the right call, it was simply invisible to a script author
+  reading the docstring. The binding now says that under `--script-thread` `True` means
+  "accepted for replay on the main thread", not "a body was pushed", and that a push
+  aimed at anything outside the job snapshot (including a non-existent id) is buffered
+  and returns `True`. Original reasoning follows and still stands.
   The worker answers exactly for entities in the job snapshot, but an entity
   absent from it cannot be judged, so the push is buffered and `True` is
   returned; the main-thread replay re-checks `has_body` and drops it if there
@@ -956,6 +962,27 @@ anything shipped; they are capabilities that were never built.
   main thread -- which needs a design decision about ordering against the
   physics step. Note `raycast` still runs off-thread on that path; it is a
   read and pre-existing, but it is the same boundary.
+- ~~**A dict passed to `apply_impulse` raises instead of returning `False`**~~ —
+  **SHIPPED 2026-10-04, for `raycast` too.** `to_vec3` now takes a `py::handle` and
+  checks sequence-ness itself, and both bindings take `py::object` instead of
+  `py::sequence`. The signature was the whole problem: with `py::sequence` there,
+  pybind11's *dispatcher* rejected a non-sequence before the binding body ran, so the
+  guard the spec relied on never got a chance. A dict, an int and `None` now all
+  return `False`/a miss without aborting the tick.
+  **Taken wider than recorded, deliberately:** the entry scoped this to
+  `apply_impulse`, but #214 had just made `raycast` degrade for malformations *within*
+  a sequence, so fixing only one would have left a dict returning `False` from one
+  binding and raising from the other -- a new inconsistency rather than a closed one.
+  Also documented at both surfaces, including the one imprecision that stays:
+  `apply_impulse` under `--script-thread` returns `True` meaning "accepted for replay",
+  not "a body was pushed", since the worker can only judge entities in its own job
+  snapshot. That was a deliberate 2026-09-30 choice and remains so -- it was just
+  undocumented at the binding. One behaviour is pinned as a two-layer guard rather than
+  one: `str` passes `PySequence_Check`, so a string falls through to the element casts
+  and fails there, which the tests now cover so the layers stay honest. Mutation:
+  restoring `py::sequence` in either signature fails that binding's cases (3 and 4
+  sections respectively). Original entry follows.
+
 - **A dict passed to `apply_impulse` raises instead of returning `False`.**
   The spec says a malformed argument returns `False` rather than raising, but
   that only covers malformations *within* a sequence. A non-sequence -- and
