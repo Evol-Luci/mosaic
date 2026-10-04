@@ -27,11 +27,22 @@ Measured, not recalled:
   with 48 bytes of headroom.
 - **Material:** `base_color`, `texture`, `shininess` (raw Phong exponent),
   `specular_strength`.
-- **Colour pipeline:** already linear. The swapchain is
-  `B8G8R8A8_SRGB` and textures are `R8G8B8A8_SRGB`, so the hardware does
-  sRGB→linear on sample and linear→sRGB on write. **No gamma work is
-  needed, and none should be added** — a manual `pow(c, 1/2.2)` on top of
-  an sRGB target would double-correct.
+- **Colour pipeline:** already linear. Textures are `R8G8B8A8_SRGB` and
+  the swapchain is `B8G8R8A8_SRGB`, so the hardware does sRGB→linear on
+  sample and linear→sRGB on write. **No gamma work is needed, and none
+  should be added** — a manual `pow(c, 1/2.2)` on top of an sRGB target
+  would double-correct.
+
+  One precision, added in review: the swapchain format is a **preference,
+  not an invariant**. `vulkan_swapchain_support.cpp` prefers
+  `B8G8R8A8_SRGB` with `SRGB_NONLINEAR` and otherwise **falls back to the
+  first available candidate**. On a surface offering no sRGB format the
+  hardware encode this whole argument rests on would not happen, and
+  tone-mapped linear output would present too dark. That is pre-existing
+  and true on any realistic desktop GPU, but it is a fallback rather than a
+  guarantee, and this document should not assert it as measured fact. The
+  Studio offscreen viewport target reuses `swapchain_format_`, so the two
+  paths cannot diverge.
 - **Tone mapping:** none. Values above 1.0 clip against the 8-bit target.
 
 ## The four slices
@@ -128,20 +139,35 @@ Stop the renderer clipping. Bright specular already flattens against the
 1. **`cube.frag` only.** It is the only shader whose output can exceed
    1.0. Verified: of the nine colour-producing fragment shaders,
    `particle.frag`, `ribbon.frag`, `decal.frag` and `world_text.frag` are
-   unlit — they output authored colour times alpha — and the four UI
-   shaders are authored in display space. Tone mapping an unlit shader
+   unlit — they output authored colour times alpha — and the remaining four
+   are authored in display space: the three UI shaders (`ui.frag`,
+   `ui_image.frag`, `ui_text.frag`) plus `screen_effect.frag`, which is a
+   fullscreen overlay rather than UI. (An earlier draft called all four
+   "the UI shaders"; the count was right and the label was not.) Tone mapping an unlit shader
    would *darken* it for no benefit, because every reasonable curve maps
    1.0 to roughly 0.8.
 
 2. **In-shader, not an offscreen HDR target with a resolve pass.** The
    real objection to per-shader tone mapping is that
    `tonemap(a) + tonemap(b) != tonemap(a + b)` — and that objection is
-   about **additive** compositing. Checked every pipeline in
-   `vulkan_render_device.cpp`: all are `SRC_ALPHA` alpha blending, with
-   `VK_BLEND_FACTOR_ONE` appearing only on the alpha channel. **Nothing
-   blends additively.** Under alpha blending the composite lerps between
-   two tone-mapped values, which is a defensible approximation rather than
-   a mathematical error.
+   about **additive** compositing.
+
+   Checked every colour-blend state in `vulkan_render_device.cpp` by line,
+   not by pipeline name: there are nine. Eight are
+   `SRC_ALPHA`/`ONE_MINUS_SRC_ALPHA` with `VK_BLEND_FACTOR_ONE` appearing
+   only as `srcAlphaBlendFactor`. The ninth — **the opaque mesh pipeline,
+   which is the one that renders `cube.frag`** — has
+   `blendEnable = VK_FALSE`. (The shadow pipeline has
+   `attachmentCount = 0`.) **Nothing blends additively.**
+
+   An earlier draft of this section said "all are `SRC_ALPHA`", which is
+   literally false and was corrected in review. The correction
+   *strengthens* the argument rather than weakening it: the pipeline
+   carrying the tone-mapped output does not blend at all, so lit geometry
+   writes mapped values straight to the attachment with no compositing
+   approximation whatsoever. Where alpha blending does occur, the composite
+   lerps between two tone-mapped values, which is a defensible
+   approximation rather than a mathematical error.
 
    So the `R16G16B16A16_SFLOAT` target plus fullscreen resolve buys very
    little here while costing a render target, a render pass, a pipeline,

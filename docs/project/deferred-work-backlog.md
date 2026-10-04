@@ -357,8 +357,9 @@ view that was actually used to pick what to build next as of this writing.
     The correct-compositing form of tone mapping, and the prerequisite
     for bloom. Deferred 2026-10-04 during the tone-mapping design:
     nothing in the renderer blends additively today — every pipeline in
-    `vulkan_render_device.cpp` is `SRC_ALPHA`, with
-    `VK_BLEND_FACTOR_ONE` only on the alpha channel — so per-shader tone
+    `vulkan_render_device.cpp` is either `SRC_ALPHA` (eight of nine, with
+    `VK_BLEND_FACTOR_ONE` only as `srcAlphaBlendFactor`) or, for the opaque
+    mesh pipeline that actually renders `cube.frag`, `blendEnable = VK_FALSE` — so per-shader tone
     mapping lerps between mapped values, which is a defensible
     approximation rather than an error. The HDR target would cost a
     render target, a render pass, a pipeline, and a decision about where
@@ -1272,13 +1273,30 @@ Re-derive again once real new work has landed since the last pass — don't
 immediately re-run a fourth time expecting different material from the
 same unchanged source docs.
 
+**Re-derived 2026-10-04** after eleven slices landed (#209–#219). Two
+genuine quick wins now exist, both surfaced by those slices rather than by
+re-reading the same source docs:
+
+| Item | Why it is a quick win |
+|---|---|
+| **Exposure control** | One `float` through the existing lighting UBO (which already carries `camera_position`), one multiply before the tone map. The design question — where the knob lives — is the only real work. |
+| **A suite-wide ctest `TIMEOUT`** | One `set_tests_properties` call. Recorded three times as a backstop; this session produced two hang-shaped bugs (the watchdog use-after-free and the GIL deadlock), so it is no longer hypothetical. The work is choosing the value against the slowest legitimate test, not writing the line. |
+
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 **Empty as of 2026-09-21.** All five original items shipped: Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
 + versioning (PR #194), plugin live file-watching/hot-reload
 (PR #195), Studio theme system + persistence (PR #196), Studio
-recent-projects list (PR #197). The next pick comes from the 🔴 Large
+recent-projects list (PR #197).
+
+**Re-derived 2026-10-04.** One genuine medium item now exists:
+
+| Item | Shape |
+|---|---|
+| **An offscreen HDR render target plus a fullscreen resolve pass** | New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+
+Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before
 implementation starts.
 
@@ -1288,7 +1306,7 @@ implementation starts.
 |---|---|
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| Rendering: full PBR material model | High |
+| Rendering: full PBR material model — **decomposed 2026-10-04**, slice 1 (tone mapping) shipped; slices 2–4 remain (metallic/roughness + GGX BRDF, texture maps, IBL) | High |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
 | UI pillar gaps | High if interactive-game UI is a near-term goal, else Low |
 | Networking gaps | High if shipping real multiplayer soon, else Low |
