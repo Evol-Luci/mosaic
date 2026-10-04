@@ -471,7 +471,50 @@ anything shipped; they are capabilities that were never built.
   main-thread `sys` thread dict, not a crash. The one-line check is to print
   `PyThreadState_Get()->gilstate_counter` right after `initialize_interpreter`
   returns; worth doing if unexplained main-thread Python state loss ever appears.
+  **RESOLVED 2026-10-04** by the thread-dict probe described in the `PyThreadState`
+  churn entry below: the main thread's thread dict survives across an
+  acquire/release pair, which it could not if the counter were 0, so the quiet-churn
+  branch does not occur.
 - **The threaded script path creates and destroys a `PyThreadState` per engine call.**
+  **Investigated 2026-10-04; the cheap fix was tried and PROVABLY DOES NOT WORK.** Read this
+  before attempting it again.
+
+  *Confirmed real, with a falsifiable test.* The observable is the thread **dict**, not the
+  `PyThreadState` pointer: `PyThreadState_Clear` clears the dict, so a value written under one
+  `gil_scoped_acquire` and read back under the next survives if and only if no teardown
+  happened in between. On a worker thread it does **not** survive — the churn is real.
+  (Pointer identity was tried first and is **unsound**: the freed state is re-allocated at the
+  same address, so that version of the test passed on the churning build. Do not use it.)
+
+  *`PYBIND11_SIMPLE_GIL_MANAGEMENT` does not fix it.* The idea was that
+  `PyGILState_Ensure`/`Release` is cached per thread by CPython, so no interface change would
+  be needed — one `target_compile_definitions(pybind11_headers INTERFACE ...)` line. Tried,
+  with the macro verified present in the test translation unit by an `#error` probe: **the
+  test stayed red.** The caching only applies to *nested* `Ensure` calls; the outermost
+  `Release` on a thread still tears the state down, under both pybind11 implementations. The
+  premise that this was a one-line fix was simply wrong. (Note for whoever retries: the real
+  target is `pybind11_headers`; `pybind11::headers` is an ALIAS and
+  `target_compile_definitions` rejects it.)
+
+  *What does work, measured.* Nesting. Holding one outer `gil_scoped_acquire` for the duration
+  and letting the inner acquires nest makes the probe survive (verified directly). So the
+  remedy is the one the review originally proposed: a guard spanning `execute(job)`, which
+  makes every inner acquire a counter bump. That needs a **neutral hook on `ScriptEngine`** —
+  an opaque RAII batch token (`virtual std::unique_ptr<BatchScope> begin_batch()` defaulting to
+  `nullptr`) — because `engine/script/script_worker.cpp` is deliberately pybind11-free. One
+  wrinkle to design around: the GIL is global, not per-engine, so taking the token from one
+  arbitrary engine to cover all of them reads oddly and wants a better home than
+  `ScriptEngine` instances. An alternative worth weighing is a one-time "attach this thread to
+  the script runtime" hook that establishes a persistent thread state at worker start (Ensure
+  then `PyEval_SaveThread`, keeping the state alive while releasing the GIL), which fixes the
+  churn without bracketing every batch.
+
+  *Bonus result, already banked.* The same probe **resolves the `gilstate_counter` question**
+  recorded above from #215's review: the main thread's dict survives across acquire/release,
+  so its counter is >=1 at init and the quiet-churn branch the reviewer could not rule out
+  does not occur. That uncertainty can be considered closed.
+
+  Original entry follows.
   Found 2026-10-03 in review of the GIL fix. `ScriptWorker::execute` makes three
   independent guarded calls per scripted entity per job (`bind_context`,
   `set_global("dt")`, `run_string`), and on a worker thread each guard's release drops
