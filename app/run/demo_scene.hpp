@@ -386,7 +386,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // shadow gating shows, since directional specular is multiplied by the shadow
     // factor and shadowed ground must show NO sun glint.
     world.add_component<render::Material>(ground,
-        render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}, 16.0f, 0.15f});
+        render::Material{Vec3{0.6f, 0.6f, 0.6f}, {}, 0.0f, 0.333f});
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
 
@@ -405,7 +405,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<render::MeshRenderer>(box, render::MeshRenderer{render::kCubeMeshId});
     // Fully matte -- the strength == 0 opt-out, promised to render exactly as it did
     // before specular existed. Sits right next to the glossiest object on purpose.
-    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.0f});
+    world.add_component<render::Material>(box, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.243f});
     world.add_component<physics::RigidBody>(box, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -420,7 +420,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // "specular takes the LIGHT's color, never the albedo" rule visible at a glance --
     // if this highlight ever looks red, that rule has been broken.
     world.add_component<render::Material>(sphere,
-        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 64.0f, 0.9f});
+        render::Material{Vec3{0.75f, 0.18f, 0.18f}, {}, 0.0f, 0.174f});
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});
     world.add_component<physics::SphereCollider>(sphere, physics::SphereCollider{0.5f});
 
@@ -439,7 +439,7 @@ inline void build_default_scene(mosaic::engine::World& world)
         transform::Transform{Vec3{2, 4, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(capsule, render::MeshRenderer{render::kCapsuleMeshId});
     // Broad and soft -- the low-exponent end, for contrast with the sphere.
-    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex, 8.0f, 0.6f});
+    world.add_component<render::Material>(capsule, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.447f});
     world.add_component<physics::RigidBody>(capsule, physics::RigidBody{true, 1.0f});
     world.add_component<physics::CapsuleCollider>(capsule, physics::CapsuleCollider{0.5f, 0.5f});
 
@@ -448,7 +448,7 @@ inline void build_default_scene(mosaic::engine::World& world)
         transform::Transform{Vec3{0, 6, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<render::MeshRenderer>(box2, render::MeshRenderer{render::kCubeMeshId});
     // The documented defaults, stated explicitly as the middle reference point.
-    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 32.0f, 0.5f});
+    world.add_component<render::Material>(box2, render::Material{Vec3{1, 1, 1}, tex, 0.0f, 0.243f});
     world.add_component<physics::RigidBody>(box2, physics::RigidBody{true, 1.0f});
     world.add_component<physics::Collider>(box2, physics::Collider{Vec3{0.5f, 0.5f, 0.5f}});
 
@@ -538,7 +538,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // Very tight and dim: a pinpoint glint on a saturated color, which also shows that
     // specular takes the LIGHT's color rather than the albedo's green.
     world.add_component<render::Material>(orbiter,
-        render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 256.0f, 0.35f});
+        render::Material{Vec3{0.2f, 0.9f, 0.3f}, {}, 0.0f, 0.088f});
     world.add_component<mosaic::engine::script::ScriptComponent>(orbiter,
         mosaic::engine::script::ScriptComponent{kOrbitScript});
     // A floating world-space label above the orbiter (U5b): camera-facing 3D text that

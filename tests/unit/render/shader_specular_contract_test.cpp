@@ -1,13 +1,15 @@
-// Pins the shader half of a contract whose engine half is aggressively tested.
+// Pins the shader half of contracts whose engine half is aggressively tested.
 //
-// Material::shininess is deliberately NOT clamped by the engine: three tests
-// guarantee that a zero or negative exponent authored in a scene file reaches the
-// GPU unmodified, so a scene round-trips byte-for-byte. That decision is only safe
-// because cube.frag clamps the exponent to >= 1 before pow(). Nothing else pins
-// that clamp -- the C++ static_asserts cannot see shader source -- so dropping it
-// would make pow(x, -4.0) evaluate to +inf near the terminator and blow the
-// highlight to white, with the whole suite still green and zero Vulkan validation
-// errors. This test makes that regression loud instead of invisible.
+// Material does not clamp its shading parameters: tests guarantee that whatever a
+// scene file authors reaches the GPU unmodified, so a scene round-trips byte-for-byte.
+// That decision is only safe because cube.frag clamps at shading time. Nothing else
+// pins those clamps -- the C++ static_asserts cannot see shader source -- and every
+// one of them fails by producing inf or a divide-by-zero rather than a crash, so the
+// whole suite stays green and Vulkan reports no validation errors while the image is
+// wrong. These tests make that class of regression loud instead of invisible.
+//
+// Previously this file pinned max(shininess, 1.0) for the Blinn-Phong exponent. That
+// parameter no longer exists; the clamps below are its metallic/roughness successors.
 
 #include <fstream>
 #include <sstream>
@@ -28,13 +30,41 @@ std::string read_shader(const std::string& name)
 }
 } // namespace
 
-TEST_CASE("cube.frag clamps the specular exponent because the engine deliberately does not", "[render]")
+TEST_CASE("cube.frag clamps roughness because the engine deliberately does not", "[render]")
 {
+    // Review Focus 1. Same contract as the shininess clamp this replaces: Material
+    // round-trips byte-for-byte, so a roughness of 0 authored in a scene file reaches
+    // the GPU unchanged. alpha = roughness * roughness, and alpha == 0 makes the GGX
+    // denominator (NdotH*NdotH*(alpha2-1) + 1) zero at NdotH == 1 -- so D is inf and
+    // the highlight centre blows to white. Nothing else pins this: the C++ cannot see
+    // shader source, and inf is not a crash.
     const std::string frag = read_shader("cube.frag");
-    INFO("If this fails, either restore the clamp in blinn_spec() or move the clamp "
-         "into the engine AND relax the tests that guarantee a negative shininess "
+    INFO("If this fails, either restore the roughness clamp in cube.frag or move it "
+         "into the engine AND relax the tests that guarantee an authored roughness "
          "reaches the GPU unchanged. The two halves must not disagree.");
-    REQUIRE(frag.find("max(shininess, 1.0)") != std::string::npos);
+    REQUIRE(frag.find("max(roughness, 0.045)") != std::string::npos);
+}
+
+TEST_CASE("cube.frag guards the specular denominator against grazing angles", "[render]")
+{
+    // Review Focus 2: NdotL and NdotV appear in 4 * NdotL * NdotV. At a silhouette
+    // edge NdotV approaches zero, which happens on every frame of every scene, so this
+    // is the ordinary case rather than an edge case.
+    const std::string frag = read_shader("cube.frag");
+    REQUIRE(frag.find("max(dot(n, v), 1e-4)") != std::string::npos);
+    REQUIRE(frag.find("max(dot(n, L), 1e-4)") != std::string::npos);
+}
+
+TEST_CASE("cube.frag gives a fully metallic surface no diffuse", "[render]")
+{
+    // Review Focus 3, and the single assertion that separates "metal" from "shiny
+    // plastic". kD = (1 - F) * (1 - metallic): drop the (1 - metallic) factor and every
+    // metal gains a diffuse lobe, which is the exact failure this slice exists to
+    // prevent. It is one token wide.
+    const std::string frag = read_shader("cube.frag");
+    REQUIRE(frag.find("(1.0 - metallic)") != std::string::npos);
+    // And the dielectric F0 constant, which is physical rather than tunable.
+    REQUIRE(frag.find("mix(vec3(0.04), albedo, metallic)") != std::string::npos);
 }
 
 TEST_CASE("cube.vert and cube.frag declare byte-identical FrameLighting blocks", "[render]")

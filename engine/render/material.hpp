@@ -7,18 +7,21 @@ struct Material
 {
     mosaic::foundation::math::Vec3          base_color{0.8f, 0.8f, 0.8f};
     mosaic::foundation::serialization::AssetID texture{}; // nil = untextured
-    // Blinn-Phong specular. shininess is a raw Phong exponent (perceptually
-    // non-linear; a 0..1 perceptual remap is deferred to the PBR work). The shader
-    // clamps it to >= 1 at shading time -- deliberately NOT clamped here, so a
-    // scene file round-trips byte-for-byte.
-    float shininess = 32.0f;
-    float specular_strength = 0.5f; // 0 = matte
+    // Metallic/roughness workflow. base_color above serves two roles: albedo for a
+    // dielectric, and the specular colour F0 for a metal -- which is why it is "base"
+    // colour rather than albedo. roughness is perceptually linear across 0..1, which
+    // the raw Phong exponent it replaces was not.
+    //
+    // Neither is clamped here: the shader clamps roughness to >= 0.045, deliberately,
+    // so a scene file round-trips byte-for-byte. Same contract shininess had.
+    float metallic = 0.0f;  // 0 = dielectric, 1 = metal
+    float roughness = 0.5f; // 0 = mirror, 1 = fully rough
 };
 template <class V> void reflect(V& v, Material& m)
 {
     v.member("base_color", m.base_color);
     v.member("texture", m.texture);
-    v.member("shininess", m.shininess);
-    v.member("specular_strength", m.specular_strength);
+    v.member("metallic", m.metallic);
+    v.member("roughness", m.roughness);
 }
 } // namespace mosaic::engine::render

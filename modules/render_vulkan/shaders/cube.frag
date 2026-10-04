@@ -10,8 +10,8 @@ layout(push_constant) uniform Push {
     mat4 model;
     mat4 normal_matrix;
     vec4 base_color;
-    float shininess;
-    float specular_strength;
+    float metallic;
+    float roughness;
 } pc;
 layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 light_direction; // world space .xyz
@@ -42,24 +42,75 @@ float shadow_factor()
     return (proj.z - bias > closest) ? 0.0 : 1.0;
 }
 
-// Blinn-Phong specular for one light. L points FROM the fragment TOWARD the light
-// and is unit length. Returns the specular coefficient; the caller multiplies by
-// that light's own attenuation/shadow/cone factor and by the LIGHT's color --
-// never by albedo, which would make every surface read as painted metal.
-float blinn_spec(vec3 n, vec3 v, vec3 L, float shininess, float strength)
+const float PI = 3.14159265;
+
+// GGX / Trowbridge-Reitz normal distribution.
+float distribution_ggx(float NdotH, float alpha)
 {
+    float a2 = alpha * alpha;
+    float d  = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * d * d, 1e-7);
+}
+
+// Smith geometry, Schlick-GGX, with the direct-lighting remap k = alpha / 2.
+float geometry_smith(float NdotV, float NdotL, float alpha)
+{
+    float k  = alpha * 0.5;
+    float gv = NdotV / (NdotV * (1.0 - k) + k);
+    float gl = NdotL / (NdotL * (1.0 - k) + k);
+    return gv * gl;
+}
+
+// Schlick Fresnel.
+vec3 fresnel_schlick(float cos_theta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+// One light's Cook-Torrance contribution. L points FROM the fragment TOWARD the light
+// and is unit length; the caller multiplies the result by that light's own
+// shadow/attenuation/cone factor and by its colour.
+//
+// Returns diffuse + specular together, because kD depends on F and so the two terms
+// cannot be computed independently -- that coupling IS the energy conservation.
+//
+// Note that specular here IS tinted by base_color for a metal, via F0. The function
+// this replaced carried the opposite instruction, which was correct for Blinn-Phong and
+// is wrong for PBR: a metal's specular colour is what distinguishes gold from silver.
+vec3 brdf(vec3 n, vec3 v, vec3 L, vec3 albedo, float metallic, float roughness)
+{
+    // alpha == 0 makes D infinite at NdotH == 1. The engine does not clamp, by design,
+    // so this is the only guard.
+    float alpha = max(roughness, 0.045);
+    alpha = alpha * alpha;
+
+    // Both appear in the 4 * NdotV * NdotL denominator, and NdotV goes to zero at every
+    // silhouette edge.
+    float NdotV = max(dot(n, v), 1e-4);
+    float NdotL = max(dot(n, L), 1e-4);
+
     vec3 hv = v + L;
-    // v == -L (viewer exactly opposite the light) gives a zero-length half-vector,
-    // and normalize() would produce NaN that propagates into the output color as an
-    // undiagnosable pixel. Fall back to the normal, where dot(n, h) == 1.
+    // v == -L gives a zero-length half-vector and normalize() would return NaN, which
+    // propagates to the output as an undiagnosable pixel. Carried over from blinn_spec.
     vec3  h = (dot(hv, hv) > 1e-8) ? normalize(hv) : n;
-    // pow(x, 0.0) is 1 everywhere and pow(0, 0) is undefined, so a zero exponent
-    // would wash the entire surface. Clamp rather than trusting authored input.
-    float e = max(shininess, 1.0);
-    // The step() gate kills highlights on geometry facing away from the light, which
-    // the half-vector alone would happily produce -- it reads as light leaking
-    // through the object.
-    return pow(max(dot(n, h), 0.0), e) * strength * step(0.0, dot(n, L));
+    float NdotH = max(dot(n, h), 0.0);
+    float HdotV = max(dot(h, v), 0.0);
+
+    vec3  F0 = mix(vec3(0.04), albedo, metallic);
+    vec3  F  = fresnel_schlick(HdotV, F0);
+    float D  = distribution_ggx(NdotH, alpha);
+    float G  = geometry_smith(NdotV, NdotL, alpha);
+
+    vec3 specular = (D * G) * F / max(4.0 * NdotV * NdotL, 1e-7);
+
+    // (1 - metallic) is what makes a metal read as metal rather than as shiny plastic.
+    // Metals have no diffuse lobe.
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+
+    // The step() gate kills contributions on geometry facing away from the light, which
+    // the half-vector alone would happily produce. Carried over from blinn_spec.
+    return (diffuse + specular) * NdotL * step(0.0, dot(n, L));
 }
 
 // ACES filmic approximation (Narkowicz). Maps linear HDR to the linear display range
@@ -86,7 +137,6 @@ void main()
     vec3 n = normalize(fragNormal);
     vec3 l = normalize(fl.light_direction.xyz);
     float shadow = shadow_factor();
-    float lambert = max(0.0, dot(n, -l)) * shadow;
     vec3 albedo = texture(tex, fragUV).rgb * pc.base_color.xyz;
     vec3 v = normalize(fl.camera_position.xyz - fragPos);
 
@@ -102,7 +152,6 @@ void main()
         float win = clamp(1.0 - pow(d / range, 4.0), 0.0, 1.0);
         atten = (win * win) / (d * d + 1.0);
     }
-    float pl = max(0.0, dot(n, toL / max(d, 1e-4))) * atten;
     vec3 pointL = toL / max(d, 1e-4);
 
     // Spot light (world space): same falloff plus the smooth cone edge. Formula
@@ -118,22 +167,24 @@ void main()
     }
     float cosAngle = dot(normalize(-toSpotL), fl.spot_direction.xyz);
     float coneAtten = smoothstep(fl.spot_direction.w, fl.spot_color.w, cosAngle); // (cos_outer, cos_inner)
-    float spotL = max(0.0, dot(n, toSpotL / max(spotD, 1e-4))) * spotAtten * coneAtten;
     vec3 spotLdir = toSpotL / max(spotD, 1e-4);
 
-    // Specular is tinted by LIGHT color, not albedo, and each light's highlight is
-    // gated by that same light's own factors -- so shadowed ground gets no sun glint
-    // and a spot's highlight respects its cone.
-    float spec_dir  = blinn_spec(n, v, -l, pc.shininess, pc.specular_strength) * shadow;
-    float spec_pt   = blinn_spec(n, v, pointL, pc.shininess, pc.specular_strength) * atten;
-    float spec_spot = blinn_spec(n, v, spotLdir, pc.shininess, pc.specular_strength)
-                    * spotAtten * coneAtten;
+    // One brdf() call per light, each gated by that light's own shadow/attenuation/cone
+    // factor and tinted by that light's colour -- so shadowed ground gets no sun glint
+    // and a spot's highlight respects its cone. Unlike the Blinn-Phong arrangement this
+    // replaces, the specular term inside brdf() IS tinted by base_color for a metal.
+    vec3 dir_term  = brdf(n, v, -l, albedo, pc.metallic, pc.roughness) * shadow;
+    vec3 pt_term   = brdf(n, v, pointL, albedo, pc.metallic, pc.roughness) * atten;
+    vec3 spot_term = brdf(n, v, spotLdir, albedo, pc.metallic, pc.roughness)
+                   * spotAtten * coneAtten;
 
-    vec3 color = albedo * (0.1 + lambert * fl.light_color.xyz)
-               + albedo * pl * fl.point_color.xyz
-               + albedo * spotL * fl.spot_color.xyz
-               + spec_dir * fl.light_color.xyz
-               + spec_pt * fl.point_color.xyz
-               + spec_spot * fl.spot_color.xyz;
+    // Ambient stays a flat hack until IBL (slice 4), but is kD-weighted so metals get
+    // no ambient diffuse.
+    vec3 F0_amb = mix(vec3(0.04), albedo, pc.metallic);
+    vec3 kD_amb = (vec3(1.0) - F0_amb) * (1.0 - pc.metallic);
+    vec3 color  = albedo * 0.1 * kD_amb
+                + dir_term * fl.light_color.xyz
+                + pt_term * fl.point_color.xyz
+                + spot_term * fl.spot_color.xyz;
     outColor = vec4(tonemap_aces(color), 1.0);
 }

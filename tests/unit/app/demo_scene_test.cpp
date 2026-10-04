@@ -181,27 +181,26 @@ TEST_CASE("build_default_scene varies specular parameters so the highlights are 
     World world;
     build_default_scene(world);
 
-    std::vector<float> shininess;
-    std::vector<float> strength;
+    std::vector<float> roughness;
+    std::vector<float> metallic;
     world.for_each<mosaic::engine::render::Material>(
         [&](World::EntityID, mosaic::engine::render::Material& m)
         {
-            shininess.push_back(m.shininess);
-            strength.push_back(m.specular_strength);
+            roughness.push_back(m.roughness);
+            metallic.push_back(m.metallic);
         });
 
-    REQUIRE(shininess.size() == 6);
+    REQUIRE(roughness.size() == 6);
 
-    // At least one fully matte material, as the visual baseline.
-    int matte = 0;
-    for (float s : strength) { if (s == Catch::Approx(0.0f)) { ++matte; } }
-    REQUIRE(matte >= 1);
-
-    // And a genuine spread rather than six copies of the defaults.
-    float lo = shininess[0], hi = shininess[0];
-    for (float e : shininess) { lo = (e < lo) ? e : lo; hi = (e > hi) ? e : hi; }
-    REQUIRE(hi >= 128.0f); // a tight, obvious highlight
-    REQUIRE(lo <= 16.0f);  // a broad, soft one
+    // A genuine spread rather than six copies of the default. The old form of this
+    // test also asserted "at least one fully matte material" via
+    // specular_strength == 0, which has no PBR equivalent -- it was an authored fudge
+    // factor, and the nearest concept is simply high roughness. The spread below is
+    // what that assertion was really checking.
+    float lo = roughness[0], hi = roughness[0];
+    for (float r : roughness) { lo = (r < lo) ? r : lo; hi = (r > hi) ? r : hi; }
+    REQUIRE(hi >= 0.4f);  // a broad, soft highlight
+    REQUIRE(lo <= 0.1f);  // a tight, obvious one
 }
 
 TEST_CASE("build_default_scene includes a script that pushes a body", "[app]")

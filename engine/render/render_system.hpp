@@ -151,14 +151,14 @@ public:
                 // Defaults here must match Material's own defaults, so a mesh with no
                 // Material shades the same as one with an untouched Material.
                 Vec3  base_color{0.8f, 0.8f, 0.8f};
-                float shininess = 32.0f;
-                float specular_strength = 0.5f;
+                float metallic = 0.0f;
+                float roughness = 0.5f;
                 TextureHandle texture = 0;
                 if (const Material* mat = world.get_component<Material>(e))
                 {
                     base_color = mat->base_color;
-                    shininess = mat->shininess;
-                    specular_strength = mat->specular_strength;
+                    metallic = mat->metallic;
+                    roughness = mat->roughness;
                     texture = texture_cache_.get(mat->texture, registry, device);
                 }
                 if (texture == 0)
@@ -174,8 +174,7 @@ public:
 
                 device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, wt->matrix,
-                                       normal_matrix, base_color, shininess,
-                                       specular_strength});
+                                       normal_matrix, base_color, metallic, roughness});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque

@@ -64,11 +64,11 @@ struct DrawParams
     mosaic::foundation::math::Mat4 model;         // object -> world
     mosaic::foundation::math::Mat4 normal_matrix; // transpose(inverse_affine(model)); upper 3x3 used
     mosaic::foundation::math::Vec3 base_color;
-    // Blinn-Phong specular. Defaults match Material's, so the no-Material draw path
-    // and a default-constructed DrawParams agree. shininess is NOT clamped here; the
-    // shader clamps it to >= 1.
-    float shininess = 32.0f;
-    float specular_strength = 0.5f;
+    // Metallic/roughness. Defaults match Material's, so the no-Material draw path and
+    // a default-constructed DrawParams agree. roughness is NOT clamped here; the shader
+    // clamps it to >= 0.045.
+    float metallic = 0.0f;
+    float roughness = 0.5f;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived
