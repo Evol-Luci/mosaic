@@ -59,9 +59,26 @@ public:
         std::vector<DeferredImpulse>        impulses;
     };
 
-    void dispatch(Job job);                          // enqueue (non-blocking)
-    WorkerResult collect();   // wait for the job, return its writes + impulses
-    bool has_pending() const;
+    // Enqueue a job (non-blocking). PRECONDITION: collect() the previous job's result
+    // first. dispatch() clears result_ready_, so dispatching over an uncollected result
+    // DISCARDS it -- the same silent-drop shape that cost nine days behind a CI exclusion
+    // when collect() could not tell "executing" from "nothing dispatched".
+    //
+    // The clear is deliberate, not vestigial: without it, a collect() after two dispatches
+    // would return the STALE result immediately while the newer job was still pending,
+    // which is worse than losing the older one. ScriptSystem always collects before
+    // dispatching, so neither case arises there.
+    //
+    // Not covered by a test, and that is a measurement rather than an omission: the drop
+    // is reachable only by a race between dispatch() and the worker dequeuing, which was
+    // measured at 9 passes / 11 failures over 20 runs -- a test of it would be flaky, not
+    // load-bearing. Removing the clear entirely also leaves the whole suite green, so
+    // nothing pins this today. Treat the precondition above as the contract.
+    void dispatch(Job job);
+
+    // Wait for the dispatched job and return its writes + impulses. Returns an empty
+    // result if nothing is in flight.
+    WorkerResult collect();
 
 private:
     void run();                                      // worker loop

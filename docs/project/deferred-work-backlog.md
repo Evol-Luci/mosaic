@@ -695,19 +695,42 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
-- **Five small `ScriptWorker` tidy-ups found in review 2026-09-30, none with a
-  live failure.** (a) `host_` is now write-only — read once to seed
-  `worker_host_` and never again, so the class retains a full `ScriptHost`
-  copy with no reader. (b) `has_pending()` has no callers anywhere in the
-  repo, so its correctness is unverified by anything. (c) `dispatch()` still
-  clears `result_ready_` unconditionally, which is the one remaining
-  silent-result-drop path — unreachable via `ScriptSystem`, since `collect()`
-  always precedes `dispatch()`, but worth a comment now that the class's other
-  silent drop cost nine days of a CI exclusion. (d) `execute()` clears
-  `pending_impulses_` after `std::move`-ing it, a no-op. (e) Theoretical: a
-  script-spawned Python thread calling `apply_impulse` after `on_update`
-  returns would race `execute()`'s tail; `SnapshotContext` has the identical
-  exposure, so it is not a new hazard class.
+- ~~**Five small `ScriptWorker` tidy-ups found in review 2026-09-30**~~ —
+  **ADDRESSED 2026-10-04, and two of the five were WRONG.** Checked each against
+  the code rather than taking the entry at its word:
+
+  **(a) "`host_` is now write-only" — FALSE.** It is read at
+  `script_worker.cpp:19`, inside the recording `apply_impulse` lambda
+  (`if (!host_.apply_impulse) { return false; }`). There is a live reader; the
+  member is not dead. No change made.
+
+  **(d) "`execute()` clears `pending_impulses_` after `std::move`-ing it, a
+  no-op" — FALSE.** A moved-from `std::vector` is valid but *unspecified*, so the
+  `clear()` guarantees empty instead of relying on an implementation detail. It is
+  defensive and correct. No change made.
+
+  **(b) "`has_pending()` has no callers" — true. Removed.** Grep found only its
+  declaration and definition; public API with zero consumers and its correctness
+  verified by nothing. The gate proved nothing used it.
+
+  **(c) "`dispatch()` clears `result_ready_` unconditionally" — true, and now
+  documented with two measurements rather than a vague comment.** The clear is
+  deliberate, not vestigial: without it a `collect()` after two dispatches would
+  return the STALE result while the newer job was still pending, which is worse
+  than losing the older one. Two things were measured and are recorded in the
+  header: the drop is reachable only by a race between `dispatch()` and the worker
+  dequeuing, which came out **9 passes / 11 failures over 20 runs** — so a test of
+  it would be flaky rather than load-bearing; and **removing the clear entirely
+  leaves the whole suite green (1081/1081)**, so nothing pins it today. The
+  precondition (collect before dispatch) is now stated as the contract.
+
+  **(e)** stands as recorded: a script-spawned Python thread calling
+  `apply_impulse` after `on_update` returns would race `execute()`'s tail, and
+  `SnapshotContext` has the identical exposure, so it is not a new hazard class.
+
+  Lesson worth keeping: this entry had been carried for five days with two
+  incorrect claims in it. A recorded finding is a hypothesis until someone
+  re-checks it against the code.
 - **`apply_impulse`'s return value is optimistic for non-scripted targets.**
   The worker answers exactly for entities in the job snapshot, but an entity
   absent from it cannot be judged, so the push is buffered and `True` is
