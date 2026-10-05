@@ -4,6 +4,11 @@ layout(location = 1) in vec2 fragUV;
 layout(location = 2) in vec3 fragPos;      // world space
 layout(location = 3) in vec4 fragLightSpacePos;
 layout(set = 0, binding = 0) uniform sampler2D tex;
+// Metallic/roughness map, glTF 2.0 packing: G = roughness, B = metallic. Uploaded as
+// UNORM rather than SRGB (see TextureColorSpace) because these channels are numbers,
+// not colour -- the sRGB EOTF would turn an authored 0.5 into roughly 0.21. An
+// untextured material binds a 1x1 white texture, so both factors below multiply by 1.
+layout(set = 0, binding = 1) uniform sampler2D metallicRoughnessMap;
 layout(set = 1, binding = 0) uniform sampler2D shadowMap;
 layout(push_constant) uniform Push {
     mat4 mvp;
@@ -142,6 +147,13 @@ void main()
     vec3 l = normalize(fl.light_direction.xyz);
     float shadow = shadow_factor();
     vec3 albedo = texture(tex, fragUV).rgb * pc.base_color.xyz;
+
+    // Factor x texel, the glTF convention: the push-constant scalar scales the map, so
+    // an untextured material (white map) keeps the scalar's exact meaning and every
+    // scene authored before texture maps renders identically.
+    vec3  mr        = texture(metallicRoughnessMap, fragUV).rgb;
+    float metallic  = pc.metallic * mr.b;
+    float roughness = pc.roughness * mr.g;
     vec3 v = normalize(fl.camera_position.xyz - fragPos);
 
     // Point light (world space): windowed inverse-square attenuation. Formula
@@ -177,15 +189,15 @@ void main()
     // factor and tinted by that light's colour -- so shadowed ground gets no sun glint
     // and a spot's highlight respects its cone. Unlike the Blinn-Phong arrangement this
     // replaces, the specular term inside brdf() IS tinted by base_color for a metal.
-    vec3 dir_term  = brdf(n, v, -l, albedo, pc.metallic, pc.roughness) * shadow;
-    vec3 pt_term   = brdf(n, v, pointL, albedo, pc.metallic, pc.roughness) * atten;
-    vec3 spot_term = brdf(n, v, spotLdir, albedo, pc.metallic, pc.roughness)
+    vec3 dir_term  = brdf(n, v, -l, albedo, metallic, roughness) * shadow;
+    vec3 pt_term   = brdf(n, v, pointL, albedo, metallic, roughness) * atten;
+    vec3 spot_term = brdf(n, v, spotLdir, albedo, metallic, roughness)
                    * spotAtten * coneAtten;
 
     // Ambient stays a flat hack until IBL (slice 4), but is kD-weighted so metals get
     // no ambient diffuse.
-    vec3 F0_amb = mix(vec3(0.04), albedo, pc.metallic);
-    vec3 kD_amb = (vec3(1.0) - F0_amb) * (1.0 - pc.metallic);
+    vec3 F0_amb = mix(vec3(0.04), albedo, metallic);
+    vec3 kD_amb = (vec3(1.0) - F0_amb) * (1.0 - metallic);
     vec3 color  = albedo * 0.1 * kD_amb
                 + dir_term * fl.light_color.xyz
                 + pt_term * fl.point_color.xyz
