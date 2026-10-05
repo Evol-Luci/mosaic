@@ -123,10 +123,13 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         }
         else
         {
-            const std::optional<mosaic::engine::render::Image> img = read_ppm(*src);
+            const std::optional<mosaic::engine::render::Image> img = read_image(*src);
             if (!img)
             {
-                mosaic::foundation::log::error("import", "not a valid PPM (P6, maxval 255): {}", source_file);
+                mosaic::foundation::log::error(
+                    "import",
+                    "not a decodable image (PNG/JPEG/BMP/TGA, or PPM P6 maxval 255): {}",
+                    source_file);
                 return std::nullopt;
             }
             blob_bytes = cook_image(*img);

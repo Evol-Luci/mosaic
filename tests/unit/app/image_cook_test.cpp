@@ -1,4 +1,6 @@
 #include <cstdint>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 #include <catch2/catch_test_macros.hpp>
@@ -97,4 +99,71 @@ TEST_CASE("uncook_image rejects zero dimensions and wrong-length payload", "[app
         // no pixel bytes
         REQUIRE_FALSE(uncook_image(blob).has_value());
     }
+}
+
+namespace
+{
+std::string read_fixture(const char* name)
+{
+    const std::string path = std::string(MOSAIC_TEST_DIR) + "/fixtures/" + name;
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+} // namespace
+
+TEST_CASE("read_image decodes a PNG to RGBA with known pixels", "[asset]")
+{
+    // Values chosen so a channel swap or a row flip is visible rather than plausible:
+    // row y has G = y*80 and B = 255 throughout.
+    const auto img = mosaic::app::read_image(read_fixture("gradient.png"));
+    REQUIRE(img.has_value());
+    REQUIRE(img->width == 4);
+    REQUIRE(img->height == 4);
+    REQUIRE(img->pixels.size() == 4u * 4u * 4u);
+    REQUIRE(img->pixels[0] == 0);
+    REQUIRE(img->pixels[1] == 0);
+    REQUIRE(img->pixels[2] == 255);
+    REQUIRE(img->pixels[3] == 255);
+    // Row 2 pixel 0 has G = 160. Catches a vertical flip, which stb_image can be
+    // configured to do and which would otherwise look like a correct decode.
+    REQUIRE(img->pixels[(2 * 4 + 0) * 4 + 1] == 160);
+}
+
+TEST_CASE("read_image still accepts a PPM, so the fallback works", "[asset]")
+{
+    // read_ppm is the only decoder with no third-party code in its path, which makes
+    // it the honest fixture for everything downstream of decode. It must keep working.
+    const auto img = mosaic::app::read_image(tiny_ppm());
+    REQUIRE(img.has_value());
+    REQUIRE(img->width == 2);
+    REQUIRE(img->pixels[0] == 255); // red
+    REQUIRE(img->pixels[5] == 255); // green
+}
+
+TEST_CASE("read_image rejects malformed input instead of throwing", "[asset]")
+{
+    // Review Focus 4. stb_image is the first untrusted-input parser in the asset path:
+    // a project directory can now hold a hostile file. Every one of these must be
+    // nullopt -- not a throw, not a half-decoded Image, not a read past the buffer.
+    REQUIRE_FALSE(mosaic::app::read_image("").has_value());
+    REQUIRE_FALSE(mosaic::app::read_image("not an image at all").has_value());
+    REQUIRE_FALSE(mosaic::app::read_image(std::string("\x89PNG\r\n\x1a\n", 8)).has_value());
+    const std::string full = read_fixture("gradient.png");
+    REQUIRE_FALSE(mosaic::app::read_image(full.substr(0, full.size() / 2)).has_value());
+}
+
+TEST_CASE("a PNG survives the cook/uncook round trip", "[asset]")
+{
+    // The chain the importer actually runs: decode -> MOSAIMG1 -> decode. If this
+    // drifts, an imported texture is wrong on disk while read_image's own test passes.
+    const auto decoded = mosaic::app::read_image(read_fixture("gradient.png"));
+    REQUIRE(decoded.has_value());
+    const auto restored = mosaic::app::uncook_image(mosaic::app::cook_image(*decoded));
+    REQUIRE(restored.has_value());
+    REQUIRE(restored->width == decoded->width);
+    REQUIRE(restored->height == decoded->height);
+    REQUIRE(restored->pixels == decoded->pixels);
 }

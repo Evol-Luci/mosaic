@@ -10,6 +10,15 @@
 
 namespace mosaic::app
 {
+// Decodes PNG/JPEG/BMP/TGA via stb_image, falling back to read_ppm so the
+// dependency-free format keeps working. nullopt on any failure -- malformed input is
+// reachable from a project directory, so this must not throw or partially decode.
+//
+// Not inline, unlike everything else in this header: stb_image's implementation macro
+// belongs in exactly one translation unit (image_cook.cpp), the same arrangement
+// stb_truetype already has in font_cook.cpp.
+std::optional<mosaic::engine::render::Image> read_image(const std::string& bytes);
+
 // Parse a binary PPM (P6): "P6" <ws> width <ws> height <ws> maxval <single-ws> <RGB bytes>.
 // Produces an RGBA Image (alpha 255). nullopt on malformed input or maxval != 255. Comments
 // (# lines) are not supported (v0.1). Little dependency: only <cctype>.
