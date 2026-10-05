@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -188,6 +189,17 @@ public:
                                    const std::vector<std::uint32_t>& indices) = 0;
     virtual TextureHandle create_texture(const Image& image,
                                          TextureColorSpace space = TextureColorSpace::Srgb) = 0;
+
+    // Uploads six square faces as a cubemap, in Vulkan's layer order:
+    // +X, -X, +Y, -Y, +Z, -Z.
+    //
+    // Returns a handle from the SAME space as create_texture -- a cubemap is a texture
+    // to everything above the device, and only the view type differs. Faces must all be
+    // the same size and format; a mismatch returns 0 rather than uploading something
+    // the shader would sample as garbage.
+    //
+    // Defaulted to 0 so the test doubles that do no rendering need not implement it.
+    virtual TextureHandle create_cubemap(const std::array<Image, 6>& /*faces*/) { return 0; }
     virtual void draw(MeshHandle mesh, TextureHandle texture, const DrawParams& params) = 0;
 
     // Editor UI overlay hooks. Default no-ops so headless devices and test fakes

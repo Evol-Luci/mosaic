@@ -786,6 +786,176 @@ public:
         return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
     }
 
+    // Six square faces as one cubemap image. Shares textures_ and the handle space with
+    // create_texture: above the device a cubemap IS a texture, and only the view type
+    // differs. One mip level -- the prefiltered specular cube that IBL needs is built by
+    // convolution, not by blitting this one down, and a skybox barely minifies.
+    mosaic::engine::render::TextureHandle
+    create_cubemap(const std::array<mosaic::engine::render::Image, 6>& faces) override
+    {
+        const auto& f0 = faces[0];
+        if (f0.pixels.empty() || f0.width == 0 || f0.width != f0.height) { return 0u; }
+        for (const auto& f : faces)
+        {
+            // A mismatched face would upload as garbage at a plausible-looking size
+            // rather than failing, so refuse rather than guess.
+            if (f.width != f0.width || f.height != f0.height || f.format != f0.format
+                || f.pixels.size() != f0.pixels.size())
+            {
+                mosaic::foundation::log::error(
+                    "render", "cubemap faces disagree in size or format; not uploading");
+                return 0u;
+            }
+        }
+        if (textures_.size() >= kMaxTextures)
+        {
+            mosaic::foundation::log::error(
+                "render", "texture cap reached ({}); raise kMaxTextures", kMaxTextures);
+            return 0u;
+        }
+
+        const VkFormat cube_format =
+            (f0.format == mosaic::engine::render::ImageFormat::Rgba16F)
+                ? VK_FORMAT_R16G16B16A16_SFLOAT
+                : VK_FORMAT_R8G8B8A8_SRGB;
+
+        Texture tex{};
+        const VkDeviceSize face_size = static_cast<VkDeviceSize>(f0.pixels.size());
+        const VkDeviceSize total = face_size * 6u;
+
+        // All six faces in ONE staging buffer, copied by six regions -- one buffer and
+        // one submit rather than six of each.
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory staging_mem = VK_NULL_HANDLE;
+        create_buffer(total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      staging, staging_mem);
+        void* mapped = nullptr;
+        vk_check(vkMapMemory(device_, staging_mem, 0, total, 0, &mapped), "vkMapMemory(cubemap)");
+        for (std::size_t i = 0; i < 6; ++i)
+        {
+            std::memcpy(static_cast<std::uint8_t*>(mapped) + i * f0.pixels.size(),
+                        faces[i].pixels.data(), faces[i].pixels.size());
+        }
+        vkUnmapMemory(device_, staging_mem);
+
+        VkImageCreateInfo cube{};
+        cube.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        // CUBE_COMPATIBLE is what makes a 6-layer 2D array legal to view as a cube.
+        cube.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        cube.imageType = VK_IMAGE_TYPE_2D;
+        cube.extent = {f0.width, f0.height, 1};
+        cube.mipLevels = 1;
+        cube.arrayLayers = 6;
+        cube.format = cube_format;
+        cube.tiling = VK_IMAGE_TILING_OPTIMAL;
+        cube.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        cube.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        cube.samples = VK_SAMPLE_COUNT_1_BIT;
+        cube.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &cube, nullptr, &tex.image), "vkCreateImage(cubemap)");
+
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device_, tex.image, &req);
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = req.size;
+        alloc.memoryTypeIndex =
+            find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &tex.memory),
+                 "vkAllocateMemory(cubemap)");
+        vk_check(vkBindImageMemory(device_, tex.image, tex.memory, 0),
+                 "vkBindImageMemory(cubemap)");
+
+        VkCommandBuffer cmd = begin_single_time_commands();
+
+        // All six layers transitioned TOGETHER. Missing a layer leaves it in the wrong
+        // layout when sampled -- undefined contents plus a validation error.
+        VkImageMemoryBarrier cube_barrier{};
+        cube_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        cube_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        cube_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        cube_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        cube_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        cube_barrier.image = tex.image;
+        cube_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        cube_barrier.subresourceRange.baseMipLevel = 0;
+        cube_barrier.subresourceRange.levelCount = 1;
+        cube_barrier.subresourceRange.baseArrayLayer = 0;
+        cube_barrier.subresourceRange.layerCount = 6;
+        cube_barrier.srcAccessMask = 0;
+        cube_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &cube_barrier);
+
+        std::array<VkBufferImageCopy, 6> copies{};
+        for (std::uint32_t i = 0; i < 6; ++i)
+        {
+            copies[i].bufferOffset = static_cast<VkDeviceSize>(i) * face_size;
+            copies[i].bufferRowLength = 0;
+            copies[i].bufferImageHeight = 0;
+            copies[i].imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copies[i].imageSubresource.mipLevel = 0;
+            copies[i].imageSubresource.baseArrayLayer = i;
+            copies[i].imageSubresource.layerCount = 1;
+            copies[i].imageOffset = {0, 0, 0};
+            copies[i].imageExtent = {f0.width, f0.height, 1};
+        }
+        vkCmdCopyBufferToImage(cmd, staging, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<std::uint32_t>(copies.size()), copies.data());
+
+        cube_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        cube_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        cube_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        cube_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+                             1, &cube_barrier);
+        end_single_time_commands(cmd);
+
+        vkDestroyBuffer(device_, staging, nullptr);
+        vkFreeMemory(device_, staging_mem, nullptr);
+
+        VkImageViewCreateInfo cube_view{};
+        cube_view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        cube_view.image = tex.image;
+        cube_view.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        cube_view.format = cube_format;
+        cube_view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        cube_view.subresourceRange.baseMipLevel = 0;
+        cube_view.subresourceRange.levelCount = 1;
+        cube_view.subresourceRange.baseArrayLayer = 0;
+        cube_view.subresourceRange.layerCount = 6;
+        vk_check(vkCreateImageView(device_, &cube_view, nullptr, &tex.view),
+                 "vkCreateImageView(cubemap)");
+
+        VkSamplerCreateInfo cube_sampler{};
+        cube_sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        cube_sampler.magFilter = VK_FILTER_LINEAR;
+        cube_sampler.minFilter = VK_FILTER_LINEAR;
+        // Clamp on every axis, W included: cube sampling is seamless in Vulkan, but a
+        // repeating address mode still shows at the edges when filtering crosses a face.
+        cube_sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        cube_sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        cube_sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        cube_sampler.anisotropyEnable = VK_FALSE;
+        cube_sampler.maxAnisotropy = 1.0f;
+        cube_sampler.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        cube_sampler.unnormalizedCoordinates = VK_FALSE;
+        cube_sampler.compareEnable = VK_FALSE;
+        cube_sampler.compareOp = VK_COMPARE_OP_ALWAYS;
+        cube_sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        cube_sampler.mipLodBias = 0.0f;
+        cube_sampler.minLod = 0.0f;
+        cube_sampler.maxLod = 0.0f;
+        vk_check(vkCreateSampler(device_, &cube_sampler, nullptr, &tex.sampler),
+                 "vkCreateSampler(cubemap)");
+
+        textures_.push_back(tex);
+        return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
+    }
+
     // One descriptor set per (base_color, metallic_roughness) texture pair, created on
     // first use and cached for the device's lifetime. Set ownership moved off the
     // texture table in PBR slice 3: a lit material needs two images visible at once,
