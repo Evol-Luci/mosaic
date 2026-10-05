@@ -167,3 +167,43 @@ TEST_CASE("a PNG survives the cook/uncook round trip", "[asset]")
     REQUIRE(restored->height == decoded->height);
     REQUIRE(restored->pixels == decoded->pixels);
 }
+
+TEST_CASE("read_image routes PPM through read_ppm, not through stb", "[asset]")
+{
+    // The fallback is a stated deliverable -- read_ppm is the one decoder with no
+    // third-party code in its path -- but stb_image decodes PNM too, so with its PNM
+    // support left on, read_ppm was UNREACHABLE and the test claiming to cover the
+    // fallback ran entirely through stb. Found in review 2026-10-04.
+    //
+    // maxval is how the two decoders differ observably: read_ppm requires 255, while
+    // stb accepts any maxval <= 65535 and copies the bytes with NO rescaling -- so a
+    // legal "P6 2 1 15" imported as a near-black texture instead of failing loudly.
+    // Asserting the rejection pins that read_ppm is what handles PPM.
+    std::string ppm = "P6 2 1 15 ";
+    const unsigned char px[] = {1, 2, 3, 4, 5, 6};
+    ppm.append(reinterpret_cast<const char*>(px), sizeof(px));
+    REQUIRE_FALSE(read_ppm(ppm).has_value());
+    REQUIRE_FALSE(mosaic::app::read_image(ppm).has_value());
+}
+
+TEST_CASE("the image size ceiling rejects a decompression bomb's dimensions", "[asset]")
+{
+    // A few kilobytes of PNG can declare enormous dimensions: 20000x20000 decodes to
+    // 1.6 GB inside stb and the copy into Image asks for as much again, so a bad_alloc
+    // escapes a function documented never to throw. read_image checks the HEADER before
+    // decoding, which is what makes the refusal free.
+    //
+    // This tests the POLICY directly rather than feeding read_image a crafted file. The
+    // first attempt did the latter, with a header carrying no pixel data -- and it
+    // passed whether or not the ceiling existed, because the decode failed first. It
+    // proved nothing. Found while writing it, review 2026-10-04.
+    using mosaic::app::image_dimensions_are_sane;
+    REQUIRE(image_dimensions_are_sane(4, 4));
+    REQUIRE(image_dimensions_are_sane(8192, 8192));      // exactly the ceiling
+    REQUIRE_FALSE(image_dimensions_are_sane(8192, 8193)); // one pixel over
+    REQUIRE_FALSE(image_dimensions_are_sane(20000, 20000));
+    REQUIRE_FALSE(image_dimensions_are_sane(0, 4));
+    REQUIRE_FALSE(image_dimensions_are_sane(4, 0));
+    // And a real image still decodes, so the ceiling is not simply refusing everything.
+    REQUIRE(mosaic::app::read_image(read_fixture("gradient.png")).has_value());
+}

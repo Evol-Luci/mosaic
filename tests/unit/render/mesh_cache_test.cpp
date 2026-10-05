@@ -40,7 +40,7 @@ public:
         if (v.empty() || i.empty()) return 0;
         return static_cast<MeshHandle>(++mesh_uploads);
     }
-    TextureHandle create_texture(const Image&, TextureColorSpace = TextureColorSpace::Srgb) override { return 0; }
+    TextureHandle create_texture(const Image&, TextureColorSpace) override { return 0; }
     void draw(MeshHandle, TextureHandle, const DrawParams&) override {}
 };
 

@@ -13,6 +13,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -20,6 +21,7 @@
 #include "shader_source.hpp"
 
 using mosaic::engine::render::TextureColorSpace;
+using mosaic::tests::normalize_ws;
 
 namespace
 {
@@ -35,28 +37,98 @@ std::string read_backend()
 }
 } // namespace
 
-TEST_CASE("the colour space default keeps every existing call site on sRGB", "[render]")
+namespace
 {
-    // The default is load-bearing: the font atlas, the default white, and every
-    // base-colour texture rely on it. A value-initialised TextureColorSpace must be
-    // Srgb, or adding the parameter silently re-colours all of them.
-    REQUIRE(TextureColorSpace{} == TextureColorSpace::Srgb);
+// Records what colour space each create_texture call actually received, so the DEFAULT
+// ARGUMENT can be observed rather than assumed.
+class SpaceRecordingDevice : public mosaic::engine::render::RenderDevice
+{
+public:
+    std::vector<TextureColorSpace> seen;
+
+    void begin_frame() override {}
+    void clear(const mosaic::engine::render::Color&) override {}
+    void end_frame() override {}
+    mosaic::engine::render::MeshHandle create_mesh(
+        const std::vector<mosaic::engine::render::Vertex>&,
+        const std::vector<std::uint32_t>&) override
+    {
+        return 1;
+    }
+    mosaic::engine::render::TextureHandle create_texture(
+        const mosaic::engine::render::Image&, TextureColorSpace space) override
+    {
+        seen.push_back(space);
+        return 1;
+    }
+    void draw(mosaic::engine::render::MeshHandle, mosaic::engine::render::TextureHandle,
+              const mosaic::engine::render::DrawParams&) override
+    {
+    }
+};
+} // namespace
+
+TEST_CASE("create_texture's default argument is Srgb", "[render]")
+{
+    // The default is load-bearing: the font atlas, the default white, UI images and
+    // decals all rely on it, and flipping it to Linear would re-colour every one of
+    // them at once.
+    //
+    // The first version of this case asserted TextureColorSpace{} == Srgb, which only
+    // tests which enumerator is written first -- changing the DEFAULT ARGUMENT on
+    // render_device.hpp left it green. Call the function with one argument and look at
+    // what it received, which is the thing that actually matters. Found in review
+    // 2026-10-04.
+    SpaceRecordingDevice device;
+    mosaic::engine::render::Image img;
+    img.width = 1;
+    img.height = 1;
+    img.pixels = {255, 255, 255, 255};
+    // Through a RenderDevice& ON PURPOSE. Default arguments are not inherited, so the
+    // default that matters is the one on the BASE declaration -- which is also why the
+    // overrides must not restate it: whichever default applies would then depend on the
+    // static type of the reference you happen to hold.
+    mosaic::engine::render::RenderDevice& as_base = device;
+    as_base.create_texture(img); // deliberately one argument
+    REQUIRE(device.seen.size() == 1);
+    REQUIRE(device.seen[0] == TextureColorSpace::Srgb);
 }
 
-TEST_CASE("the Vulkan backend selects UNORM for data and SRGB for colour", "[render]")
+TEST_CASE("the Vulkan backend maps Linear to UNORM and Srgb to SRGB", "[render]")
 {
-    // Review Focus 1. Both formats must be present AND chosen from the parameter
-    // rather than hardcoded. If this fails after a refactor, confirm a data map still
-    // reaches the GPU as UNORM before relaxing it -- the whole point is that nothing
-    // downstream can tell you when it does not.
-    const std::string src = mosaic::tests::code_only(read_backend());
+    // Review Focus 1. Four independent substring searches for UNORM, SRGB,
+    // TextureColorSpace::Linear and tex_format were all satisfied by SWAPPING THE
+    // TERNARY ARMS -- which ships every roughness map as sRGB and every base colour as
+    // UNORM, precisely the silent failure this file exists to prevent. Pin the
+    // ASSOCIATION, not the tokens. Found in review 2026-10-04.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
     INFO("A metallic/roughness map uploaded as R8G8B8A8_SRGB has its values distorted "
          "by the sRGB EOTF: an authored 0.5 arrives as ~0.21, and the image merely "
          "looks like a different material.");
-    REQUIRE(src.find("VK_FORMAT_R8G8B8A8_UNORM") != std::string::npos);
-    REQUIRE(src.find("VK_FORMAT_R8G8B8A8_SRGB") != std::string::npos);
-    REQUIRE(src.find("TextureColorSpace::Linear") != std::string::npos);
-    // The image and its view must agree. Two independent ternaries is how they come
-    // to disagree, so pin that the format is computed once into a named local.
-    REQUIRE(src.find("tex_format") != std::string::npos);
+    REQUIRE(src.find("TextureColorSpace::Linear) ? VK_FORMAT_R8G8B8A8_UNORM "
+                     ": VK_FORMAT_R8G8B8A8_SRGB")
+            != std::string::npos);
+    // ...and that the single computed format is what both the image and its view use,
+    // since two independent ternaries is how they come to disagree.
+    REQUIRE(src.find("img.format = tex_format;") != std::string::npos);
+    REQUIRE(src.find("view.format = tex_format;") != std::string::npos);
+}
+
+TEST_CASE("the descriptor pool is sized for both kinds of set", "[render]")
+{
+    // Plan Review Focus 5 had no test at all: the pool feeds kMaxTextures
+    // single-binding sets AND kMaxMaterialSets two-binding ones, and bumping either cap
+    // without bumping descriptorCount ships green and fails at runtime, mid-frame, with
+    // VK_ERROR_OUT_OF_POOL_MEMORY. The arithmetic is source-checkable the same way the
+    // formats are. Found in review 2026-10-04.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2;")
+            != std::string::npos);
+    REQUIRE(src.find("pool.maxSets = kMaxTextures + kMaxMaterialSets;") != std::string::npos);
+    // And that create_texture is bounded, so exceeding the texture cap fails at upload
+    // time with a message about textures, rather than later as a material-set
+    // allocation failure that blames the wrong thing.
+    REQUIRE(src.find("textures_.size() >= kMaxTextures") != std::string::npos);
 }

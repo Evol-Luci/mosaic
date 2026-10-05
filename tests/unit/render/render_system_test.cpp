@@ -96,7 +96,7 @@ public:
     // sees an AssetID to key by.
     std::map<std::array<std::uint8_t, 4>, TextureColorSpace> upload_spaces;
 
-    TextureHandle create_texture(const Image& img, TextureColorSpace space = TextureColorSpace::Srgb) override
+    TextureHandle create_texture(const Image& img, TextureColorSpace space) override
     {
         if (img.pixels.size() >= 4)
         {

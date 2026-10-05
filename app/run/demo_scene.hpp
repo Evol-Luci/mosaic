@@ -479,9 +479,17 @@ inline void build_default_scene(mosaic::engine::World& world)
     // dots on black. That is what a mirror-ish ball in a void looks like. Image-based
     // lighting (PBR slice 4) is what gives it something to reflect; until then the flat
     // 0.1 ambient cannot help a metal by construction. Confirmed visually 2026-10-04.
-    render::Material sphere_mat{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 0.174f};
-    // Per-texel roughness. The scalar above stays a FACTOR over the map, so 0.174 now
-    // scales the authored gradient rather than setting a single value.
+    // roughness 1.0, not the 0.174 this material carried before the map existed: the
+    // scalar is a FACTOR over the texel, so the map alone now sets roughness and its
+    // authored 0.157..1.0 range reaches the surface intact.
+    //
+    // Keeping 0.174 scaled the whole gradient down into 0.014..0.150, and cube.frag
+    // floors roughness at 0.045 -- so the two lowest bands clamped to the SAME value
+    // and the sphere showed five bands, all near-mirror, with no broad soft end. A
+    // human asked to check "six bands from tight to broad" would have found a bug in
+    // the authored numbers and reasonably blamed the feature. Found in review
+    // 2026-10-04.
+    render::Material sphere_mat{Vec3{0.75f, 0.18f, 0.18f}, {}, 1.0f, 1.0f};
     sphere_mat.metallic_roughness_texture = kSphereMrTextureId;
     world.add_component<render::Material>(sphere, sphere_mat);
     world.add_component<physics::RigidBody>(sphere, physics::RigidBody{true, 1.0f});

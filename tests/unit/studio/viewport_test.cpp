@@ -83,7 +83,7 @@ public:
     {
         return 1;
     }
-    TextureHandle create_texture(const Image&, TextureColorSpace = TextureColorSpace::Srgb) override { return 1; }
+    TextureHandle create_texture(const Image&, TextureColorSpace) override { return 1; }
     void          draw(MeshHandle, TextureHandle, const DrawParams&) override
     {
         calls.emplace_back("draw");

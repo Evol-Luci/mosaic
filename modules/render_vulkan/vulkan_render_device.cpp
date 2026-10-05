@@ -475,12 +475,26 @@ public:
     // descriptor set so the fragment shader can sample it. Returns a 1-based
     // handle (index into textures_ + 1); 0 for an empty image.
     mosaic::engine::render::TextureHandle
+    // No default argument here: defaults are not inherited, so restating one would mean
+    // the default in force depends on the static type of the reference held. The base
+    // declaration in render_device.hpp is the contract.
     create_texture(const mosaic::engine::render::Image& image,
-                   mosaic::engine::render::TextureColorSpace space =
-                       mosaic::engine::render::TextureColorSpace::Srgb) override
+                   mosaic::engine::render::TextureColorSpace space) override
     {
         if (image.pixels.empty())
         {
+            return 0u;
+        }
+        // The pool budgets kMaxTextures single-binding sets. Without this bound the
+        // 65th texture quietly succeeded by eating the MATERIAL-set budget, and the
+        // failure surfaced much later as a material-set allocation throwing
+        // VK_ERROR_OUT_OF_POOL_MEMORY from the middle of command-buffer recording --
+        // blaming material pairs for a texture-count problem. Fail here, where the
+        // caller can see what it did. Found in review 2026-10-04.
+        if (textures_.size() >= kMaxTextures)
+        {
+            mosaic::foundation::log::error(
+                "render", "texture cap reached ({}); raise kMaxTextures", kMaxTextures);
             return 0u;
         }
 
@@ -673,12 +687,20 @@ public:
         }
         if (material_sets_.size() >= kMaxMaterialSets)
         {
-            // Loudly. Silently reusing another material's set would draw the wrong
-            // texture on an arbitrary object and read as an asset mistake.
-            mosaic::foundation::log::error(
-                "render",
-                "descriptor pool exhausted at {} material texture pairs; raise kMaxMaterialSets",
-                kMaxMaterialSets);
+            // Skipping the draw is deliberate: reusing another pair's set would draw the
+            // wrong texture on an arbitrary object and read as an asset mistake. But the
+            // object vanishing is only diagnosable if the log stays readable, and this
+            // runs per draw per frame -- 60xN lines a second, burying whatever else is
+            // wrong. Latch it. Found in review 2026-10-04.
+            if (!material_cap_reported_)
+            {
+                material_cap_reported_ = true;
+                mosaic::foundation::log::error(
+                    "render",
+                    "material-set cap reached ({} distinct texture pairs); further lit draws "
+                    "with new pairs will be skipped. Raise kMaxMaterialSets.",
+                    kMaxMaterialSets);
+            }
             return VK_NULL_HANDLE;
         }
 
@@ -2111,9 +2133,11 @@ private:
 
     // TWO descriptor set layouts, deliberately.
     //
-    // texture_set_layout_ is one combined image+sampler at binding 0, and FIVE pipeline
-    // layouts share it: the lit mesh pass, world text, decals, UI images, and UI text.
-    // A set allocated against it belongs to a single texture.
+    // texture_set_layout_ is one combined image+sampler at binding 0, shared today by
+    // FOUR pipeline layouts -- world text, decals, UI images and UI text. It was five
+    // before this change, including the lit mesh pass, and that is exactly why the lit
+    // pass got its own layout below rather than this one growing a binding. A set
+    // allocated against it belongs to a single texture.
     //
     // material_set_layout_ adds binding 1 for the metallic/roughness map and is used by
     // the lit mesh pass ALONE, where a set belongs to a (base_color, metallic_roughness)
@@ -3644,6 +3668,7 @@ private:
     // packed into a u64. Created on first use, kept for the device's lifetime, and
     // freed with the pool.
     std::unordered_map<std::uint64_t, VkDescriptorSet> material_sets_;
+    bool material_cap_reported_ = false;
     VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
     // A device texture: image + backing memory, view, sampler, and the

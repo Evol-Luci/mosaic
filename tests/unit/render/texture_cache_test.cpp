@@ -33,7 +33,7 @@ public:
     void clear(const Color&) override {}
     void end_frame() override {}
     MeshHandle create_mesh(const std::vector<Vertex>&, const std::vector<std::uint32_t>&) override { return 1; }
-    TextureHandle create_texture(const Image& img, TextureColorSpace = TextureColorSpace::Srgb) override
+    TextureHandle create_texture(const Image& img, TextureColorSpace) override
     {
         if (img.pixels.empty()) return 0;
         return static_cast<TextureHandle>(++texture_uploads);
