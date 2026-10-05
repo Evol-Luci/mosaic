@@ -22,6 +22,7 @@
 
 using mosaic::engine::render::TextureColorSpace;
 using mosaic::tests::normalize_ws;
+using mosaic::tests::read_shader;
 
 namespace
 {
@@ -197,4 +198,21 @@ TEST_CASE("the backend creates cubemaps with the cube flags and view type", "[re
     // Cube sampling must clamp on every axis, or the faces show seams at their edges.
     REQUIRE(src.find("cube_sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;")
             != std::string::npos);
+}
+
+TEST_CASE("the skybox draws behind the scene and does not write depth", "[render]")
+{
+    // Review Focus 5. depthWrite on would let the sky occlude everything drawn after it;
+    // a LESS compare at the far plane rejects every fragment and shows no sky at all.
+    // Both are one-token mistakes with a total visual effect, and CI has no GPU.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("sky_depth.depthWriteEnable = VK_FALSE;") != std::string::npos);
+    REQUIRE(src.find("sky_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;")
+            != std::string::npos);
+    // The fullscreen triangle sits exactly on the far plane, so it fills only pixels
+    // nothing else wrote.
+    const std::string vert =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(mosaic::tests::read_shader("skybox.vert")));
+    REQUIRE(vert.find("gl_Position = vec4(pos, 1.0, 1.0);") != std::string::npos);
 }

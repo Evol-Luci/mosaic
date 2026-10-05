@@ -100,6 +100,14 @@ struct DecalPush
 };
 static_assert(sizeof(DecalPush) == 80, "decal push constant layout must match the shader");
 
+struct SkyboxPush
+{
+    float inv_view_rotation[16]; // world-from-view, translation removed
+    float tan_half_fov_y;
+    float aspect;
+};
+static_assert(sizeof(SkyboxPush) == 72, "skybox push layout must match skybox.frag");
+
 struct ScreenEffectPush
 {
     float tint[4];   // rgb = tint, a = strength
@@ -246,6 +254,7 @@ public:
         create_ribbon_pipeline();
         create_world_text_pipeline();
         create_decal_pipeline();
+        create_skybox_pipeline();
         create_screen_effect_pipeline();
         create_ui_pipeline();
         create_ui_image_pipeline();
@@ -367,6 +376,9 @@ public:
             if (decal_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, decal_pipeline_layout_, nullptr); }
             if (vp_screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_screen_effect_pipeline_, nullptr); }
             if (screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, screen_effect_pipeline_, nullptr); }
+            if (skybox_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, skybox_pipeline_, nullptr); skybox_pipeline_ = VK_NULL_HANDLE; }
+            if (vp_skybox_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_skybox_pipeline_, nullptr); vp_skybox_pipeline_ = VK_NULL_HANDLE; }
+            if (skybox_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, skybox_pipeline_layout_, nullptr); skybox_pipeline_layout_ = VK_NULL_HANDLE; }
             if (screen_effect_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, screen_effect_pipeline_layout_, nullptr); }
             if (vp_ui_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ui_pipeline_, nullptr); }
             if (ui_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, ui_pipeline_, nullptr); }
@@ -952,6 +964,31 @@ public:
         vk_check(vkCreateSampler(device_, &cube_sampler, nullptr, &tex.sampler),
                  "vkCreateSampler(cubemap)");
 
+        // A descriptor set of its own, exactly as create_texture allocates one: the
+        // skybox pass binds set 0 = this cubemap, and without this there would be
+        // nothing to bind.
+        VkDescriptorSetAllocateInfo cube_set_alloc{};
+        cube_set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        cube_set_alloc.descriptorPool = descriptor_pool_;
+        cube_set_alloc.descriptorSetCount = 1;
+        cube_set_alloc.pSetLayouts = &texture_set_layout_;
+        vk_check(vkAllocateDescriptorSets(device_, &cube_set_alloc, &tex.set),
+                 "vkAllocateDescriptorSets(cubemap)");
+
+        VkDescriptorImageInfo cube_info{};
+        cube_info.sampler = tex.sampler;
+        cube_info.imageView = tex.view;
+        cube_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet cube_write{};
+        cube_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        cube_write.dstSet = tex.set;
+        cube_write.dstBinding = 0;
+        cube_write.dstArrayElement = 0;
+        cube_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        cube_write.descriptorCount = 1;
+        cube_write.pImageInfo = &cube_info;
+        vkUpdateDescriptorSets(device_, 1, &cube_write, 0, nullptr);
+
         textures_.push_back(tex);
         return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
     }
@@ -1295,6 +1332,30 @@ public:
                                sizeof(pc), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
         }
+    }
+
+    void draw_skybox(mosaic::engine::render::TextureHandle cubemap,
+                     const mosaic::engine::render::SkyboxParams& params) override
+    {
+        if (cubemap == 0 || cubemap > textures_.size()) { return; }
+        const std::uint32_t index = cubemap - 1u;
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          viewport_pass_open_ ? vp_skybox_pipeline_ : skybox_pipeline_);
+        vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                skybox_pipeline_layout_, 0, 1, &textures_[index].set, 0, nullptr);
+
+        SkyboxPush push{};
+        std::memcpy(push.inv_view_rotation, params.inverse_view_rotation.m.data(),
+                    sizeof(push.inv_view_rotation));
+        push.tan_half_fov_y = params.tan_half_fov_y;
+        push.aspect = params.aspect;
+        vkCmdPushConstants(cmd_[frame_], skybox_pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(push), &push);
+
+        // Three vertices, no buffers: the vertex shader builds a fullscreen triangle
+        // from gl_VertexIndex.
+        vkCmdDraw(cmd_[frame_], 3, 1, 0, 0);
     }
 
     void draw_screen_effect(const mosaic::engine::render::ScreenEffectParams& params) override
@@ -3294,6 +3355,99 @@ private:
         vkDestroyShaderModule(device_, vert, nullptr);
     }
 
+    void create_skybox_pipeline()
+    {
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/skybox.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/skybox.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO; // no inputs
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        // The two settings that put the sky BEHIND the scene rather than over it.
+        // depthWrite on would let it occlude everything drawn afterwards; a LESS compare
+        // would reject every fragment at the far plane and show no sky at all. Both are
+        // one-token mistakes with a total visual effect, which is why a contract test
+        // pins them.
+        VkPipelineDepthStencilStateCreateInfo sky_depth{};
+        sky_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        sky_depth.depthTestEnable = VK_TRUE;
+        sky_depth.depthWriteEnable = VK_FALSE;
+        sky_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_FALSE; // opaque: the sky replaces whatever cleared
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        push.offset = 0; push.size = sizeof(SkyboxPush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1; layout.pSetLayouts = &texture_set_layout_;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &skybox_pipeline_layout_),
+                 "vkCreatePipelineLayout(skybox)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &sky_depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = skybox_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &skybox_pipeline_),
+                 "vkCreateGraphicsPipelines(skybox)");
+
+        // The offscreen variant, so the Studio viewport shows the sky too -- every
+        // other pipeline here is created in both forms for the same reason.
+        pi.renderPass = vp_render_pass_;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_skybox_pipeline_),
+                 "vkCreateGraphicsPipelines(skybox offscreen)");
+
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
     void create_screen_effect_pipeline()
     {
         std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/screen_effect.vert.spv");
@@ -3949,6 +4103,9 @@ private:
     static constexpr uint32_t kMaxMaterialSets = 256;
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout material_set_layout_ = VK_NULL_HANDLE;
+    VkPipeline skybox_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline vp_skybox_pipeline_ = VK_NULL_HANDLE;
+    VkPipelineLayout skybox_pipeline_layout_ = VK_NULL_HANDLE;
     // One set per (base_color_index, metallic_roughness_index) pair, keyed by the two
     // packed into a u64. Created on first use, kept for the device's lifetime, and
     // freed with the pool.

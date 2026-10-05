@@ -146,6 +146,21 @@ struct DecalInstance
 };
 
 // Fullscreen post overlay parameters (fade/tint/vignette).
+// Per-frame state for the skybox pass.
+//
+// The ray is built in the shader from the camera basis and the field of view rather
+// than from an inverted view-projection, because Mat4 offers only inverse_affine and a
+// projection matrix is not affine. RenderSystem reads tan(fovY/2) and the aspect ratio
+// back out of the projection matrix it already holds.
+struct SkyboxParams
+{
+    // World-from-view with the translation removed, so the sky does not move with the
+    // camera -- only its rotation matters.
+    mosaic::foundation::math::Mat4 inverse_view_rotation;
+    float tan_half_fov_y = 1.0f;
+    float aspect = 1.0f;
+};
+
 struct ScreenEffectParams
 {
     mosaic::foundation::math::Vec3 tint;
@@ -239,6 +254,9 @@ public:
     virtual void draw_decals(const std::vector<DecalInstance>& /*decals*/) {}
 
     // Draw a fullscreen fade/tint/vignette overlay. Default no-op (like draw_particles).
+    // Draws `cubemap` as the sky. A no-op by default so test doubles need not care.
+    virtual void draw_skybox(TextureHandle /*cubemap*/, const SkyboxParams& /*params*/) {}
+
     virtual void draw_screen_effect(const ScreenEffectParams& /*params*/) {}
 
     // Draw alpha-blended screen-space HUD quads (topmost). Default no-op (like draw_decals).

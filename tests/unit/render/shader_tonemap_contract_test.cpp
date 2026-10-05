@@ -98,3 +98,27 @@ TEST_CASE("no fragment shader gamma-corrects on top of the sRGB swapchain", "[re
         REQUIRE(frag.find("0.4545") == std::string::npos); // 1/2.2, the other spelling
     }
 }
+
+TEST_CASE("the skybox tone maps with the same curve as the lit pass", "[render]")
+{
+    // Slice 1 justified tone-mapping cube.frag ALONE on the grounds that every other
+    // colour-producing shader is unlit, cannot exceed 1.0, and would merely be darkened
+    // by a curve that maps 1.0 to about 0.8. A skybox sampling HDR radiance CAN exceed
+    // 1.0 -- it is the first shader for which that reasoning does not hold, and "bright
+    // regions roll off rather than clip" is a success criterion of this slice.
+    //
+    // The two copies must stay identical. A shared GLSL include would be better, but the
+    // shader build has no include step, so this test is what holds them together.
+    const std::string lit = code_only(read_shader("cube.frag"));
+    const std::string sky = code_only(read_shader("skybox.frag"));
+    auto body = [](const std::string& s) {
+        const std::size_t b = s.find("vec3 tonemap_aces(vec3 x)");
+        REQUIRE(b != std::string::npos);
+        const std::size_t e = s.find('}', b);
+        REQUIRE(e != std::string::npos);
+        return mosaic::tests::normalize_ws(s.substr(b, e - b));
+    };
+    REQUIRE(body(lit) == body(sky));
+    // ...and that the skybox actually CALLS it, not merely defines it.
+    REQUIRE(sky.find("tonemap_aces(") != std::string::npos);
+}

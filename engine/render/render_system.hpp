@@ -53,6 +53,12 @@ inline mosaic::engine::ui::Anchor to_anchor(int a)
 class RenderSystem
 {
 public:
+    // The environment cubemap to draw as the sky. 0 means no sky, which is the state
+    // every scene was in before this existed -- so an unset environment renders exactly
+    // as it did before rather than failing.
+    void set_environment(TextureHandle cubemap) { environment_ = cubemap; }
+    TextureHandle environment() const { return environment_; }
+
     void set_aspect(float aspect) { aspect_ = aspect; }
 
     // Records the shadow depth pass. MUST be called before the caller opens its own
@@ -186,6 +192,28 @@ public:
                                        normal_matrix, base_color, metallic, roughness,
                                        mr_texture});
             });
+
+        // Skybox pass: after the opaque meshes so it only shades pixels they did not
+        // write (it draws at the far plane with depth writes off), and before the
+        // transparent passes below so they blend over it correctly.
+        if (environment_ != 0)
+        {
+            SkyboxParams sky{};
+            // Translation removed: only the camera's ROTATION may affect the sky, or it
+            // would slide around as the camera moves.
+            Mat4 view_rotation = view;
+            view_rotation.m[12] = 0.0f;
+            view_rotation.m[13] = 0.0f;
+            view_rotation.m[14] = 0.0f;
+            sky.inverse_view_rotation = Mat4::inverse_affine(view_rotation);
+            // Read back out of the projection matrix rather than stored separately, so
+            // these cannot drift from the camera actually in use. For a standard
+            // perspective matrix m[5] is 1/tan(fovY/2) and m[0] is that divided by the
+            // aspect ratio. Guarded because a degenerate projection would divide by zero.
+            sky.tan_half_fov_y = (projection.m[5] != 0.0f) ? (1.0f / projection.m[5]) : 1.0f;
+            sky.aspect = (projection.m[0] != 0.0f) ? (projection.m[5] / projection.m[0]) : 1.0f;
+            device.draw_skybox(environment_, sky);
+        }
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
         // meshes so they blend onto surfaces; MVP composed here (device does no matrix math).
@@ -534,5 +562,6 @@ private:
     mutable FontTextureCache font_textures_;
     mutable TextureHandle default_white_ = 0;
     mutable TextureHandle default_linear_white_ = 0;
+    TextureHandle environment_ = 0;
 };
 } // namespace mosaic::engine::render
