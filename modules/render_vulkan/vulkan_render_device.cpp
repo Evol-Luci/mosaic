@@ -6,6 +6,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
+#include "engine/render/mip_levels.hpp"
 #include "engine/render/render_device.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/render_vulkan/vulkan_swapchain_support.hpp"
@@ -481,8 +482,12 @@ public:
     create_texture(const mosaic::engine::render::Image& image,
                    mosaic::engine::render::TextureColorSpace space) override
     {
-        if (image.pixels.empty())
+        if (image.pixels.empty() || image.width == 0 || image.height == 0)
         {
+            // A zero dimension is its own case, not just an empty-pixels one: it would
+            // reach mipLevels = 0 (VUID-VkImageCreateInfo-mipLevels-00947) and a final
+            // barrier at baseMipLevel = 0u - 1. Turning it into a 0 handle here is what
+            // makes mip_levels_for's documented contract true. Review 2026-10-05.
             return 0u;
         }
         // The pool budgets kMaxTextures single-binding sets. Without this bound the
@@ -505,6 +510,32 @@ public:
             (space == mosaic::engine::render::TextureColorSpace::Linear)
                 ? VK_FORMAT_R8G8B8A8_UNORM
                 : VK_FORMAT_R8G8B8A8_SRGB;
+
+        // Mip levels, gated on the device actually supporting a linear-filter blit for
+        // this format. Near-universal for R8G8B8A8, but it is a QUERY, not a guarantee:
+        // blitting with VK_FILTER_LINEAR against a format lacking the feature is
+        // undefined, not an error, so fall back to a single level rather than produce
+        // garbage on some driver.
+        VkFormatProperties fmt_props{};
+        vkGetPhysicalDeviceFormatProperties(physical_, tex_format, &fmt_props);
+        // All THREE features the blit actually requires, not just the filter one:
+        // BLIT_SRC on the source (VUID-vkCmdBlitImage-srcImage-01999), BLIT_DST on the
+        // destination (-dstImage-02000), and SAMPLED_IMAGE_FILTER_LINEAR because the
+        // filter is VK_FILTER_LINEAR (-filter-02001). Here source and destination are
+        // the same image, so one query covers both. Checking only the filter bit left
+        // the gate unable to establish that the blit was legal at all -- and a driver
+        // advertising the filter but not BLIT_DST for the _SRGB variant, whose
+        // mandatory-feature guarantee is thinner than _UNORM's, would have taken the
+        // multi-level path and made every blit an invalid call. Review 2026-10-05.
+        constexpr VkFormatFeatureFlags kBlitFeatures =
+            VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT
+            | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+        const bool can_blit_linear =
+            (fmt_props.optimalTilingFeatures & kBlitFeatures) == kBlitFeatures;
+        const std::uint32_t levels =
+            can_blit_linear
+                ? mosaic::engine::render::mip_levels_for(image.width, image.height)
+                : 1u;
 
         const VkDeviceSize size = static_cast<VkDeviceSize>(image.pixels.size());
 
@@ -529,12 +560,14 @@ public:
         img.extent.width = image.width;
         img.extent.height = image.height;
         img.extent.depth = 1;
-        img.mipLevels = 1;
+        img.mipLevels = levels;
         img.arrayLayers = 1;
         img.format = tex_format;
         img.tiling = VK_IMAGE_TILING_OPTIMAL;
         img.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        img.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        // TRANSFER_SRC as well as DST: each level is the blit SOURCE for the next one.
+        img.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                    | VK_IMAGE_USAGE_SAMPLED_BIT;
         img.samples = VK_SAMPLE_COUNT_1_BIT;
         img.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         vk_check(vkCreateImage(device_, &img, nullptr, &tex.image), "vkCreateImage(texture)");
@@ -564,7 +597,7 @@ public:
         to_transfer.image = tex.image;
         to_transfer.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         to_transfer.subresourceRange.baseMipLevel = 0;
-        to_transfer.subresourceRange.levelCount = 1;
+        to_transfer.subresourceRange.levelCount = levels;
         to_transfer.subresourceRange.baseArrayLayer = 0;
         to_transfer.subresourceRange.layerCount = 1;
         to_transfer.srcAccessMask = 0;
@@ -586,6 +619,74 @@ public:
         vkCmdCopyBufferToImage(cmd, staging, tex.image,
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
+        // Generate levels 1..n-1 by halving the previous level. Each iteration moves the
+        // SOURCE level to TRANSFER_SRC, blits it down, and leaves the destination in
+        // TRANSFER_DST for the next pass. Dimensions floor at 1 independently, which is
+        // what makes a non-square texture's chain correct.
+        for (std::uint32_t level = 1; level < levels; ++level)
+        {
+            // Extents come from mip_extent_for, which is unit-tested against Vulkan's
+            // own max(1, base >> level) for every awkward shape. Restating the halving
+            // here is what let a dropped floor-at-1 guard produce a zero-extent blit on
+            // a non-square texture with every test green. Review 2026-10-05.
+            const auto src_w =
+                static_cast<std::int32_t>(mosaic::engine::render::mip_extent_for(image.width, level - 1));
+            const auto src_h =
+                static_cast<std::int32_t>(mosaic::engine::render::mip_extent_for(image.height, level - 1));
+            const auto dst_w =
+                static_cast<std::int32_t>(mosaic::engine::render::mip_extent_for(image.width, level));
+            const auto dst_h =
+                static_cast<std::int32_t>(mosaic::engine::render::mip_extent_for(image.height, level));
+
+            VkImageMemoryBarrier src_barrier{};
+            src_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            src_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            src_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            src_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            src_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            src_barrier.image = tex.image;
+            src_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            src_barrier.subresourceRange.baseMipLevel = level - 1;
+            src_barrier.subresourceRange.levelCount = 1;
+            src_barrier.subresourceRange.baseArrayLayer = 0;
+            src_barrier.subresourceRange.layerCount = 1;
+            src_barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+                                 1, &src_barrier);
+
+            VkImageBlit blit{};
+            blit.srcOffsets[0] = {0, 0, 0};
+            blit.srcOffsets[1] = {src_w, src_h, 1};
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = level - 1;
+            blit.srcSubresource.baseArrayLayer = 0;
+            blit.srcSubresource.layerCount = 1;
+            blit.dstOffsets[0] = {0, 0, 0};
+            blit.dstOffsets[1] = {dst_w, dst_h, 1};
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = level;
+            blit.dstSubresource.baseArrayLayer = 0;
+            blit.dstSubresource.layerCount = 1;
+            vkCmdBlitImage(cmd, tex.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, tex.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+
+            // That source level is finished; move it to its final layout now, so the
+            // sweep below only has to cover the last level.
+            VkImageMemoryBarrier src_done = src_barrier;
+            src_done.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            src_done.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            src_done.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            src_done.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                                 nullptr, 1, &src_done);
+
+        }
+
+        // Only the LAST level is still in TRANSFER_DST: every earlier one was moved to
+        // SHADER_READ_ONLY as the loop finished with it.
         VkImageMemoryBarrier to_read{};
         to_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
@@ -594,7 +695,7 @@ public:
         to_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         to_read.image = tex.image;
         to_read.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        to_read.subresourceRange.baseMipLevel = 0;
+        to_read.subresourceRange.baseMipLevel = levels - 1;
         to_read.subresourceRange.levelCount = 1;
         to_read.subresourceRange.baseArrayLayer = 0;
         to_read.subresourceRange.layerCount = 1;
@@ -617,7 +718,7 @@ public:
         view.format = tex_format;
         view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
-        view.subresourceRange.levelCount = 1;
+        view.subresourceRange.levelCount = levels;
         view.subresourceRange.baseArrayLayer = 0;
         view.subresourceRange.layerCount = 1;
         vk_check(vkCreateImageView(device_, &view, nullptr, &tex.view),
@@ -639,7 +740,16 @@ public:
         sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         sampler.mipLodBias = 0.0f;
         sampler.minLod = 0.0f;
-        sampler.maxLod = 0.0f;
+        // Without this the chain exists but is never sampled: maxLod 0 pins every fetch
+        // to the base level, which is exactly the aliasing this change removes.
+        //
+        // VK_LOD_CLAMP_NONE rather than a computed number. The highest valid index is
+        // levels - 1, so `levels` was one too many -- harmless, because the selected
+        // level is clamped again to the view's levelCount - 1, but it stated an
+        // arithmetic relationship it did not mean. This says "all of them", which is
+        // what is actually intended, and cannot drift from the level count.
+        // Review 2026-10-05.
+        sampler.maxLod = VK_LOD_CLAMP_NONE;
         vk_check(vkCreateSampler(device_, &sampler, nullptr, &tex.sampler),
                  "vkCreateSampler(texture)");
 

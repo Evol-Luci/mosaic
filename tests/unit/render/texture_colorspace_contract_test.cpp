@@ -132,3 +132,44 @@ TEST_CASE("the descriptor pool is sized for both kinds of set", "[render]")
     // allocation failure that blames the wrong thing.
     REQUIRE(src.find("textures_.size() >= kMaxTextures") != std::string::npos);
 }
+
+TEST_CASE("the backend generates a full mip chain and samples it", "[render]")
+{
+    // Three things must agree or minification is broken, and dropping any ONE of them
+    // leaves the other two compiling cleanly:
+    //   - TRANSFER_SRC usage, because each level is the blit SOURCE for the next;
+    //   - the blit loop that actually fills levels 1..n-1;
+    //   - the sampler's maxLod, without which the chain exists but is never sampled.
+    // The failure is a black or undefined minified texture, not an error, and there is
+    // no GPU in CI -- so pin the source.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("VK_IMAGE_USAGE_TRANSFER_SRC_BIT") != std::string::npos);
+    REQUIRE(src.find("vkCmdBlitImage") != std::string::npos);
+    REQUIRE(src.find("img.mipLevels = levels;") != std::string::npos);
+    // "all levels", however spelled -- but emphatically not 0, which is the regression.
+    REQUIRE(src.find("sampler.maxLod = VK_LOD_CLAMP_NONE;") != std::string::npos);
+    REQUIRE(src.find("sampler.maxLod = 0.0f;") == std::string::npos);
+    // The two single-token edits that break the LAYOUT LIFECYCLE while every other
+    // assertion here still passes, and which no test held: the initial transition must
+    // cover the whole chain (otherwise levels 1..n-1 are blitted while in UNDEFINED),
+    // and the final barrier must retire the LAST level (otherwise level n-1 is never
+    // transitioned and levels 0..n-2 are transitioned twice). Both produce undefined
+    // sampling plus a validation error, on a GPU, which CI does not have.
+    // Review 2026-10-05.
+    REQUIRE(src.find("to_transfer.subresourceRange.levelCount = levels;") != std::string::npos);
+    REQUIRE(src.find("to_read.subresourceRange.baseMipLevel = levels - 1;") != std::string::npos);
+    // Linear-filter blits need the format to advertise the feature. It is near-universal
+    // for R8G8B8A8 but it is a device query, not a guarantee, and skipping the check
+    // produces undefined results rather than a validation error.
+    // All THREE features the blit requires. Pinning only the filter bit left the gate's
+    // own regression -- reverting it to one feature -- passing: the filter bit is still
+    // present either way. My own probe caught that after adding the fix.
+    // Review 2026-10-05.
+    REQUIRE(src.find("VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT "
+                     "| VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT")
+            != std::string::npos);
+    // ...and that the test is a SUBSET check, not an equality one: == kBlitFeatures is
+    // the difference between "has all of them" and "has any of them".
+    REQUIRE(src.find("& kBlitFeatures) == kBlitFeatures") != std::string::npos);
+}
