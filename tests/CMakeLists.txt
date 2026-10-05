@@ -96,6 +96,7 @@ add_executable(mosaic_unit_tests
   unit/render/render_device_hooks_test.cpp
   unit/render/shader_specular_contract_test.cpp
   unit/render/texture_colorspace_contract_test.cpp
+  unit/render/mip_levels_test.cpp
   unit/render/shader_tonemap_contract_test.cpp
   unit/render/shadow_test.cpp
   unit/reflection/lighting_reflection_test.cpp

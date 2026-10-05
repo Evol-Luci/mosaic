@@ -132,3 +132,24 @@ TEST_CASE("the descriptor pool is sized for both kinds of set", "[render]")
     // allocation failure that blames the wrong thing.
     REQUIRE(src.find("textures_.size() >= kMaxTextures") != std::string::npos);
 }
+
+TEST_CASE("the backend generates a full mip chain and samples it", "[render]")
+{
+    // Three things must agree or minification is broken, and dropping any ONE of them
+    // leaves the other two compiling cleanly:
+    //   - TRANSFER_SRC usage, because each level is the blit SOURCE for the next;
+    //   - the blit loop that actually fills levels 1..n-1;
+    //   - the sampler's maxLod, without which the chain exists but is never sampled.
+    // The failure is a black or undefined minified texture, not an error, and there is
+    // no GPU in CI -- so pin the source.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("VK_IMAGE_USAGE_TRANSFER_SRC_BIT") != std::string::npos);
+    REQUIRE(src.find("vkCmdBlitImage") != std::string::npos);
+    REQUIRE(src.find("img.mipLevels = levels;") != std::string::npos);
+    REQUIRE(src.find("sampler.maxLod = static_cast<float>(levels);") != std::string::npos);
+    // Linear-filter blits need the format to advertise the feature. It is near-universal
+    // for R8G8B8A8 but it is a device query, not a guarantee, and skipping the check
+    // produces undefined results rather than a validation error.
+    REQUIRE(src.find("VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT") != std::string::npos);
+}
