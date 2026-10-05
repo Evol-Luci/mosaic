@@ -469,12 +469,22 @@ public:
     // descriptor set so the fragment shader can sample it. Returns a 1-based
     // handle (index into textures_ + 1); 0 for an empty image.
     mosaic::engine::render::TextureHandle
-    create_texture(const mosaic::engine::render::Image& image) override
+    create_texture(const mosaic::engine::render::Image& image,
+                   mosaic::engine::render::TextureColorSpace space =
+                       mosaic::engine::render::TextureColorSpace::Srgb) override
     {
         if (image.pixels.empty())
         {
             return 0u;
         }
+
+        // Computed ONCE: the image and its view must agree on the format, and two
+        // independent ternaries is how they come to disagree. Linear is for data maps
+        // (metallic/roughness); see TextureColorSpace for what sRGB does to them.
+        const VkFormat tex_format =
+            (space == mosaic::engine::render::TextureColorSpace::Linear)
+                ? VK_FORMAT_R8G8B8A8_UNORM
+                : VK_FORMAT_R8G8B8A8_SRGB;
 
         const VkDeviceSize size = static_cast<VkDeviceSize>(image.pixels.size());
 
@@ -501,7 +511,7 @@ public:
         img.extent.depth = 1;
         img.mipLevels = 1;
         img.arrayLayers = 1;
-        img.format = VK_FORMAT_R8G8B8A8_SRGB;
+        img.format = tex_format;
         img.tiling = VK_IMAGE_TILING_OPTIMAL;
         img.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         img.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -584,7 +594,7 @@ public:
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = tex.image;
         view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view.format = VK_FORMAT_R8G8B8A8_SRGB;
+        view.format = tex_format;
         view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
         view.subresourceRange.levelCount = 1;

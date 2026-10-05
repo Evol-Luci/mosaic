@@ -14,6 +14,7 @@ using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
 using mosaic::engine::render::ViewportTextureId;
+using mosaic::engine::render::TextureColorSpace;
 
 namespace
 {
@@ -29,7 +30,7 @@ public:
     {
         return 1;
     }
-    TextureHandle create_texture(const Image&) override { return 1; }
+    TextureHandle create_texture(const Image&, TextureColorSpace = TextureColorSpace::Srgb) override { return 1; }
     void          draw(MeshHandle, TextureHandle, const DrawParams&) override {}
 };
 } // namespace

@@ -22,6 +22,7 @@ using mosaic::engine::render::MeshHandle;
 using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
+using mosaic::engine::render::TextureColorSpace;
 using mosaic::foundation::serialization::AssetID;
 
 namespace
@@ -39,7 +40,7 @@ public:
         if (v.empty() || i.empty()) return 0;
         return static_cast<MeshHandle>(++mesh_uploads);
     }
-    TextureHandle create_texture(const Image&) override { return 0; }
+    TextureHandle create_texture(const Image&, TextureColorSpace = TextureColorSpace::Srgb) override { return 0; }
     void draw(MeshHandle, TextureHandle, const DrawParams&) override {}
 };
 

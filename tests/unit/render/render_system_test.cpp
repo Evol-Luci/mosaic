@@ -66,6 +66,7 @@ using mosaic::engine::render::RibbonVertex;
 using mosaic::engine::render::RibbonDrawParams;
 using mosaic::engine::render::DecalInstance;
 using mosaic::engine::render::ScreenEffectParams;
+using mosaic::engine::render::TextureColorSpace;
 using mosaic::engine::particles::ParticleEmitter;
 using mosaic::engine::particles::ParticleSystem;
 using Catch::Approx;
@@ -88,7 +89,7 @@ public:
     {
         return (v.empty() || i.empty()) ? 0 : next++;
     }
-    TextureHandle create_texture(const Image& img) override
+    TextureHandle create_texture(const Image& img, TextureColorSpace = TextureColorSpace::Srgb) override
     {
         return img.pixels.empty() ? 0 : next_tex++;
     }
