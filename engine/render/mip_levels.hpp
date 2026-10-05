@@ -13,7 +13,9 @@ namespace mosaic::engine::render
 //
 // Lives in engine/ rather than inside the Vulkan backend so the arithmetic can be
 // tested without a GPU, which is the only part of mip generation that CI can check.
-// A zero dimension has no levels; callers treat that as "nothing to upload".
+// A zero dimension has no levels. create_texture turns that into a 0 handle before
+// asking, so it is unreachable there -- but the value is defined rather than left to a
+// caller's assumption, because mipLevels = 0 is a Vulkan VU violation.
 constexpr std::uint32_t mip_levels_for(std::uint32_t width, std::uint32_t height)
 {
     if (width == 0 || height == 0)
@@ -28,6 +30,28 @@ constexpr std::uint32_t mip_levels_for(std::uint32_t width, std::uint32_t height
         ++levels;
     }
     return levels;
+}
+
+
+// The extent of one dimension at `level`, matching Vulkan's own level sizing:
+// max(1, base >> level). Every level floors at 1 independently, which is what makes a
+// non-square chain correct -- a 100x1 texture's height stays 1 for all 7 levels while
+// its width keeps halving.
+//
+// This lives beside mip_levels_for ON PURPOSE. The backend's blit ladder depends on the
+// two AGREEING: the chain must land on exactly 1x1 at level mip_levels_for - 1 and never
+// on 0. When the loop restated the halving itself, dropping its floor-at-1 guard -- a
+// one-token edit that reads as a simplification -- produced a zero-extent blit region on
+// any non-square texture, with both the arithmetic test and the source contract still
+// green. One tested source instead of two independent restatements. Review 2026-10-05.
+constexpr std::uint32_t mip_extent_for(std::uint32_t base, std::uint32_t level)
+{
+    std::uint32_t e = base;
+    for (std::uint32_t i = 0; i < level; ++i)
+    {
+        e = (e > 1) ? e / 2 : 1;
+    }
+    return (e > 0) ? e : 1;
 }
 
 } // namespace mosaic::engine::render

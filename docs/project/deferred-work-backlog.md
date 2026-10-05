@@ -377,6 +377,23 @@ view that was actually used to pick what to build next as of this writing.
     `VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT`, with a
     single-level fallback, because a linear-filter blit against a format
     lacking it is undefined rather than an error.
+  - **sRGB mip generation goes through `vkCmdBlitImage`, which some drivers
+    filter in the wrong space** — base-colour textures are
+    `R8G8B8A8_SRGB`, and the blit ladder that generates their mip chain
+    filters them. The Vulkan spec routes blit filtering through the image
+    operation rules, which include the sRGB-to-linear decode, so averaging
+    is *specified* to happen in linear space — but several drivers have
+    historically filtered sRGB blits in the encoded space, making each mip
+    slightly darker than correct, compounding down the chain. Symptom: a
+    textured surface darkens subtly with distance on one vendor and not
+    another. Raised in the slice-4a review 2026-10-05 and recorded rather
+    than fixed: it is spec-correct behaviour that some drivers get wrong,
+    the magnitude is small, and the structural fix is a different body of
+    work — downsampling through a graphics or compute pass using a
+    `_UNORM` alias view of the same image, which also removes the
+    `BLIT_SRC`/`BLIT_DST` format-feature dependency the generation path
+    now has to check. Depends on nothing; worth doing if the darkening is
+    ever actually observed.
   - **Anisotropic filtering** — still open, and deliberately NOT bundled
     with the mipmap work above. It needs `samplerAnisotropy` enabled as a
     device feature at logical-device creation, which is a change to device
