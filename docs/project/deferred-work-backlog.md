@@ -394,6 +394,49 @@ view that was actually used to pick what to build next as of this writing.
     `BLIT_SRC`/`BLIT_DST` format-feature dependency the generation path
     now has to check. Depends on nothing; worth doing if the darkening is
     ever actually observed.
+  - **Mip chains on the environment cubemap** — deferred 2026-10-05
+    during IBL sub-slice 4b's design. The skybox barely minifies, so the
+    aliasing argument that motivated sub-slice 4a does not apply, and
+    4c's prefiltered specular cube is built by *convolution* at
+    increasing roughness rather than by blitting the environment down —
+    so it is a separate cubemap with its own levels, not a mip chain of
+    this one. Would require extending 4a's blit ladder to array layers.
+    Depends on nothing; no known need.
+  - **Cubemap and texture compression for the cooked environment** — the
+    cooked cubemap form is uncompressed, matching the existing texture
+    pipeline's decision. A 512² RGBA16F cubemap is about 6 MB, and 4c
+    adds two more on top. Deferred 2026-10-05 during 4b's design; shares
+    its answer with the existing texture-compression entry above.
+  - **Runtime environment switching, and more than one environment** —
+    4b loads exactly one cubemap, once. Deferred 2026-10-05: multiple
+    environments need a selection concept (per-scene? per-zone?
+    blended?) that nothing has asked for, and switching needs the IBL
+    products (4c) rebuilt or double-buffered.
+  - **`.exr` and other HDR container formats** — `.hdr` (Radiance RGBE)
+    is what stb_image reads without adding a dependency. Deferred
+    2026-10-05 during 4b's design: OpenEXR is a substantial third-party
+    library and nothing needs its features (tiles, layers, deep data)
+    today.
+  - **Dynamic or captured reflection probes** — capturing the scene into
+    a cubemap at runtime needs the render-to-cubemap machinery that 4b's
+    design explicitly rejected for the import path, plus a policy for
+    when to re-capture. Deferred 2026-10-05. Depends on 4c landing
+    first, since a probe is only useful once something consumes an
+    environment.
+  - **A GLSL include mechanism for shared shader code** — the reason
+    `tonemap_aces` is duplicated into the skybox shader rather than
+    shared: the shader build has no include step, and adding one is a
+    build-system change rather than a rendering one. Deferred
+    2026-10-05 during 4b's design. A contract test pins the duplicated
+    copies as identical, which is a weaker guarantee than one
+    definition; this becomes worth doing the moment a third shader needs
+    the same function.
+  - **Runtime-selectable cubemap face size** — fixed at 512 by 4b.
+    Deferred 2026-10-05: it is a quality-versus-memory knob with nothing
+    to balance it against yet, and `AssetMetadata::import_settings`
+    already exists as its home when something needs it to vary. Changing
+    it requires a re-import, which is the stated cost of converting at
+    import time.
   - **Anisotropic filtering** — still open, and deliberately NOT bundled
     with the mipmap work above. It needs `samplerAnisotropy` enabled as a
     device feature at logical-device creation, which is a change to device
