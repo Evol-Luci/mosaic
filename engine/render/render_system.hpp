@@ -10,6 +10,8 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_cache.hpp"
 #include "engine/render/mesh_renderer.hpp"
+#include <array>
+
 #include "engine/render/render_device.hpp"
 #include "engine/render/texture_cache.hpp"
 #include "engine/render/shadow.hpp"
@@ -58,6 +60,19 @@ public:
     // as it did before rather than failing.
     void set_environment(TextureHandle cubemap) { environment_ = cubemap; }
     TextureHandle environment() const { return environment_; }
+
+    // Point the renderer at an environment ASSET. Resolved on the first frame that has
+    // a device, because nothing can upload a cubemap before one exists -- the same lazy
+    // pattern TextureCache uses for 2D textures. Setting a new id re-resolves.
+    void set_environment_asset(mosaic::foundation::serialization::AssetID id)
+    {
+        environment_asset_ = id;
+        environment_ = 0;
+    }
+    mosaic::foundation::serialization::AssetID environment_asset() const
+    {
+        return environment_asset_;
+    }
 
     void set_aspect(float aspect) { aspect_ = aspect; }
 
@@ -192,6 +207,24 @@ public:
                                        normal_matrix, base_color, metallic, roughness,
                                        mr_texture});
             });
+
+        // Resolve the environment asset to a cubemap handle the first time we have a
+        // device. A failed or missing asset leaves the handle at 0 and the pass is
+        // skipped, so the scene renders exactly as it did before environments existed.
+        if (environment_ == 0
+            && environment_asset_ != mosaic::foundation::serialization::AssetID{})
+        {
+            if (auto faces = registry.load<std::array<Image, 6>>(environment_asset_))
+            {
+                environment_ = device.create_cubemap(*faces);
+            }
+            else
+            {
+                // Clear it so a missing asset is looked up once rather than on every
+                // frame for the life of the process.
+                environment_asset_ = {};
+            }
+        }
 
         // Skybox pass: after the opaque meshes so it only shades pixels they did not
         // write (it draws at the far plane with depth writes off), and before the
@@ -562,6 +595,9 @@ private:
     mutable FontTextureCache font_textures_;
     mutable TextureHandle default_white_ = 0;
     mutable TextureHandle default_linear_white_ = 0;
-    TextureHandle environment_ = 0;
+    // mutable for the same reason default_white_ is: render() is const, and these are
+    // lazily resolved caches rather than observable state.
+    mutable TextureHandle environment_ = 0;
+    mutable mosaic::foundation::serialization::AssetID environment_asset_{};
 };
 } // namespace mosaic::engine::render

@@ -34,6 +34,7 @@
 
 using mosaic::app::build_default_scene;
 using mosaic::app::kCheckerTextureId;
+using mosaic::app::kEnvironmentCubemapId;
 using mosaic::app::setup_runtime;
 using mosaic::engine::World;
 using mosaic::engine::assets::AssetRegistry;
@@ -357,5 +358,38 @@ TEST_CASE("the demo's roughness map renders six distinct bands after factor and 
     for (std::size_t i = 0; i < map->pixels.size(); i += 4)
     {
         REQUIRE(map->pixels[i + 2] == 255);
+    }
+}
+
+TEST_CASE("setup_runtime registers the environment cubemap and points the renderer at it", "[app]")
+{
+    // The slice's visible deliverable. Without this the whole path is built and nothing
+    // uses it -- exactly the situation the skybox was pulled into this slice to avoid.
+    //
+    // The faces are registered as an asset rather than uploaded here, because no
+    // RenderDevice exists at setup time; RenderSystem resolves them on its first frame,
+    // the same lazy pattern TextureCache already uses for 2D textures.
+    World world;
+    AssetRegistry registry;
+    mosaic::foundation::reflection::TypeRegistry     reg;
+    mosaic::engine::reflection::ComponentReflection  types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+    auto runtime = setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); });
+
+    REQUIRE(runtime.render_system != nullptr);
+    REQUIRE(registry.contains(mosaic::app::kEnvironmentCubemapId));
+    REQUIRE(runtime.render_system->environment_asset() == mosaic::app::kEnvironmentCubemapId);
+
+    // Six square faces of the size the importer produces.
+    auto faces = registry.load<std::array<mosaic::engine::render::Image, 6>>(
+        mosaic::app::kEnvironmentCubemapId);
+    REQUIRE(faces != nullptr);
+    for (const auto& f : *faces)
+    {
+        REQUIRE(f.width == 512);
+        REQUIRE(f.height == 512);
+        REQUIRE(f.format == mosaic::engine::render::ImageFormat::Rgba16F);
     }
 }

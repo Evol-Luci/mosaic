@@ -34,6 +34,7 @@
 #include "engine/ui/world_label.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
+#include "app/asset/cubemap_cook.hpp"
 #include "app/asset/image_cook.hpp"   // read_image, for the sphere's authored MR map
 #include "app/run/scene_io.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -78,6 +79,11 @@ inline const mosaic::foundation::serialization::AssetID kStripesTextureId{
 // shortcut here would leave that path untested by anything a human ever looks at.
 inline const mosaic::foundation::serialization::AssetID kSphereMrTextureId{
     std::array<std::uint8_t, 16>{0xD3}};
+// The environment cubemap, converted from a committed equirectangular HDR at startup.
+// Registered as six Images rather than uploaded here, because no RenderDevice exists
+// yet; RenderSystem resolves it on its first frame.
+inline const mosaic::foundation::serialization::AssetID kEnvironmentCubemapId{
+    std::array<std::uint8_t, 16>{0xE1}};
 
 inline const mosaic::foundation::serialization::AssetID kBuiltinFontId{
     std::array<std::uint8_t, 16>{0xF0}};
@@ -311,6 +317,43 @@ inline RuntimeScene setup_runtime(
         [](std::uint32_t x, std::uint32_t, std::uint8_t* p)
         { const std::uint8_t c = ((x / 8) % 2 == 0) ? 200 : 40; p[0]=c;p[1]=c;p[2]=c;p[3]=255; });
 
+    // The environment: a committed 2K equirectangular HDR, converted to six 512-pixel
+    // cubemap faces. 512 is matched to the source -- 90 degrees of a 2048-wide equirect
+    // is exactly 512 pixels -- so the conversion discards nothing.
+    //
+    // Resolved through MOSAIC_BACKGROUNDS_DIR, a compile-time absolute path, rather
+    // than relative to the working directory -- the same thing MOSAIC_FONT_DIR does for
+    // the demo font a few lines above. The roughness map below is still cwd-relative
+    // and is the reason the backlog carries that item; this one is not, because a
+    // cwd-relative path made the test for it pass from the repo root and fail under
+    // ctest, which runs elsewhere.
+    //
+    // A missing or undecodable file leaves the asset unregistered, RenderSystem finds
+    // nothing to resolve, and the scene renders with no sky rather than failing to
+    // start. Both failure branches log.
+    if (const std::optional<std::string> env_bytes =
+            load_scene_file(std::string(MOSAIC_BACKGROUNDS_DIR) + "/space00_2k.hdr"))
+    {
+        if (const std::optional<render::Image> env_img = mosaic::app::read_image(*env_bytes))
+        {
+            registry.register_resource<std::array<render::Image, 6>>(
+                mosaic::engine::assets::AssetMetadata{kEnvironmentCubemapId, "cubemap"},
+                std::make_shared<std::array<render::Image, 6>>(
+                    mosaic::app::equirect_to_cubemap(*env_img, 512)));
+        }
+        else
+        {
+            mosaic::foundation::log::warn(
+                "demo", "space00_2k.hdr did not decode; the scene renders with no sky");
+        }
+    }
+    else
+    {
+        mosaic::foundation::log::warn(
+            "demo", "{}/space00_2k.hdr not found; the scene renders with no sky",
+            MOSAIC_BACKGROUNDS_DIR);
+    }
+
     // The sphere's metallic/roughness map: six vertical bands of increasing roughness,
     // metallic 255 throughout. Loaded from assets/textures/sphere_mr.png through the
     // same read_image the asset importer uses. A missing or unreadable file leaves the
@@ -352,7 +395,11 @@ inline RuntimeScene setup_runtime(
         world.add_system<mosaic::engine::net::InputSystem>(net_role, &net, input_provider);
     }
 
-    return RuntimeScene{std::make_shared<render::RenderSystem>()};
+    auto render_system = std::make_shared<render::RenderSystem>();
+    // Point it at the environment registered above. If registration failed the id
+    // resolves to nothing on the first frame and the sky is simply absent.
+    render_system->set_environment_asset(kEnvironmentCubemapId);
+    return RuntimeScene{std::move(render_system)};
 }
 
 // The demo's scripted object orbits a radius-3 circle at y=2. Deterministic (cos/sin of a fixed-dt
