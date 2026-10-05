@@ -357,6 +357,17 @@ view that was actually used to pick what to build next as of this writing.
     2026-09-27: real renderers almost never separate these, and doing
     so would grow the lighting UBO for a knob nobody has asked for.
     Low priority; listed only so the omission is deliberate.
+  - **The demo resolves its asset paths relative to the working directory**
+    — `build_default_scene` loads `assets/textures/sphere_mr.png` with a
+    relative path, so running `mosaic run --window` from anywhere but the
+    repository root silently loses the one surface that demonstrates
+    per-texel roughness. Noticed 2026-10-04 while implementing PBR
+    slice 3, and made loud rather than silent (it logs a warning naming
+    the cwd-relative path) because the failure otherwise looks like the
+    map being ignored. Deferred rather than fixed: the real answer is a
+    project-root or asset-root concept that the importer, the demo, and
+    the editor all share, which is an asset-pipeline decision rather than
+    a rendering one. The demo is the only caller affected today.
   - **Mipmaps and anisotropic filtering** — the engine generates no
     mipmaps; every texture is uploaded with a single level. Deferred
     2026-10-04 during PBR slice 3's design, which **surfaces** the

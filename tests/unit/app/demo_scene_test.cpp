@@ -271,3 +271,28 @@ TEST_CASE("the demo's ball-pusher script actually moves the sphere", "[app]")
 
     REQUIRE(std::fabs(tf->position.x - start_x) > 0.05f);
 }
+
+TEST_CASE("build_default_scene gives exactly one material a metallic/roughness map", "[app]")
+{
+    // The slice's success criterion: something in the demo must vary per texel, or the
+    // feature ships with nothing exercising it visually -- the same reasoning that made
+    // the sphere metallic in slice 2. Exactly one is deliberate: a second would not add
+    // coverage, and the point is that a human can see the variation on one object.
+    World world;
+    build_default_scene(world);
+
+    int mapped = 0;
+    world.for_each<mosaic::engine::render::Material>(
+        [&](World::EntityID, mosaic::engine::render::Material& m)
+        {
+            if (m.metallic_roughness_texture != mosaic::foundation::serialization::AssetID{})
+            {
+                ++mapped;
+                // It must be the metal. A roughness gradient on a dielectric is far less
+                // legible, since most of what you see there is the diffuse lobe, which
+                // roughness does not shape.
+                REQUIRE(m.metallic == Catch::Approx(1.0f));
+            }
+        });
+    REQUIRE(mapped == 1);
+}
