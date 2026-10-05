@@ -42,6 +42,48 @@ inline std::uint16_t float_to_half(float f)
     return static_cast<std::uint16_t>(sign | (e << 10) | m);
 }
 
+// The inverse of float_to_half. Exact in both directions for every finite half, since
+// binary32 covers binary16's whole range -- needed wherever half pixels are blended,
+// because arithmetic on the raw bit patterns would be meaningless on an exponent field.
+inline float half_to_float(std::uint16_t h)
+{
+    const std::uint32_t sign = static_cast<std::uint32_t>(h & 0x8000u) << 16;
+    const std::uint32_t exp = (h >> 10) & 0x1Fu;
+    const std::uint32_t mant = h & 0x3FFu;
+
+    std::uint32_t bits = 0;
+    if (exp == 0)
+    {
+        // Zero or subnormal. float_to_half flushes subnormals to zero, so a subnormal
+        // can only arrive from data this engine did not write; normalise it properly
+        // rather than silently treating it as zero.
+        if (mant != 0)
+        {
+            std::uint32_t e = 127 - 15 + 1;
+            std::uint32_t m = mant;
+            while ((m & 0x400u) == 0) { m <<= 1; --e; }
+            m &= 0x3FFu;
+            bits = sign | (e << 23) | (m << 13);
+        }
+        else
+        {
+            bits = sign;
+        }
+    }
+    else if (exp == 31)
+    {
+        bits = sign | 0x7F800000u | (mant << 13); // inf or NaN
+    }
+    else
+    {
+        bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    }
+
+    float f = 0.0f;
+    std::memcpy(&f, &bits, sizeof(f));
+    return f;
+}
+
 // Decodes PNG/JPEG/BMP/TGA via stb_image, falling back to read_ppm so the
 // dependency-free format keeps working. nullopt on any failure -- malformed input is
 // reachable from a project directory, so this must not throw or partially decode.

@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "app/asset/image_cook.hpp"
@@ -311,4 +312,24 @@ TEST_CASE("float_to_half round-trips the values that matter", "[asset]")
     REQUIRE(float_to_half(-1.0e9f) == 0xFBFF);
     // Subnormals flush to zero; a sky has no use for 1e-9 and they cost precision care.
     REQUIRE(float_to_half(1.0e-9f) == 0x0000);
+}
+
+TEST_CASE("half_to_float inverts float_to_half for the values that matter", "[asset]")
+{
+    // Needed wherever half pixels are blended -- the cubemap conversion filters them --
+    // because arithmetic on raw half bit patterns would be meaningless on an exponent
+    // field. Every value float_to_half can produce must come back out unchanged.
+    using mosaic::app::float_to_half;
+    using mosaic::app::half_to_float;
+    for (float v : {0.0f, 1.0f, 2.0f, 0.5f, -1.0f, 3.0f, 1024.0f, 65504.0f})
+    {
+        INFO("value " << v);
+        REQUIRE(half_to_float(float_to_half(v)) == Catch::Approx(v));
+    }
+    // Round-toward-zero means a value between representable halves comes back no
+    // larger than it went in -- never larger, which is the property that keeps a
+    // clamped maximum from drifting upward.
+    const float back = half_to_float(float_to_half(0.1f));
+    REQUIRE(back <= 0.1f);
+    REQUIRE(back == Catch::Approx(0.1f).margin(0.001f));
 }

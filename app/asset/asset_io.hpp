@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "app/asset/cubemap_cook.hpp"
 #include "app/asset/image_cook.hpp"
 #include "app/asset/audio_cook.hpp"
 #include "app/asset/font_cook.hpp"
@@ -123,6 +124,25 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         }
         else
         {
+            // A Radiance .hdr is an ENVIRONMENT, not a flat texture: convert it to a
+            // cubemap here rather than uploading an equirect rectangle nothing can
+            // sample as a sky. 512 is matched to the 2K source (90 degrees of a
+            // 2048-wide equirect is exactly 512 pixels), so nothing is discarded.
+            if (ext == ".hdr")
+            {
+                const std::optional<mosaic::engine::render::Image> env = read_image(*src);
+                if (!env)
+                {
+                    mosaic::foundation::log::error(
+                        "import", "not a decodable Radiance HDR: {}", source_file);
+                    return std::nullopt;
+                }
+                blob_bytes = cook_cubemap(equirect_to_cubemap(*env, 512));
+                blob_ext = ".cubemap";
+                asset_type = "cubemap";
+            }
+            else
+            {
             const std::optional<mosaic::engine::render::Image> img = read_image(*src);
             if (!img)
             {
@@ -135,6 +155,7 @@ import_asset(const std::string& project_dir, const std::string& source_file)
             blob_bytes = cook_image(*img);
             blob_ext   = ".image";
             asset_type = "texture";
+            }
         }
     }
 
