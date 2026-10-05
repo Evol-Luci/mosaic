@@ -85,6 +85,11 @@ struct DrawParams
     // clamps it to >= 0.045.
     float metallic = 0.0f;
     float roughness = 0.5f;
+    // The metallic/roughness map's device handle. 0 means "none"; RenderSystem
+    // substitutes a 1x1 LINEAR white texture rather than leaving it 0, because the
+    // shader multiplies by this sampler unconditionally and an unbound sampler is
+    // undefined behaviour rather than a visible error.
+    TextureHandle metallic_roughness = 0;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived

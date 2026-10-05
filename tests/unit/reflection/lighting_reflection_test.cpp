@@ -42,6 +42,9 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
     std::array<std::uint8_t, 16> tex_bytes{};
     tex_bytes[0] = 0xAB;
     const AssetID tex_id{tex_bytes};
+    std::array<std::uint8_t, 16> mr_bytes{};
+    mr_bytes[0] = 0xCD;
+    const AssetID mr_id{mr_bytes};
 
     World src;
     auto e = src.create_entity();
@@ -49,6 +52,7 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
     mat.texture = tex_id;
     mat.metallic = 1.0f;
     mat.roughness = 0.25f;
+    mat.metallic_roughness_texture = mr_id;
     src.add_component<Material>(e, mat);
     src.add_component<DirectionalLight>(e, DirectionalLight{Vec3{0, -1, 0}, Vec3{0.5f, 0.6f, 0.7f}});
 
@@ -66,6 +70,10 @@ TEST_CASE("Material and DirectionalLight round-trip through serialization", "[re
         REQUIRE(m.texture == tex_id); // texture AssetID round-trips
         REQUIRE(m.metallic == Approx(1.0f));
         REQUIRE(m.roughness == Approx(0.25f));
+        // A second, DISTINCT AssetID: using the same one as `texture` would pass even
+        // if the two fields were crossed in reflect().
+        REQUIRE(m.metallic_roughness_texture == mr_id);
+        REQUIRE(m.texture != m.metallic_roughness_texture);
     });
     dst.for_each<DirectionalLight>([&](World::EntityID, DirectionalLight& l) {
         REQUIRE(l.color.y == Approx(0.6f));

@@ -154,16 +154,25 @@ public:
                 float metallic = 0.0f;
                 float roughness = 0.5f;
                 TextureHandle texture = 0;
+                TextureHandle mr_texture = 0;
                 if (const Material* mat = world.get_component<Material>(e))
                 {
                     base_color = mat->base_color;
                     metallic = mat->metallic;
                     roughness = mat->roughness;
                     texture = texture_cache_.get(mat->texture, registry, device);
+                    // Linear, not Srgb: these are numbers, not a picture. See
+                    // TextureColorSpace for what sRGB would do to them.
+                    mr_texture = texture_cache_.get(mat->metallic_roughness_texture, registry,
+                                                    device, TextureColorSpace::Linear);
                 }
                 if (texture == 0)
                 {
                     texture = default_white(device);
+                }
+                if (mr_texture == 0)
+                {
+                    mr_texture = default_linear_white(device);
                 }
 
                 // Normals transform by the inverse-transpose of the model matrix, or
@@ -174,7 +183,8 @@ public:
 
                 device.draw(mesh, texture,
                             DrawParams{projection * view * wt->matrix, wt->matrix,
-                                       normal_matrix, base_color, metallic, roughness});
+                                       normal_matrix, base_color, metallic, roughness,
+                                       mr_texture});
             });
 
         // Decal pass: alpha-blended textured quads placed by WorldTransform. After opaque
@@ -362,6 +372,24 @@ private:
     static constexpr float kFallbackNear = 0.1f;
     static constexpr float kFallbackFar = 100.0f;
 
+    // A SEPARATE 1x1 white from default_white, uploaded Linear rather than Srgb.
+    // White happens to be identical under both transfer functions, so sharing one
+    // would work today -- and would quietly stop working the moment someone changed
+    // either default to a non-extreme value. Two defaults, each correct by
+    // construction, is cheaper than that bug.
+    TextureHandle default_linear_white(RenderDevice& device) const
+    {
+        if (default_linear_white_ == 0)
+        {
+            Image white;
+            white.width = 1;
+            white.height = 1;
+            white.pixels = {255, 255, 255, 255};
+            default_linear_white_ = device.create_texture(white, TextureColorSpace::Linear);
+        }
+        return default_linear_white_;
+    }
+
     TextureHandle default_white(RenderDevice& device) const
     {
         if (default_white_ == 0)
@@ -505,5 +533,6 @@ private:
     mutable TextureCache  texture_cache_;
     mutable FontTextureCache font_textures_;
     mutable TextureHandle default_white_ = 0;
+    mutable TextureHandle default_linear_white_ = 0;
 };
 } // namespace mosaic::engine::render

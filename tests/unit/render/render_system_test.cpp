@@ -1,6 +1,8 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <map>
+#include <array>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -89,8 +91,17 @@ public:
     {
         return (v.empty() || i.empty()) ? 0 : next++;
     }
-    TextureHandle create_texture(const Image& img, TextureColorSpace = TextureColorSpace::Srgb) override
+    // Records the colour space each upload asked for, keyed by the image's first
+    // pixel -- enough to tell this file's fixtures apart, and create_texture never
+    // sees an AssetID to key by.
+    std::map<std::array<std::uint8_t, 4>, TextureColorSpace> upload_spaces;
+
+    TextureHandle create_texture(const Image& img, TextureColorSpace space = TextureColorSpace::Srgb) override
     {
+        if (img.pixels.size() >= 4)
+        {
+            upload_spaces[{img.pixels[0], img.pixels[1], img.pixels[2], img.pixels[3]}] = space;
+        }
         return img.pixels.empty() ? 0 : next_tex++;
     }
     void draw(MeshHandle m, TextureHandle t, const DrawParams& p) override
@@ -1433,4 +1444,79 @@ TEST_CASE("RenderSystem forwards out-of-range shading parameters unchanged", "[r
     REQUIRE(device.draws.size() == 1);
     REQUIRE(device.draws[0].params.roughness == Approx(-1.0f));
     REQUIRE(device.draws[0].params.metallic == Approx(2.0f));
+}
+
+TEST_CASE("a Material with no metallic/roughness map draws exactly as before", "[render]")
+{
+    // Review Focus 3. The common real case, and a different code path from having a
+    // map. An untextured material must be byte-identical to today's behaviour, or
+    // this slice silently re-shades every scene that already exists.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+    const AssetID mesh_id = register_cube(registry);
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{});
+    world.add_component<MeshRenderer>(e, MeshRenderer{mesh_id});
+    Material mat{};
+    mat.metallic = 0.25f;
+    mat.roughness = 0.75f;
+    world.add_component<Material>(e, mat);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.draws.size() == 1);
+    // A nil map resolves to 0 and must be REPLACED by the 1x1 linear white default,
+    // never left at 0: the shader multiplies by this sampler unconditionally, and an
+    // unbound one is undefined behaviour rather than a visible error.
+    REQUIRE(device.draws[0].params.metallic_roughness != 0);
+    REQUIRE(device.draws[0].params.metallic == Approx(0.25f));
+    REQUIRE(device.draws[0].params.roughness == Approx(0.75f));
+}
+
+TEST_CASE("a metallic/roughness map is uploaded as linear, not sRGB", "[render]")
+{
+    // Review Focus 1, at the layer that CHOOSES. texture_colorspace_contract_test.cpp
+    // pins the backend's mapping; this pins that RenderSystem asks for Linear in the
+    // first place. Both halves are needed -- a correct backend asked for Srgb is still
+    // a distorted roughness.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    add_camera(world, Vec3{0, 0, 4});
+    const AssetID mesh_id = register_cube(registry);
+
+    std::array<std::uint8_t, 16> mr_bytes{};
+    mr_bytes[0] = 0x5A;
+    const AssetID mr_id{mr_bytes};
+    auto image = std::make_shared<Image>();
+    image->width = 1;
+    image->height = 1;
+    image->pixels = {0, 128, 255, 255};
+    registry.register_resource<Image>(
+        mosaic::engine::assets::AssetMetadata{mr_id, "texture"}, image);
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{});
+    world.add_component<MeshRenderer>(e, MeshRenderer{mesh_id});
+    Material mat{};
+    mat.metallic_roughness_texture = mr_id;
+    world.add_component<Material>(e, mat);
+
+    rs.render(world, device, registry);
+
+    const std::array<std::uint8_t, 4> key{0, 128, 255, 255};
+    REQUIRE(device.upload_spaces.count(key) == 1);
+    REQUIRE(device.upload_spaces.at(key) == TextureColorSpace::Linear);
+    // And the base-colour default white stays sRGB, so the two did not get crossed.
+    const std::array<std::uint8_t, 4> white{255, 255, 255, 255};
+    REQUIRE(device.upload_spaces.count(white) == 1);
+    REQUIRE(device.upload_spaces.at(white) == TextureColorSpace::Srgb);
 }
