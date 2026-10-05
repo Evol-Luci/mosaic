@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
@@ -10,6 +11,37 @@
 
 namespace mosaic::app
 {
+// IEEE 754 binary16 from a binary32, as the raw 16 bits.
+//
+// Round-toward-zero on the mantissa, deliberately: it cannot turn a finite input into
+// an infinity, which matters for a radiance value the shader will go on to multiply.
+// Values beyond half's largest finite (65504) clamp to it rather than becoming inf, for
+// the same reason. Subnormals flush to zero -- a sky has no use for 1e-9, and carrying
+// them would cost precision care for nothing.
+inline std::uint16_t float_to_half(float f)
+{
+    std::uint32_t bits = 0;
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::memcpy(&bits, &f, sizeof(bits));
+
+    const std::uint16_t sign = static_cast<std::uint16_t>((bits >> 16) & 0x8000u);
+    const std::int32_t exp = static_cast<std::int32_t>((bits >> 23) & 0xFFu) - 127;
+    const std::uint32_t mant = bits & 0x7FFFFFu;
+
+    if (exp == 128) // inf or NaN
+    {
+        // NaN keeps a non-zero mantissa so it stays NaN; inf clamps to the largest
+        // finite half, consistent with the overflow rule below.
+        return static_cast<std::uint16_t>(sign | (mant != 0 ? 0x7E00u : 0x7BFFu));
+    }
+    if (exp > 15) { return static_cast<std::uint16_t>(sign | 0x7BFFu); } // clamp, not inf
+    if (exp < -14) { return sign; }                                      // flush subnormals
+
+    const std::uint16_t e = static_cast<std::uint16_t>((exp + 15) & 0x1F);
+    const std::uint16_t m = static_cast<std::uint16_t>(mant >> 13); // toward zero
+    return static_cast<std::uint16_t>(sign | (e << 10) | m);
+}
+
 // Decodes PNG/JPEG/BMP/TGA via stb_image, falling back to read_ppm so the
 // dependency-free format keeps working. nullopt on any failure -- malformed input is
 // reachable from a project directory, so this must not throw or partially decode.
@@ -92,12 +124,17 @@ inline std::optional<mosaic::engine::render::Image> read_ppm(const std::string& 
     return img;
 }
 
-// The cooked on-disk form: "MOSAIMG1" + u32 width + u32 height (LE) + RGBA bytes.
+// The cooked on-disk form: "MOSAIMG2" + u32 width + u32 height + u32 format + pixels.
+//
+// MOSAIMG1 was the same without the format tag and implicitly Rgba8. uncook_image still
+// reads it, because every texture cooked before the HDR path existed is one -- dropping
+// that branch would stop existing projects loading, and the symptom would be a missing
+// texture rather than an error anyone would trace back to a format change.
 inline std::string cook_image(const mosaic::engine::render::Image& image)
 {
     std::string out;
-    out.reserve(16 + image.pixels.size());
-    out += "MOSAIMG1";
+    out.reserve(20 + image.pixels.size());
+    out += "MOSAIMG2";
     auto put_u32 = [&](std::uint32_t v) {
         out.push_back(static_cast<char>(v & 0xFF));
         out.push_back(static_cast<char>((v >> 8) & 0xFF));
@@ -106,14 +143,22 @@ inline std::string cook_image(const mosaic::engine::render::Image& image)
     };
     put_u32(image.width);
     put_u32(image.height);
+    put_u32(static_cast<std::uint32_t>(image.format));
     out.append(reinterpret_cast<const char*>(image.pixels.data()), image.pixels.size());
     return out;
 }
 
-// Inverse of cook_image. nullopt on a bad magic, truncation, or a size mismatch.
+// Inverse of cook_image. Accepts MOSAIMG2 (with a format tag) and MOSAIMG1 (implicitly
+// Rgba8). nullopt on a bad magic, an unknown format, truncation, or a size mismatch.
 inline std::optional<mosaic::engine::render::Image> uncook_image(const std::string& bytes)
 {
-    if (bytes.size() < 16 || bytes.compare(0, 8, "MOSAIMG1") != 0) { return std::nullopt; }
+    using mosaic::engine::render::ImageFormat;
+    const bool v2 = bytes.size() >= 8 && bytes.compare(0, 8, "MOSAIMG2") == 0;
+    const bool v1 = bytes.size() >= 8 && bytes.compare(0, 8, "MOSAIMG1") == 0;
+    if (!v1 && !v2) { return std::nullopt; }
+    const std::size_t header = v2 ? 20u : 16u;
+    if (bytes.size() < header) { return std::nullopt; }
+
     auto get_u32 = [&](std::size_t off) -> std::uint32_t {
         return static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[off])) |
                (static_cast<std::uint32_t>(static_cast<std::uint8_t>(bytes[off + 1])) << 8) |
@@ -123,18 +168,35 @@ inline std::optional<mosaic::engine::render::Image> uncook_image(const std::stri
     const std::uint32_t w = get_u32(8);
     const std::uint32_t h = get_u32(12);
     if (w == 0 || h == 0) { return std::nullopt; }
-    // Guard against overflow: w*h could wrap to 0 for huge values.
-    if (static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h) >
-        (static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / 4u))
+
+    ImageFormat format = ImageFormat::Rgba8;
+    if (v2)
+    {
+        const std::uint32_t tag = get_u32(16);
+        if (tag > static_cast<std::uint32_t>(ImageFormat::Rgba16F)) { return std::nullopt; }
+        format = static_cast<ImageFormat>(tag);
+    }
+
+    // Overflow guard, by DIVISION rather than by computing the product and checking it.
+    // w and h are u32 so w*h cannot overflow a u64 -- but multiplying that by the
+    // bytes-per-pixel can: at w = h = 0x80000000 the product is 2^64 exactly, which
+    // wraps to 0 and then matches a zero-length payload. The pre-existing test for
+    // exactly this caught it when the HDR format tag was added.
+    const std::uint64_t pixel_count =
+        static_cast<std::uint64_t>(w) * static_cast<std::uint64_t>(h);
+    const std::uint64_t bpp = static_cast<std::uint64_t>(bytes_per_pixel(format));
+    if (pixel_count > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()) / bpp)
     {
         return std::nullopt;
     }
-    const std::size_t need = static_cast<std::size_t>(w) * h * 4;
-    if (bytes.size() - 16 != need) { return std::nullopt; }
+    const std::size_t need = static_cast<std::size_t>(pixel_count * bpp);
+    if (bytes.size() - header != need) { return std::nullopt; }
+
     mosaic::engine::render::Image img;
     img.width = w;
     img.height = h;
-    img.pixels.assign(bytes.begin() + 16, bytes.end());
+    img.format = format;
+    img.pixels.assign(bytes.begin() + static_cast<std::ptrdiff_t>(header), bytes.end());
     return img;
 }
 } // namespace mosaic::app

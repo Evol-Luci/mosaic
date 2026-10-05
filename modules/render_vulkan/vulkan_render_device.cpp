@@ -506,10 +506,15 @@ public:
         // Computed ONCE: the image and its view must agree on the format, and two
         // independent ternaries is how they come to disagree. Linear is for data maps
         // (metallic/roughness); see TextureColorSpace for what sRGB does to them.
+        // Rgba16F ignores the colour space on purpose: a float format has no sRGB
+        // variant, so it is always linear and asking for Srgb with one is a category
+        // error rather than a choice.
         const VkFormat tex_format =
-            (space == mosaic::engine::render::TextureColorSpace::Linear)
-                ? VK_FORMAT_R8G8B8A8_UNORM
-                : VK_FORMAT_R8G8B8A8_SRGB;
+            (image.format == mosaic::engine::render::ImageFormat::Rgba16F)
+                ? VK_FORMAT_R16G16B16A16_SFLOAT
+                : ((space == mosaic::engine::render::TextureColorSpace::Linear)
+                       ? VK_FORMAT_R8G8B8A8_UNORM
+                       : VK_FORMAT_R8G8B8A8_SRGB);
 
         // Mip levels, gated on the device actually supporting a linear-filter blit for
         // this format. Near-universal for R8G8B8A8, but it is a QUERY, not a guarantee:

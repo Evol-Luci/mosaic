@@ -7,7 +7,9 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO // we always decode from memory; no file path ever reaches stb
-#define STBI_NO_HDR   // float HDR has no route into our RGBA8 Image
+// STBI_NO_HDR was defined here during PBR slice 3, when float had no route into an
+// RGBA8-only Image. Image now carries a format tag, so HDR has somewhere to land and
+// the define is gone -- an .hdr environment is what IBL is built on.
 #define STBI_NO_GIF   // animation has no meaning for a texture
 // PNM support OFF, deliberately. stb decodes P5/P6 too, so leaving it on made read_ppm
 // UNREACHABLE -- and stb accepts any maxval <= 65535 while copying the bytes with NO
@@ -33,6 +35,45 @@ std::optional<mosaic::engine::render::Image> read_image(const std::string& bytes
 
     const auto* data = reinterpret_cast<const stbi_uc*>(bytes.data());
     const int len = static_cast<int>(bytes.size());
+
+    // Radiance HDR takes its own path: stb decodes it to float, and we narrow to half.
+    // The dimension ceiling is checked here too -- an HDR bomb costs four times as much
+    // as an LDR one, since stb's intermediate is float rather than bytes.
+    if (stbi_is_hdr_from_memory(data, len) != 0)
+    {
+        int hw = 0, hh = 0, hc = 0;
+        if (stbi_info_from_memory(data, len, &hw, &hh, &hc) != 0
+            && !image_dimensions_are_sane(static_cast<std::uint64_t>(hw < 0 ? 0 : hw),
+                                          static_cast<std::uint64_t>(hh < 0 ? 0 : hh)))
+        {
+            return std::nullopt;
+        }
+        float* f = stbi_loadf_from_memory(data, len, &hw, &hh, &hc, 4);
+        if (f == nullptr) { return std::nullopt; }
+        const std::unique_ptr<float, void (*)(void*)> owned_f{f, stbi_image_free};
+        if (hw <= 0 || hh <= 0) { return std::nullopt; }
+
+        mosaic::engine::render::Image img;
+        img.width = static_cast<std::uint32_t>(hw);
+        img.height = static_cast<std::uint32_t>(hh);
+        img.format = mosaic::engine::render::ImageFormat::Rgba16F;
+        const std::size_t count = static_cast<std::size_t>(hw) * static_cast<std::size_t>(hh) * 4u;
+        try
+        {
+            img.pixels.resize(count * 2u);
+        }
+        catch (const std::bad_alloc&)
+        {
+            return std::nullopt;
+        }
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            const std::uint16_t h = float_to_half(f[i]);
+            img.pixels[i * 2 + 0] = static_cast<std::uint8_t>(h & 0xFF);
+            img.pixels[i * 2 + 1] = static_cast<std::uint8_t>((h >> 8) & 0xFF);
+        }
+        return img;
+    }
 
     // Read the HEADER first and refuse an implausible size before decoding anything.
     // Doing this after the decode would be too late: the allocation is the attack.

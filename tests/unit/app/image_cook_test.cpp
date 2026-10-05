@@ -52,7 +52,10 @@ TEST_CASE("cook_image and uncook_image round-trip an Image", "[app]")
     Image src; src.width = 2; src.height = 1;
     src.pixels = {255, 0, 0, 255,  0, 255, 0, 255};
     const std::string blob = cook_image(src);
-    REQUIRE(blob.compare(0, 8, "MOSAIMG1") == 0);
+    // cook_image writes MOSAIMG2 since the HDR path landed -- it carries a format tag.
+    // MOSAIMG1 is still READ, which "a MOSAIMG1 blob still loads as Rgba8" below pins;
+    // this assertion is about what we write, that one about what we must keep accepting.
+    REQUIRE(blob.compare(0, 8, "MOSAIMG2") == 0);
 
     auto back = uncook_image(blob);
     REQUIRE(back.has_value());
@@ -206,4 +209,106 @@ TEST_CASE("the image size ceiling rejects a decompression bomb's dimensions", "[
     REQUIRE_FALSE(image_dimensions_are_sane(4, 0));
     // And a real image still decodes, so the ceiling is not simply refusing everything.
     REQUIRE(mosaic::app::read_image(read_fixture("gradient.png")).has_value());
+}
+
+TEST_CASE("an Rgba16F image round-trips through cook and uncook", "[asset]")
+{
+    // Review Focus 2. Image has had one stride for its whole life, and cook_image,
+    // uncook_image and the device all compute sizes from it. A format that is 8 bytes
+    // per pixel is the first thing to challenge that.
+    using mosaic::engine::render::ImageFormat;
+    Image img;
+    img.width = 2;
+    img.height = 1;
+    img.format = ImageFormat::Rgba16F;
+    img.pixels.assign(2u * 1u * 8u, 0);
+    img.pixels[0] = 0x00; img.pixels[1] = 0x3C; // half 1.0, little-endian
+    img.pixels[8] = 0x00; img.pixels[9] = 0x42; // half 3.0
+
+    const auto restored = uncook_image(cook_image(img));
+    REQUIRE(restored.has_value());
+    REQUIRE(restored->format == ImageFormat::Rgba16F);
+    REQUIRE(restored->width == 2);
+    REQUIRE(restored->pixels == img.pixels);
+}
+
+TEST_CASE("a MOSAIMG1 blob still loads as Rgba8", "[asset]")
+{
+    // Review Focus 3. Every texture already cooked on disk is a MOSAIMG1. If this
+    // breaks, existing projects stop loading -- and the failure is a missing texture,
+    // not an error anyone would trace back to a format change.
+    std::string blob = "MOSAIMG1";
+    auto put_u32 = [&](std::uint32_t v) {
+        blob.push_back(static_cast<char>(v & 0xFF));
+        blob.push_back(static_cast<char>((v >> 8) & 0xFF));
+        blob.push_back(static_cast<char>((v >> 16) & 0xFF));
+        blob.push_back(static_cast<char>((v >> 24) & 0xFF));
+    };
+    put_u32(1);
+    put_u32(1);
+    const unsigned char rgba[] = {10, 20, 30, 40};
+    blob.append(reinterpret_cast<const char*>(rgba), 4);
+
+    const auto img = uncook_image(blob);
+    REQUIRE(img.has_value());
+    REQUIRE(img->format == mosaic::engine::render::ImageFormat::Rgba8);
+    REQUIRE(img->width == 1);
+    REQUIRE(img->pixels.size() == 4);
+    REQUIRE(img->pixels[1] == 20);
+}
+
+TEST_CASE("bytes_per_pixel matches the two formats", "[asset]")
+{
+    using mosaic::engine::render::bytes_per_pixel;
+    using mosaic::engine::render::ImageFormat;
+    REQUIRE(bytes_per_pixel(ImageFormat::Rgba8) == 4);
+    REQUIRE(bytes_per_pixel(ImageFormat::Rgba16F) == 8);
+}
+
+TEST_CASE("read_image loads a Radiance HDR as Rgba16F preserving values above 1", "[asset]")
+{
+    // The whole reason the HDR path exists: an LDR sky clips the sun. If values above
+    // 1.0 do not survive the float-to-half conversion, the format change bought nothing.
+    const std::string path =
+        std::string(MOSAIC_TEST_DIR) + "/../assets/backgrounds/space00_2k.hdr";
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+
+    const auto img = mosaic::app::read_image(ss.str());
+    REQUIRE(img.has_value());
+    REQUIRE(img->format == mosaic::engine::render::ImageFormat::Rgba16F);
+    REQUIRE(img->width == 2048);
+    REQUIRE(img->height == 1024);
+    REQUIRE(img->pixels.size() == 2048u * 1024u * 8u);
+
+    // At least one channel above 1.0 must survive. Asserting "> 1.0" rather than a
+    // specific peak keeps this from breaking if the asset is ever re-derived at another
+    // size -- downsampling lowers the peak but never removes the HDR-ness entirely.
+    bool any_above_one = false;
+    for (std::size_t i = 0; i + 1 < img->pixels.size(); i += 2)
+    {
+        const std::uint16_t h =
+            static_cast<std::uint16_t>(img->pixels[i] | (img->pixels[i + 1] << 8));
+        // half > 1.0: positive, and biased exponent (bits 10..14) above 15.
+        if ((h & 0x8000) == 0 && ((h >> 10) & 0x1F) > 15) { any_above_one = true; break; }
+    }
+    REQUIRE(any_above_one);
+}
+
+TEST_CASE("float_to_half round-trips the values that matter", "[asset]")
+{
+    // Round-toward-zero on the mantissa is chosen deliberately: it cannot turn a finite
+    // input into an infinity, which matters for a value the shader will multiply.
+    using mosaic::app::float_to_half;
+    REQUIRE(float_to_half(0.0f) == 0x0000);
+    REQUIRE(float_to_half(1.0f) == 0x3C00);
+    REQUIRE(float_to_half(2.0f) == 0x4000);
+    REQUIRE(float_to_half(-1.0f) == 0xBC00);
+    // Above half's maximum clamps to it rather than becoming inf.
+    REQUIRE(float_to_half(1.0e9f) == 0x7BFF);   // 65504, half's largest finite
+    REQUIRE(float_to_half(-1.0e9f) == 0xFBFF);
+    // Subnormals flush to zero; a sky has no use for 1e-9 and they cost precision care.
+    REQUIRE(float_to_half(1.0e-9f) == 0x0000);
 }
