@@ -6,9 +6,28 @@ Equirectangular HDR environment, 2048x1024, Radiance RGBE. Used as the demo's
 skybox and, from IBL sub-slice 4c, as the source for the engine's image-based
 lighting.
 
-**Provenance:** supplied by the project owner. The original file's header
-records `SOFTWARE=CINEMA_4D`, `GAMMA=1`, `EXPOSURE=1`. **Licence: not yet
-recorded — see the note at the bottom of this file.**
+**Source:** <https://www.spacespheremaps.com/> — supplied by the project owner,
+who identified the site as its origin. The original file's header records
+`SOFTWARE=CINEMA_4D`, `GAMMA=1`, `EXPOSURE=1`.
+
+**Licence: Creative Commons Attribution 4.0 International (CC BY 4.0).**
+Checked against the site's licensing terms on 2026-10-05
+(<https://www.spacespheremaps.com/about/#licensing>), which state the images may
+be copied and redistributed in any medium or format for any purpose, including
+commercially, and remixed, transformed and built upon on the same terms.
+Attribution is stated to be appreciated but not required; it is given here
+anyway. The terms also state the images may not be used for AI image scraping,
+though they may be modified using AI tools — redistributing a downsampled copy
+in this repository falls under the Share and Adapt permissions above, not under
+scraping.
+
+Credit: space sphere map from spacespheremaps.com, CC BY 4.0, downsampled for
+this repository.
+
+A caveat on the record: the licence above was read from the site on the date
+given, and the site does not ship a per-file licence alongside the download, so
+this records the site-wide terms rather than a licence document specific to
+`space00.hdr`. The URL is included so the terms can be re-checked.
 
 **How this file was produced.** The original is 8192x4096 and 67.4 MB, which
 stores as roughly 43 MB in git and costs about 536 MB of transient memory to
@@ -34,10 +53,3 @@ physically correct, a chrome ball in deep space being black with pinpoint star
 reflections, but means this environment does not demonstrate that IBL is
 working. A bright outdoor or studio environment is the right choice for
 verifying 4c.
-
----
-
-**TODO (project owner):** record the licence for `space00_2k.hdr` here. If it
-is CC0 or similar, a line saying so is enough; if it carries attribution terms,
-add them beside this file the way `tests/fixtures/LiberationSans-License.txt`
-does for the bundled font.
