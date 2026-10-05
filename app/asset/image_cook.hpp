@@ -10,6 +10,35 @@
 
 namespace mosaic::app
 {
+// Decodes PNG/JPEG/BMP/TGA via stb_image, falling back to read_ppm so the
+// dependency-free format keeps working. nullopt on any failure -- malformed input is
+// reachable from a project directory, so this must not throw or partially decode.
+//
+// Not inline, unlike everything else in this header: stb_image's implementation macro
+// belongs in exactly one translation unit (image_cook.cpp), the same arrangement
+// stb_truetype already has in font_cook.cpp.
+std::optional<mosaic::engine::render::Image> read_image(const std::string& bytes);
+
+// The largest image read_image will decode, in pixels. 64 megapixels is an 8192x8192
+// texture -- larger than anything this engine can usefully sample, and far larger than
+// any asset it ships.
+//
+// The ceiling exists because a few kilobytes of PNG can declare enormous dimensions: a
+// 20000x20000 header decodes to 1.6 GB inside stb, and copying it into an Image asks
+// for as much again. That is a decompression bomb, read_image is the first untrusted
+// parser in the asset path, and the function is documented never to throw. Checking the
+// HEADER before decoding is what makes the refusal cost nothing.
+inline constexpr std::uint64_t kMaxImagePixels = 64ull * 1024ull * 1024ull;
+
+// Whether an image of these dimensions is within the ceiling. Pure, and separated from
+// read_image so the POLICY can be tested exactly: a test that fed read_image a header
+// without pixel data passed whether or not the ceiling existed, because the decode
+// failed first -- it proved nothing. Found in review 2026-10-04.
+inline constexpr bool image_dimensions_are_sane(std::uint64_t w, std::uint64_t h)
+{
+    return w > 0 && h > 0 && w * h <= kMaxImagePixels;
+}
+
 // Parse a binary PPM (P6): "P6" <ws> width <ws> height <ws> maxval <single-ws> <RGB bytes>.
 // Produces an RGBA Image (alpha 255). nullopt on malformed input or maxval != 255. Comments
 // (# lines) are not supported (v0.1). Little dependency: only <cctype>.

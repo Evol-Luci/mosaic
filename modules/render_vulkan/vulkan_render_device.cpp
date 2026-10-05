@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 // NOTE: intentionally NO `namespace log = mosaic::foundation::log;` — a `log`
 // alias shadows the C `::log` builtin and trips a compiler warning. Every log
@@ -332,6 +333,11 @@ public:
             {
                 vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
             }
+            if (material_set_layout_ != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorSetLayout(device_, material_set_layout_, nullptr);
+                material_set_layout_ = VK_NULL_HANDLE;
+            }
             if (texture_set_layout_ != VK_NULL_HANDLE)
             {
                 vkDestroyDescriptorSetLayout(device_, texture_set_layout_, nullptr);
@@ -469,12 +475,36 @@ public:
     // descriptor set so the fragment shader can sample it. Returns a 1-based
     // handle (index into textures_ + 1); 0 for an empty image.
     mosaic::engine::render::TextureHandle
-    create_texture(const mosaic::engine::render::Image& image) override
+    // No default argument here: defaults are not inherited, so restating one would mean
+    // the default in force depends on the static type of the reference held. The base
+    // declaration in render_device.hpp is the contract.
+    create_texture(const mosaic::engine::render::Image& image,
+                   mosaic::engine::render::TextureColorSpace space) override
     {
         if (image.pixels.empty())
         {
             return 0u;
         }
+        // The pool budgets kMaxTextures single-binding sets. Without this bound the
+        // 65th texture quietly succeeded by eating the MATERIAL-set budget, and the
+        // failure surfaced much later as a material-set allocation throwing
+        // VK_ERROR_OUT_OF_POOL_MEMORY from the middle of command-buffer recording --
+        // blaming material pairs for a texture-count problem. Fail here, where the
+        // caller can see what it did. Found in review 2026-10-04.
+        if (textures_.size() >= kMaxTextures)
+        {
+            mosaic::foundation::log::error(
+                "render", "texture cap reached ({}); raise kMaxTextures", kMaxTextures);
+            return 0u;
+        }
+
+        // Computed ONCE: the image and its view must agree on the format, and two
+        // independent ternaries is how they come to disagree. Linear is for data maps
+        // (metallic/roughness); see TextureColorSpace for what sRGB does to them.
+        const VkFormat tex_format =
+            (space == mosaic::engine::render::TextureColorSpace::Linear)
+                ? VK_FORMAT_R8G8B8A8_UNORM
+                : VK_FORMAT_R8G8B8A8_SRGB;
 
         const VkDeviceSize size = static_cast<VkDeviceSize>(image.pixels.size());
 
@@ -501,7 +531,7 @@ public:
         img.extent.depth = 1;
         img.mipLevels = 1;
         img.arrayLayers = 1;
-        img.format = VK_FORMAT_R8G8B8A8_SRGB;
+        img.format = tex_format;
         img.tiling = VK_IMAGE_TILING_OPTIMAL;
         img.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         img.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -584,7 +614,7 @@ public:
         view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         view.image = tex.image;
         view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view.format = VK_FORMAT_R8G8B8A8_SRGB;
+        view.format = tex_format;
         view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view.subresourceRange.baseMipLevel = 0;
         view.subresourceRange.levelCount = 1;
@@ -640,6 +670,73 @@ public:
         textures_.push_back(tex);
         return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
     }
+
+    // One descriptor set per (base_color, metallic_roughness) texture pair, created on
+    // first use and cached for the device's lifetime. Set ownership moved off the
+    // texture table in PBR slice 3: a lit material needs two images visible at once,
+    // and binding a single set per draw is what keeps the per-draw cost unchanged.
+    // The per-texture sets above still exist and still serve the UI, text and decal
+    // pipelines, which sample one image.
+    VkDescriptorSet material_set(std::uint32_t base_color, std::uint32_t mr)
+    {
+        const std::uint64_t key =
+            (static_cast<std::uint64_t>(base_color) << 32) | static_cast<std::uint64_t>(mr);
+        if (auto it = material_sets_.find(key); it != material_sets_.end())
+        {
+            return it->second;
+        }
+        if (material_sets_.size() >= kMaxMaterialSets)
+        {
+            // Skipping the draw is deliberate: reusing another pair's set would draw the
+            // wrong texture on an arbitrary object and read as an asset mistake. But the
+            // object vanishing is only diagnosable if the log stays readable, and this
+            // runs per draw per frame -- 60xN lines a second, burying whatever else is
+            // wrong. Latch it. Found in review 2026-10-04.
+            if (!material_cap_reported_)
+            {
+                material_cap_reported_ = true;
+                mosaic::foundation::log::error(
+                    "render",
+                    "material-set cap reached ({} distinct texture pairs); further lit draws "
+                    "with new pairs will be skipped. Raise kMaxMaterialSets.",
+                    kMaxMaterialSets);
+            }
+            return VK_NULL_HANDLE;
+        }
+
+        VkDescriptorSetAllocateInfo set_alloc{};
+        set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        set_alloc.descriptorPool = descriptor_pool_;
+        set_alloc.descriptorSetCount = 1;
+        set_alloc.pSetLayouts = &material_set_layout_;
+        VkDescriptorSet set = VK_NULL_HANDLE;
+        vk_check(vkAllocateDescriptorSets(device_, &set_alloc, &set),
+                 "vkAllocateDescriptorSets(material)");
+
+        VkDescriptorImageInfo infos[2]{};
+        infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        infos[0].imageView = textures_[base_color].view;
+        infos[0].sampler = textures_[base_color].sampler;
+        infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        infos[1].imageView = textures_[mr].view;
+        infos[1].sampler = textures_[mr].sampler;
+
+        VkWriteDescriptorSet writes[2]{};
+        for (int i = 0; i < 2; ++i)
+        {
+            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[i].dstSet = set;
+            writes[i].dstBinding = static_cast<std::uint32_t>(i);
+            writes[i].dstArrayElement = 0;
+            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].descriptorCount = 1;
+            writes[i].pImageInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+        material_sets_.emplace(key, set);
+        return set;
+    }
+
 
     void set_frame_lighting(const mosaic::engine::render::FrameLighting& fl) override
     {
@@ -730,11 +827,19 @@ public:
         // (the default white, always created first) for 0 or out-of-range.
         const std::uint32_t tex_index =
             (texture == 0 || texture > textures_.size()) ? 0u : texture - 1u;
+        // Same 1-based handle rule for the metallic/roughness map. RenderSystem already
+        // substitutes a 1x1 linear white for a material with no map, so index 0 here is
+        // a fallback for a corrupt handle rather than the untextured path.
+        const std::uint32_t mr_index =
+            (params.metallic_roughness == 0 || params.metallic_roughness > textures_.size())
+                ? 0u
+                : params.metallic_roughness - 1u;
         if (!textures_.empty())
         {
+            const VkDescriptorSet mat_set = material_set(tex_index, mr_index);
+            if (mat_set == VK_NULL_HANDLE) { return; }
             vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipeline_layout_, 0, 1, &textures_[tex_index].set, 0,
-                                    nullptr);
+                                    pipeline_layout_, 0, 1, &mat_set, 0, nullptr);
             vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline_layout_, 1, 1, &shadow_descriptor_set_, 0, nullptr);
             vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -2026,10 +2131,20 @@ private:
 
     // --- descriptor infrastructure ----------------------------------------
 
-    // One descriptor set layout (binding 0: a combined image+sampler visible to
-    // the fragment stage) and a pool to allocate per-texture sets from. Created
-    // once after the framebuffers and before the pipeline (the layout feeds the
-    // pipeline layout as set 0).
+    // TWO descriptor set layouts, deliberately.
+    //
+    // texture_set_layout_ is one combined image+sampler at binding 0, shared today by
+    // FOUR pipeline layouts -- world text, decals, UI images and UI text. It was five
+    // before this change, including the lit mesh pass, and that is exactly why the lit
+    // pass got its own layout below rather than this one growing a binding. A set
+    // allocated against it belongs to a single texture.
+    //
+    // material_set_layout_ adds binding 1 for the metallic/roughness map and is used by
+    // the lit mesh pass ALONE, where a set belongs to a (base_color, metallic_roughness)
+    // PAIR. Adding binding 1 to the shared layout instead would have changed all five
+    // pipelines -- and the other four write only binding 0, so their sets would no
+    // longer match the layout they were allocated from. Found while implementing PBR
+    // slice 3, whose plan assumed one layout.
     void create_descriptor_infrastructure()
     {
         VkDescriptorSetLayoutBinding binding{};
@@ -2045,15 +2160,29 @@ private:
         vk_check(vkCreateDescriptorSetLayout(device_, &layout, nullptr, &texture_set_layout_),
                  "vkCreateDescriptorSetLayout");
 
+        VkDescriptorSetLayoutBinding mat_bindings[2]{};
+        mat_bindings[0] = binding;
+        mat_bindings[1] = binding;
+        mat_bindings[1].binding = 1;
+
+        VkDescriptorSetLayoutCreateInfo mat_layout{};
+        mat_layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        mat_layout.bindingCount = 2;
+        mat_layout.pBindings = mat_bindings;
+        vk_check(vkCreateDescriptorSetLayout(device_, &mat_layout, nullptr, &material_set_layout_),
+                 "vkCreateDescriptorSetLayout(material)");
+
+        // The pool feeds both: kMaxTextures single-binding sets plus kMaxMaterialSets
+        // two-binding ones.
         VkDescriptorPoolSize pool_size{};
         pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_size.descriptorCount = kMaxTextures;
+        pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2;
 
         VkDescriptorPoolCreateInfo pool{};
         pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool.poolSizeCount = 1;
         pool.pPoolSizes = &pool_size;
-        pool.maxSets = kMaxTextures;
+        pool.maxSets = kMaxTextures + kMaxMaterialSets;
         vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &descriptor_pool_),
                  "vkCreateDescriptorPool");
     }
@@ -2411,7 +2540,7 @@ private:
         push.offset = 0;
         push.size = sizeof(PushConstants);
 
-        std::array<VkDescriptorSetLayout, 3> set_layouts{texture_set_layout_, shadow_set_layout_,
+        std::array<VkDescriptorSetLayout, 3> set_layouts{material_set_layout_, shadow_set_layout_,
                                                          frame_ubo_set_layout_};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -3528,7 +3657,18 @@ private:
 
     // Descriptor infrastructure for sampled textures (set 0, binding 0).
     static constexpr uint32_t kMaxTextures = 64;
+    // Distinct (base_color, metallic_roughness) pairs a scene may use. Four times
+    // kMaxTextures, which bounds pairs generously for any scene this engine can build
+    // today -- the demo uses fewer than ten. Exhaustion fails loudly in material_set()
+    // rather than silently handing back another material's set.
+    static constexpr uint32_t kMaxMaterialSets = 256;
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout material_set_layout_ = VK_NULL_HANDLE;
+    // One set per (base_color_index, metallic_roughness_index) pair, keyed by the two
+    // packed into a u64. Created on first use, kept for the device's lifetime, and
+    // freed with the pool.
+    std::unordered_map<std::uint64_t, VkDescriptorSet> material_sets_;
+    bool material_cap_reported_ = false;
     VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
 
     // A device texture: image + backing memory, view, sampler, and the

@@ -20,6 +20,7 @@ using mosaic::engine::render::RenderDevice;
 using mosaic::engine::render::TextureCache;
 using mosaic::engine::render::TextureHandle;
 using mosaic::engine::render::Vertex;
+using mosaic::engine::render::TextureColorSpace;
 using mosaic::foundation::serialization::AssetID;
 
 namespace
@@ -32,7 +33,7 @@ public:
     void clear(const Color&) override {}
     void end_frame() override {}
     MeshHandle create_mesh(const std::vector<Vertex>&, const std::vector<std::uint32_t>&) override { return 1; }
-    TextureHandle create_texture(const Image& img) override
+    TextureHandle create_texture(const Image& img, TextureColorSpace) override
     {
         if (img.pixels.empty()) return 0;
         return static_cast<TextureHandle>(++texture_uploads);

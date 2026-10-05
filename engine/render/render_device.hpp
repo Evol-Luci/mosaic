@@ -32,6 +32,22 @@ struct Vertex
 
 using MeshHandle = std::uint32_t;
 using TextureHandle = std::uint32_t; // opaque; 0 == invalid/default
+
+// Whether a texture's bytes are COLOUR or DATA.
+//
+// Srgb: the hardware applies the sRGB EOTF on sample, so the shader receives linear
+// values. Correct for base colour, and the historical behaviour of every texture.
+//
+// Linear: the bytes are numbers that merely happen to be stored in an image -- a
+// metallic/roughness map, and every future data map. Uploading one as Srgb distorts it:
+// an authored 0.5 arrives as roughly 0.21, with no crash and no validation error, and
+// the result looks like a plausible material rather than a bug.
+//
+// The default is Srgb so every call site predating this parameter stays correct. The
+// cost of that convenience is that a FUTURE data map added by someone who has not read
+// this comment gets sRGB silently; texture_colorspace_contract_test.cpp is what makes
+// the decision visible when it changes.
+enum class TextureColorSpace { Srgb, Linear };
 using ViewportTextureId = std::uint64_t; // ImTextureID-compatible; 0 == none
 
 // Per-frame, world-space lighting shared by every draw this frame. One light of
@@ -69,6 +85,11 @@ struct DrawParams
     // clamps it to >= 0.045.
     float metallic = 0.0f;
     float roughness = 0.5f;
+    // The metallic/roughness map's device handle. 0 means "none"; RenderSystem
+    // substitutes a 1x1 LINEAR white texture rather than leaving it 0, because the
+    // shader multiplies by this sampler unconditionally and an unbound sampler is
+    // undefined behaviour rather than a visible error.
+    TextureHandle metallic_roughness = 0;
 };
 
 // One billboarded particle. world_position/size are world-space; alpha is the derived
@@ -165,7 +186,8 @@ public:
     virtual void end_frame() = 0;
     virtual MeshHandle create_mesh(const std::vector<Vertex>& vertices,
                                    const std::vector<std::uint32_t>& indices) = 0;
-    virtual TextureHandle create_texture(const Image& image) = 0;
+    virtual TextureHandle create_texture(const Image& image,
+                                         TextureColorSpace space = TextureColorSpace::Srgb) = 0;
     virtual void draw(MeshHandle mesh, TextureHandle texture, const DrawParams& params) = 0;
 
     // Editor UI overlay hooks. Default no-ops so headless devices and test fakes

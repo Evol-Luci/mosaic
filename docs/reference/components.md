@@ -78,6 +78,7 @@ Every built-in engine component, with its fields and their default values. Field
 - `texture`: 00000000-0000-0000-0000-000000000000
 - `metallic`: 0.000000
 - `roughness`: 0.500000
+- `metallic_roughness_texture`: 00000000-0000-0000-0000-000000000000
 
 ## MeshRenderer
 

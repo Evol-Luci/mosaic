@@ -3,7 +3,12 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <set>
+#include <fstream>
+#include <sstream>
 #include <vector>
+
+#include "app/asset/image_cook.hpp"
 
 #include "engine/physics/physics_components.hpp"
 
@@ -270,4 +275,87 @@ TEST_CASE("the demo's ball-pusher script actually moves the sphere", "[app]")
     }
 
     REQUIRE(std::fabs(tf->position.x - start_x) > 0.05f);
+}
+
+TEST_CASE("build_default_scene gives exactly one material a metallic/roughness map", "[app]")
+{
+    // The slice's success criterion: something in the demo must vary per texel, or the
+    // feature ships with nothing exercising it visually -- the same reasoning that made
+    // the sphere metallic in slice 2. Exactly one is deliberate: a second would not add
+    // coverage, and the point is that a human can see the variation on one object.
+    World world;
+    build_default_scene(world);
+
+    int mapped = 0;
+    world.for_each<mosaic::engine::render::Material>(
+        [&](World::EntityID, mosaic::engine::render::Material& m)
+        {
+            if (m.metallic_roughness_texture != mosaic::foundation::serialization::AssetID{})
+            {
+                ++mapped;
+                // It must be the metal. A roughness gradient on a dielectric is far less
+                // legible, since most of what you see there is the diffuse lobe, which
+                // roughness does not shape.
+                REQUIRE(m.metallic == Catch::Approx(1.0f));
+            }
+        });
+    REQUIRE(mapped == 1);
+}
+
+TEST_CASE("the demo's roughness map renders six distinct bands after factor and clamp", "[app]")
+{
+    // The slice's only human acceptance criterion is "six vertical bands from a tight
+    // highlight to a broad soft one", and nothing checked it. The first committed map
+    // did NOT satisfy it: the material's 0.174 scalar multiplied the authored range
+    // down into 0.014..0.150, and cube.frag floors roughness at 0.045, so the two
+    // lowest bands collapsed to the same value -- five bands, all near-mirror. A human
+    // would have found that and reasonably blamed the feature rather than the numbers.
+    // Found in review 2026-10-04.
+    //
+    // This reproduces the shader's arithmetic in C++: roughness = clamp(scalar * G/255,
+    // 0.045, 1.0). It cannot prove the image LOOKS right, but it does prove the authored
+    // numbers survive the pipeline as distinct values, which is what went wrong.
+    const std::string path =
+        std::string(MOSAIC_TEST_DIR) + "/../assets/textures/sphere_mr.png";
+    std::ifstream in(path, std::ios::binary);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    const auto map = mosaic::app::read_image(ss.str());
+    REQUIRE(map.has_value());
+
+    // The scalar the demo actually uses, read from the scene rather than hardcoded.
+    World world;
+    build_default_scene(world);
+    float scalar = -1.0f;
+    world.for_each<mosaic::engine::render::Material>(
+        [&](World::EntityID, mosaic::engine::render::Material& m)
+        {
+            if (m.metallic_roughness_texture != mosaic::foundation::serialization::AssetID{})
+            {
+                scalar = m.roughness;
+            }
+        });
+    REQUIRE(scalar >= 0.0f);
+
+    std::set<int> distinct;
+    float lo = 2.0f, hi = -1.0f;
+    for (std::size_t i = 0; i < map->pixels.size(); i += 4)
+    {
+        const float g = static_cast<float>(map->pixels[i + 1]) / 255.0f;
+        float r = scalar * g;
+        r = (r < 0.045f) ? 0.045f : ((r > 1.0f) ? 1.0f : r); // cube.frag's clamp
+        distinct.insert(static_cast<int>(r * 1000.0f + 0.5f));
+        lo = (r < lo) ? r : lo;
+        hi = (r > hi) ? r : hi;
+    }
+    REQUIRE(distinct.size() == 6);   // six bands actually reach the surface as six values
+    REQUIRE(lo > 0.045f);            // the lowest band is NOT sitting on the clamp
+    REQUIRE(hi >= 0.9f);             // and the top is genuinely rough, not near-mirror
+
+    // Metallic is uniform: the bands must read as a change of FINISH, not of colour.
+    for (std::size_t i = 0; i < map->pixels.size(); i += 4)
+    {
+        REQUIRE(map->pixels[i + 2] == 255);
+    }
 }

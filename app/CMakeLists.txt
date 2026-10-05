@@ -10,6 +10,7 @@ add_library(mosaic_app STATIC
   run/plugin.cpp
   run/mcp.cpp
   asset/font_cook.cpp
+  asset/image_cook.cpp
   asset/import_plugins.cpp
   plugin/git.cpp
   mcp/mcp_tools.cpp

@@ -108,3 +108,27 @@ TEST_CASE("cube.vert and cube.frag declare matching Push blocks", "[render]")
     REQUIRE(extract_block(code_only(read_shader("cube.vert")))
             == extract_block(code_only(read_shader("cube.frag"))));
 }
+
+TEST_CASE("cube.frag samples metallic/roughness with the glTF channel packing", "[render]")
+{
+    // Review Focus 2, and the subtlest way this slice fails. G = roughness,
+    // B = metallic is a CONVENTION, not a derivation -- there is nothing about the data
+    // that makes roughness green. Read them backwards and a rough metal becomes a
+    // smooth dielectric with metallic variation: both are materials, neither looks like
+    // a bug, and with no GPU in CI nothing else can tell. Every authoring tool exports
+    // this packing, so getting it wrong makes every imported asset subtly wrong.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    // Pin the ASSIGNMENTS, not merely that both swizzles appear somewhere: the whole
+    // failure mode is the two being crossed, and both strings survive a swap.
+    REQUIRE(frag.find("pc.roughness * mr.g") != std::string::npos);
+    REQUIRE(frag.find("pc.metallic * mr.b") != std::string::npos);
+}
+
+TEST_CASE("cube.frag declares the metallic/roughness sampler at set 0 binding 1", "[render]")
+{
+    // The base colour sampler has been set 0 binding 0 since textures existed. A second
+    // binding in the SAME set is what lets one bind serve a whole material; moving it to
+    // another set would silently cost a descriptor slot per future map type.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    REQUIRE(frag.find("set = 0, binding = 1") != std::string::npos);
+}
