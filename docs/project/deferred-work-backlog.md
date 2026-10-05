@@ -357,6 +357,67 @@ view that was actually used to pick what to build next as of this writing.
     2026-09-27: real renderers almost never separate these, and doing
     so would grow the lighting UBO for a knob nobody has asked for.
     Low priority; listed only so the omission is deliberate.
+  - **Mipmaps and anisotropic filtering** — the engine generates no
+    mipmaps; every texture is uploaded with a single level. Deferred
+    2026-10-04 during PBR slice 3's design, which **surfaces** the
+    problem rather than causing it: a varying roughness map aliases badly
+    at distance, and shimmering specular is the classic symptom, so the
+    demo will show it as soon as slice 3 lands. Kept out of that slice
+    because mip generation (a blit chain per level), sampler LOD state,
+    and the extra image-layout transitions in the upload path are their
+    own body of work, and slice 3 already carries image import, a
+    descriptor-ownership change, and the shading. Depends on nothing.
+  - **A texture-compression / GPU-format pipeline (BCn, ASTC)** — the
+    cooked image form (`MOSAIMG1`) is uncompressed RGBA8, so a 2048²
+    texture costs 16 MB of VRAM. Deferred 2026-10-04 during PBR slice 3's
+    design: it needs a compressor in the cook step, a format negotiation
+    against device support, and a cooked-format version bump, none of
+    which interact with the shading work. Becomes worth doing when
+    texture memory rather than draw count is the limit.
+  - **Per-material UV transforms and a second UV set** — `Vertex` carries
+    one `uv`, and every map on a material samples it. Deferred
+    2026-10-04 during PBR slice 3's design: a tiling/offset transform is
+    cheap to add later (it is push-constant data), and a second UV set is
+    a vertex-format change best taken together with the tangent decision
+    that normal mapping forces. Depends on nothing; low priority until
+    an asset actually needs it.
+  - **Bindless textures (one descriptor array, indices in the push
+    block)** — deferred 2026-10-04 while scoping PBR slice 3. It is the
+    end state this is heading toward: one array of all textures bound once
+    per frame, per-material indices travelling in the push constants
+    (there are 40 of 256 bytes free), zero per-material binds, and every
+    future map type free of new set slots. Rejected for slice 3 because it
+    needs `VK_EXT_descriptor_indexing` with a capability check and a
+    fallback path, and it reworks texture registration, pooling, and the
+    draw path at once — a pillar, not a slice. The chosen design (a
+    descriptor set per material-texture combination, two bindings in
+    set 0) does not block it; it makes it a smaller change later, since
+    set ownership will already have moved off the texture table. Becomes
+    worth doing when the map count per material passes ~3, or when draw
+    batching starts being limited by descriptor binds.
+  - **Normal mapping, and the tangent-frame question it forces** —
+    deferred 2026-10-04 while scoping PBR slice 3, which was originally
+    decomposed as "metallic/roughness/normal" maps. Two things pushed it
+    out. Slice 3 absorbed image file loading (the engine had none — every
+    texture was a procedural pixel loop), so adding normal maps would have
+    made one slice out of import, a descriptor rework, and two map types.
+    And `Vertex` is `{position, normal, uv}` with **no tangent**, so normal
+    mapping needs a tangent frame from somewhere, and that is a real
+    decision rather than a detail: either per-fragment derivative tangents
+    (`dFdx`/`dFdy` of world position and UV — no vertex change, costs
+    fragment ALU, degrades on degenerate UVs) or a real tangent attribute
+    (correct and cheap at runtime, but touches the vertex format, the
+    pipeline attribute descriptions, and every mesh generator). Depends on
+    slice 3's descriptor rework landing first, since it needs a third map
+    bound per material.
+  - **The rest of the glTF standard map set — occlusion and emissive** —
+    not considered during slice 3's scoping, which deliberately took only
+    base colour plus a packed metallic/roughness map. Deferred 2026-10-04:
+    an AO map is meaningless until there is an ambient term worth
+    occluding, which is IBL below; emissive needs a decision about whether
+    it participates in tone mapping and, eventually, bloom. Neither is
+    blocked by anything slice 3 does, and both get cheaper once slice 3's
+    per-material descriptor layout exists.
   - **Ambient/environment specular (IBL)** — the flat `0.1` ambient term
     contributes no highlight, and since PBR slice 2 made the ambient
     `kD`-weighted it contributes *nothing whatsoever* to a metal:
