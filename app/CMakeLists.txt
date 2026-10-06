@@ -12,6 +12,7 @@ add_library(mosaic_app STATIC
   asset/font_cook.cpp
   asset/image_cook.cpp
   asset/cubemap_cook.cpp
+  asset/ibl_bake.cpp
   asset/import_plugins.cpp
   plugin/git.cpp
   mcp/mcp_tools.cpp
