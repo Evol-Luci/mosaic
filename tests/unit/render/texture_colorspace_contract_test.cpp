@@ -125,9 +125,14 @@ TEST_CASE("the descriptor pool is sized for both kinds of set", "[render]")
     // formats are. Found in review 2026-10-04.
     const std::string src =
         mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
-    REQUIRE(src.find("pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2;")
+    // Updated when IBL added a third kind of set. The point of pinning the exact
+    // expression is that adding a cap without adding its descriptors ships green and
+    // fails at runtime, mid-frame -- so each new kind must come through here.
+    REQUIRE(src.find("pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2 "
+                     "+ kMaxIblSets * 3;")
             != std::string::npos);
-    REQUIRE(src.find("pool.maxSets = kMaxTextures + kMaxMaterialSets;") != std::string::npos);
+    REQUIRE(src.find("pool.maxSets = kMaxTextures + kMaxMaterialSets + kMaxIblSets;")
+            != std::string::npos);
     // And that create_texture is bounded, so exceeding the texture cap fails at upload
     // time with a message about textures, rather than later as a material-set
     // allocation failure that blames the wrong thing.
@@ -249,4 +254,44 @@ TEST_CASE("the skybox depth TEST is enabled, not merely its write disabled", "[r
     const std::string src =
         mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
     REQUIRE(src.find("sky_depth.depthTestEnable = VK_TRUE;") != std::string::npos);
+}
+
+TEST_CASE("the IBL descriptor set is allocated fresh, never rewritten in place", "[render]")
+{
+    // Review Focus 2, and the structural reason this is its own set rather than three
+    // more bindings on the per-frame set.
+    //
+    // The environment resolves DURING render(), between begin_frame and end_frame, with
+    // two frames in flight. Writing IBL descriptors into an existing per-frame set would
+    // mutate one the other in-flight frame may still be reading -- undefined behaviour
+    // that a single-threaded local run would almost never reproduce. Allocating a new set
+    // and swapping the handle is safe, because the old set stays valid for any command
+    // buffer still referencing it.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("ibl_set_layout_") != std::string::npos);
+    REQUIRE(src.find("vkAllocateDescriptorSets(device_, &ibl_alloc, &fresh_set)")
+            != std::string::npos);
+    // Four sets: material, shadow, frame UBO, IBL. Vulkan guarantees at least four bound
+    // sets, so this sits exactly at the floor and must not grow without a device check.
+    REQUIRE(src.find("std::array<VkDescriptorSetLayout, 4> set_layouts") != std::string::npos);
+}
+
+TEST_CASE("a cubemap mip chain is uploaded, not generated", "[render]")
+{
+    // Review Focus 5. The prefiltered chain's levels are CONVOLUTIONS at increasing
+    // roughness, not downsamples -- blitting level 0 down would silently replace the
+    // slice's entire specular result with a blur, and it would look plausible. Sub-slice
+    // 4a's ladder must not be reused here.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    const std::size_t at = src.find("create_cubemap(const std::vector<std::array<");
+    REQUIRE(at != std::string::npos);
+    const std::string body = src.substr(at, 4000);
+    REQUIRE(body.find("vkCmdBlitImage") == std::string::npos);
+    REQUIRE(body.find("chain.mipLevels = static_cast<std::uint32_t>(levels.size());")
+            != std::string::npos);
+    // Every level's size must be checked against the base, or a chain with a wrong level
+    // size overruns the staging buffer -- which validation does not reliably catch.
+    REQUIRE(body.find("mip_extent_for") != std::string::npos);
 }

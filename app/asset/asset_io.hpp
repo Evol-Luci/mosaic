@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "app/asset/cubemap_cook.hpp"
+#include "app/asset/ibl_bake.hpp"
 #include "app/asset/image_cook.hpp"
 #include "app/asset/audio_cook.hpp"
 #include "app/asset/font_cook.hpp"
@@ -106,7 +107,7 @@ import_asset(const std::string& project_dir, const std::string& source_file)
             const std::string plugin_asset_type = ext.substr(1); // drop leading '.'
             if (plugin_asset_type == "script" || plugin_asset_type == "audio" ||
                 plugin_asset_type == "font" || plugin_asset_type == "texture" ||
-                plugin_asset_type == "cubemap")
+                plugin_asset_type == "cubemap" || plugin_asset_type == "environment")
             {
                 mosaic::foundation::log::error(
                     "import", "extension '{}' would produce a reserved asset type '{}'; rename the plugin's registered extension",
@@ -138,9 +139,18 @@ import_asset(const std::string& project_dir, const std::string& source_file)
                         "import", "not a decodable Radiance HDR: {}", source_file);
                     return std::nullopt;
                 }
-                blob_bytes = cook_cubemap(equirect_to_cubemap(*env, 512));
-                blob_ext = ".cubemap";
-                asset_type = "cubemap";
+                // Baking the IBL products takes SECONDS, dominated by the prefiltered
+                // levels -- log before so it does not look like a hang.
+                mosaic::foundation::log::info(
+                    "import", "baking environment IBL for {} (this takes a few seconds)",
+                    source_file);
+                mosaic::app::Environment baked;
+                baked.cubemap = equirect_to_cubemap(*env, 512);
+                baked.irradiance = mosaic::app::bake_irradiance(baked.cubemap, mosaic::engine::render::kIrradianceSize);
+                baked.prefiltered = mosaic::app::bake_prefiltered(baked.cubemap, mosaic::engine::render::kPrefilteredBaseSize, mosaic::engine::render::kPrefilteredLevels);
+                blob_bytes = mosaic::app::cook_environment(baked);
+                blob_ext = ".env";
+                asset_type = "environment";
             }
             else
             {
@@ -284,7 +294,7 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             continue;
         }
 
-        if (meta.type == "cubemap")
+        if (meta.type == "environment")
         {
             // Without this branch an imported .hdr fell through to the generic blob
             // path below, which looks for a ".data" file that import never wrote -- so
@@ -296,20 +306,20 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             // environment to, so a registered cubemap is usable as a skybox with no
             // further plumbing.
             const fs::path blob_path =
-                entry.path().parent_path() / (entry.path().stem().string() + ".cubemap");
+                entry.path().parent_path() / (entry.path().stem().string() + ".env");
             const std::optional<std::string> blob = load_scene_file(blob_path.string());
-            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked cubemap {}", blob_path.string()); continue; }
-            const auto faces = uncook_cubemap(*blob);
-            if (!faces) { mosaic::foundation::log::warn("import", "corrupt cooked cubemap {}", blob_path.string()); continue; }
+            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked environment {}", blob_path.string()); continue; }
+            const auto env = mosaic::app::uncook_environment(*blob);
+            if (!env) { mosaic::foundation::log::warn("import", "corrupt cooked environment {}", blob_path.string()); continue; }
 
-            registry.register_resource<std::array<mosaic::engine::render::Image, 6>>(
-                meta, std::make_shared<std::array<mosaic::engine::render::Image, 6>>(*faces));
+            registry.register_resource<mosaic::app::Environment>(
+                meta, std::make_shared<mosaic::app::Environment>(*env));
             ++count;
             continue;
         }
 
         // Generic opaque blob -- covers every plugin-imported asset type (anything
-        // not script/audio/font/texture/cubemap). Only the plugin that produced it
+        // not script/audio/font/texture/cubemap/environment). Only the plugin that produced it
         // understands the format; register the raw bytes as-is.
         const fs::path blob_path = entry.path().parent_path() / (entry.path().stem().string() + ".data");
         const std::optional<std::string> blob = load_scene_file(blob_path.string());

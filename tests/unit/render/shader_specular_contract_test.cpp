@@ -15,6 +15,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "engine/render/environment.hpp"
 #include "shader_source.hpp"
 
 using mosaic::tests::code_only;
@@ -131,4 +132,90 @@ TEST_CASE("cube.frag declares the metallic/roughness sampler at set 0 binding 1"
     // another set would silently cost a descriptor slot per future map type.
     const std::string frag = code_only(read_shader("cube.frag"));
     REQUIRE(frag.find("set = 0, binding = 1") != std::string::npos);
+}
+
+TEST_CASE("cube.frag samples the three IBL products from set 3", "[render]")
+{
+    // The lit pass reads irradiance, prefiltered specular and the BRDF LUT from their own
+    // descriptor set -- see the backend's ibl_set_layout_ for why it is a separate set
+    // rather than more bindings on the per-frame one.
+    // normalize_ws so column alignment in the declarations is not a contract. The
+    // backend contracts already do this; a test that breaks when someone lines up a
+    // column is a test that will be deleted rather than fixed.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    REQUIRE(frag.find("set = 3, binding = 0") != std::string::npos);
+    REQUIRE(frag.find("set = 3, binding = 1") != std::string::npos);
+    REQUIRE(frag.find("set = 3, binding = 2") != std::string::npos);
+    REQUIRE(frag.find("samplerCube irradianceMap") != std::string::npos);
+    REQUIRE(frag.find("samplerCube prefilteredMap") != std::string::npos);
+    REQUIRE(frag.find("sampler2D brdfLut") != std::string::npos);
+}
+
+TEST_CASE("cube.frag indexes the prefiltered chain with roughness times four", "[render]")
+{
+    // Review Focus 4. FIVE prefiltered levels hold roughness 0, .25, .5, .75, 1, so the
+    // LOD is roughness * 4 and textureLod interpolates between them. A * 5.0, or a chain
+    // built with a different level count, produces a material that merely looks too shiny
+    // or too blurry -- which reads as an authoring choice rather than as a bug, and no
+    // GPU in CI can see it.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    REQUIRE(frag.find("textureLod(prefilteredMap, R, roughness * 4.0)") != std::string::npos);
+    // And the split-sum reconstruction itself...
+    REQUIRE(frag.find("prefiltered * (F0_amb * ab.x + ab.y)") != std::string::npos);
+    // ...and that `ab` actually comes FROM the LUT. Pinning only the reconstruction left
+    // a mutation replacing the lookup with a constant vec2(1.0, 0.0) passing, because the
+    // reconstruction reads the same either way -- and a constant there silently discards
+    // the whole energy correction the LUT exists to apply.
+    //
+    // textureLod with an explicit 0, not texture(): the LUT's coordinates are TABLE
+    // coordinates, so an implicit LOD from their screen-space derivatives is meaningless
+    // and put a visible seam down every roughness-band boundary on the demo sphere.
+    REQUIRE(frag.find("textureLod(brdfLut, vec2(max(dot(n, v), 1e-4), roughness), 0.0).rg")
+            != std::string::npos);
+}
+
+TEST_CASE("cube.frag keeps the flat ambient as its no-environment fallback", "[render]")
+{
+    // Review Focus 3. Deleting this branch breaks every scene without an environment --
+    // and nothing else would notice, because the demo always has one. It is not dead
+    // code; it is the other half of a runtime choice.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    REQUIRE(frag.find("albedo * 0.1 * kD_amb") != std::string::npos);
+    // The flag that chooses between them rides in camera_position.w, which the UBO
+    // documents as unused padding.
+    REQUIRE(frag.find("fl.camera_position.w > 0.5") != std::string::npos);
+}
+
+TEST_CASE("the prefiltered LOD multiplier matches the level count the bakers use", "[render]")
+{
+    // The gap the slice-4c review found. Both bake sites pass kPrefilteredLevels, and
+    // cube.frag indexes the chain with a literal multiplier -- but nothing connected the
+    // two, so changing production to six levels shipped entirely green and made every
+    // specular reflection one level too sharp.
+    //
+    // The multiplier must be levels - 1, because textureLod interpolates ACROSS the
+    // chain: roughness 1 must land on the last level, not past it.
+    static_assert(mosaic::engine::render::kPrefilteredLevels == 5,
+                  "update cube.frag's roughness multiplier with this constant");
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string expected =
+        "roughness * " + std::to_string(mosaic::engine::render::kPrefilteredLevels - 1) + ".0";
+    INFO("expecting the LOD to be " << expected);
+    REQUIRE(frag.find(expected) != std::string::npos);
+}
+
+TEST_CASE("cube.frag reflects the view vector about the normal for the specular lookup", "[render]")
+{
+    // The other hole the review found, and the same shape as the CPU-side one already
+    // fixed: every assertion pinned what happens to the sampled value, and none pinned
+    // where the sample direction comes from.
+    //
+    // R = n makes the sphere reflect whatever is directly above each point; reflect(v, n)
+    // points into the geometry. Both leave every other test in this file green, and both
+    // look like a strange material rather than a bug.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    REQUIRE(frag.find("vec3 R = reflect(-v, n);") != std::string::npos);
 }

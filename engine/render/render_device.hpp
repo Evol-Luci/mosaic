@@ -215,6 +215,30 @@ public:
     //
     // Defaulted to 0 so the test doubles that do no rendering need not implement it.
     virtual TextureHandle create_cubemap(const std::array<Image, 6>& /*faces*/) { return 0; }
+
+    // Uploads a cubemap WITH a mip chain: `levels[m]` is level m's six faces, level 0 the
+    // base. Each level must be mip_extent_for(base, m) square.
+    //
+    // It UPLOADS the chain; it does not generate one. The prefiltered-specular levels are
+    // convolutions at increasing roughness, not downsamples -- blitting the base down
+    // would silently replace them with a blur that still looks plausible.
+    virtual TextureHandle create_cubemap(const std::vector<std::array<Image, 6>>& /*levels*/)
+    {
+        return 0;
+    }
+
+    // Points the lit pass at the image-based lighting products.
+    //
+    // All three must be valid. Passing 0 for any of them is REFUSED -- the previous
+    // state is kept and an error logged -- rather than treated as "turn IBL off", because
+    // a partial set would light the scene with a mixture of real products and stand-ins,
+    // which looks like a bad bake rather than a failed call. There is deliberately no way
+    // to turn IBL off again once it is on; nothing needs one.
+    virtual void set_image_based_lighting(TextureHandle /*irradiance*/,
+                                          TextureHandle /*prefiltered*/,
+                                          TextureHandle /*brdf_lut*/)
+    {
+    }
     virtual void draw(MeshHandle mesh, TextureHandle texture, const DrawParams& params) = 0;
 
     // Editor UI overlay hooks. Default no-ops so headless devices and test fakes

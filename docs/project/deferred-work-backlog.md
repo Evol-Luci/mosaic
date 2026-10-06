@@ -437,6 +437,30 @@ view that was actually used to pick what to build next as of this writing.
     already exists as its home when something needs it to vary. Changing
     it requires a re-import, which is the stated cost of converting at
     import time.
+  - **Specular occlusion** — IBL applies environment specular without regard to
+    local occlusion, so cavities and creases receive the full reflection and
+    read too bright. Deferred 2026-10-06 during IBL sub-slice 4c's design: the
+    standard fix multiplies the specular IBL term by an ambient-occlusion
+    factor, which needs AO maps — already deferred above as part of the glTF
+    standard map set — or a screen-space AO pass. Depends on that.
+  - **Parallax-corrected or box-projected environment probes** — the
+    environment cubemap is treated as infinitely distant, so a reflection does
+    not change as an object moves within a room and interior reflections look
+    wrong. Deferred 2026-10-06 during 4c's design: the correction needs a proxy
+    volume per probe and a ray-box intersection in the shader, plus the
+    multiple-environment concept already deferred in 4b. Depends on that.
+  - **Rotating the environment relative to the scene** — the cubemap's
+    orientation is fixed at import. Deferred 2026-10-06 during 4c's design: a
+    yaw offset is cheap to add (one uniform, one rotation in the sampling
+    direction) but nothing has needed it, and it must be applied consistently
+    to the skybox, the irradiance lookup and the prefiltered lookup or they
+    disagree.
+  - **A runtime quality knob for the IBL convolution sizes** — irradiance is
+    fixed at 32² and prefiltered at 128² with five mip levels, changeable only
+    by re-import. Deferred 2026-10-06 during 4c's design, the same decision 4b
+    made for cubemap face size and for the same reason: it is a
+    quality-versus-memory knob with nothing to balance it against yet, and
+    `AssetMetadata::import_settings` already exists as its home.
   - **Anisotropic filtering** — still open, and deliberately NOT bundled
     with the mipmap work above. It needs `samplerAnisotropy` enabled as a
     device feature at logical-device creation, which is a change to device
@@ -588,6 +612,13 @@ view that was actually used to pick what to build next as of this writing.
     2026-10-04 during the metallic/roughness design: it is a refinement
     on top of a working BRDF, not part of standing one up, and the error
     it fixes is only obvious at roughness values the demo does not use.
+    **IBL sub-slice 4c's furnace test is what will measure it.** That test
+    feeds a uniform white environment through the convolution integrals,
+    where a correct energy-conserving model returns exactly the input
+    radiance; a shortfall at roughness 1.0 IS this item, quantified. The
+    4c spec says the test should pin the measured shortfall with its
+    reason rather than widen a tolerance until it hides — so when this is
+    eventually fixed, the number to beat will already be written down.
   - **Anisotropic roughness.** One scalar `roughness` assumes isotropic
     microfacets, so brushed metal and hair cannot be represented.
     Deferred 2026-10-04: anisotropy needs a per-vertex tangent frame,
@@ -652,6 +683,39 @@ view that was actually used to pick what to build next as of this writing.
   2026-09-20, ~40 call sites updated.
 
 ## Editor / Studio
+
+- **The editor forwards no pointer input to the scene, so nothing in it
+  can be clicked** — found 2026-10-06 while visually verifying IBL in the
+  editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
+  position normalised against the window, plus the left button) and hands
+  it to `setup_runtime`; `app/run/editor.cpp:159-160` stops its own
+  `setup_runtime` call at the audio backend, so the `pointer` parameter
+  takes its empty default. `UiSystem` and `ClickNudgeSystem` therefore
+  receive nothing, and UI buttons, click-driven scripts and any
+  pointer-reading gameplay cannot be exercised in the editor at all --
+  only by `mosaic run --window`, which has no camera or object
+  manipulation. The two halves of testing a scene are in different
+  programs.
+
+  **Why this is not the one-line fix it looks like.** The editor renders
+  the scene into an *offscreen viewport texture* that ImGui composites
+  into a panel, so window-relative cursor coordinates are simply wrong:
+  they must be relative to that panel's rect, valid only while the cursor
+  is over it, and suppressed entirely while ImGui has captured the mouse
+  (dragging a gizmo, typing in a field). `main.cpp:299` also records that
+  `UiSystem` and `ClickNudgeSystem` **must agree about the pointer within
+  a tick, or the UI-claim arbitration breaks** -- so the editor needs one
+  shared provider too, not two call sites that happen to compute
+  something similar.
+
+  There is a second design question underneath: whether clicking in the
+  viewport should drive the *game's* pointer at all while the editor is
+  in edit mode, or only in play mode -- otherwise selecting an object
+  would also press whatever UI button is under the cursor. That is a
+  behaviour decision, not an implementation detail.
+
+  Depends on nothing technically; it needs the play-mode-versus-edit-mode
+  answer first.
 
 - ~~**In-editor "File → Reload"**~~ — **SHIPPED** 2026-09-20. Turned out
   to need two new primitives that didn't exist before: `World::clear()`
@@ -1528,7 +1592,11 @@ re-reading the same source docs:
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
-**Empty as of 2026-09-21.** All five original items shipped: Studio
+| Item | Why this tier |
+|---|---|
+| **Pointer input from the editor viewport to the scene** — added 2026-10-06 | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
+
+**The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
 + versioning (PR #194), plugin live file-watching/hot-reload
 (PR #195), Studio theme system + persistence (PR #196), Studio
