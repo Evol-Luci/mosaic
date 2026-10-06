@@ -2,8 +2,11 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <vector>
 
+#include "engine/render/environment.hpp"
 #include "engine/render/image.hpp"
 #include "foundation/math/vec3.hpp"
 
@@ -56,5 +59,19 @@ std::vector<std::array<mosaic::engine::render::Image, 6>> bake_prefiltered(
 // k = alpha / 2 that cube.frag uses. The two look identical and using the wrong one is a
 // silent energy error with no visible signature beyond "slightly off".
 mosaic::engine::render::Image bake_brdf_lut(std::uint32_t size);
+
+// Environment lives in engine/render/environment.hpp, not here: RenderSystem resolves one
+// and the tier rules allow engine -> foundation only, so an app-tier type could not be
+// named there. Baking is an app concern; the resource type is a rendering one.
+using Environment = mosaic::engine::render::Environment;
+
+// Cooked form: "MOSAICENV1" + u32 cubemap face size + u32 irradiance face size
+// + u32 prefiltered base size + u32 level count + u32 format, then the six cubemap faces,
+// the six irradiance faces, and each prefiltered level's six faces.
+std::string cook_environment(const Environment& env);
+
+// Inverse of cook_environment. nullopt on a bad magic, an unknown format, a level count
+// the payload cannot hold, or any length mismatch.
+std::optional<Environment> uncook_environment(const std::string& bytes);
 
 } // namespace mosaic::app

@@ -419,3 +419,66 @@ TEST_CASE("the white furnace: measuring how much energy single-scatter GGX loses
                                    << "k = alpha/2 gives ~0.786)");
     REQUIRE(mid == Approx(0.896).margin(0.03));
 }
+
+TEST_CASE("an Environment round-trips through cook and uncook", "[asset]")
+{
+    mosaic::app::Environment env;
+    for (auto& f : env.cubemap)
+    {
+        f.width = 4; f.height = 4; f.format = ImageFormat::Rgba16F;
+        f.pixels.assign(4u * 4u * 8u, 0x21);
+    }
+    for (auto& f : env.irradiance)
+    {
+        f.width = 2; f.height = 2; f.format = ImageFormat::Rgba16F;
+        f.pixels.assign(2u * 2u * 8u, 0x33);
+    }
+    env.prefiltered.resize(3);
+    for (std::size_t m = 0; m < 3; ++m)
+    {
+        const std::uint32_t sz = 4u >> m;
+        for (auto& f : env.prefiltered[m])
+        {
+            f.width = sz; f.height = sz; f.format = ImageFormat::Rgba16F;
+            f.pixels.assign(static_cast<std::size_t>(sz) * sz * 8u,
+                            static_cast<std::uint8_t>(0x40 + m));
+        }
+    }
+
+    const auto back = mosaic::app::uncook_environment(mosaic::app::cook_environment(env));
+    REQUIRE(back.has_value());
+    REQUIRE(back->cubemap[0].pixels == env.cubemap[0].pixels);
+    REQUIRE(back->cubemap[5].width == 4);
+    REQUIRE(back->irradiance[3].pixels == env.irradiance[3].pixels);
+    REQUIRE(back->prefiltered.size() == 3);
+    for (std::size_t m = 0; m < 3; ++m)
+    {
+        INFO("mip " << m);
+        REQUIRE(back->prefiltered[m][0].width == (4u >> m));
+        REQUIRE(back->prefiltered[m][5].pixels == env.prefiltered[m][5].pixels);
+    }
+}
+
+TEST_CASE("uncook_environment rejects malformed blobs", "[asset]")
+{
+    REQUIRE_FALSE(mosaic::app::uncook_environment("").has_value());
+    REQUIRE_FALSE(mosaic::app::uncook_environment("not an environment").has_value());
+    REQUIRE_FALSE(mosaic::app::uncook_environment("MOSAICENV1short").has_value());
+
+    // A level count the payload cannot possibly hold. Trusting it would read far past
+    // the end of the buffer -- and a cooked asset is file data, so it is exactly the
+    // kind of input that arrives corrupt.
+    std::string blob = "MOSAICENV1";
+    auto put_u32 = [&](std::uint32_t v) {
+        blob.push_back(static_cast<char>(v & 0xFF));
+        blob.push_back(static_cast<char>((v >> 8) & 0xFF));
+        blob.push_back(static_cast<char>((v >> 16) & 0xFF));
+        blob.push_back(static_cast<char>((v >> 24) & 0xFF));
+    };
+    put_u32(4);   // cubemap face size
+    put_u32(2);   // irradiance face size
+    put_u32(4);   // prefiltered base size
+    put_u32(99);  // 99 levels, with no payload at all
+    put_u32(static_cast<std::uint32_t>(ImageFormat::Rgba16F));
+    REQUIRE_FALSE(mosaic::app::uncook_environment(blob).has_value());
+}

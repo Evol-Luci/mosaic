@@ -382,14 +382,15 @@ TEST_CASE("setup_runtime registers the environment cubemap and points the render
     REQUIRE(registry.contains(mosaic::app::kEnvironmentCubemapId));
     REQUIRE(runtime.render_system->environment_asset() == mosaic::app::kEnvironmentCubemapId);
 
-    // Six square faces of the size the importer produces.
-    auto faces = registry.load<std::array<mosaic::engine::render::Image, 6>>(
-        mosaic::app::kEnvironmentCubemapId);
-    REQUIRE(faces != nullptr);
-    for (const auto& f : *faces)
-    {
-        REQUIRE(f.width == 512);
-        REQUIRE(f.height == 512);
-        REQUIRE(f.format == mosaic::engine::render::ImageFormat::Rgba16F);
-    }
+    // Deliberately NOT loading the asset here. setup_runtime registers a lazy loader
+    // that bakes the IBL products on first load -- seconds of work -- and five test
+    // files call setup_runtime, each in its own ctest process, so forcing the bake here
+    // would add minutes to the suite for coverage that already exists.
+    //
+    // What this case owns is the WIRING: the asset is registered, under the right type,
+    // and the renderer points at it. The baked products' shapes and correctness are
+    // covered by ibl_bake_test at small sizes, where the same functions run in
+    // milliseconds.
+    REQUIRE(registry.metadata(mosaic::app::kEnvironmentCubemapId) != nullptr);
+    REQUIRE(registry.metadata(mosaic::app::kEnvironmentCubemapId)->type == "environment");
 }

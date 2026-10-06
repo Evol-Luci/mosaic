@@ -2,6 +2,8 @@
 
 #include <cmath>
 #include <cstddef>
+#include <limits>
+#include <string>
 
 #include "app/asset/cubemap_cook.hpp" // cube_face_direction
 #include "app/asset/image_cook.hpp"   // float_to_half / half_to_float
@@ -171,9 +173,16 @@ std::array<Image, 6> bake_irradiance(const std::array<Image, 6>& env, std::uint3
     for (int f = 0; f < 6; ++f) { out[static_cast<std::size_t>(f)] = make_face(size, env[0].format); }
     if (size == 0 || env[0].width == 0) { return out; }
 
-    // 0.025 rad is the conventional step. Smaller buys accuracy the output's 32x32
-    // resolution cannot represent; larger shows as banding on a smooth sky.
-    constexpr float kStep = 0.025f;
+    // 0.05 rad, not the 0.025 the reference implementations use. That step costs ~15,800
+    // samples per texel and 7 seconds for a 32x32 cube, measured -- and the output is a
+    // 32x32 hemisphere AVERAGE, which cannot represent the detail the finer step buys.
+    // Halving the step quarters the cost (sample count is the product of two sweeps) and
+    // the furnace test still passes within its 2% tolerance, which is the check that
+    // would see any real loss of accuracy.
+    //
+    // This matters because the demo bakes at STARTUP rather than at import, so the cost
+    // is paid on every run and by every test that builds the demo scene.
+    constexpr float kStep = 0.05f;
 
     for (int f = 0; f < 6; ++f)
     {
@@ -373,6 +382,143 @@ Image bake_brdf_lut(std::uint32_t size)
         }
     }
     return lut;
+}
+
+namespace
+{
+void put_u32(std::string& out, std::uint32_t v)
+{
+    out.push_back(static_cast<char>(v & 0xFF));
+    out.push_back(static_cast<char>((v >> 8) & 0xFF));
+    out.push_back(static_cast<char>((v >> 16) & 0xFF));
+    out.push_back(static_cast<char>((v >> 24) & 0xFF));
+}
+
+std::uint32_t get_u32(const std::string& b, std::size_t off)
+{
+    return static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[off]))
+           | (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[off + 1])) << 8)
+           | (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[off + 2])) << 16)
+           | (static_cast<std::uint32_t>(static_cast<std::uint8_t>(b[off + 3])) << 24);
+}
+} // namespace
+
+std::string cook_environment(const Environment& env)
+{
+    const std::uint32_t levels = static_cast<std::uint32_t>(env.prefiltered.size());
+    if (env.cubemap[0].width == 0 || env.irradiance[0].width == 0 || levels == 0)
+    {
+        return {};
+    }
+    const auto format = env.cubemap[0].format;
+
+    std::string out;
+    out += "MOSAICENV1";
+    put_u32(out, env.cubemap[0].width);
+    put_u32(out, env.irradiance[0].width);
+    put_u32(out, env.prefiltered[0][0].width);
+    put_u32(out, levels);
+    put_u32(out, static_cast<std::uint32_t>(format));
+
+    for (const auto& f : env.cubemap)
+    {
+        out.append(reinterpret_cast<const char*>(f.pixels.data()), f.pixels.size());
+    }
+    for (const auto& f : env.irradiance)
+    {
+        out.append(reinterpret_cast<const char*>(f.pixels.data()), f.pixels.size());
+    }
+    for (const auto& level : env.prefiltered)
+    {
+        for (const auto& f : level)
+        {
+            out.append(reinterpret_cast<const char*>(f.pixels.data()), f.pixels.size());
+        }
+    }
+    return out;
+}
+
+std::optional<Environment> uncook_environment(const std::string& bytes)
+{
+    constexpr std::size_t kMagic = 10; // "MOSAICENV1"
+    constexpr std::size_t kHeader = kMagic + 20;
+    if (bytes.size() < kHeader || bytes.compare(0, kMagic, "MOSAICENV1") != 0)
+    {
+        return std::nullopt;
+    }
+    const std::uint32_t cube_size = get_u32(bytes, kMagic);
+    const std::uint32_t irr_size = get_u32(bytes, kMagic + 4);
+    const std::uint32_t pre_size = get_u32(bytes, kMagic + 8);
+    const std::uint32_t levels = get_u32(bytes, kMagic + 12);
+    const std::uint32_t tag = get_u32(bytes, kMagic + 16);
+    if (cube_size == 0 || irr_size == 0 || pre_size == 0 || levels == 0
+        || tag > static_cast<std::uint32_t>(ImageFormat::Rgba16F))
+    {
+        return std::nullopt;
+    }
+    // A level count larger than the base size can supply is malformed: the chain cannot
+    // be longer than the number of halvings the base allows.
+    if (levels > mosaic::engine::render::mip_levels_for(pre_size, pre_size))
+    {
+        return std::nullopt;
+    }
+    const auto format = static_cast<ImageFormat>(tag);
+    const std::uint64_t bpp = mosaic::engine::render::bytes_per_pixel(format);
+
+    // Accumulate the expected payload by DIVISION-guarded steps rather than one product,
+    // the guard uncook_image and uncook_cubemap both needed and for the same reason.
+    const std::uint64_t kCap = static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max());
+    auto face_bytes = [&](std::uint64_t size, std::uint64_t& out_bytes) -> bool {
+        const std::uint64_t px = size * size;
+        if (size != 0 && px / size != size) { return false; }
+        if (px > kCap / bpp) { return false; }
+        out_bytes = px * bpp;
+        return true;
+    };
+
+    std::uint64_t cube_face = 0, irr_face = 0;
+    if (!face_bytes(cube_size, cube_face) || !face_bytes(irr_size, irr_face))
+    {
+        return std::nullopt;
+    }
+    std::uint64_t need = 0;
+    auto add = [&](std::uint64_t v) -> bool {
+        if (need > kCap - v) { return false; }
+        need += v;
+        return true;
+    };
+    if (!add(cube_face * 6) || !add(irr_face * 6)) { return std::nullopt; }
+
+    std::vector<std::uint64_t> level_bytes(levels, 0);
+    for (std::uint32_t m = 0; m < levels; ++m)
+    {
+        const std::uint32_t sz = mosaic::engine::render::mip_extent_for(pre_size, m);
+        if (!face_bytes(sz, level_bytes[m]) || !add(level_bytes[m] * 6))
+        {
+            return std::nullopt;
+        }
+    }
+    if (bytes.size() - kHeader != need) { return std::nullopt; }
+
+    Environment env;
+    std::size_t off = kHeader;
+    auto read_face = [&](Image& img, std::uint32_t size, std::uint64_t count) {
+        img.width = size;
+        img.height = size;
+        img.format = format;
+        img.pixels.assign(bytes.begin() + static_cast<std::ptrdiff_t>(off),
+                          bytes.begin() + static_cast<std::ptrdiff_t>(off + count));
+        off += static_cast<std::size_t>(count);
+    };
+    for (auto& f : env.cubemap) { read_face(f, cube_size, cube_face); }
+    for (auto& f : env.irradiance) { read_face(f, irr_size, irr_face); }
+    env.prefiltered.resize(levels);
+    for (std::uint32_t m = 0; m < levels; ++m)
+    {
+        const std::uint32_t sz = mosaic::engine::render::mip_extent_for(pre_size, m);
+        for (auto& f : env.prefiltered[m]) { read_face(f, sz, level_bytes[m]); }
+    }
+    return env;
 }
 
 } // namespace mosaic::app

@@ -35,6 +35,7 @@
 #include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
 #include "app/asset/cubemap_cook.hpp"
+#include "app/asset/ibl_bake.hpp"
 #include "app/asset/image_cook.hpp"   // read_image, for the sphere's authored MR map
 #include "app/run/scene_io.hpp"
 #include "engine/assets/asset_metadata.hpp"
@@ -82,6 +83,12 @@ inline const mosaic::foundation::serialization::AssetID kSphereMrTextureId{
 // The environment cubemap, converted from a committed equirectangular HDR at startup.
 // Registered as six Images rather than uploaded here, because no RenderDevice exists
 // yet; RenderSystem resolves it on its first frame.
+// Which environment the demo lights itself with. ONE named constant so switching is one
+// line: space00_2k.hdr is the better skybox but has 0.2% mean radiance, so it produces
+// almost no ambient and cannot show that image-based lighting works at all.
+// kloofendal_2k.hdr is ~425x brighter with a sun and a horizon.
+inline constexpr const char* kDemoEnvironmentFile = "kloofendal_2k.hdr";
+
 inline const mosaic::foundation::serialization::AssetID kEnvironmentCubemapId{
     std::array<std::uint8_t, 16>{0xE1}};
 
@@ -332,26 +339,45 @@ inline RuntimeScene setup_runtime(
     // nothing to resolve, and the scene renders with no sky rather than failing to
     // start. Both failure branches log.
     if (const std::optional<std::string> env_bytes =
-            load_scene_file(std::string(MOSAIC_BACKGROUNDS_DIR) + "/space00_2k.hdr"))
+            load_scene_file(std::string(MOSAIC_BACKGROUNDS_DIR) + "/" + kDemoEnvironmentFile))
     {
         if (const std::optional<render::Image> env_img = mosaic::app::read_image(*env_bytes))
         {
-            registry.register_resource<std::array<render::Image, 6>>(
-                mosaic::engine::assets::AssetMetadata{kEnvironmentCubemapId, "cubemap"},
-                std::make_shared<std::array<render::Image, 6>>(
-                    mosaic::app::equirect_to_cubemap(*env_img, 512)));
+            // A LAZY loader, not a baked resource. The demo bakes in memory because it
+            // bypasses the importer, and that costs seconds -- measured at ~8s in an
+            // optimised build and far more in debug. register_asset invokes this at most
+            // once, on first load, so only a run that actually renders pays it; the five
+            // test files that call setup_runtime to check wiring never do. Each ctest
+            // case is its own process, so an eager bake could not be amortised and would
+            // have added minutes to the suite.
+            //
+            // A project loading a cooked .env pays none of this: the baking happened at
+            // import. This path exists because the demo has no import step.
+            auto source = std::make_shared<render::Image>(*env_img);
+            registry.register_asset(
+                mosaic::engine::assets::AssetMetadata{kEnvironmentCubemapId, "environment"},
+                [source]() -> std::shared_ptr<void> {
+                    mosaic::foundation::log::info(
+                        "demo", "baking environment IBL (a few seconds, once)");
+                    auto baked = std::make_shared<render::Environment>();
+                    baked->cubemap = mosaic::app::equirect_to_cubemap(*source, 512);
+                    baked->irradiance = mosaic::app::bake_irradiance(baked->cubemap, 32);
+                    baked->prefiltered = mosaic::app::bake_prefiltered(baked->cubemap, 128, 5);
+                    mosaic::foundation::log::info("demo", "environment IBL ready");
+                    return baked;
+                });
         }
         else
         {
             mosaic::foundation::log::warn(
-                "demo", "space00_2k.hdr did not decode; the scene renders with no sky");
+                "demo", "{} did not decode; the scene renders with no sky", kDemoEnvironmentFile);
         }
     }
     else
     {
         mosaic::foundation::log::warn(
-            "demo", "{}/space00_2k.hdr not found; the scene renders with no sky",
-            MOSAIC_BACKGROUNDS_DIR);
+            "demo", "{}/{} not found; the scene renders with no sky",
+            MOSAIC_BACKGROUNDS_DIR, kDemoEnvironmentFile);
     }
 
     // The sphere's metallic/roughness map: six vertical bands of increasing roughness,

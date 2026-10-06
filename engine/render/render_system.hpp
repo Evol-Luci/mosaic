@@ -5,6 +5,7 @@
 #include "engine/render/directional_light.hpp"
 #include "engine/render/point_light.hpp"
 #include "engine/render/spot_light.hpp"
+#include "engine/render/environment.hpp"
 #include "engine/render/image.hpp"
 #include <cmath>
 #include "engine/render/material.hpp"
@@ -214,9 +215,9 @@ public:
         if (environment_ == 0
             && environment_asset_ != mosaic::foundation::serialization::AssetID{})
         {
-            if (auto faces = registry.load<std::array<Image, 6>>(environment_asset_))
+            if (auto env = registry.load<Environment>(environment_asset_))
             {
-                environment_ = device.create_cubemap(*faces);
+                environment_ = device.create_cubemap(env->cubemap);
             }
             // Cleared on EITHER failure -- a registry miss or an upload that returns 0
             // (the texture cap reached, or faces that disagree). Clearing only the miss
