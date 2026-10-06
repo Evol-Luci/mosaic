@@ -494,6 +494,18 @@ public:
     create_texture(const mosaic::engine::render::Image& image,
                    mosaic::engine::render::TextureColorSpace space) override
     {
+        // The buffer must match the stride its own format implies. Nothing checked this
+        // before the 8-byte Rgba16F stride existed, and a mismatch sizes the staging
+        // buffer at half what the copy region reads -- an overrun rather than an error.
+        if (image.pixels.size()
+            != static_cast<std::size_t>(image.width) * image.height
+                   * mosaic::engine::render::bytes_per_pixel(image.format))
+        {
+            mosaic::foundation::log::error(
+                "render", "image pixel buffer does not match its {}x{} size and format",
+                image.width, image.height);
+            return 0u;
+        }
         if (image.pixels.empty() || image.width == 0 || image.height == 0)
         {
             // A zero dimension is its own case, not just an empty-pixels one: it would
@@ -812,7 +824,9 @@ public:
             // A mismatched face would upload as garbage at a plausible-looking size
             // rather than failing, so refuse rather than guess.
             if (f.width != f0.width || f.height != f0.height || f.format != f0.format
-                || f.pixels.size() != f0.pixels.size())
+                || f.pixels.size() != f0.pixels.size()
+                || f.pixels.size() != static_cast<std::size_t>(f.width) * f.height
+                                          * mosaic::engine::render::bytes_per_pixel(f.format))
             {
                 mosaic::foundation::log::error(
                     "render", "cubemap faces disagree in size or format; not uploading");
@@ -832,6 +846,7 @@ public:
                 : VK_FORMAT_R8G8B8A8_SRGB;
 
         Texture tex{};
+        tex.is_cube = true;
         const VkDeviceSize face_size = static_cast<VkDeviceSize>(f0.pixels.size());
         const VkDeviceSize total = face_size * 6u;
 
@@ -1337,8 +1352,25 @@ public:
     void draw_skybox(mosaic::engine::render::TextureHandle cubemap,
                      const mosaic::engine::render::SkyboxParams& params) override
     {
+        // The same prologue every other recording method here has, and the absence of
+        // which is undefined behaviour rather than a visual bug: on a resize or minimise
+        // begin_frame takes the OUT_OF_DATE path, sets frame_skipped_ and returns before
+        // vkBeginCommandBuffer, so recording into the command buffer is illegal. And a
+        // scene with an environment but no drawn meshes would reach here with no render
+        // pass open at all. Found in review 2026-10-05.
+        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        if (frame_skipped_) { return; }
         if (cubemap == 0 || cubemap > textures_.size()) { return; }
         const std::uint32_t index = cubemap - 1u;
+        if (!textures_[index].is_cube)
+        {
+            // A 2D handle bound to skybox.frag's samplerCube. The plan named this
+            // (Review Focus 4) and only a source-text contract guarded it; this is the
+            // runtime half. Review 2026-10-05.
+            mosaic::foundation::log::error(
+                "render", "draw_skybox given a 2D texture handle; skipping the sky");
+            return;
+        }
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                           viewport_pass_open_ ? vp_skybox_pipeline_ : skybox_pipeline_);
@@ -4122,7 +4154,11 @@ private:
         VkImageView view = VK_NULL_HANDLE;
         VkSampler sampler = VK_NULL_HANDLE;
         VkDescriptorSet set = VK_NULL_HANDLE; // freed with the pool
-    };
+            // Which handle space this entry belongs to. They share TextureHandle, so
+        // without this a cubemap bound to a sampler2D (or the reverse) is a validation
+        // error at best and a garbage image at worst, with nothing to catch it.
+        bool is_cube = false;
+};
     std::vector<Texture> textures_; // handle == index + 1; 0 is invalid
 
     // A device mesh: vertex + index buffers (device-local) and the index count.

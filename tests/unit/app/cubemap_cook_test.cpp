@@ -160,3 +160,90 @@ TEST_CASE("a cubemap round-trips through cook and uncook", "[asset]")
     REQUIRE_FALSE(mosaic::app::uncook_cubemap("").has_value());
     REQUIRE_FALSE(mosaic::app::uncook_cubemap("MOSAICUBE1short").has_value());
 }
+
+TEST_CASE("each face's CORNERS pin its orientation, not just its axis", "[asset]")
+{
+    // The gap the slice-4b review found, and it mattered: every other test here is
+    // evaluated at the face CENTRE, where u = v = 0.5 makes both in-face coordinates
+    // zero -- so only the major axis is exercised. Rotating a face 180 degrees
+    // (Vec3{1, b, a}) or mirroring it (Vec3{1, b, -a}) left the whole suite green while
+    // producing a visibly wrong sky on a GPU.
+    //
+    // The corners are where the in-face axes actually have magnitude, so these values
+    // pin the sign of BOTH of them for every face. Derived from Vulkan's cube-map face
+    // selection table, not from this implementation's output.
+    struct Case { int face; float u; float v; Vec3 expect; };
+    const Case cases[] = {
+        {0, 0.0f, 0.0f, {+0.577350f, +0.577350f, +0.577350f}}, // +X corner (0,0)
+        {0, 1.0f, 0.0f, {+0.577350f, +0.577350f, -0.577350f}}, // +X corner (1,0)
+        {0, 0.0f, 1.0f, {+0.577350f, -0.577350f, +0.577350f}}, // +X corner (0,1)
+        {1, 0.0f, 0.0f, {-0.577350f, +0.577350f, -0.577350f}}, // -X corner (0,0)
+        {1, 1.0f, 0.0f, {-0.577350f, +0.577350f, +0.577350f}}, // -X corner (1,0)
+        {1, 0.0f, 1.0f, {-0.577350f, -0.577350f, -0.577350f}}, // -X corner (0,1)
+        {2, 0.0f, 0.0f, {-0.577350f, +0.577350f, -0.577350f}}, // +Y corner (0,0)
+        {2, 1.0f, 0.0f, {+0.577350f, +0.577350f, -0.577350f}}, // +Y corner (1,0)
+        {2, 0.0f, 1.0f, {-0.577350f, +0.577350f, +0.577350f}}, // +Y corner (0,1)
+        {3, 0.0f, 0.0f, {-0.577350f, -0.577350f, +0.577350f}}, // -Y corner (0,0)
+        {3, 1.0f, 0.0f, {+0.577350f, -0.577350f, +0.577350f}}, // -Y corner (1,0)
+        {3, 0.0f, 1.0f, {-0.577350f, -0.577350f, -0.577350f}}, // -Y corner (0,1)
+        {4, 0.0f, 0.0f, {-0.577350f, +0.577350f, +0.577350f}}, // +Z corner (0,0)
+        {4, 1.0f, 0.0f, {+0.577350f, +0.577350f, +0.577350f}}, // +Z corner (1,0)
+        {4, 0.0f, 1.0f, {-0.577350f, -0.577350f, +0.577350f}}, // +Z corner (0,1)
+        {5, 0.0f, 0.0f, {+0.577350f, +0.577350f, -0.577350f}}, // -Z corner (0,0)
+        {5, 1.0f, 0.0f, {-0.577350f, +0.577350f, -0.577350f}}, // -Z corner (1,0)
+        {5, 0.0f, 1.0f, {+0.577350f, -0.577350f, -0.577350f}}, // -Z corner (0,1)
+    };
+    for (const auto& c : cases)
+    {
+        INFO("face " << c.face << " at (" << c.u << ", " << c.v << ")");
+        const Vec3 d = cube_face_direction(c.face, c.u, c.v);
+        REQUIRE(d.x == Approx(c.expect.x).margin(1e-5));
+        REQUIRE(d.y == Approx(c.expect.y).margin(1e-5));
+        REQUIRE(d.z == Approx(c.expect.z).margin(1e-5));
+    }
+}
+
+TEST_CASE("an imported cubemap can be loaded back from its cooked blob", "[asset]")
+{
+    // The review found the import half shipped without the load half: a .hdr cooked to
+    // a .cubemap that load_project_assets had no branch for, so it fell through to the
+    // generic-blob path looking for a ".data" file that was never written. The asset
+    // was silently unusable and uncook_cubemap had no caller outside tests.
+    //
+    // This pins the round trip at the boundary that matters -- the type registered must
+    // be the one RenderSystem resolves an environment to.
+    Image eq;
+    eq.width = 16;
+    eq.height = 8;
+    eq.format = ImageFormat::Rgba16F;
+    eq.pixels.assign(16u * 8u * 8u, 0x11);
+
+    const auto faces = mosaic::app::equirect_to_cubemap(eq, 8);
+    const std::string blob = mosaic::app::cook_cubemap(faces);
+    const auto back = mosaic::app::uncook_cubemap(blob);
+    REQUIRE(back.has_value());
+    for (const auto& f : *back)
+    {
+        REQUIRE(f.width == 8);
+        REQUIRE(f.height == 8);
+        REQUIRE(f.format == ImageFormat::Rgba16F);
+        REQUIRE(f.pixels.size() == 8u * 8u * 8u);
+    }
+}
+
+TEST_CASE("cook_cubemap refuses faces that disagree", "[asset]")
+{
+    // cook_cubemap wrote faces[0]'s size and format into the header and then appended
+    // all six regardless, so a mismatched array produced a blob uncook_cubemap would
+    // reject -- failing at the wrong end, with a message about corruption rather than
+    // about the caller's mistake.
+    std::array<Image, 6> faces;
+    for (auto& f : faces)
+    {
+        f.width = 4; f.height = 4; f.format = ImageFormat::Rgba8;
+        f.pixels.assign(4u * 4u * 4u, 7);
+    }
+    faces[3].width = 8; // one face out of step
+    faces[3].pixels.assign(8u * 8u * 4u, 7);
+    REQUIRE(mosaic::app::cook_cubemap(faces).empty());
+}

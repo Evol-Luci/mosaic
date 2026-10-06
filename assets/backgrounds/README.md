@@ -33,7 +33,7 @@ this records the site-wide terms rather than a licence document specific to
 stores as roughly 43 MB in git and costs about 536 MB of transient memory to
 decode at full resolution. It is kept locally and git-ignored
 (`assets/backgrounds/*.hdr`, with `*_2k.hdr` negated); this committed copy is a
-box-filtered downsample to 2048x1024, which stores as roughly 4 MB.
+box-filtered downsample to 2048x1024, which is 8 MB on disk and stores at about that in git (flat RGBE, so it does not compress further).
 
 2048x1024 is not an arbitrary choice: 90 degrees of a 2048-wide equirect is
 exactly 512 pixels, a 1:1 match for the 512-pixel cubemap faces the importer

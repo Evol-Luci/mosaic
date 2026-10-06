@@ -42,9 +42,14 @@ inline std::uint16_t float_to_half(float f)
     return static_cast<std::uint16_t>(sign | (e << 10) | m);
 }
 
-// The inverse of float_to_half. Exact in both directions for every finite half, since
-// binary32 covers binary16's whole range -- needed wherever half pixels are blended,
-// because arithmetic on the raw bit patterns would be meaningless on an exponent field.
+// The inverse of float_to_half. Needed wherever half pixels are blended, because
+// arithmetic on the raw bit patterns would be meaningless on an exponent field.
+//
+// Exact for every NORMAL finite half -- binary32 covers binary16's whole range. The
+// round trip is NOT exact for a subnormal half, because float_to_half flushes
+// subnormals to zero; this direction still decodes them properly, for data this engine
+// did not write. (The earlier wording claimed exactness "in both directions for every
+// finite half", which is false for exactly that case. Review 2026-10-05.)
 inline float half_to_float(std::uint16_t h)
 {
     const std::uint32_t sign = static_cast<std::uint32_t>(h & 0x8000u) << 16;

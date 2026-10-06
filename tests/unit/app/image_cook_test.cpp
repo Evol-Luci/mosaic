@@ -333,3 +333,22 @@ TEST_CASE("half_to_float inverts float_to_half for the values that matter", "[as
     REQUIRE(back <= 0.1f);
     REQUIRE(back == Catch::Approx(0.1f).margin(0.001f));
 }
+
+TEST_CASE("half_to_float decodes subnormal halves, which float_to_half never produces", "[asset]")
+{
+    // The only branch in the conversion pair no round-trip test can reach, because
+    // float_to_half flushes subnormals to zero -- so it is reached only by data this
+    // engine did not write, which is exactly when being wrong would be hardest to
+    // diagnose. Review 2026-10-05.
+    using mosaic::app::half_to_float;
+    // Smallest positive subnormal half: 2^-24.
+    REQUIRE(half_to_float(0x0001) == Catch::Approx(5.9604645e-8f));
+    // Largest subnormal half: 1023 * 2^-24.
+    REQUIRE(half_to_float(0x03FF) == Catch::Approx(6.0975552e-5f));
+    // The boundary: smallest NORMAL half, 2^-14, must not go through that branch.
+    REQUIRE(half_to_float(0x0400) == Catch::Approx(6.1035156e-5f));
+    // Sign is carried through the subnormal path too.
+    REQUIRE(half_to_float(0x8001) == Catch::Approx(-5.9604645e-8f));
+    // And negative zero stays zero rather than becoming a subnormal.
+    REQUIRE(half_to_float(0x8000) == Catch::Approx(0.0f));
+}

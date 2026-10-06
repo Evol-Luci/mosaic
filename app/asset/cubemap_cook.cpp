@@ -154,7 +154,23 @@ std::array<mosaic::engine::render::Image, 6> equirect_to_cubemap(
 
 std::string cook_cubemap(const std::array<mosaic::engine::render::Image, 6>& faces)
 {
+    // The header records faces[0]'s size and format and the payload is six faces of
+    // exactly that shape, so a mismatched array would cook to a blob uncook_cubemap
+    // rejects -- failing at the far end with a message about corruption rather than
+    // about the caller. Refuse here instead. Found in review 2026-10-05.
+    const auto& f0 = faces[0];
+    for (const auto& f : faces)
+    {
+        if (f.width != f0.width || f.height != f0.height || f.format != f0.format
+            || f.pixels.size() != f0.pixels.size())
+        {
+            return {};
+        }
+    }
+    if (f0.width == 0 || f0.width != f0.height) { return {}; }
+
     std::string out;
+    out.reserve(18 + f0.pixels.size() * 6);
     out += "MOSAICUBE1";
     auto put_u32 = [&](std::uint32_t v) {
         out.push_back(static_cast<char>(v & 0xFF));

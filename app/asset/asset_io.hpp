@@ -105,7 +105,8 @@ import_asset(const std::string& project_dir, const std::string& source_file)
         {
             const std::string plugin_asset_type = ext.substr(1); // drop leading '.'
             if (plugin_asset_type == "script" || plugin_asset_type == "audio" ||
-                plugin_asset_type == "font" || plugin_asset_type == "texture")
+                plugin_asset_type == "font" || plugin_asset_type == "texture" ||
+                plugin_asset_type == "cubemap")
             {
                 mosaic::foundation::log::error(
                     "import", "extension '{}' would produce a reserved asset type '{}'; rename the plugin's registered extension",
@@ -143,7 +144,7 @@ import_asset(const std::string& project_dir, const std::string& source_file)
             }
             else
             {
-            const std::optional<mosaic::engine::render::Image> img = read_image(*src);
+                const std::optional<mosaic::engine::render::Image> img = read_image(*src);
             if (!img)
             {
                 mosaic::foundation::log::error(
@@ -283,8 +284,32 @@ inline int load_project_assets(mosaic::engine::assets::AssetRegistry& registry,
             continue;
         }
 
+        if (meta.type == "cubemap")
+        {
+            // Without this branch an imported .hdr fell through to the generic blob
+            // path below, which looks for a ".data" file that import never wrote -- so
+            // every project load warned about a missing blob and the asset was silently
+            // unusable. The import half shipped without the load half. Found in review
+            // 2026-10-05.
+            //
+            // std::array<Image, 6> is the exact type RenderSystem resolves an
+            // environment to, so a registered cubemap is usable as a skybox with no
+            // further plumbing.
+            const fs::path blob_path =
+                entry.path().parent_path() / (entry.path().stem().string() + ".cubemap");
+            const std::optional<std::string> blob = load_scene_file(blob_path.string());
+            if (!blob) { mosaic::foundation::log::warn("import", "missing cooked cubemap {}", blob_path.string()); continue; }
+            const auto faces = uncook_cubemap(*blob);
+            if (!faces) { mosaic::foundation::log::warn("import", "corrupt cooked cubemap {}", blob_path.string()); continue; }
+
+            registry.register_resource<std::array<mosaic::engine::render::Image, 6>>(
+                meta, std::make_shared<std::array<mosaic::engine::render::Image, 6>>(*faces));
+            ++count;
+            continue;
+        }
+
         // Generic opaque blob -- covers every plugin-imported asset type (anything
-        // not script/audio/font/texture). Only the plugin that produced it
+        // not script/audio/font/texture/cubemap). Only the plugin that produced it
         // understands the format; register the raw bytes as-is.
         const fs::path blob_path = entry.path().parent_path() / (entry.path().stem().string() + ".data");
         const std::optional<std::string> blob = load_scene_file(blob_path.string());

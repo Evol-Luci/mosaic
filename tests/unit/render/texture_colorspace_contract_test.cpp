@@ -216,3 +216,37 @@ TEST_CASE("the skybox draws behind the scene and does not write depth", "[render
         mosaic::tests::normalize_ws(mosaic::tests::code_only(mosaic::tests::read_shader("skybox.vert")));
     REQUIRE(vert.find("gl_Position = vec4(pos, 1.0, 1.0);") != std::string::npos);
 }
+
+TEST_CASE("draw_skybox guards the render pass and the skipped frame", "[render]")
+{
+    // The slice-4b review's Critical finding. Every other recording method in the
+    // backend opens with these two lines; draw_skybox had neither.
+    //
+    // Without them: resize or minimise the window, begin_frame takes the
+    // VK_ERROR_OUT_OF_DATE_KHR path, sets frame_skipped_ and returns BEFORE
+    // vkBeginCommandBuffer -- and draw_skybox then records four commands into a command
+    // buffer that is not in the recording state. That is undefined behaviour, not a
+    // visual artefact, and it diverges by driver. A scene with an environment and no
+    // drawn meshes reaches the same place by a different route, because nothing else
+    // would have opened the pass.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    const std::size_t at = src.find("void draw_skybox(");
+    REQUIRE(at != std::string::npos);
+    const std::string prologue = src.substr(at, 400);
+    REQUIRE(prologue.find("if (!viewport_pass_open_) { ensure_swapchain_pass(); }")
+            != std::string::npos);
+    REQUIRE(prologue.find("frame_skipped_") != std::string::npos);
+}
+
+TEST_CASE("the skybox depth TEST is enabled, not merely its write disabled", "[render]")
+{
+    // The slice-4b review's other test gap. VkPipelineDepthStencilStateCreateInfo is
+    // zero-initialised, so deleting the depthTestEnable line silently yields VK_FALSE:
+    // every skybox fragment then passes, and with blending disabled the sky paints over
+    // the ENTIRE scene. The sibling test pinned depthWriteEnable and the compare op but
+    // not this, so the one state that loses the whole image was unguarded.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("sky_depth.depthTestEnable = VK_TRUE;") != std::string::npos);
+}

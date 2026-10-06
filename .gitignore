@@ -23,8 +23,11 @@ scene.json
 .superpowers/
 
 # Full-resolution HDR environment sources stay local; commit a downsampled 2K copy.
-# A 2048x1024 equirect stores as ~4 MB in git and is exactly 1:1 for 512-pixel cubemap
-# faces (90 degrees of a 2048-wide equirect is 512 pixels), while the 8K original it
-# came from stores as ~43 MB and buys the cubemap nothing.
+# A 2048x1024 equirect is 8 MB on disk and stores at about that in git -- it is written
+# as FLAT RGBE despite the format header saying rle, so it does not compress. (An
+# earlier note here said ~4 MB, measured on a gzip of the data rather than on the file
+# actually committed. Corrected 2026-10-05.) It is exactly 1:1 for 512-pixel cubemap
+# faces -- 90 degrees of a 2048-wide equirect is 512 pixels -- while the 8K original it
+# came from stores at ~43 MB and buys the cubemap nothing.
 assets/backgrounds/*.hdr
 !assets/backgrounds/*_2k.hdr

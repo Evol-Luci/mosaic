@@ -218,12 +218,12 @@ public:
             {
                 environment_ = device.create_cubemap(*faces);
             }
-            else
-            {
-                // Clear it so a missing asset is looked up once rather than on every
-                // frame for the life of the process.
-                environment_asset_ = {};
-            }
+            // Cleared on EITHER failure -- a registry miss or an upload that returns 0
+            // (the texture cap reached, or faces that disagree). Clearing only the miss
+            // left a failed upload retrying every frame, and create_cubemap logs an
+            // error on both its failure paths, so the log filled at frame rate. Found
+            // in review 2026-10-05.
+            if (environment_ == 0) { environment_asset_ = {}; }
         }
 
         // Skybox pass: after the opaque meshes so it only shades pixels they did not
