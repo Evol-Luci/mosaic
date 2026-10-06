@@ -53,3 +53,45 @@ physically correct, a chrome ball in deep space being black with pinpoint star
 reflections, but means this environment does not demonstrate that IBL is
 working. A bright outdoor or studio environment is the right choice for
 verifying 4c.
+
+## `kloofendal_2k.hdr`
+
+Equirectangular HDR environment, 2048x1024, Radiance RGBE (RLE-compressed, 5.9 MB).
+Outdoor clear sky with ground and a visible sun.
+
+**Source:** <https://polyhaven.com/a/kloofendal_43d_clear> by Greg Zaal, downloaded
+from Poly Haven's 2K HDR distribution on 2026-10-06.
+
+**Licence: CC0 (Creative Commons Zero).** Checked against
+<https://polyhaven.com/license> on that date, which states the assets may be used
+for any purpose including commercial work, that credit is not required, and that
+they may be redistributed and included when sharing your own work. Credit is given
+here regardless.
+
+**Why this one is here.** It exists to make image-based lighting *verifiable*.
+`space00_2k.hdr` is a fine skybox but has 0.2% mean radiance, so it produces almost
+no ambient light -- IBL applied to it changes a metal surface from near-black to
+slightly-less-near-black, which cannot show whether the feature works. This
+environment has a mean radiance of **0.72**, about 425x higher, with 5.3% of samples
+above 1.0. A metal sphere lit by it shows a clear horizon line and a sharp sun glint.
+
+**One thing it exercises that nothing else has.** Its peak radiance is 114,176 --
+above half-float's largest finite value of 65,504. `float_to_half` clamps there
+rather than producing an infinity, a deliberate choice made in IBL sub-slice 4b
+because an infinity in a value the shader multiplies propagates into NaN. This is the
+first committed asset that reaches that path. The sun's peak pixel therefore loses
+about 43% of its intensity; the affected area is a few pixels and the total energy
+change is negligible, but it is real and is recorded rather than discovered later.
+
+---
+
+## Note on file sizes
+
+`space00_2k.hdr` is written as FLAT RGBE (8 MB) despite its header saying `rle`,
+because the downsampling tool used to produce it writes uncompressed output.
+`kloofendal_2k.hdr` came from Poly Haven already RLE-compressed and is 5.9 MB
+despite being the same dimensions and far more detailed -- the space image is mostly
+black and would compress enormously. Re-encoding it with RLE would likely save
+several megabytes; not done, because it means writing an RLE encoder for a one-off
+and the file is already committed. Worth doing if the repository's asset weight ever
+becomes a concern.
