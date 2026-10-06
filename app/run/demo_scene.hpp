@@ -361,8 +361,8 @@ inline RuntimeScene setup_runtime(
                         "demo", "baking environment IBL (a few seconds, once)");
                     auto baked = std::make_shared<render::Environment>();
                     baked->cubemap = mosaic::app::equirect_to_cubemap(*source, 512);
-                    baked->irradiance = mosaic::app::bake_irradiance(baked->cubemap, 32);
-                    baked->prefiltered = mosaic::app::bake_prefiltered(baked->cubemap, 128, 5);
+                    baked->irradiance = mosaic::app::bake_irradiance(baked->cubemap, render::kIrradianceSize);
+                    baked->prefiltered = mosaic::app::bake_prefiltered(baked->cubemap, render::kPrefilteredBaseSize, render::kPrefilteredLevels);
                     mosaic::foundation::log::info("demo", "environment IBL ready");
                     return baked;
                 });

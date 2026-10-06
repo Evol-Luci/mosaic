@@ -227,8 +227,13 @@ public:
         return 0;
     }
 
-    // Points the lit pass at the image-based lighting products. Passing 0 for any of them
-    // leaves IBL disabled and the flat ambient fallback in use.
+    // Points the lit pass at the image-based lighting products.
+    //
+    // All three must be valid. Passing 0 for any of them is REFUSED -- the previous
+    // state is kept and an error logged -- rather than treated as "turn IBL off", because
+    // a partial set would light the scene with a mixture of real products and stand-ins,
+    // which looks like a bad bake rather than a failed call. There is deliberately no way
+    // to turn IBL off again once it is on; nothing needs one.
     virtual void set_image_based_lighting(TextureHandle /*irradiance*/,
                                           TextureHandle /*prefiltered*/,
                                           TextureHandle /*brdf_lut*/)

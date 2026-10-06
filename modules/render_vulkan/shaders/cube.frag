@@ -34,9 +34,12 @@ layout(set = 2, binding = 0) uniform FrameLighting {
 } fl;
 // Image-based lighting, in its own descriptor set because these are per-FRAME products
 // resolved mid-frame -- see ibl_set_layout_ in the Vulkan backend for why that cannot
-// share the per-frame UBO's set. All three are sampled unconditionally and a 1x1 stand-in
-// is bound when there is no environment, because sampling an unbound descriptor is
-// undefined rather than merely black.
+// share the per-frame UBO's set.
+//
+// A 1x1 stand-in is bound when there is no environment. Note the reason: the fetches
+// below sit inside a branch, so they are not sampled on every path -- but they are
+// STATICALLY USED by this module, and a descriptor a module statically uses must be
+// valid at draw time whether or not the branch is taken.
 layout(set = 3, binding = 0) uniform samplerCube irradianceMap;
 layout(set = 3, binding = 1) uniform samplerCube prefilteredMap;
 layout(set = 3, binding = 2) uniform sampler2D   brdfLut;
@@ -224,7 +227,14 @@ void main()
         // material that merely looks too shiny or too blurry.
         vec3 R = reflect(-v, n);
         vec3 prefiltered = textureLod(prefilteredMap, R, roughness * 4.0).rgb;
-        vec2 ab = texture(brdfLut, vec2(max(dot(n, v), 1e-4), roughness)).rg;
+        // textureLod with an explicit 0, NOT texture(). create_texture gives every
+        // image a mip chain, and texture() would pick a level from screen-space
+        // derivatives of (NdotV, roughness) -- but those are TABLE COORDINATES, not
+        // surface UVs, so the derivative means nothing. On the demo sphere's banded
+        // roughness map a 0.2 jump across one pixel is ~51 texels of gradient, selecting
+        // a level around 8x reduced: a visible seam of wrong scale/bias down every band
+        // boundary, on the one object this slice exists to show off.
+        vec2 ab = textureLod(brdfLut, vec2(max(dot(n, v), 1e-4), roughness), 0.0).rg;
         ambient = diffuseIBL + prefiltered * (F0_amb * ab.x + ab.y);
     }
     else

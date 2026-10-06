@@ -15,6 +15,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "engine/render/environment.hpp"
 #include "shader_source.hpp"
 
 using mosaic::tests::code_only;
@@ -166,7 +167,11 @@ TEST_CASE("cube.frag indexes the prefiltered chain with roughness times four", "
     // a mutation replacing the lookup with a constant vec2(1.0, 0.0) passing, because the
     // reconstruction reads the same either way -- and a constant there silently discards
     // the whole energy correction the LUT exists to apply.
-    REQUIRE(frag.find("texture(brdfLut, vec2(max(dot(n, v), 1e-4), roughness)).rg")
+    //
+    // textureLod with an explicit 0, not texture(): the LUT's coordinates are TABLE
+    // coordinates, so an implicit LOD from their screen-space derivatives is meaningless
+    // and put a visible seam down every roughness-band boundary on the demo sphere.
+    REQUIRE(frag.find("textureLod(brdfLut, vec2(max(dot(n, v), 1e-4), roughness), 0.0).rg")
             != std::string::npos);
 }
 
@@ -180,4 +185,37 @@ TEST_CASE("cube.frag keeps the flat ambient as its no-environment fallback", "[r
     // The flag that chooses between them rides in camera_position.w, which the UBO
     // documents as unused padding.
     REQUIRE(frag.find("fl.camera_position.w > 0.5") != std::string::npos);
+}
+
+TEST_CASE("the prefiltered LOD multiplier matches the level count the bakers use", "[render]")
+{
+    // The gap the slice-4c review found. Both bake sites pass kPrefilteredLevels, and
+    // cube.frag indexes the chain with a literal multiplier -- but nothing connected the
+    // two, so changing production to six levels shipped entirely green and made every
+    // specular reflection one level too sharp.
+    //
+    // The multiplier must be levels - 1, because textureLod interpolates ACROSS the
+    // chain: roughness 1 must land on the last level, not past it.
+    static_assert(mosaic::engine::render::kPrefilteredLevels == 5,
+                  "update cube.frag's roughness multiplier with this constant");
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string expected =
+        "roughness * " + std::to_string(mosaic::engine::render::kPrefilteredLevels - 1) + ".0";
+    INFO("expecting the LOD to be " << expected);
+    REQUIRE(frag.find(expected) != std::string::npos);
+}
+
+TEST_CASE("cube.frag reflects the view vector about the normal for the specular lookup", "[render]")
+{
+    // The other hole the review found, and the same shape as the CPU-side one already
+    // fixed: every assertion pinned what happens to the sampled value, and none pinned
+    // where the sample direction comes from.
+    //
+    // R = n makes the sphere reflect whatever is directly above each point; reflect(v, n)
+    // points into the geometry. Both leave every other test in this file green, and both
+    // look like a strange material rather than a bug.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    REQUIRE(frag.find("vec3 R = reflect(-v, n);") != std::string::npos);
 }

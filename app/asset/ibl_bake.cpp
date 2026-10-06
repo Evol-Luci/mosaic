@@ -219,10 +219,17 @@ std::array<Image, 6> bake_irradiance(const std::array<Image, 6>& env, std::uint3
                         ++samples;
                     }
                 }
-                // pi * mean. The pi and the division together are what make a uniform
-                // environment return itself -- the furnace test checks exactly this, so
-                // if it fails, the normalisation is where to look, not the sampling.
-                const float k = (samples > 0) ? (kPi / static_cast<float>(samples)) : 0.0f;
+                // Normalise by the ACTUAL measure of the steps taken, not the nominal
+                // pi^2/samples. The loops are left-Riemann and overshoot their domains
+                // slightly (phi reaches 6.25 in 126 steps, theta 1.55 in 32), so the two
+                // disagree by ~1.85% at kStep 0.05 -- which made every diffuse surface
+                // that much dim AND consumed almost all of the furnace test's 2%
+                // tolerance, leaving it unable to see a real 1-2% normalisation error.
+                // That tolerance was the stated justification for the coarser step.
+                //
+                // dPhi * dTheta / pi is the per-sample weight; the pi division is the
+                // energy-conserving diffuse normalisation.
+                const float k = (kStep * kStep) / kPi;
                 write_texel(face, x, y, Vec3{sum.x * k, sum.y * k, sum.z * k});
             }
         }
@@ -336,11 +343,20 @@ Image bake_brdf_lut(std::uint32_t size)
                 const float ndoth = (h.z > 0.0f) ? h.z : 0.0f;
                 const float vdoth_c = (vdoth > 0.0f) ? vdoth : 0.0f;
 
-                // Smith geometry with the IBL remap k = alpha^2 / 2 -- NOT the direct
-                // lighting k = alpha / 2 that cube.frag uses. The two differ only in how
-                // alpha is squared and using the wrong one is a silent energy error.
+                // Smith geometry with the IBL remap k = alpha / 2, where alpha is
+                // roughness squared. The reference writes this as
+                // `float a = roughness; float k = (a*a)/2`, whose `a` is ROUGHNESS -- so
+                // it is roughness^2/2, i.e. alpha/2. This code's `a` is already alpha,
+                // so squaring it again gave alpha^2/2 = roughness^4/2, which is what
+                // shipped until the slice-4c review.
+                //
+                // The error was not subtle in effect: it overestimated G1 by 3.6x at
+                // grazing angles, pushed 21% of the table above its analytic bound of 1,
+                // and biased much of the rest up to 38% high. It was mistaken for
+                // sampling noise and renormalised away -- verified wrong by convergence,
+                // the overshoot sitting at 4.16x even at 262,144 samples.
                 const float a = roughness * roughness;
-                const float k = (a * a) / 2.0f;
+                const float k = a / 2.0f;
                 const float gv = ndotv / (ndotv * (1.0f - k) + k);
                 const float gl = ndotl / (ndotl * (1.0f - k) + k);
                 const float g = gv * gl;
@@ -353,31 +369,18 @@ Image bake_brdf_lut(std::uint32_t size)
                 bias += fc * g_vis;
             }
             const float inv = 1.0f / static_cast<float>(kSamples);
-            float a_term = scale * inv;
-            float b_term = bias * inv;
+            const float a_term = scale * inv;
+            const float b_term = bias * inv;
 
-            // scale + bias is the specular directional albedo, which is at most 1
-            // analytically -- a surface cannot return more than it receives. Excess is
-            // SAMPLING ERROR, not a property of the model: g_vis divides by NdotV, which
-            // approaches zero at grazing angles, so with a finite sample count the
-            // integral diverges there. Measured before adding this: the most grazing
-            // column reached 4.1, meaning a surface seen edge-on would have emitted four
-            // times the light falling on it.
+            // scale + bias is the specular directional albedo and cannot exceed 1.
             //
-            // Renormalise rather than clamping each term separately, which would not
-            // bound the sum and would also distort the scale/bias split that carries the
-            // F0 dependence.
-            //
-            // Note what this deliberately does NOT do: it does not raise a value that
-            // falls SHORT. The shortfall at high roughness is the real single-scatter
-            // energy loss and must stay visible -- see the white-furnace test, which pins
-            // the measured number.
-            const float total = a_term + b_term;
-            if (total > 1.0f)
-            {
-                a_term /= total;
-                b_term /= total;
-            }
+            // There used to be a renormalisation here, added when the raw integral
+            // reached 4.1x at grazing angles and that was mistaken for sampling
+            // divergence. It was the alpha^2/2 remap above. With the correct k the grid
+            // maximum is exactly 1.0 -- reached only at roughness 0, where it is
+            // analytically correct -- so nothing needs bounding, and bounding it would
+            // only hide the next such error. A shortfall is still left visible: that one
+            // is the real single-scatter energy loss.
             write_texel(lut, x, y, Vec3{a_term, b_term, 0.0f});
         }
     }
@@ -487,15 +490,24 @@ std::optional<Environment> uncook_environment(const std::string& bytes)
         need += v;
         return true;
     };
-    if (!add(cube_face * 6) || !add(irr_face * 6)) { return std::nullopt; }
+    // The x6 must itself be guarded: face_bytes bounds px*bpp against SIZE_MAX, which
+    // still permits ~2.3e18, and multiplying THAT by six wraps. A crafted blob whose
+    // wrapped total happens to equal its real payload length would then pass the length
+    // check and reach read_face with out-of-range iterators. Add six times instead, so
+    // the existing per-step guard does the work.
+    for (int i = 0; i < 6; ++i)
+    {
+        if (!add(cube_face) || !add(irr_face)) { return std::nullopt; }
+    }
 
     std::vector<std::uint64_t> level_bytes(levels, 0);
     for (std::uint32_t m = 0; m < levels; ++m)
     {
         const std::uint32_t sz = mosaic::engine::render::mip_extent_for(pre_size, m);
-        if (!face_bytes(sz, level_bytes[m]) || !add(level_bytes[m] * 6))
+        if (!face_bytes(sz, level_bytes[m])) { return std::nullopt; }
+        for (int i = 0; i < 6; ++i)
         {
-            return std::nullopt;
+            if (!add(level_bytes[m])) { return std::nullopt; }
         }
     }
     if (bytes.size() - kHeader != need) { return std::nullopt; }

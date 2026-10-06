@@ -146,8 +146,8 @@ import_asset(const std::string& project_dir, const std::string& source_file)
                     source_file);
                 mosaic::app::Environment baked;
                 baked.cubemap = equirect_to_cubemap(*env, 512);
-                baked.irradiance = mosaic::app::bake_irradiance(baked.cubemap, 32);
-                baked.prefiltered = mosaic::app::bake_prefiltered(baked.cubemap, 128, 5);
+                baked.irradiance = mosaic::app::bake_irradiance(baked.cubemap, mosaic::engine::render::kIrradianceSize);
+                baked.prefiltered = mosaic::app::bake_prefiltered(baked.cubemap, mosaic::engine::render::kPrefilteredBaseSize, mosaic::engine::render::kPrefilteredLevels);
                 blob_bytes = mosaic::app::cook_environment(baked);
                 blob_ext = ".env";
                 asset_type = "environment";

@@ -72,8 +72,14 @@ TEST_CASE("furnace: irradiance of a uniform environment is that same uniform val
             for (std::uint32_t x = 0; x < 8; ++x)
             {
                 INFO("face " << f << " texel " << x << "," << y);
+                // 0.5%, not the 2% this once had. The looser figure was almost
+                // entirely consumed by a normalisation that used the NOMINAL step
+                // measure instead of the actual one (1.85% error), which left this
+                // unable to detect a genuine 1-2% mistake -- while being cited as the
+                // check that justified the coarser step. The measure is correct now and
+                // the residual is 0.2%, so the tolerance can do its job again.
                 REQUIRE(red_of(irr[static_cast<std::size_t>(f)], x, y)
-                        == Approx(1.0f).epsilon(0.02));
+                        == Approx(1.0f).epsilon(0.005));
             }
         }
     }
@@ -87,7 +93,7 @@ TEST_CASE("furnace: irradiance scales linearly with input radiance", "[asset]")
     {
         const auto irr = mosaic::app::bake_irradiance(uniform_environment(16, L), 4);
         INFO("L = " << L);
-        REQUIRE(red_of(irr[0], 2, 2) == Approx(L).epsilon(0.02));
+        REQUIRE(red_of(irr[0], 2, 2) == Approx(L).epsilon(0.005));
     }
 }
 
@@ -404,20 +410,39 @@ TEST_CASE("the white furnace: measuring how much energy single-scatter GGX loses
 
     // 5. A MID-roughness value, pinned tightly, and the reason it has to be here.
     //
-    // The Smith geometry term uses the IBL remap k = alpha^2/2, not the direct-lighting
-    // k = alpha/2 that cube.frag uses. Substituting the wrong one is a silent energy
-    // error with no visible signature -- and every assertion above passed with it,
-    // because the two remaps are IDENTICAL at roughness 0 and at roughness 1 (where
-    // alpha^2 = alpha) and the checks above sit at exactly those two points.
+    // The Smith geometry term uses the IBL remap k = alpha/2, where alpha is roughness
+    // squared. Substituting alpha^2/2 -- which is what shipped until the slice-4c review
+    // -- is a silent energy error, and every assertion above passed with it, because the
+    // two coincide at roughness 0 and at roughness 1 and those are exactly where the
+    // other checks sit.
     //
-    // They diverge in the middle: 0.896 with the correct remap against 0.786 with the
-    // wrong one, measured. Pinning mid-roughness is the only place that distinguishes
-    // them.
+    // They diverge in the middle: 0.786 with the CORRECT remap against 0.896 with the
+    // wrong one. An earlier version of this case had those two labels the wrong way
+    // round and pinned 0.896 -- so the test that existed to catch the bug was enforcing
+    // it, and fixing the code would have produced a red test blaming the fix. Both
+    // numbers below are measured against the corrected integral.
     const auto [am, bm] = lut_at(lut, 40, 32); // roughness ~0.51, mid viewing angle
     const double mid = static_cast<double>(am) + static_cast<double>(bm);
-    INFO("roughness 0.51 returns " << mid << " (k = alpha^2/2 gives ~0.896, "
-                                   << "k = alpha/2 gives ~0.786)");
-    REQUIRE(mid == Approx(0.896).margin(0.03));
+    INFO("roughness 0.51 returns " << mid << " (correct k = alpha/2 gives ~0.786, "
+                                   << "the wrong k = alpha^2/2 gives ~0.896)");
+    REQUIRE(mid == Approx(0.786).margin(0.02));
+
+    // 6. And the whole table respects its analytic bound WITHOUT being clamped to it.
+    //    The wrong remap pushed 21% of the grid above 1 and a renormalisation hid that;
+    //    with the correct one the maximum is 1.0 exactly, reached only at roughness 0
+    //    where it is analytically right. A maximum that is 1.0 across a BAND rather than
+    //    at a point means something is being clamped again.
+    int at_bound = 0;
+    for (std::uint32_t y = 0; y < 64; ++y)
+    {
+        for (std::uint32_t x = 0; x < 64; ++x)
+        {
+            const auto [a, b] = lut_at(lut, x, y);
+            if (static_cast<double>(a) + static_cast<double>(b) > 0.999) { ++at_bound; }
+        }
+    }
+    INFO(at_bound << " of 4096 cells sit at the analytic bound");
+    REQUIRE(at_bound < 200); // the roughness-0 row is 64; a clamped band is hundreds
 }
 
 TEST_CASE("an Environment round-trips through cook and uncook", "[asset]")

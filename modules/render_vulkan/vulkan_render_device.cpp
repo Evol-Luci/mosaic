@@ -62,7 +62,9 @@ struct FrameLightingUbo
     float spot_position[4];   // xyz, w = range
     float spot_direction[4];  // xyz, w = cos(outer_angle)
     float spot_color[4];      // xyz, w = cos(inner_angle)
-    float camera_position[4]; // xyz world space, w unused
+    // xyz world space. .w is the IBL enable flag -- NOT unused padding any more. A
+    // future field that takes this slot silently disables image-based lighting.
+    float camera_position[4];
     float light_view_proj[16];
 };
 static_assert(sizeof(FrameLightingUbo) == 192, "UBO layout must match the shader block");
@@ -1027,6 +1029,16 @@ public:
         if (levels.empty()) { return 0u; }
         const auto& base = levels[0][0];
         if (base.pixels.empty() || base.width == 0 || base.width != base.height) { return 0u; }
+        // A chain cannot be longer than the number of halvings the base allows, or
+        // mipLevels violates VUID-VkImageCreateInfo-mipLevels-00958.
+        if (levels.size() > mosaic::engine::render::mip_levels_for(base.width, base.width))
+        {
+            mosaic::foundation::log::error(
+                "render", "cubemap chain has {} levels but a {}-wide base allows at most {}",
+                levels.size(), base.width,
+                mosaic::engine::render::mip_levels_for(base.width, base.width));
+            return 0u;
+        }
         if (textures_.size() >= kMaxTextures)
         {
             mosaic::foundation::log::error(
@@ -3691,7 +3703,14 @@ private:
         lut.pixels[1] = static_cast<std::uint8_t>(one >> 8);
         ibl_default_lut_ = create_texture(lut, mosaic::engine::render::TextureColorSpace::Linear);
 
-        if (ibl_default_cube_ != 0 && ibl_default_lut_ != 0)
+        if (ibl_default_cube_ == 0 || ibl_default_lut_ == 0)
+        {
+            // Unreachable today -- textures_ is nearly empty here -- but if it ever
+            // happened, ibl_set_ would stay null and every lit draw would bind a null
+            // descriptor set, which is worse than the uploads failing. Fail loudly.
+            throw std::runtime_error(
+                "failed to create the default image-based-lighting resources");
+        }
         {
             set_image_based_lighting(ibl_default_cube_, ibl_default_cube_, ibl_default_lut_);
             // The defaults are not a real environment: the shader must still take the
@@ -4447,9 +4466,11 @@ private:
     // rather than silently handing back another material's set.
     static constexpr uint32_t kMaxMaterialSets = 256;
     // IBL sets are allocated fresh on every set_image_based_lighting rather than
-    // rewritten, so the count is "how many times the environment may change in a run",
-    // not "how many environments exist". 8 is generous for a feature that changes once
-    // at load; exhaustion keeps the previous set rather than corrupting anything.
+    // rewritten, so the count is "how many times the environment may be set in a run",
+    // not "how many environments exist". create_default_ibl_resources consumes the first
+    // one at startup, so the real budget is 7 CHANGES after that -- generous for a
+    // feature that is set once at load. Exhaustion keeps the previous set rather than
+    // corrupting anything.
     static constexpr uint32_t kMaxIblSets = 8;
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout material_set_layout_ = VK_NULL_HANDLE;
