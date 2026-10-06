@@ -260,6 +260,10 @@ public:
         create_ui_image_pipeline();
         create_ui_text_pipeline();
         create_command_pool_and_buffers();
+        // AFTER the command pool: uploading the stand-ins goes through
+        // begin_single_time_commands, which needs it. Placing this earlier segfaulted
+        // with "commandPool must be a valid VkCommandPool handle".
+        create_default_ibl_resources();
         create_sync_objects();
 
         glfwSetWindowUserPointer(window_, this);
@@ -342,6 +346,11 @@ public:
             if (descriptor_pool_ != VK_NULL_HANDLE)
             {
                 vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
+            }
+            if (ibl_set_layout_ != VK_NULL_HANDLE)
+            {
+                vkDestroyDescriptorSetLayout(device_, ibl_set_layout_, nullptr);
+                ibl_set_layout_ = VK_NULL_HANDLE;
             }
             if (material_set_layout_ != VK_NULL_HANDLE)
             {
@@ -1008,6 +1017,185 @@ public:
         return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
     }
 
+    // A cubemap WITH a mip chain, for the prefiltered-specular cube whose levels are
+    // convolutions at increasing roughness. Deliberately does NOT reuse sub-slice 4a's
+    // blit ladder: blitting the base down would replace five convolutions with a blur
+    // that still looks plausible, which is the worst kind of wrong.
+    mosaic::engine::render::TextureHandle
+    create_cubemap(const std::vector<std::array<mosaic::engine::render::Image, 6>>& levels) override
+    {
+        if (levels.empty()) { return 0u; }
+        const auto& base = levels[0][0];
+        if (base.pixels.empty() || base.width == 0 || base.width != base.height) { return 0u; }
+        if (textures_.size() >= kMaxTextures)
+        {
+            mosaic::foundation::log::error(
+                "render", "texture cap reached ({}); raise kMaxTextures", kMaxTextures);
+            return 0u;
+        }
+
+        // Every level checked against the size its position implies, and against the
+        // stride its own format implies. A level of the wrong size sizes the staging
+        // buffer differently from what the copy regions read -- an overrun, which
+        // validation does not reliably catch.
+        VkDeviceSize total = 0;
+        for (std::size_t m = 0; m < levels.size(); ++m)
+        {
+            const std::uint32_t want =
+                mosaic::engine::render::mip_extent_for(base.width, static_cast<std::uint32_t>(m));
+            for (const auto& f : levels[m])
+            {
+                if (f.width != want || f.height != want || f.format != base.format
+                    || f.pixels.size() != static_cast<std::size_t>(want) * want
+                                              * mosaic::engine::render::bytes_per_pixel(f.format))
+                {
+                    mosaic::foundation::log::error(
+                        "render", "cubemap mip level {} is not {}x{} in the base format", m,
+                        want, want);
+                    return 0u;
+                }
+                total += static_cast<VkDeviceSize>(f.pixels.size());
+            }
+        }
+
+        const VkFormat fmt = (base.format == mosaic::engine::render::ImageFormat::Rgba16F)
+                                 ? VK_FORMAT_R16G16B16A16_SFLOAT
+                                 : VK_FORMAT_R8G8B8A8_SRGB;
+        Texture tex{};
+        tex.is_cube = true;
+
+        VkBuffer staging = VK_NULL_HANDLE;
+        VkDeviceMemory staging_mem = VK_NULL_HANDLE;
+        create_buffer(total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                      staging, staging_mem);
+        void* mapped = nullptr;
+        vk_check(vkMapMemory(device_, staging_mem, 0, total, 0, &mapped), "vkMapMemory(cube chain)");
+        std::vector<VkBufferImageCopy> copies;
+        copies.reserve(levels.size() * 6);
+        VkDeviceSize offset = 0;
+        for (std::size_t m = 0; m < levels.size(); ++m)
+        {
+            const std::uint32_t sz =
+                mosaic::engine::render::mip_extent_for(base.width, static_cast<std::uint32_t>(m));
+            for (std::uint32_t face = 0; face < 6; ++face)
+            {
+                const auto& img = levels[m][face];
+                std::memcpy(static_cast<std::uint8_t*>(mapped) + offset, img.pixels.data(),
+                            img.pixels.size());
+                VkBufferImageCopy copy{};
+                copy.bufferOffset = offset;
+                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.mipLevel = static_cast<std::uint32_t>(m);
+                copy.imageSubresource.baseArrayLayer = face;
+                copy.imageSubresource.layerCount = 1;
+                copy.imageOffset = {0, 0, 0};
+                copy.imageExtent = {sz, sz, 1};
+                copies.push_back(copy);
+                offset += static_cast<VkDeviceSize>(img.pixels.size());
+            }
+        }
+        vkUnmapMemory(device_, staging_mem);
+
+        VkImageCreateInfo chain{};
+        chain.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        chain.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+        chain.imageType = VK_IMAGE_TYPE_2D;
+        chain.extent = {base.width, base.height, 1};
+        chain.mipLevels = static_cast<std::uint32_t>(levels.size());
+        chain.arrayLayers = 6;
+        chain.format = fmt;
+        chain.tiling = VK_IMAGE_TILING_OPTIMAL;
+        chain.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        chain.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        chain.samples = VK_SAMPLE_COUNT_1_BIT;
+        chain.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &chain, nullptr, &tex.image), "vkCreateImage(cube chain)");
+
+        VkMemoryRequirements req{};
+        vkGetImageMemoryRequirements(device_, tex.image, &req);
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = req.size;
+        alloc.memoryTypeIndex =
+            find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &tex.memory),
+                 "vkAllocateMemory(cube chain)");
+        vk_check(vkBindImageMemory(device_, tex.image, tex.memory, 0),
+                 "vkBindImageMemory(cube chain)");
+
+        VkCommandBuffer cmd = begin_single_time_commands();
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = tex.image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        // ALL levels and ALL layers together: a level left out is sampled in the wrong
+        // layout, which is undefined contents plus a validation error.
+        barrier.subresourceRange.levelCount = static_cast<std::uint32_t>(levels.size());
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 6;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                             &barrier);
+        vkCmdCopyBufferToImage(cmd, staging, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               static_cast<std::uint32_t>(copies.size()), copies.data());
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+                             1, &barrier);
+        end_single_time_commands(cmd);
+        vkDestroyBuffer(device_, staging, nullptr);
+        vkFreeMemory(device_, staging_mem, nullptr);
+
+        VkImageViewCreateInfo view{};
+        view.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view.image = tex.image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        view.format = fmt;
+        view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view.subresourceRange.baseMipLevel = 0;
+        view.subresourceRange.levelCount = static_cast<std::uint32_t>(levels.size());
+        view.subresourceRange.baseArrayLayer = 0;
+        view.subresourceRange.layerCount = 6;
+        vk_check(vkCreateImageView(device_, &view, nullptr, &tex.view),
+                 "vkCreateImageView(cube chain)");
+
+        VkSamplerCreateInfo sampler{};
+        sampler.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sampler.magFilter = VK_FILTER_LINEAR;
+        sampler.minFilter = VK_FILTER_LINEAR;
+        sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sampler.anisotropyEnable = VK_FALSE;
+        sampler.maxAnisotropy = 1.0f;
+        sampler.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+        sampler.unnormalizedCoordinates = VK_FALSE;
+        sampler.compareEnable = VK_FALSE;
+        sampler.compareOp = VK_COMPARE_OP_ALWAYS;
+        sampler.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        sampler.mipLodBias = 0.0f;
+        sampler.minLod = 0.0f;
+        // The shader indexes roughness across the chain with textureLod, so every level
+        // must be reachable.
+        sampler.maxLod = VK_LOD_CLAMP_NONE;
+        vk_check(vkCreateSampler(device_, &sampler, nullptr, &tex.sampler),
+                 "vkCreateSampler(cube chain)");
+
+        textures_.push_back(tex);
+        return static_cast<mosaic::engine::render::TextureHandle>(textures_.size());
+    }
+
     // One descriptor set per (base_color, metallic_roughness) texture pair, created on
     // first use and cached for the device's lifetime. Set ownership moved off the
     // texture table in PBR slice 3: a lit material needs two images visible at once,
@@ -1181,6 +1369,11 @@ public:
                                     pipeline_layout_, 1, 1, &shadow_descriptor_set_, 0, nullptr);
             vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                     pipeline_layout_, 2, 1, &frame_ubo_set_[frame_], 0, nullptr);
+            // Set 3: image-based lighting. Always bound -- create_default_ibl_resources
+            // points it at 1x1 stand-ins at startup, because the shader samples these
+            // unconditionally and an unbound descriptor is undefined.
+            vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout_, 3, 1, &ibl_set_, 0, nullptr);
         }
 
         const MeshBuffers& mb = meshes_[mesh - 1];
@@ -1347,6 +1540,63 @@ public:
                                sizeof(pc), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
         }
+    }
+
+    void set_image_based_lighting(mosaic::engine::render::TextureHandle irradiance,
+                                  mosaic::engine::render::TextureHandle prefiltered,
+                                  mosaic::engine::render::TextureHandle brdf_lut) override
+    {
+        auto valid = [&](mosaic::engine::render::TextureHandle h) {
+            return h != 0 && h <= textures_.size();
+        };
+        if (!valid(irradiance) || !valid(prefiltered) || !valid(brdf_lut))
+        {
+            mosaic::foundation::log::error(
+                "render", "set_image_based_lighting given an invalid handle; IBL stays off");
+            return;
+        }
+        if (ibl_sets_allocated_ >= kMaxIblSets)
+        {
+            // Keeping the previous set is safe and visible: the environment simply does
+            // not change. Rewriting the live one would be the unsafe alternative.
+            mosaic::foundation::log::error(
+                "render", "IBL set cap reached ({}); keeping the previous environment",
+                kMaxIblSets);
+            return;
+        }
+
+        // A FRESH set, never a rewrite of the live one -- see ibl_set_layout_'s comment.
+        VkDescriptorSetAllocateInfo ibl_alloc{};
+        ibl_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        ibl_alloc.descriptorPool = descriptor_pool_;
+        ibl_alloc.descriptorSetCount = 1;
+        ibl_alloc.pSetLayouts = &ibl_set_layout_;
+        VkDescriptorSet fresh_set = VK_NULL_HANDLE;
+        vk_check(vkAllocateDescriptorSets(device_, &ibl_alloc, &fresh_set),
+                 "vkAllocateDescriptorSets(ibl)");
+        ++ibl_sets_allocated_;
+
+        const mosaic::engine::render::TextureHandle handles[3] = {irradiance, prefiltered,
+                                                                  brdf_lut};
+        VkDescriptorImageInfo infos[3]{};
+        VkWriteDescriptorSet writes[3]{};
+        for (int i = 0; i < 3; ++i)
+        {
+            const Texture& t = textures_[handles[i] - 1];
+            infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            infos[i].imageView = t.view;
+            infos[i].sampler = t.sampler;
+            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            writes[i].dstSet = fresh_set;
+            writes[i].dstBinding = static_cast<std::uint32_t>(i);
+            writes[i].dstArrayElement = 0;
+            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            writes[i].descriptorCount = 1;
+            writes[i].pImageInfo = &infos[i];
+        }
+        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
+        ibl_set_ = fresh_set;
+        ibl_enabled_ = true;
     }
 
     void draw_skybox(mosaic::engine::render::TextureHandle cubemap,
@@ -2550,17 +2800,39 @@ private:
         vk_check(vkCreateDescriptorSetLayout(device_, &mat_layout, nullptr, &material_set_layout_),
                  "vkCreateDescriptorSetLayout(material)");
 
+        // A fourth set layout for image-based lighting: irradiance cube, prefiltered
+        // cube, BRDF LUT. Its own set rather than three more bindings on the per-frame
+        // set, because the environment resolves DURING render() with two frames in
+        // flight -- writing into a per-frame set would mutate one the other frame may
+        // still be reading. This set is never rewritten; a new one is allocated and the
+        // handle swapped, which is safe because the old set stays valid for any command
+        // buffer still referencing it.
+        VkDescriptorSetLayoutBinding ibl_bindings[3]{};
+        for (int i = 0; i < 3; ++i)
+        {
+            ibl_bindings[i].binding = static_cast<std::uint32_t>(i);
+            ibl_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            ibl_bindings[i].descriptorCount = 1;
+            ibl_bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        }
+        VkDescriptorSetLayoutCreateInfo ibl_layout{};
+        ibl_layout.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        ibl_layout.bindingCount = 3;
+        ibl_layout.pBindings = ibl_bindings;
+        vk_check(vkCreateDescriptorSetLayout(device_, &ibl_layout, nullptr, &ibl_set_layout_),
+                 "vkCreateDescriptorSetLayout(ibl)");
+
         // The pool feeds both: kMaxTextures single-binding sets plus kMaxMaterialSets
-        // two-binding ones.
+        // two-binding ones, plus kMaxIblSets three-binding IBL sets.
         VkDescriptorPoolSize pool_size{};
         pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2;
+        pool_size.descriptorCount = kMaxTextures + kMaxMaterialSets * 2 + kMaxIblSets * 3;
 
         VkDescriptorPoolCreateInfo pool{};
         pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool.poolSizeCount = 1;
         pool.pPoolSizes = &pool_size;
-        pool.maxSets = kMaxTextures + kMaxMaterialSets;
+        pool.maxSets = kMaxTextures + kMaxMaterialSets + kMaxIblSets;
         vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &descriptor_pool_),
                  "vkCreateDescriptorPool");
     }
@@ -2918,8 +3190,11 @@ private:
         push.offset = 0;
         push.size = sizeof(PushConstants);
 
-        std::array<VkDescriptorSetLayout, 3> set_layouts{material_set_layout_, shadow_set_layout_,
-                                                         frame_ubo_set_layout_};
+        // Four sets: material, shadow, per-frame UBO, IBL. Vulkan guarantees at least
+        // four bound descriptor sets, so this sits exactly at the floor -- a fifth needs
+        // a device limit check first.
+        std::array<VkDescriptorSetLayout, 4> set_layouts{material_set_layout_, shadow_set_layout_,
+                                                         frame_ubo_set_layout_, ibl_set_layout_};
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
@@ -3385,6 +3660,40 @@ private:
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
+    // 1x1 stand-ins bound into set 3 at startup, so the set is ALWAYS valid.
+    //
+    // The lit shader samples all three unconditionally -- it decides whether to USE the
+    // result from a uniform, not whether to sample -- and sampling an unbound descriptor
+    // is undefined behaviour rather than merely a black pixel. Black for the two cubes
+    // and a neutral (1, 0) for the LUT, so if the enable flag were ever wrong the result
+    // would be an unlit surface rather than a garbage one.
+    void create_default_ibl_resources()
+    {
+        mosaic::engine::render::Image black;
+        black.width = 1;
+        black.height = 1;
+        black.format = mosaic::engine::render::ImageFormat::Rgba16F;
+        black.pixels.assign(8, 0);
+        std::array<mosaic::engine::render::Image, 6> faces;
+        for (auto& f : faces) { f = black; }
+        ibl_default_cube_ = create_cubemap(faces);
+
+        mosaic::engine::render::Image lut = black;
+        // scale = 1, bias = 0: specular would be exactly F0 if it were ever used.
+        const std::uint16_t one = 0x3C00; // half 1.0
+        lut.pixels[0] = static_cast<std::uint8_t>(one & 0xFF);
+        lut.pixels[1] = static_cast<std::uint8_t>(one >> 8);
+        ibl_default_lut_ = create_texture(lut, mosaic::engine::render::TextureColorSpace::Linear);
+
+        if (ibl_default_cube_ != 0 && ibl_default_lut_ != 0)
+        {
+            set_image_based_lighting(ibl_default_cube_, ibl_default_cube_, ibl_default_lut_);
+            // The defaults are not a real environment: the shader must still take the
+            // flat-ambient fallback until a genuine one arrives.
+            ibl_enabled_ = false;
+        }
     }
 
     void create_skybox_pipeline()
@@ -4133,8 +4442,21 @@ private:
     // today -- the demo uses fewer than ten. Exhaustion fails loudly in material_set()
     // rather than silently handing back another material's set.
     static constexpr uint32_t kMaxMaterialSets = 256;
+    // IBL sets are allocated fresh on every set_image_based_lighting rather than
+    // rewritten, so the count is "how many times the environment may change in a run",
+    // not "how many environments exist". 8 is generous for a feature that changes once
+    // at load; exhaustion keeps the previous set rather than corrupting anything.
+    static constexpr uint32_t kMaxIblSets = 8;
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
     VkDescriptorSetLayout material_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout ibl_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorSet ibl_set_ = VK_NULL_HANDLE;
+    std::uint32_t ibl_sets_allocated_ = 0;
+    // 1x1 stand-ins so set 3 is ALWAYS valid: the shader samples all three unconditionally
+    // and an unbound descriptor is undefined, not merely dark.
+    mosaic::engine::render::TextureHandle ibl_default_cube_ = 0;
+    mosaic::engine::render::TextureHandle ibl_default_lut_ = 0;
+    bool ibl_enabled_ = false;
     VkPipeline skybox_pipeline_ = VK_NULL_HANDLE;
     VkPipeline vp_skybox_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout skybox_pipeline_layout_ = VK_NULL_HANDLE;
