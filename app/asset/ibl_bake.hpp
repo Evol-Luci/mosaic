@@ -45,4 +45,16 @@ std::array<mosaic::engine::render::Image, 6> bake_irradiance(
 std::vector<std::array<mosaic::engine::render::Image, 6>> bake_prefiltered(
     const std::array<mosaic::engine::render::Image, 6>& env, std::uint32_t base_size,
     std::uint32_t levels);
+// The split-sum BRDF lookup table: red = the scale applied to F0, green = the bias added
+// to it, indexed by (NdotV, roughness) across a `size` x `size` table.
+//
+// Deliberately NOT an asset. The integral is of the GGX BRDF over roughness and viewing
+// angle and does not depend on the environment at all, so cooking it beside one would
+// bake an identical copy into every environment. It costs milliseconds at startup.
+//
+// Note the geometry term uses the IBL remap k = alpha^2 / 2, NOT the direct-lighting
+// k = alpha / 2 that cube.frag uses. The two look identical and using the wrong one is a
+// silent energy error with no visible signature beyond "slightly off".
+mosaic::engine::render::Image bake_brdf_lut(std::uint32_t size);
+
 } // namespace mosaic::app

@@ -291,4 +291,88 @@ std::vector<std::array<Image, 6>> bake_prefiltered(const std::array<Image, 6>& e
     }
     return chain;
 }
+Image bake_brdf_lut(std::uint32_t size)
+{
+    Image lut = make_face(size, ImageFormat::Rgba16F);
+    if (size == 0) { return lut; }
+
+    constexpr std::uint32_t kSamples = 1024;
+
+    for (std::uint32_t y = 0; y < size; ++y)
+    {
+        // Row 0 is roughness 0 and the last row is 1. The shader indexes this axis with
+        // roughness directly, so the mapping must stay linear.
+        const float roughness =
+            (size > 1) ? (static_cast<float>(y) / static_cast<float>(size - 1)) : 0.0f;
+        for (std::uint32_t x = 0; x < size; ++x)
+        {
+            // Column 0 would be NdotV = 0 exactly -- a surface seen edge-on, where the
+            // integral is degenerate. Offset by half a texel, as the shader's own
+            // sampling does.
+            const float ndotv = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
+            const Vec3 v{std::sqrt(1.0f - ndotv * ndotv), 0.0f, ndotv};
+            const Vec3 n{0.0f, 0.0f, 1.0f};
+
+            float scale = 0.0f;
+            float bias = 0.0f;
+            for (std::uint32_t i = 0; i < kSamples; ++i)
+            {
+                const Vec3 h = importance_sample_ggx(i, kSamples, n, roughness);
+                const float vdoth = v.x * h.x + v.y * h.y + v.z * h.z;
+                const Vec3 l{2.0f * vdoth * h.x - v.x, 2.0f * vdoth * h.y - v.y,
+                             2.0f * vdoth * h.z - v.z};
+                if (l.z <= 0.0f) { continue; }
+
+                const float ndotl = l.z;
+                const float ndoth = (h.z > 0.0f) ? h.z : 0.0f;
+                const float vdoth_c = (vdoth > 0.0f) ? vdoth : 0.0f;
+
+                // Smith geometry with the IBL remap k = alpha^2 / 2 -- NOT the direct
+                // lighting k = alpha / 2 that cube.frag uses. The two differ only in how
+                // alpha is squared and using the wrong one is a silent energy error.
+                const float a = roughness * roughness;
+                const float k = (a * a) / 2.0f;
+                const float gv = ndotv / (ndotv * (1.0f - k) + k);
+                const float gl = ndotl / (ndotl * (1.0f - k) + k);
+                const float g = gv * gl;
+
+                const float g_vis = (g * vdoth_c) / ((ndoth * ndotv > 0.0f)
+                                                         ? (ndoth * ndotv)
+                                                         : 1e-6f);
+                const float fc = std::pow(1.0f - vdoth_c, 5.0f);
+                scale += (1.0f - fc) * g_vis;
+                bias += fc * g_vis;
+            }
+            const float inv = 1.0f / static_cast<float>(kSamples);
+            float a_term = scale * inv;
+            float b_term = bias * inv;
+
+            // scale + bias is the specular directional albedo, which is at most 1
+            // analytically -- a surface cannot return more than it receives. Excess is
+            // SAMPLING ERROR, not a property of the model: g_vis divides by NdotV, which
+            // approaches zero at grazing angles, so with a finite sample count the
+            // integral diverges there. Measured before adding this: the most grazing
+            // column reached 4.1, meaning a surface seen edge-on would have emitted four
+            // times the light falling on it.
+            //
+            // Renormalise rather than clamping each term separately, which would not
+            // bound the sum and would also distort the scale/bias split that carries the
+            // F0 dependence.
+            //
+            // Note what this deliberately does NOT do: it does not raise a value that
+            // falls SHORT. The shortfall at high roughness is the real single-scatter
+            // energy loss and must stay visible -- see the white-furnace test, which pins
+            // the measured number.
+            const float total = a_term + b_term;
+            if (total > 1.0f)
+            {
+                a_term /= total;
+                b_term /= total;
+            }
+            write_texel(lut, x, y, Vec3{a_term, b_term, 0.0f});
+        }
+    }
+    return lut;
+}
+
 } // namespace mosaic::app

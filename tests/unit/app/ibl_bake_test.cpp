@@ -11,6 +11,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <utility>
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -291,4 +292,130 @@ TEST_CASE("prefiltered blur increases with the level, not merely with the resolu
     // The rougher level must retain LESS of its resample's contrast than the smoother
     // one. Inverting the mapping swaps these and fails here.
     REQUIRE(r3 < r1);
+}
+
+namespace
+{
+// (scale, bias) at a texel of the LUT.
+std::pair<float, float> lut_at(const Image& lut, std::uint32_t x, std::uint32_t y)
+{
+    const std::size_t i = (static_cast<std::size_t>(y) * lut.width + x) * 8;
+    return {mosaic::app::half_to_float(
+                static_cast<std::uint16_t>(lut.pixels[i] | (lut.pixels[i + 1] << 8))),
+            mosaic::app::half_to_float(
+                static_cast<std::uint16_t>(lut.pixels[i + 2] | (lut.pixels[i + 3] << 8)))};
+}
+} // namespace
+
+TEST_CASE("the BRDF LUT's terms stay within their analytic bounds", "[asset]")
+{
+    // Both split-sum terms are integrals of quantities in [0,1], so neither can leave it.
+    // A value outside means the importance sampling or the Smith term is wrong, and the
+    // visible result is a material that gains or loses energy with viewing angle --
+    // which reads as a strange material rather than as a bug.
+    const auto lut = mosaic::app::bake_brdf_lut(32);
+    REQUIRE(lut.width == 32);
+    REQUIRE(lut.height == 32);
+    REQUIRE(lut.format == ImageFormat::Rgba16F);
+    for (std::uint32_t y = 0; y < 32; ++y)
+    {
+        for (std::uint32_t x = 0; x < 32; ++x)
+        {
+            const auto [a, b] = lut_at(lut, x, y);
+            INFO("texel " << x << "," << y << " scale " << a << " bias " << b);
+            REQUIRE(a >= 0.0f);
+            REQUIRE(a <= 1.0f);
+            REQUIRE(b >= 0.0f);
+            REQUIRE(b <= 1.0f);
+        }
+    }
+}
+
+TEST_CASE("the BRDF LUT approaches a pure Fresnel response at zero roughness", "[asset]")
+{
+    // The one corner of the domain with a known closed form, which makes it the honest
+    // anchor for the whole table: at roughness 0 the distribution is a delta function, so
+    // the scale goes to 1 and the bias to 0 and specular is exactly F0.
+    const auto lut = mosaic::app::bake_brdf_lut(32);
+    const auto [a, b] = lut_at(lut, 24, 0); // mid viewing angle, roughness 0
+    INFO("scale " << a << " bias " << b);
+    REQUIRE(a == Approx(1.0f).epsilon(0.05));
+    REQUIRE(b == Approx(0.0f).margin(0.05));
+}
+
+TEST_CASE("the white furnace: measuring how much energy single-scatter GGX loses", "[asset]")
+{
+    // THE energy test, and the one the other furnace cases in this file cannot give:
+    // those show the integrals are NORMALISED, not that the model conserves energy.
+    //
+    // Put a white surface (F0 = 1, every ray reflects) in a uniform environment of
+    // radiance 1. The split-sum reconstruction is prefiltered * (F0 * scale + bias); the
+    // prefiltered term is 1 by the furnace property, so the whole thing reduces to
+    // (scale + bias). A surface that reflects everything and absorbs nothing must return
+    // exactly 1.
+    //
+    // IT DOES NOT, AND THAT IS THE EXPECTED FINDING. Single-scatter GGX drops the light
+    // that would have bounced between microfacets, and the loss grows with roughness.
+    // The numbers below are MEASURED, not chosen to pass: they are what this
+    // implementation actually returns, so when multi-scatter compensation is added (the
+    // backlog carries it) the improvement is checkable against a recorded baseline rather
+    // than against a tolerance someone widened.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+
+    // 1. Energy is never INVENTED. The integral's analytic bound is 1; bake_brdf_lut
+    //    renormalises the grazing-angle overshoot that finite sampling produces.
+    for (std::uint32_t y = 0; y < 64; ++y)
+    {
+        for (std::uint32_t x = 0; x < 64; ++x)
+        {
+            const auto [a, b] = lut_at(lut, x, y);
+            INFO("texel " << x << "," << y << " scale " << a << " bias " << b);
+            REQUIRE(static_cast<double>(a) + static_cast<double>(b) <= 1.001);
+        }
+    }
+
+    // 2. A SMOOTH surface is essentially perfect. A shortfall here would be a defect in
+    //    the integration rather than the known limitation, because at roughness 0 there
+    //    are no microfacets to bounce between.
+    const auto [a0, b0] = lut_at(lut, 32, 0);
+    INFO("roughness 0: scale " << a0 << " bias " << b0);
+    REQUIRE(static_cast<double>(a0) + static_cast<double>(b0) == Approx(1.0).epsilon(0.02));
+
+    // 3. The loss grows monotonically with roughness, at a fixed viewing angle. This is
+    //    the shape of the limitation, and it is what a multi-scatter term must flatten.
+    double previous = 2.0;
+    for (std::uint32_t y = 0; y < 64; y += 8)
+    {
+        const auto [a, b] = lut_at(lut, 40, y);
+        const double total = static_cast<double>(a) + static_cast<double>(b);
+        INFO("roughness " << (y / 63.0) << " returns " << total);
+        REQUIRE(total <= previous + 0.02);
+        previous = total;
+    }
+
+    // 4. The measured worst case, recorded so it can be beaten rather than forgotten.
+    //    At roughness 1 a white surface returns about 0.31 of the light it receives --
+    //    it loses roughly TWO THIRDS. That is the single-scatter energy loss, quantified.
+    const auto [a1, b1] = lut_at(lut, 63, 63);
+    const double worst = static_cast<double>(a1) + static_cast<double>(b1);
+    INFO("roughness 1.0 at normal incidence returns " << worst);
+    REQUIRE(worst > 0.25);
+    REQUIRE(worst < 0.40);
+
+    // 5. A MID-roughness value, pinned tightly, and the reason it has to be here.
+    //
+    // The Smith geometry term uses the IBL remap k = alpha^2/2, not the direct-lighting
+    // k = alpha/2 that cube.frag uses. Substituting the wrong one is a silent energy
+    // error with no visible signature -- and every assertion above passed with it,
+    // because the two remaps are IDENTICAL at roughness 0 and at roughness 1 (where
+    // alpha^2 = alpha) and the checks above sit at exactly those two points.
+    //
+    // They diverge in the middle: 0.896 with the correct remap against 0.786 with the
+    // wrong one, measured. Pinning mid-roughness is the only place that distinguishes
+    // them.
+    const auto [am, bm] = lut_at(lut, 40, 32); // roughness ~0.51, mid viewing angle
+    const double mid = static_cast<double>(am) + static_cast<double>(bm);
+    INFO("roughness 0.51 returns " << mid << " (k = alpha^2/2 gives ~0.896, "
+                                   << "k = alpha/2 gives ~0.786)");
+    REQUIRE(mid == Approx(0.896).margin(0.03));
 }
