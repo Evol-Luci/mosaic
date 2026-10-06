@@ -78,6 +78,7 @@ add_executable(mosaic_unit_tests
   unit/app/project_resolve_test.cpp
   unit/app/bundle_test.cpp
   unit/app/image_cook_test.cpp
+  unit/app/cubemap_cook_test.cpp
   unit/app/asset_import_test.cpp
   unit/app/import_plugins_test.cpp
   unit/app/package_source_test.cpp

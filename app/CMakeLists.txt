@@ -11,6 +11,7 @@ add_library(mosaic_app STATIC
   run/mcp.cpp
   asset/font_cook.cpp
   asset/image_cook.cpp
+  asset/cubemap_cook.cpp
   asset/import_plugins.cpp
   plugin/git.cpp
   mcp/mcp_tools.cpp
@@ -34,6 +35,7 @@ target_compile_features(mosaic_app PUBLIC cxx_std_20)
 
 target_compile_definitions(mosaic_app PUBLIC
   MOSAIC_FONT_DIR="${CMAKE_SOURCE_DIR}/assets/fonts"
+  MOSAIC_BACKGROUNDS_DIR="${CMAKE_SOURCE_DIR}/assets/backgrounds"
   MOSAIC_TEMPLATES_DIR="${CMAKE_SOURCE_DIR}/templates"
   MOSAIC_DOCS_DIR="${CMAKE_SOURCE_DIR}/docs"
   MOSAIC_PACKAGES_DIR="${CMAKE_SOURCE_DIR}/packages")

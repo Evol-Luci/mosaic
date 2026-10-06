@@ -22,6 +22,7 @@
 
 using mosaic::engine::render::TextureColorSpace;
 using mosaic::tests::normalize_ws;
+using mosaic::tests::read_shader;
 
 namespace
 {
@@ -149,7 +150,12 @@ TEST_CASE("the backend generates a full mip chain and samples it", "[render]")
     REQUIRE(src.find("img.mipLevels = levels;") != std::string::npos);
     // "all levels", however spelled -- but emphatically not 0, which is the regression.
     REQUIRE(src.find("sampler.maxLod = VK_LOD_CLAMP_NONE;") != std::string::npos);
-    REQUIRE(src.find("sampler.maxLod = 0.0f;") == std::string::npos);
+    // The LEADING SPACE is load-bearing. Without it this also matched
+    // `cube_sampler.maxLod = 0.0f;`, which is correct -- a cubemap has one level -- so
+    // the guard failed on correct code. normalize_ws puts exactly one space between
+    // tokens, and `cube_sampler` is preceded by `_`, so the space pins the 2D sampler
+    // alone. Found while adding create_cubemap, 2026-10-05.
+    REQUIRE(src.find(" sampler.maxLod = 0.0f;") == std::string::npos);
     // The two single-token edits that break the LAYOUT LIFECYCLE while every other
     // assertion here still passes, and which no test held: the initial transition must
     // cover the whole chain (otherwise levels 1..n-1 are blitted while in UNDEFINED),
@@ -172,4 +178,75 @@ TEST_CASE("the backend generates a full mip chain and samples it", "[render]")
     // ...and that the test is a SUBSET check, not an equality one: == kBlitFeatures is
     // the difference between "has all of them" and "has any of them".
     REQUIRE(src.find("& kBlitFeatures) == kBlitFeatures") != std::string::npos);
+}
+
+TEST_CASE("the backend creates cubemaps with the cube flags and view type", "[render]")
+{
+    // Review Focus 4. A cubemap shares TextureHandle and the texture table with 2D
+    // images, so the only things distinguishing it are the create flag, the layer count
+    // and the view type -- and all three must agree. Two out of three is a validation
+    // error at best and a wrong binding at worst, and CI has no GPU to catch either.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT") != std::string::npos);
+    REQUIRE(src.find("VK_IMAGE_VIEW_TYPE_CUBE") != std::string::npos);
+    REQUIRE(src.find("cube.arrayLayers = 6;") != std::string::npos);
+    REQUIRE(src.find("cube_view.subresourceRange.layerCount = 6;") != std::string::npos);
+    // All six faces must be transitioned together, or whichever layers were missed are
+    // sampled in the wrong layout -- undefined contents plus a validation error.
+    REQUIRE(src.find("cube_barrier.subresourceRange.layerCount = 6;") != std::string::npos);
+    // Cube sampling must clamp on every axis, or the faces show seams at their edges.
+    REQUIRE(src.find("cube_sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;")
+            != std::string::npos);
+}
+
+TEST_CASE("the skybox draws behind the scene and does not write depth", "[render]")
+{
+    // Review Focus 5. depthWrite on would let the sky occlude everything drawn after it;
+    // a LESS compare at the far plane rejects every fragment and shows no sky at all.
+    // Both are one-token mistakes with a total visual effect, and CI has no GPU.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("sky_depth.depthWriteEnable = VK_FALSE;") != std::string::npos);
+    REQUIRE(src.find("sky_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;")
+            != std::string::npos);
+    // The fullscreen triangle sits exactly on the far plane, so it fills only pixels
+    // nothing else wrote.
+    const std::string vert =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(mosaic::tests::read_shader("skybox.vert")));
+    REQUIRE(vert.find("gl_Position = vec4(pos, 1.0, 1.0);") != std::string::npos);
+}
+
+TEST_CASE("draw_skybox guards the render pass and the skipped frame", "[render]")
+{
+    // The slice-4b review's Critical finding. Every other recording method in the
+    // backend opens with these two lines; draw_skybox had neither.
+    //
+    // Without them: resize or minimise the window, begin_frame takes the
+    // VK_ERROR_OUT_OF_DATE_KHR path, sets frame_skipped_ and returns BEFORE
+    // vkBeginCommandBuffer -- and draw_skybox then records four commands into a command
+    // buffer that is not in the recording state. That is undefined behaviour, not a
+    // visual artefact, and it diverges by driver. A scene with an environment and no
+    // drawn meshes reaches the same place by a different route, because nothing else
+    // would have opened the pass.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    const std::size_t at = src.find("void draw_skybox(");
+    REQUIRE(at != std::string::npos);
+    const std::string prologue = src.substr(at, 400);
+    REQUIRE(prologue.find("if (!viewport_pass_open_) { ensure_swapchain_pass(); }")
+            != std::string::npos);
+    REQUIRE(prologue.find("frame_skipped_") != std::string::npos);
+}
+
+TEST_CASE("the skybox depth TEST is enabled, not merely its write disabled", "[render]")
+{
+    // The slice-4b review's other test gap. VkPipelineDepthStencilStateCreateInfo is
+    // zero-initialised, so deleting the depthTestEnable line silently yields VK_FALSE:
+    // every skybox fragment then passes, and with blending disabled the sky paints over
+    // the ENTIRE scene. The sibling test pinned depthWriteEnable and the compare op but
+    // not this, so the one state that loses the whole image was unguarded.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("sky_depth.depthTestEnable = VK_TRUE;") != std::string::npos);
 }
