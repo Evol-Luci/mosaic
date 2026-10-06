@@ -684,6 +684,39 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Editor / Studio
 
+- **The editor forwards no pointer input to the scene, so nothing in it
+  can be clicked** — found 2026-10-06 while visually verifying IBL in the
+  editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
+  position normalised against the window, plus the left button) and hands
+  it to `setup_runtime`; `app/run/editor.cpp:159-160` stops its own
+  `setup_runtime` call at the audio backend, so the `pointer` parameter
+  takes its empty default. `UiSystem` and `ClickNudgeSystem` therefore
+  receive nothing, and UI buttons, click-driven scripts and any
+  pointer-reading gameplay cannot be exercised in the editor at all --
+  only by `mosaic run --window`, which has no camera or object
+  manipulation. The two halves of testing a scene are in different
+  programs.
+
+  **Why this is not the one-line fix it looks like.** The editor renders
+  the scene into an *offscreen viewport texture* that ImGui composites
+  into a panel, so window-relative cursor coordinates are simply wrong:
+  they must be relative to that panel's rect, valid only while the cursor
+  is over it, and suppressed entirely while ImGui has captured the mouse
+  (dragging a gizmo, typing in a field). `main.cpp:299` also records that
+  `UiSystem` and `ClickNudgeSystem` **must agree about the pointer within
+  a tick, or the UI-claim arbitration breaks** -- so the editor needs one
+  shared provider too, not two call sites that happen to compute
+  something similar.
+
+  There is a second design question underneath: whether clicking in the
+  viewport should drive the *game's* pointer at all while the editor is
+  in edit mode, or only in play mode -- otherwise selecting an object
+  would also press whatever UI button is under the cursor. That is a
+  behaviour decision, not an implementation detail.
+
+  Depends on nothing technically; it needs the play-mode-versus-edit-mode
+  answer first.
+
 - ~~**In-editor "File → Reload"**~~ — **SHIPPED** 2026-09-20. Turned out
   to need two new primitives that didn't exist before: `World::clear()`
   (synchronous, no-system-stepping entity wipe -- `destroy_entity()`
@@ -1559,7 +1592,11 @@ re-reading the same source docs:
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
-**Empty as of 2026-09-21.** All five original items shipped: Studio
+| Item | Why this tier |
+|---|---|
+| **Pointer input from the editor viewport to the scene** — added 2026-10-06 | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
+
+**The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
 + versioning (PR #194), plugin live file-watching/hot-reload
 (PR #195), Studio theme system + persistence (PR #196), Studio
