@@ -26,9 +26,21 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     vec4 spot_position;   // world space .xyz, .w = range
     vec4 spot_direction;  // world space .xyz, .w = cos(outer_angle)
     vec4 spot_color;      // .xyz = color * intensity, .w = cos(inner_angle)
-    vec4 camera_position; // world space .xyz
+    // .xyz is the camera in world space. .w is 1 when image-based lighting is active and
+    // 0 otherwise -- it rides in this vec4's documented-unused padding slot rather than
+    // growing the UBO, which would change its size assertion for one boolean.
+    vec4 camera_position;
     mat4 light_view_proj;
 } fl;
+// Image-based lighting, in its own descriptor set because these are per-FRAME products
+// resolved mid-frame -- see ibl_set_layout_ in the Vulkan backend for why that cannot
+// share the per-frame UBO's set. All three are sampled unconditionally and a 1x1 stand-in
+// is bound when there is no environment, because sampling an unbound descriptor is
+// undefined rather than merely black.
+layout(set = 3, binding = 0) uniform samplerCube irradianceMap;
+layout(set = 3, binding = 1) uniform samplerCube prefilteredMap;
+layout(set = 3, binding = 2) uniform sampler2D   brdfLut;
+
 layout(location = 0) out vec4 outColor;
 
 // Hard shadow (no PCF): 1.0 = fully lit, 0.0 = in shadow. A fragment whose
@@ -194,11 +206,37 @@ void main()
     vec3 spot_term = brdf(n, v, spotLdir, albedo, metallic, roughness)
                    * spotAtten * coneAtten;
 
-    // Ambient stays a flat hack until IBL (slice 4), but is kD-weighted so metals get
-    // no ambient diffuse.
     vec3 F0_amb = mix(vec3(0.04), albedo, metallic);
     vec3 kD_amb = (vec3(1.0) - F0_amb) * (1.0 - metallic);
-    vec3 color  = albedo * 0.1 * kD_amb
+
+    vec3 ambient;
+    if (fl.camera_position.w > 0.5)
+    {
+        // Diffuse: the cosine-convolved irradiance in the surface's own direction,
+        // kD-weighted exactly as the flat term was, so metals still receive no ambient
+        // diffuse.
+        vec3 irradiance = texture(irradianceMap, n).rgb;
+        vec3 diffuseIBL = kD_amb * albedo * irradiance;
+
+        // Specular: the split-sum approximation. The prefiltered chain holds FIVE levels
+        // at roughness 0, .25, .5, .75, 1, so the LOD is roughness * 4 and textureLod
+        // interpolates between them. A * 5.0, or a chain of a different length, yields a
+        // material that merely looks too shiny or too blurry.
+        vec3 R = reflect(-v, n);
+        vec3 prefiltered = textureLod(prefilteredMap, R, roughness * 4.0).rgb;
+        vec2 ab = texture(brdfLut, vec2(max(dot(n, v), 1e-4), roughness)).rg;
+        ambient = diffuseIBL + prefiltered * (F0_amb * ab.x + ab.y);
+    }
+    else
+    {
+        // The pre-IBL ambient, kept so a scene with NO environment renders exactly as it
+        // did before this slice. Not dead code -- it is the other half of a runtime
+        // choice, and the demo always has an environment, so nothing else would notice
+        // if it were deleted.
+        ambient = albedo * 0.1 * kD_amb;
+    }
+
+    vec3 color  = ambient
                 + dir_term * fl.light_color.xyz
                 + pt_term * fl.point_color.xyz
                 + spot_term * fl.spot_color.xyz;

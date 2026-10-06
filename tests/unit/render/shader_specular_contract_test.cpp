@@ -132,3 +132,52 @@ TEST_CASE("cube.frag declares the metallic/roughness sampler at set 0 binding 1"
     const std::string frag = code_only(read_shader("cube.frag"));
     REQUIRE(frag.find("set = 0, binding = 1") != std::string::npos);
 }
+
+TEST_CASE("cube.frag samples the three IBL products from set 3", "[render]")
+{
+    // The lit pass reads irradiance, prefiltered specular and the BRDF LUT from their own
+    // descriptor set -- see the backend's ibl_set_layout_ for why it is a separate set
+    // rather than more bindings on the per-frame one.
+    // normalize_ws so column alignment in the declarations is not a contract. The
+    // backend contracts already do this; a test that breaks when someone lines up a
+    // column is a test that will be deleted rather than fixed.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    REQUIRE(frag.find("set = 3, binding = 0") != std::string::npos);
+    REQUIRE(frag.find("set = 3, binding = 1") != std::string::npos);
+    REQUIRE(frag.find("set = 3, binding = 2") != std::string::npos);
+    REQUIRE(frag.find("samplerCube irradianceMap") != std::string::npos);
+    REQUIRE(frag.find("samplerCube prefilteredMap") != std::string::npos);
+    REQUIRE(frag.find("sampler2D brdfLut") != std::string::npos);
+}
+
+TEST_CASE("cube.frag indexes the prefiltered chain with roughness times four", "[render]")
+{
+    // Review Focus 4. FIVE prefiltered levels hold roughness 0, .25, .5, .75, 1, so the
+    // LOD is roughness * 4 and textureLod interpolates between them. A * 5.0, or a chain
+    // built with a different level count, produces a material that merely looks too shiny
+    // or too blurry -- which reads as an authoring choice rather than as a bug, and no
+    // GPU in CI can see it.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    REQUIRE(frag.find("textureLod(prefilteredMap, R, roughness * 4.0)") != std::string::npos);
+    // And the split-sum reconstruction itself...
+    REQUIRE(frag.find("prefiltered * (F0_amb * ab.x + ab.y)") != std::string::npos);
+    // ...and that `ab` actually comes FROM the LUT. Pinning only the reconstruction left
+    // a mutation replacing the lookup with a constant vec2(1.0, 0.0) passing, because the
+    // reconstruction reads the same either way -- and a constant there silently discards
+    // the whole energy correction the LUT exists to apply.
+    REQUIRE(frag.find("texture(brdfLut, vec2(max(dot(n, v), 1e-4), roughness)).rg")
+            != std::string::npos);
+}
+
+TEST_CASE("cube.frag keeps the flat ambient as its no-environment fallback", "[render]")
+{
+    // Review Focus 3. Deleting this branch breaks every scene without an environment --
+    // and nothing else would notice, because the demo always has one. It is not dead
+    // code; it is the other half of a runtime choice.
+    const std::string frag = code_only(read_shader("cube.frag"));
+    REQUIRE(frag.find("albedo * 0.1 * kD_amb") != std::string::npos);
+    // The flag that chooses between them rides in camera_position.w, which the UBO
+    // documents as unused padding.
+    REQUIRE(frag.find("fl.camera_position.w > 0.5") != std::string::npos);
+}

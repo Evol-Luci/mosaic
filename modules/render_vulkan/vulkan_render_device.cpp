@@ -1290,6 +1290,10 @@ public:
         ubo.spot_color[0] = fl.spot_color.x;
         ubo.spot_color[1] = fl.spot_color.y;
         ubo.spot_color[2] = fl.spot_color.z;
+        // .w carries the IBL enable flag in this vec4's documented padding, so the UBO
+        // does not grow by 16 bytes for one boolean. Written here rather than in
+        // set_image_based_lighting because the UBO is rewritten every frame anyway.
+        ubo.camera_position[3] = ibl_enabled_ ? 1.0f : 0.0f;
         ubo.camera_position[0] = fl.camera_position.x;
         ubo.camera_position[1] = fl.camera_position.y;
         ubo.camera_position[2] = fl.camera_position.z;
