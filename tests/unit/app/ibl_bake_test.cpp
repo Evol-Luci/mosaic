@@ -22,6 +22,7 @@
 using Catch::Approx;
 using mosaic::engine::render::Image;
 using mosaic::engine::render::ImageFormat;
+using mosaic::foundation::math::Vec3;
 
 namespace
 {
@@ -443,6 +444,46 @@ TEST_CASE("the white furnace: measuring how much energy single-scatter GGX loses
     }
     INFO(at_bound << " of 4096 cells sit at the analytic bound");
     REQUIRE(at_bound < 200); // the roughness-0 row is 64; a clamped band is hundreds
+}
+
+TEST_CASE("the compensated furnace: multi-scatter returns all the light it receives",
+          "[asset]")
+{
+    // The payoff of the slice, and the case the backlog entry was written to enable.
+    //
+    // Same setup as the single-scatter furnace above -- a white surface (F0 = 1, so
+    // every ray reflects) in a uniform environment of radiance 1 -- but reconstructed
+    // through energy_compensate instead of through F0 * scale + bias alone. A surface
+    // that reflects everything and absorbs nothing must return exactly 1.
+    //
+    // It is EXACT, not approximate, and the algebra is worth knowing because it is also
+    // this test's weakness. At F0 = 1, Favg collapses to 1, so
+    // FmsEms = Ems * Ess / (1 - Ems) = (1 - Ess) * Ess / Ess = 1 - Ess, and the total is
+    // Ess + (1 - Ess) = 1 for ANY value of Ess. That cancellation is why the margin
+    // below is 1e-5 rather than a percentage: a loose tolerance here would be a signal
+    // that something is wrong, not slack worth having.
+    //
+    // It also means this case cannot see the LUT's half-precision, and -- see the Favg
+    // case below -- cannot see Favg at all. It is swept across the WHOLE grid anyway,
+    // because the slice-4c review found the wrong geometry remap survived a suite whose
+    // every assertion sat at roughness 0 and 1, exactly where the two remaps coincide.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+    const Vec3 white{1.0f, 1.0f, 1.0f};
+    const Vec3 no_diffuse{0.0f, 0.0f, 0.0f}; // metallic = 1 => diffuse_color = 0
+
+    for (std::uint32_t y = 0; y < 64; ++y)
+    {
+        for (std::uint32_t x = 0; x < 64; ++x)
+        {
+            const auto [scale, bias] = lut_at(lut, x, y);
+            const auto c = mosaic::app::energy_compensate(white, no_diffuse, scale, bias);
+            const double total = static_cast<double>(c.specular.x)
+                               + static_cast<double>(c.diffuse.x);
+            INFO("texel " << x << "," << y << " scale " << scale << " bias " << bias
+                          << " -> " << total);
+            REQUIRE(total == Approx(1.0).margin(1e-5));
+        }
+    }
 }
 
 TEST_CASE("an Environment round-trips through cook and uncook", "[asset]")

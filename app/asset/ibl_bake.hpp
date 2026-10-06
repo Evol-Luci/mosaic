@@ -55,10 +55,41 @@ std::vector<std::array<mosaic::engine::render::Image, 6>> bake_prefiltered(
 // angle and does not depend on the environment at all, so cooking it beside one would
 // bake an identical copy into every environment. It costs milliseconds at startup.
 //
-// Note the geometry term uses the IBL remap k = alpha^2 / 2, NOT the direct-lighting
-// k = alpha / 2 that cube.frag uses. The two look identical and using the wrong one is a
-// silent energy error with no visible signature beyond "slightly off".
+// Note the geometry term uses the IBL remap k = alpha / 2, where alpha is roughness
+// squared -- the reference writes it as `float a = roughness; k = (a*a)/2`, whose `a` is
+// ROUGHNESS. This file's `a` is already alpha, so squaring it again gives alpha^2/2, and
+// that is exactly the bug that shipped until the slice-4c review: a silent energy error
+// with no visible signature beyond "slightly off". ibl_bake.cpp's own comment at the
+// remap carries the measurements. This comment used to describe the BUG as the design,
+// which is how a bug comes back.
 mosaic::engine::render::Image bake_brdf_lut(std::uint32_t size);
+
+// The two weights of the Fdez-Aguera multiple-scattering reconstruction, which corrects
+// the energy single-scatter GGX drops. `specular` multiplies the prefiltered radiance;
+// `diffuse` multiplies the irradiance.
+//
+// THE GROUPING IS THE POINT. The multi-scatter term (FmsEms) is returned inside
+// `diffuse`, not `specular`, because many bounces between microfacets randomize
+// direction and the escaping energy is diffuse-like. Moving it to `specular` passes
+// every furnace test in the suite -- in a uniform environment the two maps are
+// identical -- and is wrong in every real scene.
+//
+// `diffuse_color` is the already-metallic-weighted albedo (`albedo * (1 - metallic)`),
+// not the raw base colour. Passing raw albedo gives a dark conductor a diffuse lobe:
+// the energy residual zeroes kD on its own only where albedo is 1.
+//
+// `scale` and `bias` are one texel of bake_brdf_lut, which is NOT modified by this --
+// the correction is applied on top, at reconstruction time, because it depends on the
+// per-material F0 while the table is indexed by (NdotV, roughness) alone.
+struct EnergyCompensation
+{
+    mosaic::foundation::math::Vec3 specular; // FssEss      -> prefiltered radiance
+    mosaic::foundation::math::Vec3 diffuse;  // FmsEms + kD -> irradiance
+};
+
+EnergyCompensation energy_compensate(const mosaic::foundation::math::Vec3& f0,
+                                     const mosaic::foundation::math::Vec3& diffuse_color,
+                                     float scale, float bias);
 
 // Environment lives in engine/render/environment.hpp, not here: RenderSystem resolves one
 // and the tier rules allow engine -> foundation only, so an app-tier type could not be
