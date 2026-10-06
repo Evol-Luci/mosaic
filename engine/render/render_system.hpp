@@ -5,6 +5,7 @@
 #include "engine/render/directional_light.hpp"
 #include "engine/render/point_light.hpp"
 #include "engine/render/spot_light.hpp"
+#include "foundation/logging/log.hpp"
 #include "engine/render/environment.hpp"
 #include "engine/render/image.hpp"
 #include <cmath>
@@ -12,6 +13,7 @@
 #include "engine/render/mesh_cache.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include <array>
+#include <functional>
 
 #include "engine/render/render_device.hpp"
 #include "engine/render/texture_cache.hpp"
@@ -65,6 +67,19 @@ public:
     // Point the renderer at an environment ASSET. Resolved on the first frame that has
     // a device, because nothing can upload a cubemap before one exists -- the same lazy
     // pattern TextureCache uses for 2D textures. Setting a new id re-resolves.
+    // How to build the split-sum BRDF table, supplied rather than called directly: the
+    // integration lives in the app tier (beside the other bakers it shares helpers with)
+    // and the tier rules allow engine -> foundation only.
+    //
+    // A factory rather than an Image because integrating it costs seconds -- this is
+    // invoked once, on the first frame that actually needs it, the same laziness the
+    // environment asset uses.
+    void set_brdf_lut_factory(std::function<Image()> factory)
+    {
+        brdf_lut_factory_ = std::move(factory);
+        brdf_lut_ = 0;
+    }
+
     void set_environment_asset(mosaic::foundation::serialization::AssetID id)
     {
         environment_asset_ = id;
@@ -218,6 +233,32 @@ public:
             if (auto env = registry.load<Environment>(environment_asset_))
             {
                 environment_ = device.create_cubemap(env->cubemap);
+
+                // The IBL products, uploaded alongside the sky. All three must succeed
+                // or none is used: a partial set would light the scene with a mixture of
+                // the real environment and 1x1 stand-ins, which looks like a bad bake
+                // rather than like a missing upload.
+                const TextureHandle irradiance = device.create_cubemap(env->irradiance);
+                const TextureHandle prefiltered = device.create_cubemap(env->prefiltered);
+                const TextureHandle lut = brdf_lut_handle(device);
+                if (irradiance != 0 && prefiltered != 0 && lut != 0)
+                {
+                    device.set_image_based_lighting(irradiance, prefiltered, lut);
+                    // Said out loud because the alternative -- IBL silently not
+                    // activating -- looks exactly like an environment that is simply
+                    // dim, which is the one failure this slice cannot tell apart by eye.
+                    mosaic::foundation::log::info(
+                        "render", "image-based lighting active ({} prefiltered levels)",
+                        env->prefiltered.size());
+                }
+                else
+                {
+                    mosaic::foundation::log::warn(
+                        "render",
+                        "image-based lighting unavailable (irradiance {}, prefiltered {}, "
+                        "lut {}); the flat ambient stays in use",
+                        irradiance, prefiltered, lut);
+                }
             }
             // Cleared on EITHER failure -- a registry miss or an upload that returns 0
             // (the texture cap reached, or faces that disagree). Clearing only the miss
@@ -439,6 +480,18 @@ private:
     // would work today -- and would quietly stop working the moment someone changed
     // either default to a non-extreme value. Two defaults, each correct by
     // construction, is cheaper than that bug.
+    // The split-sum BRDF table. Built once and cached: the integral does not depend on
+    // the environment, so it would be identical for every one -- which is also why it is
+    // not an asset.
+    TextureHandle brdf_lut_handle(RenderDevice& device) const
+    {
+        if (brdf_lut_ == 0 && brdf_lut_factory_)
+        {
+            brdf_lut_ = device.create_texture(brdf_lut_factory_(), TextureColorSpace::Linear);
+        }
+        return brdf_lut_;
+    }
+
     TextureHandle default_linear_white(RenderDevice& device) const
     {
         if (default_linear_white_ == 0)
@@ -599,6 +652,8 @@ private:
     // mutable for the same reason default_white_ is: render() is const, and these are
     // lazily resolved caches rather than observable state.
     mutable TextureHandle environment_ = 0;
+    mutable TextureHandle brdf_lut_ = 0;
+    std::function<Image()> brdf_lut_factory_;
     mutable mosaic::foundation::serialization::AssetID environment_asset_{};
 };
 } // namespace mosaic::engine::render

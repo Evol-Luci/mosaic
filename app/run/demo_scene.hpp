@@ -422,6 +422,9 @@ inline RuntimeScene setup_runtime(
     }
 
     auto render_system = std::make_shared<render::RenderSystem>();
+    // Integrating the table costs seconds, so hand over HOW to build it rather than the
+    // result; RenderSystem calls this once, on the first frame that needs it.
+    render_system->set_brdf_lut_factory([] { return mosaic::app::bake_brdf_lut(256); });
     // Point it at the environment registered above. If registration failed the id
     // resolves to nothing on the first frame and the sky is simply absent.
     render_system->set_environment_asset(kEnvironmentCubemapId);
