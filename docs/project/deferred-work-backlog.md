@@ -619,6 +619,24 @@ view that was actually used to pick what to build next as of this writing.
     4c spec says the test should pin the measured shortfall with its
     reason rather than widen a tolerance until it hides — so when this is
     eventually fixed, the number to beat will already be written down.
+  - **Multi-scatter energy compensation for the DIRECT lighting path.**
+    `cube.frag`'s `brdf()` loses the same energy at high roughness that the
+    IBL path does, and for the same reason — single-scatter GGX drops the
+    inter-microfacet bounces. Deferred 2026-10-06 while scoping the
+    multi-scatter slice, scoped deliberately to the IBL path only, and the
+    reason is the testability argument this whole arc is built on: **the
+    furnace test cannot measure the direct path.** That test works by
+    feeding a uniform environment through the C++ convolution integrals,
+    which is why it runs in CI with no GPU; `brdf()` is shader code, so a
+    compensated direct path would ship with nothing but a token-search
+    contract test behind it — exactly the "wired, not correct" limitation
+    PBR slice 2 recorded as its honest limit and 4c existed to fix.
+    Taking it would mean re-opening that question, not just adding a term.
+    **Depends on** either a C++ mirror of `brdf()` that the tests can
+    integrate directly (the same move `ibl_bake` made for the IBL
+    integrals), or GPU-capable CI. Worth noting the error is least visible
+    here: direct highlights are small and bright, where the eye forgives a
+    few percent, while the ambient term covers whole surfaces.
   - **Anisotropic roughness.** One scalar `roughness` assumes isotropic
     microfacets, so brushed metal and hair cannot be represented.
     Deferred 2026-10-04: anisotropy needs a per-vertex tangent frame,
