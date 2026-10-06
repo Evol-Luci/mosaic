@@ -437,6 +437,30 @@ view that was actually used to pick what to build next as of this writing.
     already exists as its home when something needs it to vary. Changing
     it requires a re-import, which is the stated cost of converting at
     import time.
+  - **Specular occlusion** — IBL applies environment specular without regard to
+    local occlusion, so cavities and creases receive the full reflection and
+    read too bright. Deferred 2026-10-06 during IBL sub-slice 4c's design: the
+    standard fix multiplies the specular IBL term by an ambient-occlusion
+    factor, which needs AO maps — already deferred above as part of the glTF
+    standard map set — or a screen-space AO pass. Depends on that.
+  - **Parallax-corrected or box-projected environment probes** — the
+    environment cubemap is treated as infinitely distant, so a reflection does
+    not change as an object moves within a room and interior reflections look
+    wrong. Deferred 2026-10-06 during 4c's design: the correction needs a proxy
+    volume per probe and a ray-box intersection in the shader, plus the
+    multiple-environment concept already deferred in 4b. Depends on that.
+  - **Rotating the environment relative to the scene** — the cubemap's
+    orientation is fixed at import. Deferred 2026-10-06 during 4c's design: a
+    yaw offset is cheap to add (one uniform, one rotation in the sampling
+    direction) but nothing has needed it, and it must be applied consistently
+    to the skybox, the irradiance lookup and the prefiltered lookup or they
+    disagree.
+  - **A runtime quality knob for the IBL convolution sizes** — irradiance is
+    fixed at 32² and prefiltered at 128² with five mip levels, changeable only
+    by re-import. Deferred 2026-10-06 during 4c's design, the same decision 4b
+    made for cubemap face size and for the same reason: it is a
+    quality-versus-memory knob with nothing to balance it against yet, and
+    `AssetMetadata::import_settings` already exists as its home.
   - **Anisotropic filtering** — still open, and deliberately NOT bundled
     with the mipmap work above. It needs `samplerAnisotropy` enabled as a
     device feature at logical-device creation, which is a change to device
@@ -588,6 +612,13 @@ view that was actually used to pick what to build next as of this writing.
     2026-10-04 during the metallic/roughness design: it is a refinement
     on top of a working BRDF, not part of standing one up, and the error
     it fixes is only obvious at roughness values the demo does not use.
+    **IBL sub-slice 4c's furnace test is what will measure it.** That test
+    feeds a uniform white environment through the convolution integrals,
+    where a correct energy-conserving model returns exactly the input
+    radiance; a shortfall at roughness 1.0 IS this item, quantified. The
+    4c spec says the test should pin the measured shortfall with its
+    reason rather than widen a tolerance until it hides — so when this is
+    eventually fixed, the number to beat will already be written down.
   - **Anisotropic roughness.** One scalar `roughness` assumes isotropic
     microfacets, so brushed metal and hair cannot be represented.
     Deferred 2026-10-04: anisotropy needs a per-vertex tangent frame,
