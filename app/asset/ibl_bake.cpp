@@ -389,6 +389,63 @@ Image bake_brdf_lut(std::uint32_t size)
 
 namespace
 {
+struct ChannelWeights
+{
+    float specular;
+    float diffuse;
+};
+
+ChannelWeights compensate_channel(float f0, float diffuse_color, float scale, float bias)
+{
+    const float FssEss = f0 * scale + bias;
+    const float Ems = 1.0f - (scale + bias);
+    // The 1/21 is Fdez-Aguera's average-Fresnel fit. It is the one new constant this
+    // function introduces and the furnace test CANNOT see it: at f0 = 1, Favg is 1
+    // whatever the divisor, and the total cancels to exactly 1 regardless. The case
+    // "the Favg term, pinned in isolation ..." in ibl_bake_test.cpp is what pins it, by
+    // asking for FmsEms in isolation at f0 = 0.04.
+    const float Favg = f0 + (1.0f - f0) / 21.0f;
+    const float denom = 1.0f - Favg * Ems;
+    // No epsilon. For any real LUT texel Ess >= 0.3, so at f0 = 1 (where denom reduces
+    // to Ess) the divisor cannot approach zero, and 4c's renormalisation is the standing
+    // lesson in what an unneeded guard costs: it hid a real integration error for two
+    // slices. The ONE degenerate input is scale = bias = 0 with f0 = 1 -- an empty table
+    // -- where Favg = 1 and Ems = 1 make denom exactly 0; that is zero energy in, so
+    // zero out is the right answer and the branch says so rather than dividing.
+    const float FmsEms = (denom != 0.0f) ? (Ems * FssEss * Favg / denom) : 0.0f;
+    const float kD = diffuse_color * (1.0f - FssEss - FmsEms);
+    return {FssEss, FmsEms + kD};
+}
+} // namespace
+
+EnergyCompensation energy_compensate(const Vec3& f0, const Vec3& diffuse_color,
+                                     float scale, float bias)
+{
+    // Per channel, not as a Vec3 expression: foundation/math/vec3.hpp has no
+    // componentwise multiply or divide, and adding one for a single caller is surface
+    // the engine tier does not need. Every operation here is componentwise, so this
+    // matches the vec3 form cube.frag uses -- which is what the shader contract test
+    // pins textually.
+    //
+    // ONE DIVERGENCE, named rather than implied: the `denom != 0.0f` branch above has no
+    // GLSL counterpart, because cube.frag divides unconditionally. Reaching it there
+    // needs `ab.x + ab.y` to be exactly 1.0 AND F0 exactly 1.0 (a pure-white conductor),
+    // which the real baked table cannot produce -- its roughness-0 row reads 1.000076,
+    // so Ems is negative there and falls from it -- and which the no-environment
+    // stand-in LUT cannot either, since it is (1, 0) exactly, giving Ems = 0 and a
+    // denominator of 1. So the shader needs no branch. This function does, because
+    // bake_brdf_lut(0) returns an empty image and a test calls it with scale = bias = 0.
+    // Said plainly here so nobody "restores parity" by adding an epsilon to the shader,
+    // or deletes this branch on the grounds that the shader manages without it.
+    const ChannelWeights r = compensate_channel(f0.x, diffuse_color.x, scale, bias);
+    const ChannelWeights g = compensate_channel(f0.y, diffuse_color.y, scale, bias);
+    const ChannelWeights b = compensate_channel(f0.z, diffuse_color.z, scale, bias);
+    return EnergyCompensation{Vec3{r.specular, g.specular, b.specular},
+                              Vec3{r.diffuse, g.diffuse, b.diffuse}};
+}
+
+namespace
+{
 void put_u32(std::string& out, std::uint32_t v)
 {
     out.push_back(static_cast<char>(v & 0xFF));

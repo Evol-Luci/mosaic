@@ -215,11 +215,7 @@ void main()
     vec3 ambient;
     if (fl.camera_position.w > 0.5)
     {
-        // Diffuse: the cosine-convolved irradiance in the surface's own direction,
-        // kD-weighted exactly as the flat term was, so metals still receive no ambient
-        // diffuse.
         vec3 irradiance = texture(irradianceMap, n).rgb;
-        vec3 diffuseIBL = kD_amb * albedo * irradiance;
 
         // Specular: the split-sum approximation. The prefiltered chain holds FIVE levels
         // at roughness 0, .25, .5, .75, 1, so the LOD is roughness * 4 and textureLod
@@ -235,7 +231,38 @@ void main()
         // a level around 8x reduced: a visible seam of wrong scale/bias down every band
         // boundary, on the one object this slice exists to show off.
         vec2 ab = textureLod(brdfLut, vec2(max(dot(n, v), 1e-4), roughness), 0.0).rg;
-        ambient = diffuseIBL + prefiltered * (F0_amb * ab.x + ab.y);
+
+        // The Fdez-Aguera multiple-scattering correction. Single-scatter GGX drops the
+        // light that would have bounced BETWEEN microfacets, and the loss grows with
+        // roughness: a white surface in a uniform environment returned 0.786 at
+        // roughness 0.5 and 0.31 at roughness 1, measured by the furnace test in
+        // ibl_bake_test.cpp. These four lines put it back; energy_compensate in
+        // app/asset/ibl_bake.cpp is the C++ twin the furnace test actually runs.
+        //
+        // The /21 is the average-Fresnel fit, and the furnace test CANNOT see it: at
+        // F0 = 1 Favg is 1 whatever the divisor, and the total cancels to exactly 1
+        // regardless. It is pinned by asking for FmsEms in isolation at F0 = 0.04,
+        // where a bare 1.0 is 15x to 36x out.
+        vec3  FssEss = F0_amb * ab.x + ab.y;
+        float Ems    = 1.0 - (ab.x + ab.y);
+        vec3  Favg   = F0_amb + (vec3(1.0) - F0_amb) / 21.0;
+        vec3  FmsEms = Ems * FssEss * Favg / (vec3(1.0) - Favg * Ems);
+
+        // diffuseColor, NOT albedo. The (1.0 - metallic) is what keeps a DARK conductor
+        // from growing a diffuse lobe: kD below is the energy residual, which zeroes
+        // itself for a metal only where albedo is 1, because F0 = albedo there. A metal
+        // with albedo 0.5 would otherwise get kD = 0.5 * (1 - FssEss - FmsEms).
+        vec3 diffuseColor = albedo * (1.0 - metallic);
+        vec3 kD = diffuseColor * (vec3(1.0) - FssEss - FmsEms);
+
+        // FmsEms rides the IRRADIANCE, grouped with kD -- not the prefiltered radiance.
+        // Many bounces between microfacets randomize direction, so the escaping energy
+        // is diffuse-like. Moving it into the FssEss group is wrong in every real scene:
+        // the multi-scatter energy would mirror the environment. The furnace tests catch
+        // it only because they assert the two weights SEPARATELY -- an assertion on
+        // their sum cannot, since a uniform environment makes the two maps identical --
+        // and shader_specular_contract_test pins this whole line independently.
+        ambient = FssEss * prefiltered + (FmsEms + kD) * irradiance;
     }
     else
     {

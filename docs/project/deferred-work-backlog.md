@@ -604,21 +604,60 @@ view that was actually used to pick what to build next as of this writing.
     scale 1; a uniform scale `s != 1` shifts point/spot attenuation
     brightness by `s`, since the old object-space distance input was
     `world_distance / s` — the new behavior is the correct one).
-  - **A multi-scatter / energy-compensation term for the GGX specular.**
-    Single-scatter GGX loses energy at high roughness — a rough dielectric
-    comes out darker than it should, because light that would have
-    bounced between microfacets is simply dropped. The correction is
-    either the Fdez-Agüera analytic fit or a precomputed LUT. Deferred
-    2026-10-04 during the metallic/roughness design: it is a refinement
-    on top of a working BRDF, not part of standing one up, and the error
-    it fixes is only obvious at roughness values the demo does not use.
-    **IBL sub-slice 4c's furnace test is what will measure it.** That test
-    feeds a uniform white environment through the convolution integrals,
-    where a correct energy-conserving model returns exactly the input
-    radiance; a shortfall at roughness 1.0 IS this item, quantified. The
-    4c spec says the test should pin the measured shortfall with its
-    reason rather than widen a tolerance until it hides — so when this is
-    eventually fixed, the number to beat will already be written down.
+  - ~~**A multi-scatter / energy-compensation term for the GGX specular.**~~
+    — **SHIPPED 2026-10-06.** Single-scatter GGX loses energy at high
+    roughness — light that would have bounced between microfacets is simply
+    dropped. **The effect is on METALS, not dielectrics**, which the original
+    wording here got wrong and the slice propagated until the magnitudes
+    were computed: the loss scales with the specular weight, so a dielectric
+    (`F0 = 0.04`, diffuse lobe carrying 96% of the response) changes by under
+    2%, while a conductor (`F0 = base_color`) loses a great deal.
+    Deferred 2026-10-04 during the metallic/roughness design as a refinement
+    on top of a working BRDF, with the note that **IBL sub-slice 4c's
+    furnace test is what will measure it**, and that pinning the measured
+    shortfall rather than widening a tolerance would leave the number to
+    beat written down. That worked exactly as intended, and is the reason
+    this slice was cheap to scope: the target was already in CI.
+    **Fixed** with the Fdez-Agüera analytic fit (`energy_compensate` in
+    `app/asset/ibl_bake.cpp`, mirrored in `cube.frag`), applied on top of
+    the BRDF LUT rather than baked into it — the correction depends on the
+    per-material `F0` while the table is indexed by `(NdotV, roughness)`
+    alone, so baking it is not merely undesirable but impossible.
+    **Measured: 0.786 → 1.000000 at roughness 0.508, 0.3085 → 1.000000 at
+    roughness 1**, exact at every one of the 4096 LUT texels. The
+    single-scatter baseline case was **kept, not rewritten**, because the
+    LUT is unchanged — so the before and after both stand in the suite.
+    **The finding worth carrying forward is about the test, not the fix.**
+    At `F0 = 1` the compensated total cancels to `Ess + (1 − Ess)`
+    algebraically, so the furnace returns exactly 1.0 for *any* value of
+    `Favg` — and dropping to a dielectric does not help either, because
+    `kD` is defined as the energy residual, making the three terms sum to 1
+    for any `Favg` at albedo 1. **The test this slice existed to satisfy was
+    structurally blind to the one new constant the slice introduced.**
+    Covered by asking for `FmsEms` in isolation (`diffuse_color = 0`,
+    `f0 = 0.04`) against independently computed references, where a bare
+    `Favg = 1` is 15× to 36× out. Predicted while scoping rather than found
+    in review, which is the only new thing about the sixth instance of this
+    pattern. See
+    `docs/superpowers/specs/2026-10-06-render-multi-scatter-energy-compensation-design.md`.
+  - **Multi-scatter energy compensation for the DIRECT lighting path.**
+    `cube.frag`'s `brdf()` loses the same energy at high roughness that the
+    IBL path does, and for the same reason — single-scatter GGX drops the
+    inter-microfacet bounces. Deferred 2026-10-06 while scoping the
+    multi-scatter slice, scoped deliberately to the IBL path only, and the
+    reason is the testability argument this whole arc is built on: **the
+    furnace test cannot measure the direct path.** That test works by
+    feeding a uniform environment through the C++ convolution integrals,
+    which is why it runs in CI with no GPU; `brdf()` is shader code, so a
+    compensated direct path would ship with nothing but a token-search
+    contract test behind it — exactly the "wired, not correct" limitation
+    PBR slice 2 recorded as its honest limit and 4c existed to fix.
+    Taking it would mean re-opening that question, not just adding a term.
+    **Depends on** either a C++ mirror of `brdf()` that the tests can
+    integrate directly (the same move `ibl_bake` made for the IBL
+    integrals), or GPU-capable CI. Worth noting the error is least visible
+    here: direct highlights are small and bright, where the eye forgives a
+    few percent, while the ambient term covers whole surfaces.
   - **Anisotropic roughness.** One scalar `roughness` assumes isotropic
     microfacets, so brushed metal and hair cannot be represented.
     Deferred 2026-10-04: anisotropy needs a per-vertex tangent frame,
