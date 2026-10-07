@@ -83,6 +83,27 @@ struct FrameLightingUbo
     float exposure[4];
 };
 static_assert(sizeof(FrameLightingUbo) == 208, "UBO layout must match the shader block");
+// Offsets, not just the total size -- because the size assertion above cannot see a
+// reordering. Move `exposure` from the end to just after `camera_position` and leave the
+// GLSL alone: sizeof stays 208, every GLSL-side contract test stays green, and the shader
+// then reads light_view_proj's first row as the exposure scalar and the real exposure as
+// the matrix's last row. A wrong brightness AND a wrong shadow projection, from a change
+// whose only intent was tidying field grouping.
+//
+// This is cheap only because FrameLightingUbo is standard-layout (every member is a float
+// array), so offsetof is well-defined, and because these assertions live in the same
+// translation unit as the struct. The shader-side contract test's earlier claim that the
+// C++ half needed generated code to pin was wrong; found in review 2026-10-07.
+static_assert(offsetof(FrameLightingUbo, light_direction) == 0);
+static_assert(offsetof(FrameLightingUbo, light_color) == 16);
+static_assert(offsetof(FrameLightingUbo, point_position) == 32);
+static_assert(offsetof(FrameLightingUbo, point_color) == 48);
+static_assert(offsetof(FrameLightingUbo, spot_position) == 64);
+static_assert(offsetof(FrameLightingUbo, spot_direction) == 80);
+static_assert(offsetof(FrameLightingUbo, spot_color) == 96);
+static_assert(offsetof(FrameLightingUbo, camera_position) == 112);
+static_assert(offsetof(FrameLightingUbo, light_view_proj) == 128);
+static_assert(offsetof(FrameLightingUbo, exposure) == 192);
 
 struct ShadowPushConstants
 {
@@ -1330,10 +1351,9 @@ public:
         ubo.camera_position[0] = fl.camera_position.x;
         ubo.camera_position[1] = fl.camera_position.y;
         ubo.camera_position[2] = fl.camera_position.z;
+        // .yzw stay zero from the struct's value-initialisation above, matching how every
+        // other documented-unused slot here is left alone.
         ubo.exposure[0] = fl.exposure;
-        ubo.exposure[1] = 0.0f;
-        ubo.exposure[2] = 0.0f;
-        ubo.exposure[3] = 0.0f;
         ubo.spot_color[3] = fl.spot_cos_inner;
         std::memcpy(ubo.light_view_proj, fl.light_view_proj.m.data(), sizeof(ubo.light_view_proj));
 

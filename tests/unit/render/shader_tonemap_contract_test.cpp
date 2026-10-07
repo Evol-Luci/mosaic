@@ -205,9 +205,28 @@ TEST_CASE("a negative exposure cannot brighten the image", "[render]")
          "WHITE, not black, and non-monotonically.");
     REQUIRE(lit.find("max(fl.exposure.x, 0.0)") != std::string::npos);
     REQUIRE(sky.find("max(pc.exposure, 0.0)") != std::string::npos);
+
+    // AND the curve floors its own input, which is a second guard on a different input
+    // rather than a duplicate of the first. The branch review's observation: `color`
+    // itself can go negative, because DirectionalLight::color is a reflected Vec3 with no
+    // clamp anywhere and the inspector renders it as three unbounded DragFloats. A light
+    // colour of (-1,-1,-1) reproduces the identical white-screen pathology with exposure
+    // sitting at a perfectly sane 1.0, and the call-site floor cannot see it.
+    //
+    // Flooring exposure at the call site still earns its place: it catches a negative
+    // knob even when the colour is ALSO negative, where flooring only the product would
+    // multiply two negatives into a positive and brighten.
+    REQUIRE(lit.find("x = max(x, vec3(0.0));") != std::string::npos);
+    REQUIRE(sky.find("x = max(x, vec3(0.0));") != std::string::npos);
 }
 
-TEST_CASE("neither tone-mapping shader hard-codes an exposure value", "[render]")
+// Renamed 2026-10-07: the old name was "neither tone-mapping shader hard-codes an exposure
+// value", which oversold it -- a shader with `tonemap_aces(color * 2.0)` and the member
+// still declared would have passed. What it actually checks is that each shader declares
+// an exposure input from its own binding; the guard against a hard-coded value is the
+// full-expression pin in the case above.
+TEST_CASE("both tone-mapping shaders declare an exposure input from their own binding",
+          "[render]")
 {
     // The two shaders must scale by the SAME number, which they do by both reading it
     // from the camera rather than by agreeing on a literal. A constant substituted into

@@ -23,6 +23,21 @@ layout(location = 0) out vec4 outColor;
 // radiance can, and routinely does.
 vec3 tonemap_aces(vec3 x)
 {
+    // The curve floors its own input, which is not a duplicate of the exposure floor at
+    // the call site -- it guards a DIFFERENT input. `x` can arrive negative from an
+    // unclamped light colour: DirectionalLight::color is a reflected Vec3 with no clamp
+    // anywhere, and the Studio inspector renders it as three unbounded DragFloats, so a
+    // colour of (-1,-1,-1) is one drag away. A negative input makes this function return
+    // WHITE: its numerator 2.51x^2 + 0.03x turns positive below x = -0.012 while its
+    // denominator is strictly positive for every real x (discriminant -1.0127), so the
+    // ratio clamps to 1.0 and the response is non-monotonic across zero.
+    //
+    // Flooring HERE makes that unreachable for every caller, present and future, instead
+    // of requiring each call site to remember. The call sites still floor exposure
+    // separately, because that catches a negative knob even when the colour is ALSO
+    // negative -- flooring only the product would multiply two negatives into a positive
+    // and brighten.
+    x = max(x, vec3(0.0));
     const float a = 2.51;
     const float b = 0.03;
     const float c = 2.43;

@@ -1224,6 +1224,70 @@ TEST_CASE("RenderSystem leaves exposure neutral when the world has no camera", "
     REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
 }
 
+TEST_CASE("an untouched Camera yields a neutral exposure in FrameLighting", "[render]")
+{
+    // Pins the migration guarantee, which nothing else did. The branch review found that
+    // changing Camera's default from 1.0f to 0.0f left all 1167 tests GREEN while every
+    // existing scene rendered completely BLACK -- because the round-trip case passes an
+    // explicit 2.5, the carries-exposure case sets an explicit 2.5, and the no-camera case
+    // asserts 1.0 that comes from RenderSystem's own local initialiser, never from the
+    // component.
+    //
+    // This asserts the default AND its journey: a Camera nobody touched must arrive at the
+    // device as 1.0. templates/default/scenes/main.json has a Camera with no "exposure"
+    // key, so it takes exactly this path.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    auto cam = world.create_entity();
+    world.add_component<WorldTransform>(cam, WorldTransform{Mat4::translation(Vec3{0, 0, 4})});
+    world.add_component<Camera>(cam, Camera{}); // defaults, deliberately untouched
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
+    // And directly, so the failure message distinguishes "the default changed" from
+    // "the journey broke".
+    REQUIRE(Camera{}.exposure == Approx(1.0f));
+}
+
+TEST_CASE("a Camera with no WorldTransform contributes no exposure", "[render]")
+{
+    // The guard-escape mutation, found by the branch review: move
+    // `exposure = cam.exposure;` ABOVE find_active_camera's `wt == nullptr` check -- a
+    // natural-looking "set it while we have the component in hand" refactor -- and all
+    // 1167 tests stayed green.
+    //
+    // What it produces: an entity with a Camera and no WorldTransform (trivially reachable
+    // -- add a camera in the editor before placing it, or hand-edit a scene) makes
+    // find_active_camera return false, so view and projection come from the FALLBACK, while
+    // exposure would come from that unplaced camera. The frame renders from the fallback
+    // viewpoint at 4x exposure, blown out, with no camera in the scene a user would connect
+    // it to.
+    //
+    // Exposure must travel with the view and projection or not at all -- that is the whole
+    // reason it rides in the same traversal.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    auto cam = world.create_entity();
+    Camera c{};
+    c.exposure = 4.0f;
+    world.add_component<Camera>(cam, c); // NO WorldTransform
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
+}
+
 TEST_CASE("the skybox is given the same exposure as the lit pass", "[render]")
 {
     // The drift guard, and the one the shader contract test cannot give. That test pins

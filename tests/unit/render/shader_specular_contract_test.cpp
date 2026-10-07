@@ -304,12 +304,17 @@ TEST_CASE("the FrameLighting block member ORDER is pinned and not just its size"
     // matrix and a wrong brightness, from a change that compiles and whose size check
     // passes.
     //
-    // THE HONEST LIMIT: this case pins the GLSL order only. No test here can read the C++
-    // struct's layout -- it is a file-local type in a .cpp in the Vulkan backend, not a
-    // header anything can include. What this buys is that the GLSL order cannot change
-    // without someone editing this list, which makes a one-sided reorder a visible
-    // decision rather than a silent one. Closing it properly needs the UBO layout
-    // expressed once and generated into both, which is its own piece of work.
+    // SCOPE: this case pins the GLSL order. The C++ order is pinned separately and
+    // directly, by offsetof static_asserts beside the size assertion in
+    // vulkan_render_device.cpp -- so between the two, a one-sided reorder fails the build
+    // or fails here, and the pair is closed.
+    //
+    // An earlier version of this comment claimed the C++ half could not be pinned without
+    // "the UBO layout expressed once and generated into both". That was WRONG, and worth
+    // recording as wrong rather than quietly replacing: FrameLightingUbo is
+    // standard-layout, so offsetof is well-defined on it, and the assertions live in the
+    // same translation unit as the struct, so there was never a visibility problem. The
+    // comment told the next reader not to bother. Found in review 2026-10-07.
     const std::string frag = normalize_ws(code_only(read_shader("cube.frag")));
     const std::size_t begin = frag.find("uniform FrameLighting {");
     REQUIRE(begin != std::string::npos);
