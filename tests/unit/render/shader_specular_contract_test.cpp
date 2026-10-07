@@ -205,6 +205,23 @@ TEST_CASE("cube.frag groups the multi-scatter term with the irradiance not the r
     REQUIRE(frag.find("ambient = FssEss * prefiltered + (FmsEms + kD) * irradiance;")
             != std::string::npos);
 
+    // And the statement that COMPUTES FmsEms -- the one line that is the multiple-
+    // scattering series sum, and the one this case originally omitted.
+    //
+    // Found by the whole-branch review, and the omission is instructive: the five GLSL
+    // mutation probes for this slice were derived FROM the assertion list above, so they
+    // were structurally incapable of finding a statement nothing asserted. All five came
+    // back red and the hole stayed invisible.
+    //
+    // `vec3 FmsEms = vec3(0.0);` keeps the identifier declared, leaves both pinned
+    // expressions textually intact, and makes Favg and Ems unused locals -- which glslc
+    // accepts without a diagnostic. It also disables the ENTIRE correction in the
+    // shipped renderer, returning rough dielectrics to 0.31 at roughness 1, with every
+    // test green. energy_compensate has no production caller, so this file is the only
+    // thing standing behind the shader.
+    REQUIRE(frag.find("FmsEms = Ems * FssEss * Favg / (vec3(1.0) - Favg * Ems);")
+            != std::string::npos);
+
     // The average-Fresnel fit, whose divisor the furnace test cannot see -- at F0 = 1,
     // Favg is 1 whatever it is, and the total cancels to exactly 1 regardless.
     // ibl_bake_test's isolation case pins the value; this pins that the shader uses the

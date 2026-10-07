@@ -423,9 +423,20 @@ EnergyCompensation energy_compensate(const Vec3& f0, const Vec3& diffuse_color,
 {
     // Per channel, not as a Vec3 expression: foundation/math/vec3.hpp has no
     // componentwise multiply or divide, and adding one for a single caller is surface
-    // the engine tier does not need. Every operation here is componentwise, so this is
-    // identical to the vec3 form cube.frag uses -- which is what the shader contract
-    // test pins textually.
+    // the engine tier does not need. Every operation here is componentwise, so this
+    // matches the vec3 form cube.frag uses -- which is what the shader contract test
+    // pins textually.
+    //
+    // ONE DIVERGENCE, named rather than implied: the `denom != 0.0f` branch above has no
+    // GLSL counterpart, because cube.frag divides unconditionally. Reaching it there
+    // needs `ab.x + ab.y` to be exactly 1.0 AND F0 exactly 1.0 (a pure-white conductor),
+    // which the real baked table cannot produce -- its roughness-0 row reads 1.000076,
+    // so Ems is negative there and falls from it -- and which the no-environment
+    // stand-in LUT cannot either, since it is (1, 0) exactly, giving Ems = 0 and a
+    // denominator of 1. So the shader needs no branch. This function does, because
+    // bake_brdf_lut(0) returns an empty image and a test calls it with scale = bias = 0.
+    // Said plainly here so nobody "restores parity" by adding an epsilon to the shader,
+    // or deletes this branch on the grounds that the shader manages without it.
     const ChannelWeights r = compensate_channel(f0.x, diffuse_color.x, scale, bias);
     const ChannelWeights g = compensate_channel(f0.y, diffuse_color.y, scale, bias);
     const ChannelWeights b = compensate_channel(f0.z, diffuse_color.z, scale, bias);

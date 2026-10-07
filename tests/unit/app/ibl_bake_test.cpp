@@ -534,7 +534,24 @@ TEST_CASE("the Favg term pinned in isolation because the furnace cannot see it",
         const auto c = mosaic::app::energy_compensate(dielectric, black, scale, bias);
         INFO("texel " << e.x << "," << e.y << ": FmsEms " << c.diffuse.x << ", expected "
                       << e.fms_ems << " (a bare Favg = 1.0 gives " << e.if_favg_1 << ")");
-        REQUIRE(static_cast<double>(c.diffuse.x) == Approx(e.fms_ems).margin(5e-5));
+        // Margin 5e-6, and the number has a derivation rather than being a comfortable
+        // round figure. It must be LOOSE enough for the gap between these references and
+        // this implementation, and TIGHT enough to reject a wrong divisor.
+        //
+        // The references are computed from the published formula against an independent
+        // reimplementation of bake_brdf_lut's integral -- independent on purpose, so
+        // this is not a restatement of the code it checks. The cost of that independence
+        // is that the two integrals do not agree exactly: at texel (63,63) -- NdotV
+        // 0.992, roughness 1.0, the extreme corner -- they differ by 2.6e-6, from a
+        // ~0.7% divergence in Ess. That is a limit of the reference, not of the code,
+        // and it is why this is not the 2e-6 that half-precision alone would allow.
+        //
+        // Against that, the wrong divisors: /20 shifts FmsEms by 1.9e-5 to 4.4e-5 across
+        // these four texels, /25 by 6.2e-5 to 1.4e-4, and a bare Favg = 1.0 by 15x to
+        // 36x. So 5e-6 clears the reference gap 2x over and still rejects /20 by at
+        // least 3.9x. Widening it past ~1e-5 would start admitting /20 and this case
+        // would stop pinning the constant it exists to pin.
+        REQUIRE(static_cast<double>(c.diffuse.x) == Approx(e.fms_ems).margin(5e-6));
     }
 }
 
