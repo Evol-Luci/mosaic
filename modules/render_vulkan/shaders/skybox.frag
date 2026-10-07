@@ -43,5 +43,9 @@ void main()
     vec3 dir = normalize(mat3(pc.inv_view_rotation) * view_dir);
 
     vec3 radiance = texture(environment, dir).rgb;
-    outColor = vec4(tonemap_aces(radiance * pc.exposure), 1.0);
+    // max(..., 0.0) for the reason cube.frag records at length: a negative exposure makes
+    // ACES return WHITE, not black, because its numerator turns positive below -0.012
+    // while its denominator never does. Both shaders must floor it or the sky and the
+    // geometry would disagree about what a negative exposure means.
+    outColor = vec4(tonemap_aces(radiance * max(pc.exposure, 0.0)), 1.0);
 }

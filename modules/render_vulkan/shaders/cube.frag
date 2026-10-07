@@ -284,5 +284,20 @@ void main()
     // Exposure scales the value ENTERING the curve. Outside it -- tonemap_aces(color) *
     // exposure -- the scale would apply to an already-clamped [0,1] value, so it could
     // darken but never brighten, which is most of what exposure is for.
-    outColor = vec4(tonemap_aces(color * fl.exposure.x), 1.0);
+    //
+    // Floored at 0, and NOT because negative exposure is merely meaningless. ACES'
+    // numerator 2.51x^2 + 0.03x is POSITIVE for x < -0.012 while its denominator is
+    // strictly positive for all real x (discriminant -1.0127), so a negative input
+    // produces a large positive ratio that clamps to 1.0 -- WHITE. x = -1 gives 1.2525.
+    // The response is not even monotonic across zero: x = -0.005 is black, x = -0.1 is
+    // 0.21, x = -1 is white. So `exposure = -2` where `2` was meant -- one character in a
+    // scene file -- renders a confident, plausible-looking, completely wrong image.
+    //
+    // Clamped HERE and not on the component, which is this project's established split:
+    // Material does not clamp roughness either, cube.frag does, so an authored value
+    // round-trips byte-for-byte while the shader stays well-defined. Camera keeps what
+    // was authored; this refuses to brighten with it. The top end is deliberately NOT
+    // bounded -- a huge exposure overflows to NaN near 1.2e19, the same garbage-in
+    // posture roughness already documents, and capping it would invent a maximum.
+    outColor = vec4(tonemap_aces(color * max(fl.exposure.x, 0.0)), 1.0);
 }

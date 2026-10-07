@@ -703,6 +703,22 @@ view that was actually used to pick what to build next as of this writing.
     instead (192 -> 208), appended at the END because the size assertion
     checks total size and not field offsets. See
     `docs/superpowers/specs/2026-10-07-render-exposure-control-design.md`.
+  - **`set_component` replaces a whole component rather than merging fields, so a
+    partial table silently resets every field it omits.**
+    `engine/reflection/component_reflection.hpp` does `T c{}; from_value(value, c);
+    *existing = std::move(c);` on the setter path (the agent API and editor
+    "set component" route, distinct from the scene loader). So setting `Camera` with
+    `{"fov_y_radians": 1.2}` resets `exposure` back to 1.0, discarding an authored 0.4
+    — and the same applies to every component and every field. **Pre-existing and
+    longstanding**, not introduced by the exposure slice; raised by that slice's branch
+    review, and recorded 2026-10-07 because exposure is exactly the kind of field a
+    user tunes and then loses this way. Note the *loader* path is correct and different:
+    `ReadVisitor::member` no-ops on an absent key over an already-default-constructed
+    object, which is why a pre-slice scene JSON loads `exposure` as 1.0 rather than 0.
+    **The decision to make** is whether the setter should merge (read the existing
+    component, overwrite only the named fields) or keep replace semantics and document
+    them loudly — merging is almost certainly what callers expect, but it changes the
+    meaning of every existing `set_component` call.
   - **Exposure on the four unlit scene shaders** (`particle`, `ribbon`,
     `decal`, `world_text`). Deferred 2026-10-07 while designing exposure
     control, deliberately and for the same reason slice 1 gave for not tone
