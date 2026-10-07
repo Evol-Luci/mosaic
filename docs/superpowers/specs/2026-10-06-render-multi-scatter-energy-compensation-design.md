@@ -219,11 +219,37 @@ Corrected here: a doc that describes the bug is how the bug comes back.
 
 ## Expected visual change
 
-Rough dielectrics get brighter — most visibly the demo sphere's high-roughness bands,
-where `Ess` falls to about 0.31. Metals are unchanged (their ambient diffuse was and
-remains zero) and so are smooth surfaces. **No scene file changes and no migration:**
-nothing authored moves, because the correction adds energy the renderer was dropping
-rather than reinterpreting a material parameter.
+**Corrected 2026-10-06 after computing the magnitudes, which inverted the claim this
+section originally made.** It said "rough dielectrics get brighter, most visibly the demo
+sphere's high-roughness bands, metals are unchanged" — wrong twice over, and the demo
+sphere is a *metal*, so the sentence contradicted itself.
+
+**The energy loss scales with the specular weight, which scales with `F0`.** A dielectric
+has `F0 = 0.04`, so specular is ~4% of its response and the diffuse lobe — which never
+lost energy — carries the other 96%. A metal has `F0 = base_color`, so it loses a great
+deal. The furnace test's dramatic 0.31 is measured at `F0 = 1`, which is a metal.
+
+Measured against the demo scene:
+
+| Surface | metallic | roughness | ambient change |
+|---|---|---|---|
+| ground (grey 0.6) | 0 | 0.333 | 0.999× |
+| box2 (white) | 0 | 0.243 | 0.998× |
+| capsule (white) | 0 | 0.447 | 1.002× |
+| box (white) | 0 | 0.900 | 1.022× |
+| sphere, red channel | 1 | 0.75 | **1.47×** |
+| sphere, red channel | 1 | 1.00 | **1.95×** |
+
+So: **dielectrics are visually unchanged (≤2.2%), and metals are where the whole visible
+change is.** The metal sphere's rough bands go from near-black to a visible dark red glow,
+because `FmsEms` rides the irradiance and applies to conductors — which had received
+*zero* ambient before, `kD` being exactly 0 at `metallic = 1`. The glow is strongly red
+rather than grey: multi-bounce energy is tinted by `F0` repeatedly, so at roughness 1 red
+gains 0.257 against green's 0.011. Smooth surfaces of any kind are unchanged, since
+`Ems = 0` at roughness 0 makes the correction identically zero.
+
+**No scene file changes and no migration:** nothing authored moves, because the correction
+adds energy the renderer was dropping rather than reinterpreting a material parameter.
 
 ## Non-goals
 

@@ -546,15 +546,31 @@ inline void build_default_scene(mosaic::engine::World& world)
     // red. A metal's specular colour is what distinguishes gold from silver. If it ever
     // looks white again, the metallic path has been broken.
     //
-    // EXPECTED, NOT A BUG: this sphere reads near-BLACK, not dark red. Metals have no
-    // diffuse lobe, so a metal's whole appearance is reflections of its surroundings --
-    // and our surroundings are three lights and nothing else. cube.frag's ambient is
-    // albedo * 0.1 * kD, and kD = (1 - F)(1 - metallic) is exactly ZERO at metallic == 1,
-    // so this is the one surface in the scene that receives no ambient at all. With
-    // roughness 0.174 the GGX lobe is tight, so what is left is two small red specular
-    // dots on black. That is what a mirror-ish ball in a void looks like. Image-based
-    // lighting (PBR slice 4) is what gives it something to reflect; until then the flat
-    // 0.1 ambient cannot help a metal by construction. Confirmed visually 2026-10-04.
+    // WHAT THIS SPHERE SHOULD LOOK LIKE, rewritten 2026-10-06. The block here described
+    // the pre-IBL flat `0.1` ambient and told the reader that image-based lighting was
+    // what would eventually give a metal something to reflect -- stale since 4b/4c, when
+    // IBL shipped, and now wrong in the other direction too.
+    //
+    // CURRENT: the SMOOTH bands read as mirror-ish red, reflecting the environment
+    // cubemap. The ROUGH bands carry a visible dark red GLOW. That glow is new as of
+    // multi-scatter energy compensation and it is the one place in this scene where that
+    // feature is visible at all: `FmsEms` rides the irradiance and so reaches conductors,
+    // which had received exactly ZERO ambient before it (`kD` is `albedo * (1 - metallic)`
+    // times the energy residual, and the first factor is 0 at `metallic == 1`). The red
+    // channel gains 1.47x at roughness 0.75 and 1.95x at roughness 1.
+    //
+    // It is RED, not grey or white: multi-bounce energy is tinted by F0 on every bounce,
+    // so at roughness 1 red gains 0.257 against green's 0.011. A grey wash on the rough
+    // end means F0 is not reaching Favg per channel.
+    //
+    // STILL TRUE, and still the reason this sphere exists: with `metallic == 1`,
+    // `F0 == base_color`, so the specular highlights MUST read red. If they ever look
+    // white, the metallic path has been broken. Do not "fix" that by tinting specular
+    // with the light colour -- see the paragraph above this one.
+    //
+    // And the rough end being brighter than the smooth end's unlit areas is NOT a bug:
+    // a rough conductor scatters light many times before it escapes, and that energy has
+    // to go somewhere. Single-scatter GGX dropped it, which is what made this ball black.
     // roughness 1.0, not the 0.174 this material carried before the map existed: the
     // scalar is a FACTOR over the texel, so the map alone now sets roughness and its
     // authored 0.157..1.0 range reaches the surface intact.

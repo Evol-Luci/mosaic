@@ -606,8 +606,12 @@ view that was actually used to pick what to build next as of this writing.
     `world_distance / s` — the new behavior is the correct one).
   - ~~**A multi-scatter / energy-compensation term for the GGX specular.**~~
     — **SHIPPED 2026-10-06.** Single-scatter GGX loses energy at high
-    roughness — a rough dielectric comes out darker than it should, because
-    light that would have bounced between microfacets is simply dropped.
+    roughness — light that would have bounced between microfacets is simply
+    dropped. **The effect is on METALS, not dielectrics**, which the original
+    wording here got wrong and the slice propagated until the magnitudes
+    were computed: the loss scales with the specular weight, so a dielectric
+    (`F0 = 0.04`, diffuse lobe carrying 96% of the response) changes by under
+    2%, while a conductor (`F0 = base_color`) loses a great deal.
     Deferred 2026-10-04 during the metallic/roughness design as a refinement
     on top of a working BRDF, with the note that **IBL sub-slice 4c's
     furnace test is what will measure it**, and that pinning the measured
