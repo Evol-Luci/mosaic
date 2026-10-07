@@ -486,6 +486,184 @@ TEST_CASE("the compensated furnace: multi-scatter returns all the light it recei
     }
 }
 
+// NOTE: no comma in this name. Catch2 treats a comma in a name filter as a test-spec
+// SEPARATOR, so `mosaic_unit_tests "the Favg term, pinned ..."` searches for two cases
+// that do not exist, matches nothing, and exits non-zero -- indistinguishable from a
+// failing test. That cost a full round of mutation probes here.
+TEST_CASE("the Favg term pinned in isolation because the furnace cannot see it",
+          "[asset]")
+{
+    // The furnace case above is structurally blind to Favg, and this is the sixth
+    // instance in this arc of a guard that guards nothing -- predicted while scoping
+    // rather than found in review, which is the only new thing about it.
+    //
+    // WHY IT IS BLIND, twice over. Favg = F0 + (1 - F0)/21 equals 1 whenever F0 = 1,
+    // so /21, /5 and a bare 1.0 are indistinguishable to it. And dropping to a
+    // dielectric does not help: kD is DEFINED as the energy residual
+    // (1 - FssEss - FmsEms), so with a white albedo the three terms sum to 1 for any
+    // Favg whatsoever. Energy conservation is tautological here; it cannot be the test.
+    //
+    // So ask for FmsEms ALONE. Passing diffuse_color = 0 -- a black dielectric -- makes
+    // kD vanish, so the returned `diffuse` weight IS FmsEms, with no extra field on the
+    // struct to make it reachable.
+    //
+    // The expected values are computed independently of this implementation, from the
+    // published formula against the same LUT integral, and verified to survive the
+    // table's half-precision storage (drift at most 5e-7, against a 5e-5 margin). The
+    // right-hand column is what Favg = 1 produces: 15x to 36x out.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+    const Vec3 dielectric{0.04f, 0.04f, 0.04f};
+    const Vec3 black{0.0f, 0.0f, 0.0f};
+
+    struct Expectation
+    {
+        std::uint32_t x, y;
+        double fms_ems;   // correct Favg = F0 + (1 - F0)/21
+        double if_favg_1; // the degenerate value, for the failure message
+    };
+    const Expectation expected[] = {
+        {40, 32, 0.0007129, 0.0103889}, // NdotV 0.633, roughness 0.508
+        {40, 48, 0.0009897, 0.0195395}, // NdotV 0.633, roughness 0.762
+        {20, 40, 0.0016032, 0.0283361}, // NdotV 0.320, roughness 0.635
+        {63, 63, 0.0007799, 0.0277513}, // NdotV 0.992, roughness 1.000
+    };
+
+    for (const auto& e : expected)
+    {
+        const auto [scale, bias] = lut_at(lut, e.x, e.y);
+        const auto c = mosaic::app::energy_compensate(dielectric, black, scale, bias);
+        INFO("texel " << e.x << "," << e.y << ": FmsEms " << c.diffuse.x << ", expected "
+                      << e.fms_ems << " (a bare Favg = 1.0 gives " << e.if_favg_1 << ")");
+        REQUIRE(static_cast<double>(c.diffuse.x) == Approx(e.fms_ems).margin(5e-5));
+    }
+}
+
+TEST_CASE("compensation only ever adds energy and adds some wherever there is loss",
+          "[asset]")
+{
+    // Catches the mutation that has now slipped through this project's token searches
+    // twice: a correction that is present, named, wired, and multiplied by zero. PBR
+    // slice 3's colour-space contract fell to exactly this.
+    //
+    // The 1e-3 slack on the lower bound is not tolerance for the model -- it is the
+    // LUT's half-precision. At roughness 0 the stored scale + bias reads 1.000076, so a
+    // strict `total >= scale + bias` fails by 7.6e-5 on correct code.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+    const Vec3 white{1.0f, 1.0f, 1.0f};
+    const Vec3 no_diffuse{0.0f, 0.0f, 0.0f};
+
+    int improved = 0;
+    for (std::uint32_t y = 0; y < 64; ++y)
+    {
+        for (std::uint32_t x = 0; x < 64; ++x)
+        {
+            const auto [scale, bias] = lut_at(lut, x, y);
+            const double single = static_cast<double>(scale) + static_cast<double>(bias);
+            const auto c = mosaic::app::energy_compensate(white, no_diffuse, scale, bias);
+            const double total = static_cast<double>(c.specular.x)
+                               + static_cast<double>(c.diffuse.x);
+            INFO("texel " << x << "," << y << " single " << single << " -> " << total);
+            REQUIRE(total >= single - 1e-3);
+            if (single < 0.99) { REQUIRE(total > single + 0.01); ++improved; }
+        }
+    }
+    // And that the band where there IS loss is most of the table, so the case above is
+    // not quietly asserting nothing. A compensation applied on three texels would pass
+    // every assertion in this loop.
+    INFO("texels with a measurable single-scatter shortfall: " << improved);
+    REQUIRE(improved > 3000);
+}
+
+TEST_CASE("a zero diffuse colour leaves the multi-scatter term alone", "[asset]")
+{
+    // The C++ half of the metal invariant, and the property the Favg case relies on:
+    // diffuse_color = 0 must make the returned `diffuse` weight exactly FmsEms, with no
+    // kD contribution smuggled in. A metal gets no ambient diffuse lobe -- but it must
+    // still receive the multi-scatter energy, which is light that genuinely left the
+    // surface.
+    //
+    // The other half -- that diffuse_color is albedo * (1 - metallic) and not raw albedo
+    // -- lives in cube.frag and is pinned textually in shader_specular_contract_test.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+    const auto [scale, bias] = lut_at(lut, 40, 48);
+    const Vec3 f0{0.04f, 0.04f, 0.04f};
+
+    const auto black = mosaic::app::energy_compensate(f0, Vec3{0.0f, 0.0f, 0.0f}, scale, bias);
+    const auto grey = mosaic::app::energy_compensate(f0, Vec3{0.5f, 0.5f, 0.5f}, scale, bias);
+
+    // Specular is independent of the diffuse colour entirely.
+    REQUIRE(black.specular.x == Approx(grey.specular.x).margin(1e-7));
+    // And the grey surface's diffuse weight is the black one's PLUS its own kD, so the
+    // black one carries no kD at all.
+    const float kD = 0.5f * (1.0f - black.specular.x - black.diffuse.x);
+    REQUIRE(grey.diffuse.x == Approx(black.diffuse.x + kD).margin(1e-6));
+    REQUIRE(kD > 0.0f);
+}
+
+TEST_CASE("each colour channel is compensated from its own F0", "[asset]")
+{
+    // Every other assertion in this file reads channel .x, so a per-channel
+    // implementation that computes green and blue from f0.x would pass all of them --
+    // and F0 is per-channel for exactly one reason: a metal's F0 IS its base colour,
+    // which is what distinguishes gold from silver. A red metal compensated from its red
+    // channel throughout comes out grey-ish and wrong, with no test objecting.
+    const auto lut = mosaic::app::bake_brdf_lut(64);
+    const auto [scale, bias] = lut_at(lut, 40, 48);
+
+    // A red conductor: F0 = base colour, and diffuse_color = 0 because metallic = 1.
+    const Vec3 red{0.9f, 0.1f, 0.1f};
+    const auto c = mosaic::app::energy_compensate(red, Vec3{0.0f, 0.0f, 0.0f}, scale, bias);
+
+    // Each channel must equal what that channel's F0 alone produces, which the scalar
+    // relation FssEss = f0 * scale + bias states directly.
+    REQUIRE(c.specular.x == Approx(0.9f * scale + bias).margin(1e-6));
+    REQUIRE(c.specular.y == Approx(0.1f * scale + bias).margin(1e-6));
+    REQUIRE(c.specular.z == Approx(0.1f * scale + bias).margin(1e-6));
+    // Green and blue agree with each other (same input) but NOT with red -- which is the
+    // assertion that fails if every channel is computed from f0.x.
+    REQUIRE(c.specular.y == Approx(c.specular.z).margin(1e-7));
+    REQUIRE(c.specular.x != Approx(c.specular.y).margin(1e-3));
+    REQUIRE(c.diffuse.x != Approx(c.diffuse.y).margin(1e-5));
+}
+
+TEST_CASE("the degenerate inputs stay finite", "[asset]")
+{
+    // Three inputs the shader will never produce but the function must not blow up on,
+    // because a NaN here propagates to the whole ambient term and renders black rather
+    // than failing loudly.
+    const Vec3 black{0.0f, 0.0f, 0.0f};
+
+    SECTION("a perfectly black dielectric, f0 = 0")
+    {
+        // Favg becomes 1/21 and FssEss becomes bias alone. Nothing degenerates, but the
+        // arithmetic is nowhere near the f0 = 1 path every other case exercises.
+        const auto c = mosaic::app::energy_compensate(black, black, 0.5f, 0.01f);
+        REQUIRE(std::isfinite(c.specular.x));
+        REQUIRE(std::isfinite(c.diffuse.x));
+        REQUIRE(c.specular.x == Approx(0.01f).margin(1e-6));
+        REQUIRE(c.diffuse.x >= 0.0f);
+    }
+    SECTION("an empty table texel with a white surface -- the one real degeneracy")
+    {
+        // scale = bias = 0 gives Ess = 0 and Ems = 1; at f0 = 1 Favg is also 1, so
+        // 1 - Favg * Ems is exactly 0. Zero energy in must mean zero out, not NaN.
+        // bake_brdf_lut(0) returns an empty image, so this input is reachable.
+        const Vec3 white{1.0f, 1.0f, 1.0f};
+        const auto c = mosaic::app::energy_compensate(white, black, 0.0f, 0.0f);
+        REQUIRE(std::isfinite(c.specular.x));
+        REQUIRE(std::isfinite(c.diffuse.x));
+        REQUIRE(c.specular.x == Approx(0.0f).margin(1e-7));
+        REQUIRE(c.diffuse.x == Approx(0.0f).margin(1e-7));
+    }
+    SECTION("the same empty texel with a dielectric stays finite too")
+    {
+        const Vec3 f0{0.04f, 0.04f, 0.04f};
+        const auto c = mosaic::app::energy_compensate(f0, Vec3{1.0f, 1.0f, 1.0f}, 0.0f, 0.0f);
+        REQUIRE(std::isfinite(c.specular.x));
+        REQUIRE(std::isfinite(c.diffuse.x));
+    }
+}
+
 TEST_CASE("an Environment round-trips through cook and uncook", "[asset]")
 {
     mosaic::app::Environment env;
