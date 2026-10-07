@@ -571,6 +571,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     // And the rough end being brighter than the smooth end's unlit areas is NOT a bug:
     // a rough conductor scatters light many times before it escapes, and that energy has
     // to go somewhere. Single-scatter GGX dropped it, which is what made this ball black.
+    // Confirmed visually 2026-10-06, after multi-scatter energy compensation.
     // roughness 1.0, not the 0.174 this material carried before the map existed: the
     // scalar is a FACTOR over the texel, so the map alone now sets roughness and its
     // authored 0.157..1.0 range reaches the surface intact.
