@@ -719,6 +719,20 @@ view that was actually used to pick what to build next as of this writing.
     component, overwrite only the named fields) or keep replace semantics and document
     them loudly — merging is almost certainly what callers expect, but it changes the
     meaning of every existing `set_component` call.
+  - **Only one camera is ever active: `RenderSystem` resolves "first found".**
+    `find_active_camera` returns on the first `Camera` that also has a
+    `WorldTransform`, so a scene with two cameras renders through whichever the
+    component iteration reaches first — with no way to choose, and no concept of
+    a render target per camera. Recorded 2026-10-07: the exposure slice's spec
+    listed "per-camera exposure actually varying between two cameras in one
+    scene" as a Non-goal bounded by this limitation, and the branch review
+    pointed out it was the one Non-goal with no backlog entry of its own (the
+    analogous `first found` notes exist only for lights). **What it blocks:**
+    split-screen, picture-in-picture, a separate editor viewport camera, and
+    any per-camera post-processing — exposure included, which now serialises
+    per-camera but can only ever take effect for one of them. **Depends on**
+    deciding what multiple cameras even mean here: a priority/active flag is
+    the cheap version, render-target-per-camera is the real one.
   - **Exposure on the four unlit scene shaders** (`particle`, `ribbon`,
     `decal`, `world_text`). Deferred 2026-10-07 while designing exposure
     control, deliberately and for the same reason slice 1 gave for not tone
