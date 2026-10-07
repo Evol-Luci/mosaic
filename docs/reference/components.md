@@ -36,6 +36,7 @@ Every built-in engine component, with its fields and their default values. Field
 - `fov_y_radians`: 1.047200
 - `near_z`: 0.100000
 - `far_z`: 100.000000
+- `exposure`: 1.000000
 
 ## CapsuleCollider
 

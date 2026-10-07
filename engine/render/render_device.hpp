@@ -69,6 +69,9 @@ struct FrameLighting
     float                          spot_cos_outer = 1.0f;
     mosaic::foundation::math::Vec3 camera_position; // world space, for specular
     mosaic::foundation::math::Mat4 light_view_proj;  // for shadow-map sampling
+    // The active Camera's exposure, or 1.0 when the world has no camera. Per-FRAME rather
+    // than per-draw because it is a property of the viewer, not of any surface.
+    float                          exposure = 1.0f;
 };
 
 // Per-draw parameters: the transforms plus the material's own shading parameters.
@@ -159,6 +162,11 @@ struct SkyboxParams
     mosaic::foundation::math::Mat4 inverse_view_rotation;
     float tan_half_fov_y = 1.0f;
     float aspect = 1.0f;
+    // The same exposure FrameLighting carries. Passed explicitly rather than read from the
+    // device's cached lighting state, because the skybox pipeline does not bind the
+    // per-frame UBO at all -- and an explicit parameter is visible to the fake device the
+    // RenderSystem tests use, where a cached one would not be.
+    float exposure = 1.0f;
 };
 
 struct ScreenEffectParams

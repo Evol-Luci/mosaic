@@ -6,6 +6,10 @@ layout(push_constant) uniform Push {
     mat4  inv_view_rotation; // world-from-view, translation removed
     float tan_half_fov_y;
     float aspect;
+    // Must be the same value the lit pass scales by, or the sky and the geometry drift
+    // apart in brightness. It arrives as a push constant because this pipeline does not
+    // bind the per-frame UBO -- set 0 here is the environment cubemap.
+    float exposure;
 } pc;
 layout(location = 0) out vec4 outColor;
 
@@ -39,5 +43,5 @@ void main()
     vec3 dir = normalize(mat3(pc.inv_view_rotation) * view_dir);
 
     vec3 radiance = texture(environment, dir).rgb;
-    outColor = vec4(tonemap_aces(radiance), 1.0);
+    outColor = vec4(tonemap_aces(radiance * pc.exposure), 1.0);
 }

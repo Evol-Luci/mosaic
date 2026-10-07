@@ -295,3 +295,24 @@ TEST_CASE("a cubemap mip chain is uploaded, not generated", "[render]")
     // size overruns the staging buffer -- which validation does not reliably catch.
     REQUIRE(body.find("mip_extent_for") != std::string::npos);
 }
+
+TEST_CASE("the backend copies exposure into both of its GPU payloads", "[render]")
+{
+    // The last leg of exposure's journey, and the only one no behavioural test reaches:
+    // the copy out of the engine-neutral structs into the two GPU payloads. CI has no GPU,
+    // so this is a textual pin on the backend, the same instrument the draw_skybox guard
+    // above uses and for the same reason.
+    //
+    // Both halves are needed and they are separate code paths. The lit pass takes exposure
+    // through the per-frame UBO; the skybox cannot, because its pipeline does not bind that
+    // descriptor set, so it takes a push constant instead. Replace either assignment with
+    // a literal 1.0 and every other test in the suite stays green -- the RenderSystem
+    // tests check what the DEVICE was handed, not what the device then did with it, and
+    // the shader contract tests check the GLSL, which still reads its input correctly.
+    // The symptom would be exposure doing nothing at all, or working on the geometry while
+    // the sky ignored it.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    REQUIRE(src.find("ubo.exposure[0] = fl.exposure;") != std::string::npos);
+    REQUIRE(src.find("push.exposure = params.exposure;") != std::string::npos);
+}

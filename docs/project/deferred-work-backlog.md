@@ -689,11 +689,43 @@ view that was actually used to pick what to build next as of this writing.
   - **Bloom.** Depends on the HDR render target above; there is nowhere
     to read bright pixels back from until that exists. Deferred
     2026-10-04.
-  - **Exposure control.** Tone mapping ships with a hard-coded curve.
-    Deferred 2026-10-04 during its design: exposure is a camera concern
-    rather than a material or lighting one, and adding the knob now would
-    mean deciding where it lives (a `Camera` member? the lighting UBO? a
-    push constant?) for no current caller.
+  - ~~**Exposure control.**~~ — **SHIPPED 2026-10-07.** Tone mapping shipped
+    with a hard-coded curve. Deferred 2026-10-04 because the knob's home was
+    undecided (a `Camera` member? the lighting UBO? a push constant?) for no
+    current caller. **Decided: a field on `Camera`** — exposure is a camera
+    property physically and in every DCC tool, so it serialises with the
+    scene, is per-camera, and reaches the inspector for free. Note the
+    backlog's own claim that it was "one `float` through the existing
+    lighting UBO (which already carries `camera_position`)" was **wrong
+    about the free slot**: slice 4c took `camera_position.w` for the IBL
+    flag, with an explicit warning in the backend that a future field
+    claiming it would silently disable IBL. The UBO grew by a `vec4`
+    instead (192 -> 208), appended at the END because the size assertion
+    checks total size and not field offsets. See
+    `docs/superpowers/specs/2026-10-07-render-exposure-control-design.md`.
+  - **Exposure on the four unlit scene shaders** (`particle`, `ribbon`,
+    `decal`, `world_text`). Deferred 2026-10-07 while designing exposure
+    control, deliberately and for the same reason slice 1 gave for not tone
+    mapping them: they emit authored colour that cannot exceed 1.0, and
+    scaling it changes what the author asked for. **The consequence is real
+    and worth stating:** a bright scene exposed down makes particles read
+    relatively *brighter* against it, because the scene moved and they did
+    not. Whether that is wrong depends on whether these shaders are
+    understood as scene elements (which a camera's sensor would scale) or as
+    overlays (which it would not) — and that question is genuinely open,
+    since `world_text` is plausibly UI while `particle` and `ribbon` are
+    plainly in-world. **Depends on** deciding that, not on any machinery.
+  - **EV-stop authoring units for exposure, and a UI slider.** Exposure
+    ships as a linear multiplier with 1.0 neutral. EV stops
+    (`color * pow(2, ev)`) are the photographer's unit and are the right
+    thing behind a slider, but they put a `pow` in two fragment shaders and
+    make the neutral value 0.0, which reads as "no exposure" rather than
+    "unchanged" to anyone inspecting the component. Deferred 2026-10-07:
+    the conversion belongs in the UI affordance, which does not exist yet.
+  - **Auto-exposure / eye adaptation.** Deferred 2026-10-07: needs a
+    luminance reduction over the framebuffer, so it **depends on the
+    offscreen HDR render target** that is still deferred above. Manual
+    exposure is the prerequisite and now exists.
   - **Move `view_proj` per-frame and drop `mvp` from push constants** —
     a further per-draw reduction available on top of the UBO migration
     (the vertex shader would compute `view_proj * model` instead of
@@ -1239,6 +1271,20 @@ anything shipped; they are capabilities that were never built.
   affects a failure path that the four-orders-of-magnitude timing margin makes
   very unlikely, and leaking a `World` on purpose wants its own justification
   in the test's comments rather than arriving as a fix-round edit.
+- **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
+  name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
+  `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
+  mesh rotation"` searches for two cases that do not exist, matches nothing, prints
+  "No tests ran" and **exits non-zero** -- indistinguishable from a failing test to
+  any script. Found 2026-10-07 while probing the exposure slice, after the same trap
+  had already cost a full round of seven mutation probes on the multi-scatter slice
+  and then two false reds on this one. The affected names are in
+  `render_system_test.cpp` (4), `texture_colorspace_contract_test.cpp` (3),
+  `shape_meshes_test.cpp` (1) and `shader_specular_contract_test.cpp` (1). Deferred
+  rather than folded in: renaming other slices' tests is churn in files this slice has
+  no other reason to touch, and the fix is mechanical. **Worth pairing with a guard**
+  -- a test or lint that fails if any `TEST_CASE` name contains a comma -- since
+  otherwise the next one arrives the same way these did.
 - **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
   a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
   calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's

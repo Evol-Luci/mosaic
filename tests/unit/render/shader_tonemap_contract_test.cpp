@@ -122,3 +122,45 @@ TEST_CASE("the skybox tone maps with the same curve as the lit pass", "[render]"
     // ...and that the skybox actually CALLS it, not merely defines it.
     REQUIRE(sky.find("tonemap_aces(") != std::string::npos);
 }
+
+// No comma in this name. Catch2 treats a comma in a name filter as a test-spec SEPARATOR,
+// so running this case by name would match nothing and exit non-zero -- indistinguishable
+// from a failure. Cost a round of mutation probes on the multi-scatter slice; cost two
+// false reds here before the pattern was recognised a second time.
+TEST_CASE("exposure scales the colour entering the tone map in both shaders", "[render]")
+{
+    // The whole point of exposure, and the naive version of this test is worthless.
+    //
+    // Asserting that `exposure` merely APPEARS is satisfied by
+    // `tonemap_aces(color) * fl.exposure.x`, which scales a value the curve has already
+    // clamped to [0,1]. That form can darken but can NEVER brighten -- the exact thing a
+    // user reaches for exposure to do -- and every token search for "exposure" stays
+    // green while it ships. Hence the full expression, whitespace-normalised, in each
+    // shader.
+    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+
+    INFO("If this fails, check whether exposure moved OUTSIDE tonemap_aces(...) before "
+         "assuming the test is stale. Outside the curve it can only darken.");
+    REQUIRE(lit.find("outColor = vec4(tonemap_aces(color * fl.exposure.x), 1.0);")
+            != std::string::npos);
+    REQUIRE(sky.find("outColor = vec4(tonemap_aces(radiance * pc.exposure), 1.0);")
+            != std::string::npos);
+}
+
+TEST_CASE("neither tone-mapping shader hard-codes an exposure value", "[render]")
+{
+    // The two shaders must scale by the SAME number, which they do by both reading it
+    // from the camera rather than by agreeing on a literal. A constant substituted into
+    // either one makes the sky and the lit geometry drift apart in brightness -- which
+    // reads as "the sky doesn't match the scene", an authoring complaint rather than a
+    // bug report, and no test that checks each shader in isolation would catch it.
+    //
+    // Pinned as the plumbing rather than the absence of a literal: `exposure` must come
+    // from the per-frame block in the lit pass and from the push constant in the skybox,
+    // because the skybox does not bind the UBO at all (set 0 is its cubemap).
+    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+    REQUIRE(lit.find("vec4 exposure;") != std::string::npos);  // trailing UBO member
+    REQUIRE(sky.find("float exposure;") != std::string::npos); // skybox push member
+}

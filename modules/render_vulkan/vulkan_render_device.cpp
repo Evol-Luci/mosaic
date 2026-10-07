@@ -66,8 +66,23 @@ struct FrameLightingUbo
     // future field that takes this slot silently disables image-based lighting.
     float camera_position[4];
     float light_view_proj[16];
+    // Exposure in .x, .yzw unused. APPENDED at the end rather than grouped with
+    // camera_position where it belongs logically, and not packed into one of the
+    // documented-unused .w slots above, for two separate reasons.
+    //
+    // Not a .w slot: camera_position.w is currently demonstrating what that costs. It
+    // holds the IBL-enable flag, and the comment above it had to warn that a future field
+    // claiming the slot would silently disable image-based lighting. This slice IS that
+    // future field, so it does not take one.
+    //
+    // At the END: the assertion below checks the struct's TOTAL SIZE and never its field
+    // offsets. Inserting mid-struct would shift light_view_proj's offset, and if only one
+    // side of the C++/GLSL boundary were updated the assertion could not see it -- the
+    // symptom would be a wrong shadow matrix, not a failed build. Appending cannot shift
+    // anything that already exists.
+    float exposure[4];
 };
-static_assert(sizeof(FrameLightingUbo) == 192, "UBO layout must match the shader block");
+static_assert(sizeof(FrameLightingUbo) == 208, "UBO layout must match the shader block");
 
 struct ShadowPushConstants
 {
@@ -107,8 +122,14 @@ struct SkyboxPush
     float inv_view_rotation[16]; // world-from-view, translation removed
     float tan_half_fov_y;
     float aspect;
+    // The skybox cannot read exposure from the per-frame UBO: it does not bind that set at
+    // all (its set 0 is the environment cubemap) and takes everything else through push
+    // constants. It must scale by the SAME value the lit pass does, or the sky and the
+    // geometry drift apart in brightness -- which reads as an authoring complaint rather
+    // than a bug.
+    float exposure;
 };
-static_assert(sizeof(SkyboxPush) == 72, "skybox push layout must match skybox.frag");
+static_assert(sizeof(SkyboxPush) == 76, "skybox push layout must match skybox.frag");
 
 struct ScreenEffectPush
 {
@@ -1309,6 +1330,10 @@ public:
         ubo.camera_position[0] = fl.camera_position.x;
         ubo.camera_position[1] = fl.camera_position.y;
         ubo.camera_position[2] = fl.camera_position.z;
+        ubo.exposure[0] = fl.exposure;
+        ubo.exposure[1] = 0.0f;
+        ubo.exposure[2] = 0.0f;
+        ubo.exposure[3] = 0.0f;
         ubo.spot_color[3] = fl.spot_cos_inner;
         std::memcpy(ubo.light_view_proj, fl.light_view_proj.m.data(), sizeof(ubo.light_view_proj));
 
@@ -1648,6 +1673,7 @@ public:
                     sizeof(push.inv_view_rotation));
         push.tan_half_fov_y = params.tan_half_fov_y;
         push.aspect = params.aspect;
+        push.exposure = params.exposure;
         vkCmdPushConstants(cmd_[frame_], skybox_pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(push), &push);
 

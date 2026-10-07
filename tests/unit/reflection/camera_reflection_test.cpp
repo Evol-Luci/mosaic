@@ -30,7 +30,10 @@ TEST_CASE("a Camera round-trips through serialization with its fields", "[reflec
 
     World src;
     const World::EntityID e = src.create_entity();
-    src.add_component<Camera>(e, Camera{1.2f, 0.5f, 250.0f}); // non-default fov/near/far
+    // Non-default fov/near/far AND exposure. Aggregate initialisation, so a field added
+    // without a value here would silently take its default and this case would keep
+    // passing while the new field went unserialised -- hence the explicit fourth value.
+    src.add_component<Camera>(e, Camera{1.2f, 0.5f, 250.0f, 2.5f});
 
     const std::string json = mosaic::engine::scene::save_to_json(src, types);
 
@@ -49,6 +52,7 @@ TEST_CASE("a Camera round-trips through serialization with its fields", "[reflec
             REQUIRE(c.fov_y_radians == Approx(1.2f));
             REQUIRE(c.near_z == Approx(0.5f));
             REQUIRE(c.far_z == Approx(250.0f));
+            REQUIRE(c.exposure == Approx(2.5f));
         });
     REQUIRE(count == 1);
 }

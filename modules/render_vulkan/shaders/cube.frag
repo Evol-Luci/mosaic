@@ -31,6 +31,10 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     // growing the UBO, which would change its size assertion for one boolean.
     vec4 camera_position;
     mat4 light_view_proj;
+    // Exposure in .x, .yzw unused. A trailing vec4 rather than one of the unused .w slots
+    // above: camera_position.w is already the IBL flag, and the backend's comment warns
+    // what claiming such a slot costs. Appended last so no existing member's offset moves.
+    vec4 exposure;
 } fl;
 // Image-based lighting, in its own descriptor set because these are per-FRAME products
 // resolved mid-frame -- see ibl_set_layout_ in the Vulkan backend for why that cannot
@@ -277,5 +281,8 @@ void main()
                 + dir_term * fl.light_color.xyz
                 + pt_term * fl.point_color.xyz
                 + spot_term * fl.spot_color.xyz;
-    outColor = vec4(tonemap_aces(color), 1.0);
+    // Exposure scales the value ENTERING the curve. Outside it -- tonemap_aces(color) *
+    // exposure -- the scale would apply to an already-clamped [0,1] value, so it could
+    // darken but never brighten, which is most of what exposure is for.
+    outColor = vec4(tonemap_aces(color * fl.exposure.x), 1.0);
 }
