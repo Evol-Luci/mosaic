@@ -161,8 +161,15 @@ TEST_CASE("cube.frag indexes the prefiltered chain with roughness times four", "
     // GPU in CI can see it.
     const std::string frag = code_only(read_shader("cube.frag"));
     REQUIRE(frag.find("textureLod(prefilteredMap, R, roughness * 4.0)") != std::string::npos);
-    // And the split-sum reconstruction itself...
-    REQUIRE(frag.find("prefiltered * (F0_amb * ab.x + ab.y)") != std::string::npos);
+    // And the split-sum reconstruction itself. The single-scatter form
+    // `prefiltered * (F0_amb * ab.x + ab.y)` this used to pin is now the FssEss term of
+    // the multi-scatter reconstruction; the whole expression is pinned in its own case
+    // below, because the GROUPING is what matters and a substring cannot see it.
+    //
+    // No type prefix in the search: pinning `vec3  FssEss` would pin the declaration's
+    // alignment, which a reformat breaks while the math is untouched. That the local is
+    // a vec3 is the compiler's job, not this test's.
+    REQUIRE(frag.find("FssEss = F0_amb * ab.x + ab.y;") != std::string::npos);
     // ...and that `ab` actually comes FROM the LUT. Pinning only the reconstruction left
     // a mutation replacing the lookup with a constant vec2(1.0, 0.0) passing, because the
     // reconstruction reads the same either way -- and a constant there silently discards
@@ -172,6 +179,51 @@ TEST_CASE("cube.frag indexes the prefiltered chain with roughness times four", "
     // coordinates, so an implicit LOD from their screen-space derivatives is meaningless
     // and put a visible seam down every roughness-band boundary on the demo sphere.
     REQUIRE(frag.find("textureLod(brdfLut, vec2(max(dot(n, v), 1e-4), roughness), 0.0).rg")
+            != std::string::npos);
+}
+
+TEST_CASE("cube.frag groups the multi-scatter term with the irradiance not the radiance",
+          "[render]")
+{
+    // The assertion of the multi-scatter slice, and the only one that pins the GLSL
+    // rather than its C++ twin.
+    //
+    // FmsEms is the energy that bounced between microfacets before escaping. Many
+    // bounces randomize direction, so it is diffuse-like and belongs against the
+    // irradiance, grouped with kD. Moving it into the FssEss group makes the
+    // multi-scatter energy mirror the environment in every real scene.
+    //
+    // The C++ furnace tests DO catch that mutation -- three of them -- but only because
+    // they assert the two weights SEPARATELY. An assertion on their sum cannot see it at
+    // all: a uniform environment makes the irradiance and prefiltered maps identical by
+    // construction, so the regrouping is invisible to the total. That distinction is why
+    // this case pins the whole expression rather than any substring of it; a search for
+    // "FmsEms" alone is satisfied by the broken form.
+    const std::string frag = normalize_ws(code_only(read_shader("cube.frag")));
+    INFO("If this fails, check the GROUPING before assuming the test is stale: "
+         "FssEss multiplies prefiltered, and (FmsEms + kD) multiplies irradiance.");
+    REQUIRE(frag.find("ambient = FssEss * prefiltered + (FmsEms + kD) * irradiance;")
+            != std::string::npos);
+
+    // The average-Fresnel fit, whose divisor the furnace test cannot see -- at F0 = 1,
+    // Favg is 1 whatever it is, and the total cancels to exactly 1 regardless.
+    // ibl_bake_test's isolation case pins the value; this pins that the shader uses the
+    // same one.
+    REQUIRE(frag.find("Favg = F0_amb + (vec3(1.0) - F0_amb) / 21.0;") != std::string::npos);
+
+    // Ems is built from the LUT's OWN two channels. A constant here -- the mutation that
+    // slipped past four token searches in PBR slice 3 -- silently discards the whole
+    // correction while every identifier above stays present and spelled correctly.
+    REQUIRE(frag.find("Ems = 1.0 - (ab.x + ab.y);") != std::string::npos);
+
+    // And kD comes from the metallic-weighted colour, not from raw albedo. This is the
+    // one guard for a DARK conductor: the energy residual zeroes kD on its own only
+    // where albedo is 1, so a metal with albedo 0.5 would grow a diffuse lobe. Both
+    // lines are required, and the second is what ties them together -- a correctly
+    // spelled diffuseColor sitting unused beside `kD = albedo * (...)` is the
+    // "clamped-but-unused local" shape the slice-4c review found.
+    REQUIRE(frag.find("diffuseColor = albedo * (1.0 - metallic);") != std::string::npos);
+    REQUIRE(frag.find("kD = diffuseColor * (vec3(1.0) - FssEss - FmsEms);")
             != std::string::npos);
 }
 
