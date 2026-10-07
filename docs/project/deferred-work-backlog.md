@@ -1672,7 +1672,7 @@ re-reading the same source docs:
 
 | Item | Why it is a quick win |
 |---|---|
-| **Exposure control** | One `float` through the existing lighting UBO (which already carries `camera_position`), one multiply before the tone map. The design question — where the knob lives — is the only real work. |
+| ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
 | **A suite-wide ctest `TIMEOUT`** | One `set_tests_properties` call. Recorded three times as a backstop; this session produced two hang-shaped bugs (the watchdog use-after-free and the GIL deadlock), so it is no longer hypothetical. The work is choosing the value against the slowest legitimate test, not writing the line. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
