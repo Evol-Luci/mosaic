@@ -218,4 +218,25 @@ target_compile_definitions(mosaic_unit_tests PRIVATE
   MOSAIC_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 include(Catch)
-catch_discover_tests(mosaic_unit_tests)
+# TIMEOUT 60 is a BACKSTOP, not a performance budget, and the number is chosen against
+# measurement rather than taste.
+#
+# Without it ctest's default of 1500s applies, so any test that hangs costs 25 minutes of
+# CI before failing, and says only "Timeout" when it does. This session's predecessors
+# produced two hang-shaped bugs -- a watchdog use-after-free and a GIL deadlock -- so the
+# scenario is observed, not hypothetical.
+#
+# Measured 2026-10-07 over a full run: the slowest single case is 1.11s
+# (`PluginFileWatcher.poll detects a modified file's mtime`, which waits out filesystem
+# mtime granularity), the next tier is 0.40s (the IBL furnace cases, which bake a 64x64
+# BRDF LUT), and the whole 1158-case suite takes 24s. So 60s is ~54x the slowest case and
+# still ~10x clear of it even if CI runs 5x slower than this machine, while a single case
+# reaching 60s in a 24s suite is unambiguously wrong rather than merely slow.
+#
+# This does NOT replace the in-test watchdogs. A watchdog gives a named assertion in
+# seconds and works when running the test binary directly; a ctest property does neither.
+# It catches the next hang nobody anticipated, which is the case no watchdog exists for.
+#
+# `catch_discover_tests` applies PROPERTIES to the discovered tests as a whole, and gives
+# each case its own process, so one case timing out cannot take another down.
+catch_discover_tests(mosaic_unit_tests PROPERTIES TIMEOUT 60)
