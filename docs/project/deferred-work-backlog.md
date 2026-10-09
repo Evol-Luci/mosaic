@@ -1362,20 +1362,38 @@ anything shipped; they are capabilities that were never built.
   which cannot be starved. The 5s ceiling exists so a genuine failure reports instead of
   hanging, and its message distinguishes "the reader was never scheduled" from "raycast
   from a non-main thread returns no hit".
-- **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
-  name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
-  `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
-  mesh rotation"` searches for two cases that do not exist, matches nothing, prints
-  "No tests ran" and **exits non-zero** -- indistinguishable from a failing test to
-  any script. Found 2026-10-07 while probing the exposure slice, after the same trap
-  had already cost a full round of seven mutation probes on the multi-scatter slice
-  and then two false reds on this one. The affected names are in
-  `render_system_test.cpp` (4), `texture_colorspace_contract_test.cpp` (3),
-  `shape_meshes_test.cpp` (1) and `shader_specular_contract_test.cpp` (1). Deferred
-  rather than folded in: renaming other slices' tests is churn in files this slice has
-  no other reason to touch, and the fix is mechanical. **Worth pairing with a guard**
-  -- a test or lint that fails if any `TEST_CASE` name contains a comma -- since
-  otherwise the next one arrives the same way these did.
+- ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by
+  name.**~~ — **WITHDRAWN 2026-10-09: the premise was wrong, and the count was wrong.**
+  There are **89**, not nine (the original count came from grepping four files), and
+  **they are not broken.** `CatchAddTests.cmake` escapes commas when it generates each
+  `add_test`, which the generated
+  `build/debug/tests/mosaic_unit_tests-*_tests.cmake` shows directly:
+  `add_test( [==[... (0,0,0,1)]==] ... [==[... (0\,0\,0\,1)]==] )`. So every one of
+  them runs correctly under `ctest`, and under a manual invocation that escapes the
+  comma, and under `ctest -R`. Verified both ways 2026-10-09.
+  **The defect was in my own tooling, not in the test names.** Catch2 treats a comma in
+  a name filter as a test-spec separator, so the *unescaped* per-name invocation used by
+  mutation-probe scripts matched nothing and exited non-zero — which the scripts read as
+  a failing test. That cost a full probe round on the multi-scatter slice and two
+  false-red columns on the exposure slice. The fix is to escape the comma (or filter by
+  tag) in probe scripts, which is now recorded, and **not** to rename 89 well-written
+  test names to work around it. Acting on the original entry would have been pure churn
+  against a non-problem.
+  **What survives as real:** a leading `--` and an unbalanced `[` in a `TEST_CASE` name
+  genuinely break ctest discovery, and those two are worth a guard — see the lint entry
+  below.
+- ~~**A guard against `TEST_CASE` names that break ctest discovery.**~~ — **SHIPPED
+  2026-10-09** as `tools/ci/check_test_case_names.py`, wired into
+  `.githooks/pre-commit` and CI alongside the dependency lint, with 12 unit tests of
+  its own. It rejects exactly two things, both silent when violated — the suite still
+  builds and the damage appears as tests that *do not exist* rather than tests that
+  fail: a name beginning with `--`, which ctest parses as a flag, and a name with an
+  unbalanced `[`, which breaks `CatchAddTests.cmake`'s tag parsing. **The suite is
+  currently clean, so this is a guard and not a cleanup** — it exists because both
+  traps have cost this project real time before, and neither announces itself.
+  **It deliberately does NOT reject commas,** and that non-rule has its own unit test
+  so nobody "completes" the lint by adding one: `CatchAddTests.cmake` escapes commas
+  when generating `add_test`, so comma-containing names run fine under ctest.
 - **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
   a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
   calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's

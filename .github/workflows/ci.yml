@@ -23,6 +23,12 @@ jobs:
       - name: Dependency-rule check
         run: python3 tools/ci/check_dependency_rules.py
 
+      - name: Test-name lint's own unit tests
+        run: python3 -m unittest tools/ci/test_check_test_case_names.py
+
+      - name: Test-name check (ctest discovery)
+        run: python3 tools/ci/check_test_case_names.py
+
       - name: Install Vulkan SDK components (loader + headers + glslc)
         run: |
           wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
