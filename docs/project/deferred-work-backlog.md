@@ -188,17 +188,46 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
-- Hover enter/exit + visual feedback, keyboard/gamepad navigation, text
-  input fields, pointer capture/drag, z-order-aware overlap resolution,
-  editor-mode interaction provider.
-- Multi-line/word-wrap text, kerning, non-ASCII/Unicode, SDF/multi-size
-  atlases.
-- Aspect-preserving image fit/fill, 9-slice scaling, texture atlas
-  sub-rects.
-- Inherited visibility/alpha, clipping/scroll regions, flow/grid/stack
-  auto-layout.
-- World-space interactive UI (non-billboard labels, occlusion testing,
-  distance fade).
+**DECOMPOSED 2026-10-07** into six sub-projects — see
+`docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. Decomposed now
+because the tier table's condition changed: it rated UI "High if interactive-game
+UI is a near-term goal, else Low", and until viewport pointer input shipped a UI
+button could not be pressed in the editor at all, so none of this was reachable in
+the program that can author it. **"Editor-mode interaction provider" is struck from
+the list below — it shipped.**
+
+Two measurements from the decomposition that make items smaller or larger than they
+read: `UiPanel` has an `order` field but `UiButton` does not, and `UiSystem::hit`
+takes the first `for_each` match, so z-order-aware hit-testing needs a key on the
+interactive component before it needs a sort; and the neutral `RenderDevice` exposes
+no scissor, so **clipping/scroll is a renderer change before it is a UI change** —
+which is why the decomposition separates it from auto-layout rather than bundling
+them as this list does.
+
+- **U6 interaction depth** — hover enter/exit + visual feedback, pointer
+  capture/drag, z-order-aware overlap resolution. First: its prerequisite just
+  landed, and it is the gap a user meets in the first five seconds. Carries one open
+  question for a human — whether `UiButton` gets its own `order` or inherits its
+  `UiPanel` ancestor's.
+- **U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
+  atlas sub-rects. Independent of everything else and the cheapest real group.
+- **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
+  auto-layout. Needs nothing from the renderer.
+- **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
+  first; scroll additionally needs wheel input, i.e. the deferred `PointerState`
+  widening.
+- **U10 keyboard, gamepad, and text input** — **blocked** on an editor input
+  provider (recorded separately above). Starting it sooner would ship navigation
+  nobody can drive, which is the mistake pointer input just fixed.
+- **U11 text quality** — word-wrap and Unicode are reachable now (note
+  `layout_text` currently *skips* unknown codepoints, so a non-atlas character
+  silently shortens the string); SDF/multi-size atlases want their own
+  decomposition rather than riding beside the cheap half.
+- **World-space interactive UI** (non-billboard labels, occlusion testing, distance
+  fade) — deliberately left OUT of all six groups. It shares almost nothing with
+  screen-space UI: it needs depth testing and a world-space hit path, not rect
+  resolution, so folding it in would make a seventh group that is a different
+  feature wearing the same name.
 
 ## Networking pillar (declared "COMPLETE" at N7, but with real gaps)
 
