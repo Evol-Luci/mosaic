@@ -188,17 +188,46 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
-- Hover enter/exit + visual feedback, keyboard/gamepad navigation, text
-  input fields, pointer capture/drag, z-order-aware overlap resolution,
-  editor-mode interaction provider.
-- Multi-line/word-wrap text, kerning, non-ASCII/Unicode, SDF/multi-size
-  atlases.
-- Aspect-preserving image fit/fill, 9-slice scaling, texture atlas
-  sub-rects.
-- Inherited visibility/alpha, clipping/scroll regions, flow/grid/stack
-  auto-layout.
-- World-space interactive UI (non-billboard labels, occlusion testing,
-  distance fade).
+**DECOMPOSED 2026-10-07** into six sub-projects — see
+`docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. Decomposed now
+because the tier table's condition changed: it rated UI "High if interactive-game
+UI is a near-term goal, else Low", and until viewport pointer input shipped a UI
+button could not be pressed in the editor at all, so none of this was reachable in
+the program that can author it. **"Editor-mode interaction provider" is struck from
+the list below — it shipped.**
+
+Two measurements from the decomposition that make items smaller or larger than they
+read: `UiPanel` has an `order` field but `UiButton` does not, and `UiSystem::hit`
+takes the first `for_each` match, so z-order-aware hit-testing needs a key on the
+interactive component before it needs a sort; and the neutral `RenderDevice` exposes
+no scissor, so **clipping/scroll is a renderer change before it is a UI change** —
+which is why the decomposition separates it from auto-layout rather than bundling
+them as this list does.
+
+- **U6 interaction depth** — hover enter/exit + visual feedback, pointer
+  capture/drag, z-order-aware overlap resolution. First: its prerequisite just
+  landed, and it is the gap a user meets in the first five seconds. Carries one open
+  question for a human — whether `UiButton` gets its own `order` or inherits its
+  `UiPanel` ancestor's.
+- **U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
+  atlas sub-rects. Independent of everything else and the cheapest real group.
+- **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
+  auto-layout. Needs nothing from the renderer.
+- **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
+  first; scroll additionally needs wheel input, i.e. the deferred `PointerState`
+  widening.
+- **U10 keyboard, gamepad, and text input** — **blocked** on an editor input
+  provider (recorded separately above). Starting it sooner would ship navigation
+  nobody can drive, which is the mistake pointer input just fixed.
+- **U11 text quality** — word-wrap and Unicode are reachable now (note
+  `layout_text` currently *skips* unknown codepoints, so a non-atlas character
+  silently shortens the string); SDF/multi-size atlases want their own
+  decomposition rather than riding beside the cheap half.
+- **World-space interactive UI** (non-billboard labels, occlusion testing, distance
+  fade) — deliberately left OUT of all six groups. It shares almost nothing with
+  screen-space UI: it needs depth testing and a world-space hit path, not rect
+  resolution, so folding it in would make a seventh group that is a different
+  feature wearing the same name.
 
 ## Networking pillar (declared "COMPLETE" at N7, but with real gaps)
 
@@ -1388,6 +1417,25 @@ anything shipped; they are capabilities that were never built.
   in-test watchdogs, which give a named assertion in seconds and work when running the
   binary directly; it is the backstop for the next hang nobody anticipated. Original
   entry follows.
+- ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is
+  flaky on CI, and the flakiness is in the test's design.**~~ — **FIXED 2026-10-09**,
+  in the same PR that recorded it. The case ran 200 main-thread ticks, set `stop`,
+  joined the reader thread, and only *then* asserted `REQUIRE(hits.load() > 0)`.
+  Nothing synchronised the two, so on a **2-core** GitHub runner with the main thread
+  busy stepping box3d the reader could be starved for the entire run and `hits` stayed
+  0 — failing a test whose actual claims (no deadlock, no crash, the ray hits) had all
+  been met. Observed failing 2026-10-09 on a **docs-only** PR that changed no code, and
+  **not reproducible on a 20-core machine in 35 runs**, including under deliberate CPU
+  contention — which is the whole story: the reader always gets a core here and may get
+  none there. **The fix removes the dependency on the scheduler rather than widening a
+  tolerance:** the main thread now waits (bounded, 5s, uncontended so it completes in
+  microseconds) for the reader to land its first hit *before* the tick loop, so
+  `hits > 0` is established deterministically; the concurrent phase that follows asserts
+  nothing a scheduler can zero out — reaching the join without a deadlock or crash *is*
+  the claim; and the ray's geometry is re-asserted afterwards **from the main thread**,
+  which cannot be starved. The 5s ceiling exists so a genuine failure reports instead of
+  hanging, and its message distinguishes "the reader was never scheduled" from "raycast
+  from a non-main thread returns no hit".
 - **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
   name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
   `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by

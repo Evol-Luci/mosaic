@@ -1,4 +1,5 @@
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -628,11 +629,47 @@ TEST_CASE("PhysicsSystem::raycast is callable from another thread while update r
             }
         });
 
+    // WAIT for the reader to land a hit BEFORE the tick loop, rather than hoping it did
+    // by the time the loop ends.
+    //
+    // This case used to run the 200 ticks, set `stop`, join, and only then assert
+    // `hits > 0`. Nothing synchronised the two, so on a 2-core CI runner with the main
+    // thread busy stepping box3d the reader could be starved for the whole run and `hits`
+    // stayed 0 -- failing a test whose actual claims (no deadlock, no crash, the ray
+    // hits) had all been met. It failed exactly that way on 2026-10-09, on a docs-only
+    // PR that changed no code, and was not reproducible on a 20-core machine in 35 runs
+    // including under deliberate contention.
+    //
+    // The wait is unsynchronised and uncontended -- nothing else holds the physics lock
+    // yet -- so in practice it completes in microseconds. The 5-second ceiling is five
+    // orders of magnitude of headroom and exists only so a genuine failure reports
+    // instead of hanging. Do not shorten it to "make the test faster": its length is
+    // what makes a trip meaningful.
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (hits.load() == 0 && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+        INFO("The reader thread never landed a hit in 5s. Either it was never scheduled "
+             "(a starved runner), or raycast from a non-main thread is returning no hit "
+             "for a ray that provably intersects the static ground.");
+        REQUIRE(hits.load() > 0);
+    }
+
+    // Now the concurrent phase, which is what the case exists for: the reader keeps
+    // hammering raycast while the main thread steps the world. Reaching the join without
+    // a deadlock or a crash IS the assertion here -- there is no counter to check that a
+    // scheduler could zero out.
+    const int hits_before_ticks = hits.load();
     for (int i = 0; i < 200; ++i) { world.tick(1.0f / 60.0f); }
     stop.store(true);
     reader.join();
 
-    REQUIRE(hits.load() > 0); // the ray really was hitting the ground, not just not-crashing
+    // And the ray still hits from the MAIN thread after 200 steps, which is deterministic
+    // and so cannot be starved: it proves the geometry claim independently of the reader.
+    REQUIRE(physics->raycast(Vec3{0, 5, 0}, Vec3{0, -1, 0}, 10.0f).hit);
+    REQUIRE(hits.load() >= hits_before_ticks); // monotonic; the reader never un-hit
 }
 
 TEST_CASE("PhysicsSystem locked methods do not re-enter one another", "[physics]")
