@@ -1314,6 +1314,25 @@ anything shipped; they are capabilities that were never built.
   in-test watchdogs, which give a named assertion in seconds and work when running the
   binary directly; it is the backstop for the next hang nobody anticipated. Original
   entry follows.
+- **`PhysicsSystem::raycast is callable from another thread while update runs` is
+  flaky on CI, and the flakiness is in the test's design.**
+  `tests/unit/physics/physics_system_test.cpp:601-636` spawns a reader thread that
+  hammers `raycast` in a `while (!stop)` loop, ticks the world 200 times on the main
+  thread, sets `stop`, joins, and then asserts **`REQUIRE(hits.load() > 0)`**. Nothing
+  synchronises the two: if the reader is never scheduled — or only runs while the main
+  thread holds the physics lock — before `stop` is set, `hits` stays 0 and the test
+  fails even though neither a deadlock nor a crash occurred, which is what it says it
+  is testing. Observed failing once on CI 2026-10-09, on a **docs-only** PR that
+  touched no code; **not reproducible locally in 35 runs**, including under deliberate
+  CPU contention, because this machine has 20 cores and the reader always gets one.
+  GitHub runners have 2, which is the whole difference. **Fix:** make the main thread
+  wait for the reader to land at least one hit (a bounded spin on `hits > 0` with a
+  generous ceiling) before setting `stop`, so the assertion stops depending on the
+  scheduler; or split it into a "does not deadlock or crash" assertion from the
+  threaded part plus a main-thread raycast proving the ray geometry is right. Deferred
+  2026-10-09 rather than fixed in the PR that surfaced it — that PR was docs-only, in
+  a different subsystem, and sneaking a physics-test change into it is exactly the
+  kind of unrelated edit that makes a diff hard to review.
 - **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
   name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
   `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
