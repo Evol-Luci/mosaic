@@ -1314,6 +1314,25 @@ anything shipped; they are capabilities that were never built.
   in-test watchdogs, which give a named assertion in seconds and work when running the
   binary directly; it is the backstop for the next hang nobody anticipated. Original
   entry follows.
+- ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is
+  flaky on CI, and the flakiness is in the test's design.**~~ — **FIXED 2026-10-09**,
+  in the same PR that recorded it. The case ran 200 main-thread ticks, set `stop`,
+  joined the reader thread, and only *then* asserted `REQUIRE(hits.load() > 0)`.
+  Nothing synchronised the two, so on a **2-core** GitHub runner with the main thread
+  busy stepping box3d the reader could be starved for the entire run and `hits` stayed
+  0 — failing a test whose actual claims (no deadlock, no crash, the ray hits) had all
+  been met. Observed failing 2026-10-09 on a **docs-only** PR that changed no code, and
+  **not reproducible on a 20-core machine in 35 runs**, including under deliberate CPU
+  contention — which is the whole story: the reader always gets a core here and may get
+  none there. **The fix removes the dependency on the scheduler rather than widening a
+  tolerance:** the main thread now waits (bounded, 5s, uncontended so it completes in
+  microseconds) for the reader to land its first hit *before* the tick loop, so
+  `hits > 0` is established deterministically; the concurrent phase that follows asserts
+  nothing a scheduler can zero out — reaching the join without a deadlock or crash *is*
+  the claim; and the ray's geometry is re-asserted afterwards **from the main thread**,
+  which cannot be starved. The 5s ceiling exists so a genuine failure reports instead of
+  hanging, and its message distinguishes "the reader was never scheduled" from "raycast
+  from a non-main thread returns no hit".
 - **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
   name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
   `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
