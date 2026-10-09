@@ -273,9 +273,24 @@ void StudioApp::draw_ui(mosaic::engine::render::RenderDevice& device, mosaic::en
     {
         if (!panel.open)
         {
+            if (panel.name == "Viewport")
+            {
+                // Closed from the Window menu: same reasoning as the collapsed case below.
+                viewport_.set_pointer_sample(ViewportPointerSample{}, play_.is_playing());
+            }
             continue;
         }
-        if (ImGui::Begin(panel.name.c_str()))
+        const bool begun = ImGui::Begin(panel.name.c_str());
+        if (!begun && panel.name == "Viewport")
+        {
+            // The Viewport panel is collapsed, or an inactive dock tab, so draw_viewport
+            // never runs and nothing would refresh the pointer sample. Without this, the
+            // sample and the press latch freeze at their last values -- and if draws resume
+            // while a NEW press is in flight, the latch's fresh-press branch never fires and
+            // the previous press's verdict is reused. Found in review 2026-10-07.
+            viewport_.set_pointer_sample(ViewportPointerSample{}, play_.is_playing());
+        }
+        if (begun)
         {
             if (panel.name == "Hierarchy")
             {
@@ -356,12 +371,54 @@ void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device,
     viewport_.set_measured_size(avail.x, avail.y);
 
     const auto tex = device.viewport_texture();
-    if (tex != 0)
+    if (tex == 0)
+    {
+        // No offscreen texture yet (first frame, or a device that does not implement the
+        // viewport hooks). There is no image to hover, so the scene must see NO pointer --
+        // not the last one it saw. Recording an empty sample rather than returning early
+        // keeps the "set_pointer_sample sees every frame draw_viewport runs" invariant true.
+        viewport_.set_pointer_sample(ViewportPointerSample{}, play_.is_playing());
+        ImGui::TextUnformatted("(no viewport)");
+    }
+    else
     {
         const ViewportSize s = viewport_.size();
         ImGui::Image(static_cast<ImTextureID>(tex),
                      ImVec2(static_cast<float>(s.width), static_cast<float>(s.height)));
-        if (ImGui::IsItemClicked())
+
+        // Record the raw pointer facts for the scene's provider. Everything ImGui-specific
+        // stops here: ViewportPanel applies the normalisation and the suppression rules, so
+        // all of that policy is unit-tested with no window. These five reads are the part
+        // no headless test can reach, which is why they are also pinned textually.
+        //
+        // ImGui::GetMousePos, not glfwGetCursorPos: ImGui's is frame-snapshotted, so
+        // UiSystem and ClickNudgeSystem cannot see different positions within one tick --
+        // which would have the UI-claim arbitration declining a different click than the one
+        // ClickNudgeSystem acts on.
+        //
+        // DELIBERATELY NOT ImGui::GetIO().WantCaptureMouse. It reads like "ImGui wants the
+        // mouse", but it is true whenever the cursor is over ANY ImGui window -- and the
+        // Viewport panel is one -- so pairing it with IsItemHovered() made `down`
+        // unreachable and shipped this feature dead. IsItemHovered() already returns false
+        // for a slider drag elsewhere, for a window in front, and under a modal. See the
+        // long note on ViewportPointerSample::hovered.
+        mosaic::studio::ViewportPointerSample sample;
+        const ImVec2 rect_min = ImGui::GetItemRectMin();
+        const ImVec2 mouse    = ImGui::GetMousePos();
+        sample.mouse_x         = mouse.x;
+        sample.mouse_y         = mouse.y;
+        sample.rect_min_x      = rect_min.x;
+        sample.rect_min_y      = rect_min.y;
+        sample.hovered         = ImGui::IsItemHovered();
+        sample.button_down     = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        viewport_.set_pointer_sample(sample, play_.is_playing());
+
+        // Click-to-select is the EDIT-mode behaviour, and it is gated so the two meanings of
+        // a viewport click cannot both fire. Without !is_playing(), one play-mode click both
+        // drives the game's pointer AND moves the selection, so the Inspector jumps to
+        // whatever the user just poked. Selection stays reachable from the Hierarchy panel
+        // while playing.
+        if (!play_.is_playing() && ImGui::IsItemClicked())
         {
             const ImVec2 mn = ImGui::GetItemRectMin();
             const ImVec2 mp = ImGui::GetMousePos();
@@ -373,10 +430,6 @@ void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device,
             if (hit.hit) { selection_.select(hit.entity); }
             else         { selection_.clear(); }
         }
-    }
-    else
-    {
-        ImGui::TextUnformatted("(no viewport)");
     }
 }
 
