@@ -288,3 +288,44 @@ TEST_CASE("cube.frag reflects the view vector about the normal for the specular 
         mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
     REQUIRE(frag.find("vec3 R = reflect(-v, n);") != std::string::npos);
 }
+
+// No comma in this name -- see the note on the exposure case in
+// shader_tonemap_contract_test.cpp.
+TEST_CASE("the FrameLighting block member ORDER is pinned and not just its size", "[render]")
+{
+    // The gap the exposure slice found in the existing guards, stated plainly because it
+    // is only half closable from here.
+    //
+    // The C++ side asserts `sizeof(FrameLightingUbo) == 208` -- the TOTAL SIZE, and
+    // nothing about field offsets. So moving a member from the end of that struct into
+    // the middle, without making the matching move in the GLSL, keeps the assertion green
+    // and silently rebinds every member after the insertion point. With exposure that
+    // would mean reading part of light_view_proj as the exposure scalar: a wrong shadow
+    // matrix and a wrong brightness, from a change that compiles and whose size check
+    // passes.
+    //
+    // SCOPE: this case pins the GLSL order. The C++ order is pinned separately and
+    // directly, by offsetof static_asserts beside the size assertion in
+    // vulkan_render_device.cpp -- so between the two, a one-sided reorder fails the build
+    // or fails here, and the pair is closed.
+    //
+    // An earlier version of this comment claimed the C++ half could not be pinned without
+    // "the UBO layout expressed once and generated into both". That was WRONG, and worth
+    // recording as wrong rather than quietly replacing: FrameLightingUbo is
+    // standard-layout, so offsetof is well-defined on it, and the assertions live in the
+    // same translation unit as the struct, so there was never a visibility problem. The
+    // comment told the next reader not to bother. Found in review 2026-10-07.
+    const std::string frag = normalize_ws(code_only(read_shader("cube.frag")));
+    const std::size_t begin = frag.find("uniform FrameLighting {");
+    REQUIRE(begin != std::string::npos);
+    const std::size_t end = frag.find("} fl;", begin);
+    REQUIRE(end != std::string::npos);
+    const std::string block = frag.substr(begin, end - begin);
+
+    // The exact sequence, in order. std140 puts each vec4 on a 16-byte boundary and the
+    // mat4 on the same, so this ordering IS the byte layout.
+    REQUIRE(block == "uniform FrameLighting { vec4 light_direction; vec4 light_color; "
+                     "vec4 point_position; vec4 point_color; vec4 spot_position; "
+                     "vec4 spot_direction; vec4 spot_color; vec4 camera_position; "
+                     "mat4 light_view_proj; vec4 exposure; ");
+}

@@ -66,8 +66,44 @@ struct FrameLightingUbo
     // future field that takes this slot silently disables image-based lighting.
     float camera_position[4];
     float light_view_proj[16];
+    // Exposure in .x, .yzw unused. APPENDED at the end rather than grouped with
+    // camera_position where it belongs logically, and not packed into one of the
+    // documented-unused .w slots above, for two separate reasons.
+    //
+    // Not a .w slot: camera_position.w is currently demonstrating what that costs. It
+    // holds the IBL-enable flag, and the comment above it had to warn that a future field
+    // claiming the slot would silently disable image-based lighting. This slice IS that
+    // future field, so it does not take one.
+    //
+    // At the END: the assertion below checks the struct's TOTAL SIZE and never its field
+    // offsets. Inserting mid-struct would shift light_view_proj's offset, and if only one
+    // side of the C++/GLSL boundary were updated the assertion could not see it -- the
+    // symptom would be a wrong shadow matrix, not a failed build. Appending cannot shift
+    // anything that already exists.
+    float exposure[4];
 };
-static_assert(sizeof(FrameLightingUbo) == 192, "UBO layout must match the shader block");
+static_assert(sizeof(FrameLightingUbo) == 208, "UBO layout must match the shader block");
+// Offsets, not just the total size -- because the size assertion above cannot see a
+// reordering. Move `exposure` from the end to just after `camera_position` and leave the
+// GLSL alone: sizeof stays 208, every GLSL-side contract test stays green, and the shader
+// then reads light_view_proj's first row as the exposure scalar and the real exposure as
+// the matrix's last row. A wrong brightness AND a wrong shadow projection, from a change
+// whose only intent was tidying field grouping.
+//
+// This is cheap only because FrameLightingUbo is standard-layout (every member is a float
+// array), so offsetof is well-defined, and because these assertions live in the same
+// translation unit as the struct. The shader-side contract test's earlier claim that the
+// C++ half needed generated code to pin was wrong; found in review 2026-10-07.
+static_assert(offsetof(FrameLightingUbo, light_direction) == 0);
+static_assert(offsetof(FrameLightingUbo, light_color) == 16);
+static_assert(offsetof(FrameLightingUbo, point_position) == 32);
+static_assert(offsetof(FrameLightingUbo, point_color) == 48);
+static_assert(offsetof(FrameLightingUbo, spot_position) == 64);
+static_assert(offsetof(FrameLightingUbo, spot_direction) == 80);
+static_assert(offsetof(FrameLightingUbo, spot_color) == 96);
+static_assert(offsetof(FrameLightingUbo, camera_position) == 112);
+static_assert(offsetof(FrameLightingUbo, light_view_proj) == 128);
+static_assert(offsetof(FrameLightingUbo, exposure) == 192);
 
 struct ShadowPushConstants
 {
@@ -107,8 +143,14 @@ struct SkyboxPush
     float inv_view_rotation[16]; // world-from-view, translation removed
     float tan_half_fov_y;
     float aspect;
+    // The skybox cannot read exposure from the per-frame UBO: it does not bind that set at
+    // all (its set 0 is the environment cubemap) and takes everything else through push
+    // constants. It must scale by the SAME value the lit pass does, or the sky and the
+    // geometry drift apart in brightness -- which reads as an authoring complaint rather
+    // than a bug.
+    float exposure;
 };
-static_assert(sizeof(SkyboxPush) == 72, "skybox push layout must match skybox.frag");
+static_assert(sizeof(SkyboxPush) == 76, "skybox push layout must match skybox.frag");
 
 struct ScreenEffectPush
 {
@@ -1309,6 +1351,9 @@ public:
         ubo.camera_position[0] = fl.camera_position.x;
         ubo.camera_position[1] = fl.camera_position.y;
         ubo.camera_position[2] = fl.camera_position.z;
+        // .yzw stay zero from the struct's value-initialisation above, matching how every
+        // other documented-unused slot here is left alone.
+        ubo.exposure[0] = fl.exposure;
         ubo.spot_color[3] = fl.spot_cos_inner;
         std::memcpy(ubo.light_view_proj, fl.light_view_proj.m.data(), sizeof(ubo.light_view_proj));
 
@@ -1648,6 +1693,7 @@ public:
                     sizeof(push.inv_view_rotation));
         push.tan_half_fov_y = params.tan_half_fov_y;
         push.aspect = params.aspect;
+        push.exposure = params.exposure;
         vkCmdPushConstants(cmd_[frame_], skybox_pipeline_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(push), &push);
 

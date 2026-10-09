@@ -128,7 +128,11 @@ public:
 
         Mat4 view;
         Mat4 projection;
-        if (!find_active_camera(world, view, projection))
+        // Initialised here, not inside find_active_camera: the fallback path below returns
+        // false without touching it, and an uninitialised exposure would ship whatever was
+        // on the stack -- a black frame at 0, a white one at a large value.
+        float exposure = 1.0f;
+        if (!find_active_camera(world, view, projection, exposure))
         {
             view = fallback_view();
             projection = Mat4::perspective(kFallbackFovY, aspect_, kFallbackNear, kFallbackFar);
@@ -170,6 +174,7 @@ public:
         }
         frame_lighting.camera_position = Vec3{cam_world.m[12], cam_world.m[13], cam_world.m[14]};
         frame_lighting.light_view_proj = light_view_proj;
+        frame_lighting.exposure = exposure;
         device.set_frame_lighting(frame_lighting);
 
         world.for_each<MeshRenderer>(
@@ -287,6 +292,7 @@ public:
             // aspect ratio. Guarded because a degenerate projection would divide by zero.
             sky.tan_half_fov_y = (projection.m[5] != 0.0f) ? (1.0f / projection.m[5]) : 1.0f;
             sky.aspect = (projection.m[0] != 0.0f) ? (projection.m[5] / projection.m[0]) : 1.0f;
+            sky.exposure = exposure;
             device.draw_skybox(environment_, sky);
         }
 
@@ -619,8 +625,12 @@ private:
         return light;
     }
 
+    // `exposure` rides along rather than getting its own traversal: the active camera is
+    // whichever Camera is found first, so a second search could in principle disagree with
+    // this one about which camera that is.
     bool find_active_camera(World& world, mosaic::foundation::math::Mat4& view,
-                            mosaic::foundation::math::Mat4& projection) const
+                            mosaic::foundation::math::Mat4& projection,
+                            float& exposure) const
     {
         using mosaic::foundation::math::Mat4;
         bool found = false;
@@ -638,6 +648,7 @@ private:
                 }
                 view = Mat4::inverse_affine(wt->matrix);
                 projection = Mat4::perspective(cam.fov_y_radians, aspect_, cam.near_z, cam.far_z);
+                exposure = cam.exposure;
                 found = true;
             });
         return found;

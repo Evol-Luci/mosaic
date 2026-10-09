@@ -122,3 +122,123 @@ TEST_CASE("the skybox tone maps with the same curve as the lit pass", "[render]"
     // ...and that the skybox actually CALLS it, not merely defines it.
     REQUIRE(sky.find("tonemap_aces(") != std::string::npos);
 }
+
+// No comma in this name. Catch2 treats a comma in a name filter as a test-spec SEPARATOR,
+// so running this case by name would match nothing and exit non-zero -- indistinguishable
+// from a failure. Cost a round of mutation probes on the multi-scatter slice; cost two
+// false reds here before the pattern was recognised a second time.
+TEST_CASE("skybox.frag writes only the tone-mapped colour to its attachment", "[render]")
+{
+    // The counterpart cube.frag has had since slice 1, which skybox.frag never got --
+    // found by the exposure slice's branch review. Latent since the skybox shipped, and in
+    // scope now because this slice makes skybox.frag an exposure consumer: the write it
+    // guards is the one that applies BOTH the curve and the exposure scale.
+    //
+    // Concrete failure it catches: add a debug or early-out write below the real one,
+    // e.g. `if (dir.y < 0.0) { outColor.rgb = vec3(0.1); }`. Every other skybox assertion
+    // stays green -- tonemap_aces is still defined, still byte-identical to cube.frag's,
+    // still called, and `pc.exposure` is still in the pinned expression -- while every
+    // lower-hemisphere sky pixel silently ignores the tone map AND the exposure knob.
+    //
+    // count_assignments, not a literal search, for the reason the cube.frag case records:
+    // `outColor.rgb = ...` and `outColor[0] = ...` both evade a literal "outColor =".
+    const std::string sky = code_only(read_shader("skybox.frag"));
+    const std::size_t writes = count_assignments(sky, "outColor");
+    INFO("skybox.frag must assign outColor exactly once, from tonemap_aces(). A second "
+         "write bypasses both the curve and the exposure scale for those fragments.");
+    REQUIRE(writes == 1);
+    REQUIRE(sky.find("outColor = vec4(tonemap_aces(") != std::string::npos);
+}
+
+TEST_CASE("exposure scales the colour entering the tone map in both shaders", "[render]")
+{
+    // The whole point of exposure, and the naive version of this test is worthless.
+    //
+    // Asserting that `exposure` merely APPEARS is satisfied by
+    // `tonemap_aces(color) * fl.exposure.x`, which scales a value the curve has already
+    // clamped to [0,1]. That form can darken but can NEVER brighten -- the exact thing a
+    // user reaches for exposure to do -- and every token search for "exposure" stays
+    // green while it ships. Hence the full expression, whitespace-normalised, in each
+    // shader.
+    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+
+    INFO("If this fails, check whether exposure moved OUTSIDE tonemap_aces(...) before "
+         "assuming the test is stale. Outside the curve it can only darken.");
+    REQUIRE(lit.find("outColor = vec4(tonemap_aces(color * max(fl.exposure.x, 0.0)), 1.0);")
+            != std::string::npos);
+    REQUIRE(sky.find("outColor = vec4(tonemap_aces(radiance * max(pc.exposure, 0.0)), 1.0);")
+            != std::string::npos);
+}
+
+TEST_CASE("a negative exposure cannot brighten the image", "[render]")
+{
+    // Found by the exposure slice's branch review, and the arithmetic is the whole point.
+    //
+    // ACES is clamp((x*(2.51x + 0.03)) / (x*(2.43x + 0.59) + 0.14), 0, 1). The numerator
+    // 2.51x^2 + 0.03x is POSITIVE for x < -0.012, and the denominator's discriminant is
+    // 0.59^2 - 4*2.43*0.14 = -1.0127, so the denominator is strictly positive for every
+    // real x. A negative input therefore produces a large POSITIVE ratio that clamps to
+    // 1.0 -- pure white.
+    //
+    // Measured: x = -1 gives 2.48/1.98 = 1.2525 -> white. x = -5 -> white. But
+    // x = -0.005 -> black and x = -0.1 -> 0.21. So the response is not even monotonic
+    // across zero: in one frame, dim pixels go black while bright ones blow out to white.
+    //
+    // That makes `exposure = -2` where `2` was meant -- one character in a scene file --
+    // produce a confident, plausible-looking, completely wrong image. Unlike an authored
+    // NaN roughness, which the project deliberately lets through as "a garbage pixel, not
+    // an error", this one looks like a deliberate choice.
+    //
+    // So it is clamped at the SHADING site, which is this project's established place for
+    // it: Material does not clamp roughness either -- cube.frag does, with
+    // clamp(roughness, 0.045, 1.0) -- precisely so an authored value round-trips
+    // byte-for-byte while the shader stays well-defined. Camera keeps whatever was
+    // authored; the shader refuses to brighten with it.
+    //
+    // NOT clamped at the top end, deliberately: a huge exposure overflows to NaN around
+    // x = 1.2e19, which is the same garbage-in posture roughness already documents, and
+    // bounding it would mean inventing a maximum nobody has asked for.
+    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+    INFO("Both shaders must floor exposure at 0. Without it a negative exposure renders "
+         "WHITE, not black, and non-monotonically.");
+    REQUIRE(lit.find("max(fl.exposure.x, 0.0)") != std::string::npos);
+    REQUIRE(sky.find("max(pc.exposure, 0.0)") != std::string::npos);
+
+    // AND the curve floors its own input, which is a second guard on a different input
+    // rather than a duplicate of the first. The branch review's observation: `color`
+    // itself can go negative, because DirectionalLight::color is a reflected Vec3 with no
+    // clamp anywhere and the inspector renders it as three unbounded DragFloats. A light
+    // colour of (-1,-1,-1) reproduces the identical white-screen pathology with exposure
+    // sitting at a perfectly sane 1.0, and the call-site floor cannot see it.
+    //
+    // Flooring exposure at the call site still earns its place: it catches a negative
+    // knob even when the colour is ALSO negative, where flooring only the product would
+    // multiply two negatives into a positive and brighten.
+    REQUIRE(lit.find("x = max(x, vec3(0.0));") != std::string::npos);
+    REQUIRE(sky.find("x = max(x, vec3(0.0));") != std::string::npos);
+}
+
+// Renamed 2026-10-07: the old name was "neither tone-mapping shader hard-codes an exposure
+// value", which oversold it -- a shader with `tonemap_aces(color * 2.0)` and the member
+// still declared would have passed. What it actually checks is that each shader declares
+// an exposure input from its own binding; the guard against a hard-coded value is the
+// full-expression pin in the case above.
+TEST_CASE("both tone-mapping shaders declare an exposure input from their own binding",
+          "[render]")
+{
+    // The two shaders must scale by the SAME number, which they do by both reading it
+    // from the camera rather than by agreeing on a literal. A constant substituted into
+    // either one makes the sky and the lit geometry drift apart in brightness -- which
+    // reads as "the sky doesn't match the scene", an authoring complaint rather than a
+    // bug report, and no test that checks each shader in isolation would catch it.
+    //
+    // Pinned as the plumbing rather than the absence of a literal: `exposure` must come
+    // from the per-frame block in the lit pass and from the push constant in the skybox,
+    // because the skybox does not bind the UBO at all (set 0 is its cubemap).
+    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
+    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+    REQUIRE(lit.find("vec4 exposure;") != std::string::npos);  // trailing UBO member
+    REQUIRE(sky.find("float exposure;") != std::string::npos); // skybox push member
+}

@@ -23,6 +23,15 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     // growing the UBO, which would change its size assertion for one boolean.
     vec4 camera_position;
     mat4 light_view_proj;
+    // Exposure in .x, .yzw unused. A trailing vec4 rather than one of the unused .w slots
+    // above: camera_position.w is already the IBL flag, and the backend's comment warns
+    // what claiming such a slot costs. Appended last so no existing member's offset moves.
+    //
+    // Declared here although the VERTEX stage never reads it: the block is bound to both
+    // stages and the two declarations must agree exactly. The contract test
+    // "cube.vert and cube.frag declare matching FrameLighting blocks" is what caught the
+    // first version of this change, which added the member to cube.frag alone.
+    vec4 exposure;
 } fl;
 layout(location = 0) out vec3 fragNormal;   // world space
 layout(location = 1) out vec2 fragUV;

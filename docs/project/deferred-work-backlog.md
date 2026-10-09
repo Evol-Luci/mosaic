@@ -689,11 +689,73 @@ view that was actually used to pick what to build next as of this writing.
   - **Bloom.** Depends on the HDR render target above; there is nowhere
     to read bright pixels back from until that exists. Deferred
     2026-10-04.
-  - **Exposure control.** Tone mapping ships with a hard-coded curve.
-    Deferred 2026-10-04 during its design: exposure is a camera concern
-    rather than a material or lighting one, and adding the knob now would
-    mean deciding where it lives (a `Camera` member? the lighting UBO? a
-    push constant?) for no current caller.
+  - ~~**Exposure control.**~~ — **SHIPPED 2026-10-07.** Tone mapping shipped
+    with a hard-coded curve. Deferred 2026-10-04 because the knob's home was
+    undecided (a `Camera` member? the lighting UBO? a push constant?) for no
+    current caller. **Decided: a field on `Camera`** — exposure is a camera
+    property physically and in every DCC tool, so it serialises with the
+    scene, is per-camera, and reaches the inspector for free. Note the
+    backlog's own claim that it was "one `float` through the existing
+    lighting UBO (which already carries `camera_position`)" was **wrong
+    about the free slot**: slice 4c took `camera_position.w` for the IBL
+    flag, with an explicit warning in the backend that a future field
+    claiming it would silently disable IBL. The UBO grew by a `vec4`
+    instead (192 -> 208), appended at the END because the size assertion
+    checks total size and not field offsets. See
+    `docs/superpowers/specs/2026-10-07-render-exposure-control-design.md`.
+  - **`set_component` replaces a whole component rather than merging fields, so a
+    partial table silently resets every field it omits.**
+    `engine/reflection/component_reflection.hpp` does `T c{}; from_value(value, c);
+    *existing = std::move(c);` on the setter path (the agent API and editor
+    "set component" route, distinct from the scene loader). So setting `Camera` with
+    `{"fov_y_radians": 1.2}` resets `exposure` back to 1.0, discarding an authored 0.4
+    — and the same applies to every component and every field. **Pre-existing and
+    longstanding**, not introduced by the exposure slice; raised by that slice's branch
+    review, and recorded 2026-10-07 because exposure is exactly the kind of field a
+    user tunes and then loses this way. Note the *loader* path is correct and different:
+    `ReadVisitor::member` no-ops on an absent key over an already-default-constructed
+    object, which is why a pre-slice scene JSON loads `exposure` as 1.0 rather than 0.
+    **The decision to make** is whether the setter should merge (read the existing
+    component, overwrite only the named fields) or keep replace semantics and document
+    them loudly — merging is almost certainly what callers expect, but it changes the
+    meaning of every existing `set_component` call.
+  - **Only one camera is ever active: `RenderSystem` resolves "first found".**
+    `find_active_camera` returns on the first `Camera` that also has a
+    `WorldTransform`, so a scene with two cameras renders through whichever the
+    component iteration reaches first — with no way to choose, and no concept of
+    a render target per camera. Recorded 2026-10-07: the exposure slice's spec
+    listed "per-camera exposure actually varying between two cameras in one
+    scene" as a Non-goal bounded by this limitation, and the branch review
+    pointed out it was the one Non-goal with no backlog entry of its own (the
+    analogous `first found` notes exist only for lights). **What it blocks:**
+    split-screen, picture-in-picture, a separate editor viewport camera, and
+    any per-camera post-processing — exposure included, which now serialises
+    per-camera but can only ever take effect for one of them. **Depends on**
+    deciding what multiple cameras even mean here: a priority/active flag is
+    the cheap version, render-target-per-camera is the real one.
+  - **Exposure on the four unlit scene shaders** (`particle`, `ribbon`,
+    `decal`, `world_text`). Deferred 2026-10-07 while designing exposure
+    control, deliberately and for the same reason slice 1 gave for not tone
+    mapping them: they emit authored colour that cannot exceed 1.0, and
+    scaling it changes what the author asked for. **The consequence is real
+    and worth stating:** a bright scene exposed down makes particles read
+    relatively *brighter* against it, because the scene moved and they did
+    not. Whether that is wrong depends on whether these shaders are
+    understood as scene elements (which a camera's sensor would scale) or as
+    overlays (which it would not) — and that question is genuinely open,
+    since `world_text` is plausibly UI while `particle` and `ribbon` are
+    plainly in-world. **Depends on** deciding that, not on any machinery.
+  - **EV-stop authoring units for exposure, and a UI slider.** Exposure
+    ships as a linear multiplier with 1.0 neutral. EV stops
+    (`color * pow(2, ev)`) are the photographer's unit and are the right
+    thing behind a slider, but they put a `pow` in two fragment shaders and
+    make the neutral value 0.0, which reads as "no exposure" rather than
+    "unchanged" to anyone inspecting the component. Deferred 2026-10-07:
+    the conversion belongs in the UI affordance, which does not exist yet.
+  - **Auto-exposure / eye adaptation.** Deferred 2026-10-07: needs a
+    luminance reduction over the framebuffer, so it **depends on the
+    offscreen HDR render target** that is still deferred above. Manual
+    exposure is the prerequisite and now exists.
   - **Move `view_proj` per-frame and drop `mvp` from push constants** —
     a further per-draw reduction available on top of the UBO migration
     (the vertex shader would compute `view_proj * model` instead of
@@ -1252,6 +1314,20 @@ anything shipped; they are capabilities that were never built.
   in-test watchdogs, which give a named assertion in seconds and work when running the
   binary directly; it is the backstop for the next hang nobody anticipated. Original
   entry follows.
+- **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
+  name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
+  `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
+  mesh rotation"` searches for two cases that do not exist, matches nothing, prints
+  "No tests ran" and **exits non-zero** -- indistinguishable from a failing test to
+  any script. Found 2026-10-07 while probing the exposure slice, after the same trap
+  had already cost a full round of seven mutation probes on the multi-scatter slice
+  and then two false reds on this one. The affected names are in
+  `render_system_test.cpp` (4), `texture_colorspace_contract_test.cpp` (3),
+  `shape_meshes_test.cpp` (1) and `shader_specular_contract_test.cpp` (1). Deferred
+  rather than folded in: renaming other slices' tests is churn in files this slice has
+  no other reason to touch, and the fix is mechanical. **Worth pairing with a guard**
+  -- a test or lint that fails if any `TEST_CASE` name contains a comma -- since
+  otherwise the next one arrives the same way these did.
 - **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
   a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
   calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
@@ -1639,7 +1715,7 @@ re-reading the same source docs:
 
 | Item | Why it is a quick win |
 |---|---|
-| **Exposure control** | One `float` through the existing lighting UBO (which already carries `camera_position`), one multiply before the tone map. The design question — where the knob lives — is the only real work. |
+| ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
 | ~~**A suite-wide ctest `TIMEOUT`**~~ | **SHIPPED 2026-10-07** as `PROPERTIES TIMEOUT 60` on `catch_discover_tests` — one argument, not a `set_tests_properties` call. The prediction that "the work is choosing the value, not writing the line" was exactly right: the line took seconds, the value came from timing a full run (slowest case 1.11s, suite 24s, replacing ctest's silent 1500s default). |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)

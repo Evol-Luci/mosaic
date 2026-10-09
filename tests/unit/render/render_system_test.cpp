@@ -126,6 +126,16 @@ public:
         frame_lighting_calls.push_back(fl);
     }
 
+    // Recorded so the skybox's own copy of per-frame state can be checked against
+    // FrameLighting's. The skybox pipeline does not bind the per-frame UBO, so anything it
+    // needs travels through SkyboxParams and nothing else would notice if it stopped.
+    std::vector<mosaic::engine::render::SkyboxParams> skybox_calls;
+    void draw_skybox(mosaic::engine::render::TextureHandle,
+                     const mosaic::engine::render::SkyboxParams& p) override
+    {
+        skybox_calls.push_back(p);
+    }
+
     struct ParticleDrawCall { std::vector<ParticleInstance> instances; ParticleDrawParams params; };
     std::vector<ParticleDrawCall> particle_draws;
     void draw_particles(const std::vector<ParticleInstance>& instances,
@@ -1170,6 +1180,148 @@ TEST_CASE("RenderSystem's normal_matrix is the inverse-transpose under non-unifo
     // Guard: the model matrix itself carries 2.0 there, so this fails loudly if
     // someone passes `model` as the normal matrix.
     REQUIRE(p.model.m[0] == Approx(2.0f));
+}
+
+TEST_CASE("RenderSystem carries the active camera's exposure into FrameLighting", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    auto cam = world.create_entity();
+    world.add_component<WorldTransform>(cam, WorldTransform{Mat4::translation(Vec3{0, 0, 4})});
+    Camera c{};
+    c.exposure = 2.5f;
+    world.add_component<Camera>(cam, c);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    // 2.5, not 1.0: the field has to travel from the component the scene authored to the
+    // per-frame block the shader reads, and nothing else in the pipeline would notice if
+    // it did not -- the image would simply be the wrong brightness.
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(2.5f));
+}
+
+TEST_CASE("RenderSystem leaves exposure neutral when the world has no camera", "[render]")
+{
+    // The fallback path. find_active_camera writes exposure through an out-parameter, so
+    // a fallback that forgets to initialise it ships whatever was on the stack -- which
+    // could be anything, including 0 (a black frame) or a huge value (a white one).
+    // 1.0 exactly, because neutral is the contract: a scene with no camera must render
+    // as it did before exposure existed.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    rs.render(world, device, registry); // no camera entity at all
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
+}
+
+TEST_CASE("an untouched Camera yields a neutral exposure in FrameLighting", "[render]")
+{
+    // Pins the migration guarantee, which nothing else did. The branch review found that
+    // changing Camera's default from 1.0f to 0.0f left all 1167 tests GREEN while every
+    // existing scene rendered completely BLACK -- because the round-trip case passes an
+    // explicit 2.5, the carries-exposure case sets an explicit 2.5, and the no-camera case
+    // asserts 1.0 that comes from RenderSystem's own local initialiser, never from the
+    // component.
+    //
+    // This asserts the default AND its journey: a Camera nobody touched must arrive at the
+    // device as 1.0. templates/default/scenes/main.json has a Camera with no "exposure"
+    // key, so it takes exactly this path.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    auto cam = world.create_entity();
+    world.add_component<WorldTransform>(cam, WorldTransform{Mat4::translation(Vec3{0, 0, 4})});
+    world.add_component<Camera>(cam, Camera{}); // defaults, deliberately untouched
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
+    // And directly, so the failure message distinguishes "the default changed" from
+    // "the journey broke".
+    REQUIRE(Camera{}.exposure == Approx(1.0f));
+}
+
+TEST_CASE("a Camera with no WorldTransform contributes no exposure", "[render]")
+{
+    // The guard-escape mutation, found by the branch review: move
+    // `exposure = cam.exposure;` ABOVE find_active_camera's `wt == nullptr` check -- a
+    // natural-looking "set it while we have the component in hand" refactor -- and all
+    // 1167 tests stayed green.
+    //
+    // What it produces: an entity with a Camera and no WorldTransform (trivially reachable
+    // -- add a camera in the editor before placing it, or hand-edit a scene) makes
+    // find_active_camera return false, so view and projection come from the FALLBACK, while
+    // exposure would come from that unplaced camera. The frame renders from the fallback
+    // viewpoint at 4x exposure, blown out, with no camera in the scene a user would connect
+    // it to.
+    //
+    // Exposure must travel with the view and projection or not at all -- that is the whole
+    // reason it rides in the same traversal.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+
+    auto cam = world.create_entity();
+    Camera c{};
+    c.exposure = 4.0f;
+    world.add_component<Camera>(cam, c); // NO WorldTransform
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls[0].exposure == Approx(1.0f));
+}
+
+TEST_CASE("the skybox is given the same exposure as the lit pass", "[render]")
+{
+    // The drift guard, and the one the shader contract test cannot give. That test pins
+    // that each shader HAS an exposure input; this pins that the same number reaches both.
+    //
+    // It matters because the two take different routes: the lit pass reads exposure from
+    // the per-frame UBO, and the skybox cannot -- it does not bind that descriptor set at
+    // all -- so it arrives through SkyboxParams instead. Two routes, one value. If the
+    // skybox's assignment were dropped it would silently fall back to SkyboxParams'
+    // default of 1.0, and the sky would stay at neutral brightness while the geometry
+    // moved: "the sky doesn't match the scene", which reads as an authoring complaint
+    // rather than a bug report.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(1.0f);
+    rs.set_environment(42); // non-zero handle is all the skybox pass needs
+
+    auto cam = world.create_entity();
+    world.add_component<WorldTransform>(cam, WorldTransform{Mat4::translation(Vec3{0, 0, 4})});
+    Camera c{};
+    c.exposure = 3.25f;
+    world.add_component<Camera>(cam, c);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.skybox_calls.size() == 1);
+    REQUIRE(device.frame_lighting_calls.size() == 1);
+    REQUIRE(device.skybox_calls[0].exposure == Approx(3.25f));
+    // Stated as an equality against the lit pass's value, not just against 3.25, so the
+    // two cannot drift even if the authored value changes.
+    REQUIRE(device.skybox_calls[0].exposure
+            == Approx(device.frame_lighting_calls[0].exposure));
 }
 
 TEST_CASE("RenderSystem emits a sane default FrameLighting for a world with no lights", "[render]")
