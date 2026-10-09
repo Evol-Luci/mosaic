@@ -1301,6 +1301,19 @@ anything shipped; they are capabilities that were never built.
   affects a failure path that the four-orders-of-magnitude timing margin makes
   very unlikely, and leaking a `World` on purpose wants its own justification
   in the test's comments rather than arriving as a fix-round edit.
+- ~~**No ctest `TIMEOUT` property anywhere in the suite.**~~ — **SHIPPED 2026-10-07**
+  as `catch_discover_tests(mosaic_unit_tests PROPERTIES TIMEOUT 60)`. The value is
+  measured, not chosen by taste: over a full run the slowest single case is **1.11s**
+  (`PluginFileWatcher.poll detects a modified file's mtime`, which waits out filesystem
+  mtime granularity), the next tier is 0.40s (the IBL furnace cases baking a 64x64 BRDF
+  LUT), and the whole suite is 24s — so 60s is ~54x the slowest case and still ~10x
+  clear if CI runs 5x slower than this machine, while one case reaching 60s in a 24s
+  suite is unambiguously wrong rather than merely slow. Verified with
+  `ctest --show-only=json-v1`: all 1158 discovered tests carry `TIMEOUT 60.0`, rather
+  than trusting that the CMake call did what its docs say. It does **not** replace the
+  in-test watchdogs, which give a named assertion in seconds and work when running the
+  binary directly; it is the backstop for the next hang nobody anticipated. Original
+  entry follows.
 - **Nine existing `TEST_CASE` names contain commas, so none of them can be run by
   name.** Catch2 treats a comma in a name filter as a test-spec SEPARATOR, so
   `mosaic_unit_tests "RenderSystem reports point light in world space, unaffected by
@@ -1703,7 +1716,7 @@ re-reading the same source docs:
 | Item | Why it is a quick win |
 |---|---|
 | ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
-| **A suite-wide ctest `TIMEOUT`** | One `set_tests_properties` call. Recorded three times as a backstop; this session produced two hang-shaped bugs (the watchdog use-after-free and the GIL deadlock), so it is no longer hypothetical. The work is choosing the value against the slowest legitimate test, not writing the line. |
+| ~~**A suite-wide ctest `TIMEOUT`**~~ | **SHIPPED 2026-10-07** as `PROPERTIES TIMEOUT 60` on `catch_discover_tests` — one argument, not a `set_tests_properties` call. The prediction that "the work is choosing the value, not writing the line" was exactly right: the line took seconds, the value came from timing a full run (slowest case 1.11s, suite 24s, replacing ctest's silent 1500s default). |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
