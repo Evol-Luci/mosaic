@@ -785,6 +785,80 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Editor / Studio
 
+- **Drag-off-then-release is treated as a click, not a cancel.** When the cursor
+  leaves the viewport mid-press, `ViewportPanel::pointer_state` reports
+  `down = false`, which `UiSystem` reads as a RELEASE — and it then hit-tests the
+  **clamped** position. For any `UiButton` whose rect touches a panel edge, the
+  clamped position is still inside the button, so the click fires. Every other UI
+  toolkit treats drag-off-then-release as a cancel. Found in review 2026-10-07
+  during the viewport pointer-input slice; **not reachable in the shipped demo**,
+  whose HUD button sits at `pos={0.02,0.02}` and so does not touch an edge — which
+  is also why manual acceptance will not find it. Deferred rather than fixed in that
+  slice because the clean fix is an **engine-tier change**: `PointerState` needs a
+  notion of "the pointer left the surface" so `UiSystem` can cancel rather than
+  release, and that changes a type with existing consumers. The cheap alternative —
+  reporting out-of-range coordinates when not hovered — would break the clamp
+  contract that stops a `UiButton` matching outside itself. **Depends on** the same
+  `PointerState` widening as wheel input, so the two should be taken together.
+- **Clicking the viewport's scene image can drag the Viewport panel.**
+  `ImGui::Image` calls `ItemAdd(bb, 0)` with id 0, so `HoveredId` stays 0 and ImGui
+  treats a press there as a click in "empty space", starting a window move
+  (`imgui.cpp:5048-5057` sets `ActiveId = window->MoveId`). Inert while the panel is
+  docked; on a FLOATED Viewport panel a play-mode click-and-drag — an ordinary game
+  input — drags the panel under the cursor while the game also receives the press.
+  Pre-existing in that the item has always been id-0, but it only becomes a
+  user-facing gesture now that press-and-hold means something. Recorded 2026-10-07.
+  Fix is one of `ImGui::InvisibleButton` over the image or
+  `ImGuiWindowFlags_NoMove` on the panel; the choice wants a look at the window,
+  since `NoMove` also stops deliberate repositioning.
+- **Keyboard input to the scene from the editor** — the same shape of gap as
+  pointer input, different surface. `setup_runtime` takes an `input_provider`
+  (`std::function<std::vector<std::string>()>`) that `app/main.cpp` fills from
+  GLFW and `app/run/editor.cpp` leaves empty, so a script reading held keys sees
+  nothing in the editor. Deferred 2026-10-07 while designing viewport pointer
+  input, and **deliberately not bundled with it**: pointer input needed a
+  behaviour decision (edit mode versus play mode) and a panel-relative
+  coordinate transform, while keyboard needs neither — keys are not positional,
+  so there is no panel to be relative to and no ImGui-capture question beyond
+  "is a text field focused". It is close to a one-line pass-through, which is
+  exactly why bundling it would have hidden it inside a slice whose risk lives
+  somewhere else. **Depends on** nothing; it should inherit the same play-mode
+  gate for consistency once that exists.
+- **Right-click, middle-click, scroll and multi-touch in `PointerState`** —
+  `engine/ui/pointer.hpp` carries a single `down` for the primary button.
+  Deferred 2026-10-07 during the viewport pointer-input design: widening it is
+  a change to an engine-tier type with existing consumers (`UiSystem`,
+  `ClickNudgeSystem`, and anything a plugin has bound), so it wants its own
+  slice and a decision about whether buttons become a bitmask or named fields.
+- **An editor fly-camera independent of the scene camera** — deferred
+  2026-10-07, and the reason is a property worth keeping on purpose: the editor
+  currently renders through the scene's *active* camera, so "where the user
+  clicked" and "what the game sees" are the same ray **by construction**, which
+  is what makes viewport picking and the play-mode pointer agree without any
+  reconciliation. A fly-camera breaks that and would force every
+  viewport-to-scene transform to carry two cameras. Worth doing eventually;
+  worth knowing it has a cost beyond the camera controls.
+
+- ~~**The editor forwards no pointer input to the scene, so nothing in it
+  can be clicked**~~ — **SHIPPED 2026-10-07**, play-mode only. `ViewportPanel`
+  records the raw ImGui facts and computes the `PointerState`; `editor.cpp`
+  hands the same provider to `UiSystem` (through `setup_runtime`'s `pointer`
+  parameter, which it had been leaving defaulted) and to `ClickNudgeSystem`
+  (through `register_windowed_systems`, which only `main.cpp` had ever
+  called). **Three things the original analysis below did not anticipate.**
+  (1) The panel-relative coordinate transform *already existed* in
+  `draw_viewport`, for edit-mode click-to-select — which is what made
+  play-mode-only cheap, and which now has to be gated on `!is_playing()` or
+  one click both drives the pointer and moves the selection. That gate is a
+  behaviour change to shipped code: clicking the viewport no longer selects
+  while playing. (2) `ClickNudgeSystem` fires on a press **edge**, so gating
+  `down` on play mode *synthesises a click* — hold the button in edit mode,
+  press Play, and `down` flips false→true with no physical press. The panel
+  latches presses that began while ineligible and stays suppressed until
+  release. (3) The `aspect` provider must be the viewport **panel's**, not the
+  window's; the scene renders into a panel-sized offscreen target, so a
+  window-derived aspect diverges the nudge ray from the clicked image.
+  Original analysis follows.
 - **The editor forwards no pointer input to the scene, so nothing in it
   can be clicked** — found 2026-10-06 while visually verifying IBL in the
   editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
@@ -1722,7 +1796,7 @@ re-reading the same source docs:
 
 | Item | Why this tier |
 |---|---|
-| **Pointer input from the editor viewport to the scene** — added 2026-10-06 | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
+| ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable

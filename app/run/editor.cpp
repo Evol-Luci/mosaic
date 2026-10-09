@@ -16,6 +16,8 @@
 #include "app/asset/asset_io.hpp"
 #include "app/project/project_io.hpp"
 #include "app/run/demo_scene.hpp"
+#include "app/run/windowed_systems.hpp"
+#include "engine/ui/ui_system.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/scene_io.hpp"
 #include "app/run/scene_load.hpp"
@@ -154,11 +156,48 @@ int run_editor(const Options& options,
         mosaic::foundation::log::clear_sinks();
         return 1;
     }
+    // ONE provider, shared by UiSystem and ClickNudgeSystem. Both must see the same value
+    // within a tick or the UI-claim arbitration ends up declining a different click than the
+    // one ClickNudgeSystem acts on. Reading ViewportPanel's CACHED ImGui sample makes that
+    // impossible by construction; reading glfwGetCursorPos live would not, because it is not
+    // frame-snapshotted.
+    //
+    // All the policy -- panel-relative coordinates, the play-mode gate, hover, ImGui's mouse
+    // claim, and the press-began-while-ineligible latch -- lives in ViewportPanel and is
+    // unit-tested headlessly. This lambda only asks.
+    auto viewport_pointer = [&studio] {
+        return studio.viewport().pointer_state(studio.play_state().is_playing());
+    };
+
     auto render_system =
         setup_runtime(world, asset_registry, reflection,
                       [] { return mosaic::script::python::create_python_script_engine(); },
-                      /*host=*/{}, /*script_thread=*/false, std::move(audio_backend))
+                      /*host=*/{}, /*script_thread=*/false, std::move(audio_backend),
+                      viewport_pointer)
             .render_system;
+
+    // The editor always has a window, so `windowed` is unconditionally true. Registered
+    // AFTER setup_runtime so ClickNudgeSystem ticks after UiSystem and sees its verdict on
+    // the same press -- World ticks systems in registration order.
+    //
+    // Before this, register_windowed_systems had exactly one caller (main.cpp), so the
+    // editor had no ClickNudgeSystem at all.
+    {
+        mosaic::app::WindowedSystemDeps pointer_deps;
+        pointer_deps.pointer = viewport_pointer;
+        // The PANEL's aspect, not the window's. The scene renders into a panel-sized
+        // offscreen target, so a window-derived aspect makes ClickNudgeSystem's camera ray
+        // diverge from the image the user clicked -- picking a different object the further
+        // the cursor is from centre, and wrong whenever the viewport is not the whole
+        // window, which is always.
+        pointer_deps.aspect = [&studio] { return studio.viewport().aspect(); };
+        pointer_deps.ui_claimed = [&world]() -> bool {
+            auto* ui = world.get_system<mosaic::engine::ui::UiSystem>();
+            return ui != nullptr && ui->press_consumed();
+        };
+        mosaic::app::register_windowed_systems(world, /*windowed=*/true,
+                                               std::move(pointer_deps));
+    }
 
     if (options.assets_dir)
     {
