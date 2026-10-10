@@ -1886,9 +1886,9 @@ implementation starts.
 |---|---|
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| Rendering: full PBR material model — **decomposed 2026-10-04**, slices 1 (tone mapping) and 2 (metallic/roughness + GGX Cook-Torrance BRDF) shipped; slices 3 (texture maps) and 4 (IBL) remain, decomposed but unspecced | High |
+| ~~Rendering: full PBR material model~~ — **COMPLETE 2026-10-07.** Decomposed 2026-10-04; all of it shipped: 1 tone mapping, 2 metallic/roughness + GGX Cook-Torrance, 3 texture maps + real image import, 4a mipmaps, 4b cubemaps/HDR/skybox, 4c image-based lighting, then multi-scatter energy compensation closing the one correctness gap the arc had recorded against itself (furnace test 0.31 → 1.000000 at roughness 1). | ~~High~~ done |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
-| UI pillar gaps | High if interactive-game UI is a near-term goal, else Low |
+| UI pillar gaps — **DECOMPOSED 2026-10-07** into U6–U11, see `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. U6 (interaction depth) is first and carries one open question for a human; U7 (image presentation) is independent and needs no decision; U10 is blocked on an editor keyboard-input provider. | High if interactive-game UI is a near-term goal, else Low — **and that is still the open question**, which the decomposition does not answer. It only removes the excuse that the item was too shapeless to start. |
 | Networking gaps | High if shipping real multiplayer soon, else Low |
 | Package manager (network/deps/registry) | Medium |
 | Public marketplace | Low today, High later — gated on an actual user base |
