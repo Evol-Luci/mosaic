@@ -188,6 +188,10 @@ struct UiQuad
 struct UiImageQuad
 {
     mosaic::engine::ui::Rect       rect;
+    // u0..v1 select a sub-region of the texture, resolved on the CPU by
+    // engine/ui/ui_fit.hpp -- the backend does no arithmetic. Spelled exactly as
+    // UiGlyphQuad spells them so the two read the same. Defaults are the whole texture.
+    float                          u0 = 0, v0 = 0, u1 = 1, v1 = 1;
     mosaic::foundation::math::Vec3 tint;
     float                          alpha = 1.0f;
 };

@@ -691,12 +691,17 @@ inline void build_default_scene(mosaic::engine::World& world)
         mosaic::engine::ui::UiParent{camera});
 
     world.add_component<mosaic::engine::ui::UiImage>(camera,
+        // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/
+        // fit_mode, and a positional init silently re-binds tint onto the first new field.
+        // Naming the members means the next field added here cannot break this line.
         mosaic::engine::ui::UiImage{
-            kCheckerTextureId,
-            static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
-            mosaic::foundation::math::Vec2{0.03f, 0.03f},
-            mosaic::foundation::math::Vec2{0.12f, 0.12f},
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 0});
+            .texture = kCheckerTextureId,
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
+            .pos     = mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.12f, 0.12f},
+            .tint    = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha   = 1.0f,
+            .order   = 0});
     world.add_component<mosaic::engine::ui::UiText>(camera,
         mosaic::engine::ui::UiText{
             kBuiltinFontId, "MOSAIC",

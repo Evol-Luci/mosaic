@@ -32,6 +32,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_fit.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/ui/world_text.hpp"
@@ -438,12 +439,23 @@ public:
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
                 {
                     if (im.alpha <= 0.0f) { return; }
-                    const TextureHandle tex = texture_cache_.get(im.texture, registry, device);
-                    if (tex == 0) { return; }
+                    // get_info rather than get: the aspect modes need the texture's pixel
+                    // dimensions, and a non-zero handle guarantees they are non-zero.
+                    const TextureInfo info = texture_cache_.get_info(im.texture, registry, device);
+                    if (info.handle == 0) { return; }
                     const mosaic::engine::ui::Rect rect = mosaic::engine::ui::resolve_ui_rect(
                         world, e, to_anchor(im.anchor), im.pos, im.size);
+                    // All the arithmetic lives in ui_fit.hpp, which is testable with no
+                    // world and no device. aspect_ is the SCREEN aspect and is load-bearing:
+                    // a normalized rect is not square, so the correction needs it as well as
+                    // the texture's own aspect.
+                    const auto q = mosaic::engine::ui::resolve_image_quad(
+                        info.width, info.height, rect, aspect_, im.sub_rect_pos,
+                        im.sub_rect_size, im.fit_mode);
                     device.draw_ui_image(
-                        std::vector<UiImageQuad>{UiImageQuad{rect, im.tint, im.alpha}}, tex);
+                        std::vector<UiImageQuad>{
+                            UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, im.tint, im.alpha}},
+                        info.handle);
                 });
         }
 
