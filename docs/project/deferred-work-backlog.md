@@ -188,6 +188,104 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
+- **Tiling / repeat for `UiImage`** — deferred 2026-10-10 during the image-presentation
+  design. Not a flag: with a sub-rect in play, repeating means either a separate atlas
+  page (so the sampler's address mode can wrap the whole texture) or shader-side wrapping
+  *within* the sub-rect, because a wrapping sampler would pull in neighbouring sprites.
+  Its own slice, and the decision between those two is the work.
+- **UV flip / rotation for `UiImage`** — deferred 2026-10-10. Cheap to add on the sub-rect
+  UV machinery that slice lands (swap or transpose the emitted UV corners), and recorded
+  only because nothing currently asks for it. Do not add it speculatively; it is two
+  fields and a precedence question against `sub_rect` that nobody needs answered yet.
+- **Batching the UI image pass** — `RenderSystem` issues **one `draw_ui_image` call per
+  `UiImage`**, each with its own push constants and its own `vkCmdDraw` of six vertices.
+  Recorded 2026-10-10, before it matters rather than after: it is fine at current scale,
+  but it is the number **9-slice will multiply by nine**, so a HUD with a dozen 9-sliced
+  panels goes from ~12 draws to ~108. **Worth measuring rather than pre-optimising** —
+  the fix (one instanced draw, or a small vertex buffer per pass) is well understood, and
+  the trigger is a real frame-time number, not a hunch.
+- **An authored aspect override on `UiImage`** — deliberately NOT added by the aspect-mode
+  slice. `Fit`/`Fill` read the texture's real pixel dimensions; an override field would be
+  a second source of truth for the same fact, and the two would disagree the moment an
+  asset was re-exported. Recorded 2026-10-10 so the omission reads as a decision rather
+  than an oversight.
+- **`Fit` ignores the anchor when it centres** — surfaced by the U7 whole-branch review on
+  2026-10-10, as a behaviour the spec is silent on rather than as a defect. `Fit` centres
+  the shrunk rect inside the authored rect, so an image anchored `TopRight` with `Fit`
+  **drifts inward** by half the letterbox and no longer touches the edge it was anchored
+  to. "Anchor to the corner" and "centre within the rect" are in genuine tension, and a
+  user placing a HUD icon flush to a corner meets the drift with no warning. Deferred
+  because fixing it means choosing a rule — align the shrunk rect to the anchor's own edge,
+  or add an explicit alignment field — and that is a design decision, not a bug fix; doing
+  it blind would replace one silent behaviour with another. **Depends on** nothing; the
+  arithmetic is three lines in `resolve_image_quad`. Note no test covers anchor interaction
+  with `Fit` today: both `RenderSystem` `Fit` cases use the default anchor.
+- **A sub-rect that lands entirely off the texture renders a one-texel smear** — also from
+  the U7 review, 2026-10-10. `sub_rect_pos = {64, 0}` on a 64-wide texture clamps to
+  `u0 == u1 == 1.0`, a zero-width UV span: under `Stretch` the user gets the rightmost
+  column stretched across the whole rect, and under `Fit`/`Fill` the `src_w_px > 0` guard
+  returns early so the mode is silently ignored and they get `Stretch` of that same column.
+  The spec says "clamped to its bounds" and stops there. Deferred rather than fixed because
+  the alternatives — treat a fully-off-texture sub-rect as the whole texture, or skip the
+  draw the way an unresolved handle is skipped — are both defensible and the input is an
+  authoring mistake either way; what is wrong is only that the mistake is **invisible**.
+  Cheapest real improvement is probably a one-line warning at the seam rather than a
+  behaviour change. **Depends on** nothing.
+- **Four minor findings from the U7 whole-branch review (2026-10-10)**, recorded rather
+  than fixed in that slice's one fix pass, which was reserved for the three Important
+  findings. None changes what a user sees today; all four are the kind of thing that is
+  cheap now and annoying later.
+  - **`ImageFitMode` lives in `engine/ui/ui_fit.hpp`, but the field it describes
+    (`fit_mode`) lives on `UiImage` in `ui_image.hpp`**, which does not include it. Anyone
+    setting the field symbolically must add a second include — `app/run/demo_scene.hpp`
+    had to. The enum arguably belongs beside the component. Deferred because moving it is
+    a header-dependency decision touching the `engine/ui` tier, not a one-liner, and the
+    current arrangement is merely inconvenient rather than wrong.
+  - **The "position starts past the edge" test asserts bounds, not the defined outcome.**
+    It checks `u0 <= 1.0`, `u1 >= u0` where the actual result is `u0 == u1 == 1.0`, so a
+    fall-back-to-whole-texture implementation would also pass. Separately, the
+    clamp-removal mutation it is shaped for would call `std::clamp` with `lo > hi`, which
+    is **UB** — so its red depends on unspecified behaviour. Worth tightening to exact
+    values and finding a mutation that is defined.
+  - **`TextureCache`'s invariant is enforced distributively, not locally.** It guards on
+    `handle != 0`; the reason a 0×0 `Image` cannot yield a non-zero handle lives in
+    `VulkanRenderDevice::create_texture`, which returns `0u` for a zero dimension. A
+    different `RenderDevice` that returned a handle for a degenerate image would silently
+    break the documented invariant. Deferred because the downstream consequence is benign
+    — `resolve_image_quad` degrades to full `0..1` UVs with no letterboxing and no NaN —
+    so this is defensive polish, not a latent bug.
+  - **The HUD image pass does not sort by `UiImage::order`,** unlike the panel pass, even
+    though `order` is reflected and documented on the component. **Pre-existing, not
+    introduced by U7** — flagged only because that slice was the one that re-read the loop.
+    Overlapping HUD images draw in `for_each` order, which is stable but arbitrary. Fold
+    into whichever slice next touches UI draw ordering rather than taking it alone.
+- **9-slice scaling for `UiImage`** — **DEFERRED AS A LONGER-TERM GOAL on 2026-10-10**, by
+  explicit decision rather than by running out of time. U7 shipped the UV plumbing 9-slice
+  depends on, so it is *unblocked* and was the obvious next slice — and it is being passed
+  over anyway, in favour of editor-facing work (editor starts stopped, then U6 interaction
+  depth). **Why:** nothing currently asks for 9-slice. It makes authored HUD art scale
+  nicely, which matters when there *is* authored HUD art; the demo has one checker sprite.
+  The two items chosen ahead of it are both things a person meets in the first seconds of
+  using the editor. Taking 9-slice now would be building the most technically interesting
+  remaining UI feature rather than the most needed one. **Nothing about it decays by
+  waiting** — its dependency has landed and cannot un-land, and the three decisions below
+  are unaffected by time. Revisit when something real needs a scalable panel or button
+  background; until then this is deliberately not the next slice.
+  Split out of U7 on 2026-10-10, at the start of
+  that slice, because the three features U7 grouped are **not** independent:
+  9-slice needs nine different sub-rects of one texture, so it is built *on top of*
+  the sub-rect UV plumbing rather than beside it. Taking it in the same slice would
+  put UV plumbing, an aspect-mode enum and a **nine-fold draw-count change** in one
+  diff, and the draw-count change is the only part of U7 with a performance
+  dimension — a combined review would have to find it amongst two unrelated
+  features. **Depends on** U7's sub-rect UVs, which land first; after that this adds
+  only the nine-quad expansion on machinery already proven. **What it will need
+  deciding:** whether the border insets are authored in pixels (friendlier, needs the
+  texture's dimensions, which U7 is already caching) or normalized; whether the centre
+  patch stretches or tiles; and whether 9 quads per image is acceptable or wants
+  batching — worth measuring rather than pre-optimising, since it is the first thing
+  in the UI path that multiplies draw calls.
+
 **DECOMPOSED 2026-10-07** into six sub-projects — see
 `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. Decomposed now
 because the tier table's condition changed: it rated UI "High if interactive-game
@@ -209,8 +307,17 @@ them as this list does.
   landed, and it is the gap a user meets in the first five seconds. Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
   `UiPanel` ancestor's.
-- **U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
-  atlas sub-rects. Independent of everything else and the cheapest real group.
+- ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
+  atlas sub-rects. Independent of everything else and the cheapest real group.~~
+  **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
+  `sub_rect_pos`/`sub_rect_size` (texture **pixels**, zero size = whole texture) and
+  `fit_mode` (Stretch/Fit/Fill), with all the arithmetic in one pure function,
+  `engine/ui/ui_fit.hpp`'s `resolve_image_quad`, tested with no world and no device.
+  `TextureCache` now keeps `{handle, width, height}` — it already loaded the `Image`
+  to create the texture and threw the dimensions away. `UiImagePush` went 32 → 48 and
+  `ui_image.vert` interpolates the UVs with the same `mix()` form `ui_text.vert` has
+  used for glyph sub-rects all along. **9-slice is still open** and still listed above;
+  its stated dependency — this slice's sub-rect UVs — now exists.
 - **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
   auto-layout. Needs nothing from the renderer.
 - **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
@@ -1887,6 +1994,17 @@ re-reading the same source docs:
 |---|---|
 | ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
 | ~~**A suite-wide ctest `TIMEOUT`**~~ | **SHIPPED 2026-10-07** as `PROPERTIES TIMEOUT 60` on `catch_discover_tests` — one argument, not a `set_tests_properties` call. The prediction that "the work is choosing the value, not writing the line" was exactly right: the line took seconds, the value came from timing a full run (slowest case 1.11s, suite 24s, replacing ctest's silent 1500s default). |
+
+**Re-derived 2026-10-10** after U7 image presentation shipped. Both 2026-10-04 entries are
+now struck through, and this pass takes its material from that slice's review findings
+rather than from re-reading the same source docs — which is the condition the 2026-09-20
+note set for re-deriving at all.
+
+| Item | Why it is a quick win |
+|---|---|
+| **Tighten the "position starts past the edge" test to exact values** | Two `REQUIRE`s change from bounds to `u0 == u1 == 1.0`, plus a `v`-axis pair that is currently absent. The real work is finding a clamp mutation that is **defined** rather than UB — the obvious one calls `std::clamp` with `lo > hi` — so expect the thinking to be in choosing the probe, not writing the assertions. |
+| **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
+| **Sort the HUD image pass by `UiImage::order`** | The panel pass already does it, so this is a copy of a shipped loop onto a sibling path. `order` is already reflected, documented, and ignored — which is the worst of the three states. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 

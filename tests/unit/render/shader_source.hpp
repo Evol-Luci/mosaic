@@ -29,6 +29,24 @@ inline std::string read_shader(const std::string& name)
     return ss.str();
 }
 
+// The Vulkan backend's own source, for pinning the C++ half of a GPU-side contract.
+//
+// Lived in an anonymous namespace in texture_colorspace_contract_test.cpp, which made it
+// invisible to every other contract file -- so the next file to need it would either
+// duplicate it or file its cases in a test named after an unrelated decision. This header
+// already exists because two copies of a helper drifted once; one copy, for the same
+// reason.
+inline std::string read_backend()
+{
+    const std::string path =
+        std::string(MOSAIC_TEST_DIR) + "/../modules/render_vulkan/vulkan_render_device.cpp";
+    std::ifstream in(path);
+    REQUIRE(in.good());
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
 // Shader source with comments removed, both // and /* */.
 //
 // A raw text search cannot tell code from prose. The gamma check searches for a literal

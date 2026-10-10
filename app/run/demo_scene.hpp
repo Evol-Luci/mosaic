@@ -24,6 +24,7 @@
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
+#include "engine/ui/ui_fit.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
@@ -691,12 +692,27 @@ inline void build_default_scene(mosaic::engine::World& world)
         mosaic::engine::ui::UiParent{camera});
 
     world.add_component<mosaic::engine::ui::UiImage>(camera,
+        // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/
+        // fit_mode, and a positional init silently re-binds tint onto the first new field.
+        // Naming the members means the next field added here cannot break this line.
         mosaic::engine::ui::UiImage{
-            kCheckerTextureId,
-            static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
-            mosaic::foundation::math::Vec2{0.03f, 0.03f},
-            mosaic::foundation::math::Vec2{0.12f, 0.12f},
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 0});
+            .texture = kCheckerTextureId,
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
+            .pos     = mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.12f, 0.12f},
+            // Fit rather than Stretch so the aspect modes are visible in the running demo:
+            // the checker texture is square, and this rect is square in NORMALIZED space,
+            // which means it is NOT square in pixels on any non-square window -- so
+            // Stretch visibly distorted the checks into rectangles and Fit letterboxes them
+            // back to squares. That makes the whole point of the slice checkable by eye,
+            // and it changes the demo's appearance on purpose.
+            //
+            // No sub-rect here: the checker is not an atlas, so cropping it would read as a
+            // mistake rather than as a feature.
+            .fit_mode = static_cast<int>(mosaic::engine::ui::ImageFitMode::Fit),
+            .tint    = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha   = 1.0f,
+            .order   = 0});
     world.add_component<mosaic::engine::ui::UiText>(camera,
         mosaic::engine::ui::UiText{
             kBuiltinFontId, "MOSAIC",

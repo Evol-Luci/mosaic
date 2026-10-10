@@ -2,6 +2,7 @@
 
 layout(push_constant) uniform Push {
     vec4 rect;   // x, y, w, h in [0,1], top-left origin
+    vec4 uv;     // u0, v0, u1, v1 -- a sub-region of the bound texture
     vec4 tint;   // rgb + alpha
 } pc;
 
@@ -22,6 +23,8 @@ void main() {
     float nx = pc.rect.x + c.x * pc.rect.z;
     float ny = pc.rect.y + c.y * pc.rect.w;
     gl_Position = vec4(nx * 2.0 - 1.0, 1.0 - ny * 2.0, 0.0, 1.0);
-    v_uv = c;           // full-texture UV 0..1
+    // Interpolate the sub-region rather than using the corner directly. Identical in form
+    // to ui_text.vert's glyph UVs. Defaults of 0,0,1,1 reproduce the old `v_uv = c`.
+    v_uv = vec2(mix(pc.uv.x, pc.uv.z, c.x), mix(pc.uv.y, pc.uv.w, c.y));
     v_tint = pc.tint;
 }

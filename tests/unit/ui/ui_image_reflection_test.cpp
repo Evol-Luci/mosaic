@@ -23,6 +23,11 @@ TEST_CASE("UiImage round-trips through reflection", "[ui][reflection]")
     im.tint    = Vec3{0.8f, 0.9f, 1.0f};
     im.alpha   = 0.85f;
     im.order   = 4;
+    // Non-default on purpose: a field left at its default round-trips whether or not it
+    // is serialised at all, so a default would assert nothing.
+    im.sub_rect_pos  = Vec2{32.0f, 64.0f};
+    im.sub_rect_size = Vec2{16.0f, 8.0f};
+    im.fit_mode      = 2; // Fill
 
     const auto value = mosaic::foundation::serialization::to_value(im);
     UiImage back;
@@ -35,6 +40,11 @@ TEST_CASE("UiImage round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.tint.z == Approx(1.0f));
     REQUIRE(back.alpha == Approx(0.85f));
     REQUIRE(back.order == 4);
+    REQUIRE(back.sub_rect_pos.x == Approx(32.0f));
+    REQUIRE(back.sub_rect_pos.y == Approx(64.0f));
+    REQUIRE(back.sub_rect_size.x == Approx(16.0f));
+    REQUIRE(back.sub_rect_size.y == Approx(8.0f));
+    REQUIRE(back.fit_mode == 2);
 }
 
 TEST_CASE("UiImage is a registered built-in component", "[ui][reflection]")

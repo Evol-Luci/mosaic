@@ -235,6 +235,13 @@ Every built-in engine component, with its fields and their default values. Field
 - `size`
   - `x`: 0.100000
   - `y`: 0.100000
+- `sub_rect_pos`
+  - `x`: 0.000000
+  - `y`: 0.000000
+- `sub_rect_size`
+  - `x`: 0.000000
+  - `y`: 0.000000
+- `fit_mode`: 0
 - `tint`
   - `x`: 1.000000
   - `y`: 1.000000

@@ -60,6 +60,7 @@ using mosaic::engine::render::PointLight;
 using mosaic::engine::render::SpotLight;
 using mosaic::engine::transform::WorldTransform;
 using mosaic::foundation::math::Mat4;
+using mosaic::foundation::math::Vec2;
 using mosaic::foundation::math::Vec3;
 using mosaic::foundation::serialization::AssetID;
 using mosaic::engine::render::ParticleInstance;
@@ -924,13 +925,20 @@ TEST_CASE("RenderSystem skips fully transparent UiPanels", "[render][ui]")
 
 namespace
 {
-mosaic::foundation::serialization::AssetID register_white_texture(AssetRegistry& registry)
+// Dimensions default to 1x1 so every pre-existing caller is unchanged. They are a
+// parameter at all because the aspect modes read them back through
+// TextureCache::get_info: a helper hardcoded to 1x1 cannot exercise letterboxing.
+mosaic::foundation::serialization::AssetID register_white_texture(AssetRegistry& registry,
+                                                                  std::uint32_t w = 1,
+                                                                  std::uint32_t h = 1)
 {
     std::array<std::uint8_t, 16> bytes{};
     bytes[0] = 77;
     const mosaic::foundation::serialization::AssetID tex_id{bytes};
     auto img = std::make_shared<Image>();
-    img->width = 1; img->height = 1; img->pixels = {255, 255, 255, 255};
+    img->width = w;
+    img->height = h;
+    img->pixels.assign(static_cast<std::size_t>(w) * h * 4u, 255);
     registry.register_resource<Image>(AssetMetadata{tex_id, "texture"}, img);
     return tex_id;
 }
@@ -1671,4 +1679,101 @@ TEST_CASE("a metallic/roughness map is uploaded as linear, not sRGB", "[render]"
     const std::array<std::uint8_t, 4> white{255, 255, 255, 255};
     REQUIRE(device.upload_spaces.count(white) == 1);
     REQUIRE(device.upload_spaces.at(white) == TextureColorSpace::Srgb);
+}
+
+TEST_CASE("a default UiImage emits the authored rect and full UVs", "[render]")
+{
+    // The migration guarantee, through the REAL RenderSystem rather than through
+    // resolve_image_quad alone -- this is the wiring, not the arithmetic. The demo's own
+    // top-right checker image is exactly this case, so a regression here ships visibly.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f); // non-square on purpose: a square screen hides a dropped term
+
+    const AssetID tex = register_white_texture(registry, 64, 32);
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiImage im;
+    im.texture = tex;
+    im.pos = Vec2{0.1f, 0.2f};
+    im.size = Vec2{0.2f, 0.2f};
+    world.add_component<mosaic::engine::ui::UiImage>(e, im);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 1);
+    const auto& q = device.ui_image_draws[0].quads.at(0);
+    REQUIRE(q.u0 == Approx(0.0f));
+    REQUIRE(q.v0 == Approx(0.0f));
+    REQUIRE(q.u1 == Approx(1.0f));
+    REQUIRE(q.v1 == Approx(1.0f));
+    REQUIRE(q.rect.w == Approx(0.2f));
+    REQUIRE(q.rect.h == Approx(0.2f));
+}
+
+TEST_CASE("RenderSystem passes the texture's real dimensions into the fit maths", "[render]")
+{
+    // The wiring the arithmetic tests cannot see: RenderSystem must hand the TEXTURE's
+    // dimensions to resolve_image_quad, not a constant and not the rect's. Only the
+    // dimensions get_info returned can tell it how much to letterbox.
+    //
+    // Worked through rather than guessed, because the first version of this case was
+    // WRONG: a 50x100 texture (aspect 0.5) in rect {0.2, 0.2} at screen aspect 0.5 gives
+    // rect_aspect (0.2 * 0.5) / 0.2 == 0.5 -- EQUAL to the image aspect, so a correct
+    // implementation letterboxes nothing and the case would have failed against working
+    // code.
+    //
+    // With screen aspect 2.0 the rect is 2:1 in pixels against a 1:2 image, so Fit shrinks
+    // the width by image/rect == 0.5/2.0: w = 0.2 * 0.25 = 0.05, centred at
+    // 0.1 + (0.2 - 0.05) / 2 = 0.175.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+
+    const AssetID tex = register_white_texture(registry, 50, 100);
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiImage im;
+    im.texture = tex;
+    im.pos = Vec2{0.1f, 0.2f};
+    im.size = Vec2{0.2f, 0.2f};
+    im.fit_mode = static_cast<int>(mosaic::engine::ui::ImageFitMode::Fit);
+    world.add_component<mosaic::engine::ui::UiImage>(e, im);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 1);
+    const auto& q = device.ui_image_draws[0].quads.at(0);
+    INFO("rect " << q.rect.x << "," << q.rect.y << " " << q.rect.w << "x" << q.rect.h);
+    REQUIRE(q.rect.w == Approx(0.05f));
+    REQUIRE(q.rect.h == Approx(0.2f));
+    REQUIRE(q.rect.x == Approx(0.175f)); // centred inside the authored rect
+}
+
+TEST_CASE("RenderSystem forwards a pixel sub-rect as UVs", "[render]")
+{
+    // Asymmetric numbers so a transposed axis fails.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+
+    const AssetID tex = register_white_texture(registry, 128, 64);
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiImage im;
+    im.texture = tex;
+    im.sub_rect_pos  = Vec2{32.0f, 16.0f};
+    im.sub_rect_size = Vec2{16.0f, 32.0f};
+    world.add_component<mosaic::engine::ui::UiImage>(e, im);
+
+    rs.render(world, device, registry);
+
+    const auto& q = device.ui_image_draws[0].quads.at(0);
+    REQUIRE(q.u0 == Approx(0.25f));  // 32/128
+    REQUIRE(q.v0 == Approx(0.25f));  // 16/64
+    REQUIRE(q.u1 == Approx(0.375f)); // 48/128
+    REQUIRE(q.v1 == Approx(0.75f));  // 48/64
 }

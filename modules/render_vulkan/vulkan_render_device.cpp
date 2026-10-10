@@ -169,9 +169,14 @@ static_assert(sizeof(UiPush) == 32, "ui push constant must match the shader");
 struct UiImagePush
 {
     float rect[4];
+    // Sub-region UVs: u0, v0, u1, v1, resolved on the CPU by engine/ui/ui_fit.hpp. Mirrors
+    // UiTextPush below, which has carried a uv[4] for glyph sub-rects since the text slice
+    // -- this is the same mechanism, not a new one. Declared BETWEEN rect and tint to match
+    // the shader's block member order, which is what the sizes and offsets must agree on.
+    float uv[4];
     float tint[4];
 };
-static_assert(sizeof(UiImagePush) == 32, "ui-image push constant must match the shader");
+static_assert(sizeof(UiImagePush) == 48, "ui-image push constant must match the shader");
 
 struct UiTextPush
 {
@@ -1759,6 +1764,7 @@ public:
         {
             UiImagePush pc{};
             pc.rect[0] = q.rect.x; pc.rect[1] = q.rect.y; pc.rect[2] = q.rect.w; pc.rect[3] = q.rect.h;
+            pc.uv[0] = q.u0; pc.uv[1] = q.v0; pc.uv[2] = q.u1; pc.uv[3] = q.v1;
             pc.tint[0] = q.tint.x; pc.tint[1] = q.tint.y; pc.tint[2] = q.tint.z; pc.tint[3] = q.alpha;
             vkCmdPushConstants(cmd_[frame_], ui_image_pipeline_layout_,
                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
