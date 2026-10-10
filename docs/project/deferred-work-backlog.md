@@ -814,6 +814,36 @@ them as this list does.
 
 ## Editor / Studio
 
+- **The editor should start STOPPED, not playing.** `PlayState`'s default is
+  `playing_ = true` (`studio/play_state.hpp:27`), so `mosaic editor` begins
+  simulating the moment it opens. **Requested 2026-10-10 after the viewport
+  pointer-input acceptance pass**, where the default surfaced as the first thing
+  a user meets: because viewport clicks are routed to the game while playing,
+  the default click behaviour is now "drive the game" and click-to-select
+  requires pressing Stop first. The product is editor-facing, so the default
+  should be authoring, not simulating — the user's call, and the right one.
+  **It is a one-token change plus one trap.** The token:
+  `playing_ = false`. The test: `tests/unit/studio/play_state_test.cpp:7`
+  ("PlayState defaults to playing") inverts, name included.
+  **THE TRAP — `mosaic editor --ticks N` would never terminate.**
+  `FramePump` exits on `loop_.tick_count() >= *options_.ticks`
+  (`app/run/frame_pump.hpp:87`), and `RuntimeLoop::advance` returns early while
+  stopped (`engine/runtime/runtime_loop.hpp:29`) so `tick_count_` never
+  increments. A stopped editor therefore hangs forever instead of exiting after
+  N ticks. **CI is unaffected** — its smoke test runs `mosaic run`, not `mosaic
+  editor` — but `--ticks` is exactly how the editor gets verified in a sandbox
+  that cannot screenshot, which is how every editor change this month was
+  checked. Needs a decision, not just a fix: either `--ticks` counts *frames*
+  in the editor path, or `--ticks` implies play, or the editor gains a separate
+  frame limit. Picking one is the actual work here.
+  **Consequences that are CORRECT and must not be "fixed" on sight:** the demo
+  scene sits still until Play (physics and scripts do not step — that is what
+  stopped means); the Blender live-link push is gated on `is_playing()`
+  (`studio/studio_app.cpp:246`) so it stays quiet until Play; the Step button
+  becomes enabled at startup, which is right. Transform propagation already runs
+  every frame regardless of play state, so Inspector edits still appear
+  immediately — the editor will not look frozen.
+
 - **Drag-off-then-release is treated as a click, not a cancel.** When the cursor
   leaves the viewport mid-press, `ViewportPanel::pointer_state` reports
   `down = false`, which `UiSystem` reads as a RELEASE — and it then hit-tests the
