@@ -245,8 +245,17 @@ them as this list does.
   landed, and it is the gap a user meets in the first five seconds. Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
   `UiPanel` ancestor's.
-- **U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
-  atlas sub-rects. Independent of everything else and the cheapest real group.
+- ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
+  atlas sub-rects. Independent of everything else and the cheapest real group.~~
+  **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
+  `sub_rect_pos`/`sub_rect_size` (texture **pixels**, zero size = whole texture) and
+  `fit_mode` (Stretch/Fit/Fill), with all the arithmetic in one pure function,
+  `engine/ui/ui_fit.hpp`'s `resolve_image_quad`, tested with no world and no device.
+  `TextureCache` now keeps `{handle, width, height}` — it already loaded the `Image`
+  to create the texture and threw the dimensions away. `UiImagePush` went 32 → 48 and
+  `ui_image.vert` interpolates the UVs with the same `mix()` form `ui_text.vert` has
+  used for glyph sub-rects all along. **9-slice is still open** and still listed above;
+  its stated dependency — this slice's sub-rect UVs — now exists.
 - **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
   auto-layout. Needs nothing from the renderer.
 - **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**

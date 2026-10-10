@@ -144,6 +144,37 @@ TEST_CASE("a non-zero handle always comes with non-zero dimensions", "[render]")
     REQUIRE(ok.height > 0u);
 }
 
+TEST_CASE("a FAILED upload records no dimensions even though the Image loaded", "[render]")
+{
+    // Added because a mutation probe found this uncovered: moving the `info.handle != 0`
+    // guard off the width/height assignment left the whole suite GREEN.
+    //
+    // The two ways to miss are not the same. An unregistered id never loads an Image, so
+    // the recording code never runs and any guard there is untested. The case that
+    // actually exercises the guard is an Image that loads and then FAILS to upload --
+    // here, empty pixels, which CountingDevice reports as handle 0, matching a real
+    // backend that declines a malformed image.
+    //
+    // Without the guard this records 64x32 beside handle 0, and the invariant
+    // RenderSystem leans on ("a non-zero handle implies non-zero dimensions") inverts into
+    // something worse: a cached entry that claims dimensions for a texture that does not
+    // exist, pinned for the process's lifetime because the miss is cached too.
+    CountingDevice device;
+    AssetRegistry registry;
+    auto img = std::make_shared<Image>();
+    img->width = 64;
+    img->height = 32;
+    // pixels deliberately left empty -> CountingDevice::create_texture returns 0
+    const AssetID id = make_id(5);
+    registry.register_resource<Image>(AssetMetadata{id, "texture"}, img);
+
+    TextureCache cache;
+    const auto info = cache.get_info(id, registry, device);
+    REQUIRE(info.handle == 0);
+    REQUIRE(info.width == 0u);
+    REQUIRE(info.height == 0u);
+}
+
 TEST_CASE("get_info uploads at most once per id and space", "[render]")
 {
     // The caching contract get() already has, now on the path RenderSystem will call
