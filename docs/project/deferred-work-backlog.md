@@ -231,6 +231,34 @@ view that was actually used to pick what to build next as of this writing.
   authoring mistake either way; what is wrong is only that the mistake is **invisible**.
   Cheapest real improvement is probably a one-line warning at the seam rather than a
   behaviour change. **Depends on** nothing.
+- **Four minor findings from the U7 whole-branch review (2026-10-10)**, recorded rather
+  than fixed in that slice's one fix pass, which was reserved for the three Important
+  findings. None changes what a user sees today; all four are the kind of thing that is
+  cheap now and annoying later.
+  - **`ImageFitMode` lives in `engine/ui/ui_fit.hpp`, but the field it describes
+    (`fit_mode`) lives on `UiImage` in `ui_image.hpp`**, which does not include it. Anyone
+    setting the field symbolically must add a second include — `app/run/demo_scene.hpp`
+    had to. The enum arguably belongs beside the component. Deferred because moving it is
+    a header-dependency decision touching the `engine/ui` tier, not a one-liner, and the
+    current arrangement is merely inconvenient rather than wrong.
+  - **The "position starts past the edge" test asserts bounds, not the defined outcome.**
+    It checks `u0 <= 1.0`, `u1 >= u0` where the actual result is `u0 == u1 == 1.0`, so a
+    fall-back-to-whole-texture implementation would also pass. Separately, the
+    clamp-removal mutation it is shaped for would call `std::clamp` with `lo > hi`, which
+    is **UB** — so its red depends on unspecified behaviour. Worth tightening to exact
+    values and finding a mutation that is defined.
+  - **`TextureCache`'s invariant is enforced distributively, not locally.** It guards on
+    `handle != 0`; the reason a 0×0 `Image` cannot yield a non-zero handle lives in
+    `VulkanRenderDevice::create_texture`, which returns `0u` for a zero dimension. A
+    different `RenderDevice` that returned a handle for a degenerate image would silently
+    break the documented invariant. Deferred because the downstream consequence is benign
+    — `resolve_image_quad` degrades to full `0..1` UVs with no letterboxing and no NaN —
+    so this is defensive polish, not a latent bug.
+  - **The HUD image pass does not sort by `UiImage::order`,** unlike the panel pass, even
+    though `order` is reflected and documented on the component. **Pre-existing, not
+    introduced by U7** — flagged only because that slice was the one that re-read the loop.
+    Overlapping HUD images draw in `for_each` order, which is stable but arbitrary. Fold
+    into whichever slice next touches UI draw ordering rather than taking it alone.
 - **9-slice scaling for `UiImage`** — split out of U7 on 2026-10-10, at the start of
   that slice, because the three features U7 grouped are **not** independent:
   9-slice needs nine different sub-rects of one texture, so it is built *on top of*
@@ -1954,6 +1982,17 @@ re-reading the same source docs:
 |---|---|
 | ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
 | ~~**A suite-wide ctest `TIMEOUT`**~~ | **SHIPPED 2026-10-07** as `PROPERTIES TIMEOUT 60` on `catch_discover_tests` — one argument, not a `set_tests_properties` call. The prediction that "the work is choosing the value, not writing the line" was exactly right: the line took seconds, the value came from timing a full run (slowest case 1.11s, suite 24s, replacing ctest's silent 1500s default). |
+
+**Re-derived 2026-10-10** after U7 image presentation shipped. Both 2026-10-04 entries are
+now struck through, and this pass takes its material from that slice's review findings
+rather than from re-reading the same source docs — which is the condition the 2026-09-20
+note set for re-deriving at all.
+
+| Item | Why it is a quick win |
+|---|---|
+| **Tighten the "position starts past the edge" test to exact values** | Two `REQUIRE`s change from bounds to `u0 == u1 == 1.0`, plus a `v`-axis pair that is currently absent. The real work is finding a clamp mutation that is **defined** rather than UB — the obvious one calls `std::clamp` with `lo > hi` — so expect the thinking to be in choosing the probe, not writing the assertions. |
+| **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
+| **Sort the HUD image pass by `UiImage::order`** | The panel pass already does it, so this is a copy of a shipped loop onto a sibling path. `order` is already reflected, documented, and ignored — which is the worst of the three states. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
