@@ -57,12 +57,24 @@ inline in `RenderSystem`:
 
 ```cpp
 // engine/ui/ui_fit.hpp
-struct ResolvedImageQuad { Rect rect; Vec4 uv; }; // uv = {u0, v0, u1, v1}
+struct ResolvedImageQuad
+{
+    Rect  rect;                              // normalized screen space, as authored or shrunk
+    float u0 = 0, v0 = 0, u1 = 1, v1 = 1;    // matches UiGlyphQuad / TextQuad exactly
+};
 
 ResolvedImageQuad resolve_image_quad(std::uint32_t texture_w, std::uint32_t texture_h,
                                      const Rect& authored_rect, float screen_aspect,
-                                     const Vec4& sub_rect_px, int fit_mode);
+                                     Vec2 sub_rect_pos_px, Vec2 sub_rect_size_px,
+                                     int fit_mode);
 ```
+
+**No `Vec4`, deliberately — there is none in `foundation/math`** (only `Vec2`, `Vec3`,
+`Mat4`, `Quat`), and this slice is not the place to add a foundation type the reflection
+and serialization layers have never seen. The four UV floats are spelled
+`u0, v0, u1, v1`, which is **exactly** what `UiGlyphQuad` and `TextQuad` already carry, and
+the pixel sub-rect is two `Vec2`s, which is exactly how `UiImage` already spells `pos` and
+`size`. Following both precedents means no new type and no new reflection support.
 
 `RenderSystem` calls it and forwards the result; the backend performs no arithmetic.
 
@@ -107,14 +119,19 @@ already in hand at creation; nothing new is loaded.
 **`engine/ui/ui_image.hpp`** — two reflected fields:
 
 ```cpp
-// Sub-rect in TEXTURE PIXELS: {x, y, w, h}. A zero w or h means the whole texture, which
-// is what a default-constructed UiImage gets -- so every existing scene is unchanged.
+// Sub-rect in TEXTURE PIXELS. A zero width or height means the whole texture, which is
+// what a default-constructed UiImage gets -- so every existing scene is unchanged.
+//
+// Two Vec2s rather than one four-float type, because that is exactly how this component
+// already spells `pos` and `size`, and because foundation/math has no Vec4 -- adding one
+// would drag the reflection and serialization layers into a slice that does not need it.
 //
 // Pixels rather than normalized UVs because that is how atlas art is authored and how any
 // tool reports it: a human can read a sprite sheet and type the numbers. Hand-divided UVs
 // also break silently when an atlas is resized or repacked. Feasible only because this
 // slice caches the texture's dimensions for the aspect modes, so the conversion is free.
-Vec4  sub_rect = Vec4{0, 0, 0, 0};
+Vec2  sub_rect_pos  = Vec2{0.0f, 0.0f};
+Vec2  sub_rect_size = Vec2{0.0f, 0.0f};
 
 // 0 = Stretch (current behaviour), 1 = Fit, 2 = Fill. An int cast to an enum, matching how
 // `anchor` already works on this component, and defaulting to the existing behaviour.
@@ -124,8 +141,9 @@ int   fit_mode = 0;
 **`engine/ui/ui_fit.hpp`** (new) — `resolve_image_quad`, the pure function above. Header
 only, `engine/ui` tier, depending on nothing but `foundation/math` and `ui_rect.hpp`.
 
-**`engine/render/render_device.hpp`** — `UiImageQuad` gains a UV rect, so the backend
-receives resolved UVs and performs no arithmetic.
+**`engine/render/render_device.hpp`** — `UiImageQuad` gains `float u0, v0, u1, v1`,
+mirroring `UiGlyphQuad` field-for-field, so the backend receives resolved UVs and performs
+no arithmetic.
 
 **`modules/render_vulkan/vulkan_render_device.cpp`** — `UiImagePush` gains `uv[4]`
 (32 → 48, assertion updated); `draw_ui_image` copies it.
@@ -164,10 +182,10 @@ because they are about the wiring rather than the arithmetic.
 
 1. **Stretch is byte-identical to today** — default component, same rect, full `0..1` UVs.
    The migration guarantee, and the thing whose breakage would silently change every HUD.
-2. **Sub-rect pixels → UVs.** `{32, 64, 16, 16}` on a 128×128 texture →
-   `{0.25, 0.5, 0.375, 0.625}`. Asymmetric on purpose: equal values pass with x and y
-   transposed.
-3. **A zero `w` or `h` means the whole texture.**
+2. **Sub-rect pixels → UVs.** `pos = {32, 64}`, `size = {16, 16}` on a 128×128 texture →
+   `u0 = 0.25, v0 = 0.5, u1 = 0.375, v1 = 0.625`. Asymmetric on purpose: equal values pass
+   with x and y transposed.
+3. **A zero `sub_rect_size.x` or `.y` means the whole texture** — `u0,v0,u1,v1 = 0,0,1,1`.
 4. **Fit letterboxes and centres**, including the both-aspects case above.
 5. **Fill crops, and crops *within* the sub-rect** — the resulting UVs must stay inside
    the sub-rect's bounds.
@@ -184,7 +202,7 @@ never that it executes correctly — the lesson from this session's inverted pin
 **Mutation probes derived from the CODE, not from the assertion list:** drop the screen
 aspect from the correction; drop the texture aspect; swap Fit and Fill; let Fill crop
 against the whole texture instead of the sub-rect; transpose x/y in the pixel→UV
-conversion; drop the zero-`w` whole-texture branch; neuter the `uv` push copy.
+conversion; drop the zero-size whole-texture branch; neuter the `uv` push copy.
 
 ## Non-goals
 
