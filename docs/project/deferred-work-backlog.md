@@ -304,9 +304,37 @@ them as this list does.
 
 - **U6 interaction depth** — hover enter/exit + visual feedback, pointer
   capture/drag, z-order-aware overlap resolution. First: its prerequisite just
-  landed, and it is the gap a user meets in the first five seconds. Carries one open
+  landed, and it is the gap a user meets in the first five seconds. ~~Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
-  `UiPanel` ancestor's.
+  `UiPanel` ancestor's.~~ **DECIDED 2026-10-10: `UiButton` gets its own `order`**, matching
+  `UiPanel`, `UiImage` and `UiText`, all of which already carry one — `UiButton` was the
+  only UI component without it. The known cost of that choice, recorded so it is not
+  rediscovered as a surprise: a button's `order` and its overlaid visual's `order` **can
+  disagree**, and nothing warns about it. **Scoped 2026-10-10 to z-order + hover**, with
+  capture/drag split out (below).
+- **Pointer capture and drag for `UiButton`** — split out of U6 on 2026-10-10 when U6 was
+  scoped, not dropped. **Why it was separated:** z-order and hover are *coupled* — "which
+  button is hovered" has no answer without a tie-break, so hover built on the current
+  behaviour would flicker between overlapping buttons — whereas capture is partly present
+  already (`UiSystem` remembers `pressed_` and requires release inside the same button), so
+  what remains is a smaller and genuinely independent change. **And it is the riskiest
+  third:** its failure modes are the subtlest (the pointer leaving the window mid-drag, a
+  press surviving a play-mode change), which is the exact bug class that shipped viewport
+  pointer input **dead** while thirteen tests stayed green. Reviewing it beside two
+  unrelated features is how that recurs. **Depends on** U6's z-order work only loosely;
+  it mainly needs the pointer-state widening recorded for U9 (wheel/multi-button) if drag
+  is ever to mean more than left-button. **What it will need deciding:** whether a captured
+  press follows the pointer outside the window, and whether a drag emits per-frame events
+  or only a start/end pair.
+- **A button's `order` can disagree with its visual's `order`** — the accepted cost of the
+  decision above, recorded 2026-10-10 as its own item because it is a real authoring trap
+  rather than a note. `UiButton` carries its own `order` for hit-testing while the panel or
+  image a user *sees* carries an independent one, so a button can claim to be on top of a
+  visual that is drawn underneath it, and the only symptom is a click landing on the wrong
+  thing. Deferred because the fix is not obvious: a validation pass that warns on an
+  overlapping button/visual pair whose orders disagree needs a definition of "belongs to"
+  that does not exist yet (`UiParent` is a transform hierarchy, not an ownership one).
+  Cheapest useful version is probably an editor-time warning, not a runtime one.
 - ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
   atlas sub-rects. Independent of everything else and the cheapest real group.~~
   **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
