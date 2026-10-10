@@ -188,6 +188,42 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
+- **Tiling / repeat for `UiImage`** — deferred 2026-10-10 during the image-presentation
+  design. Not a flag: with a sub-rect in play, repeating means either a separate atlas
+  page (so the sampler's address mode can wrap the whole texture) or shader-side wrapping
+  *within* the sub-rect, because a wrapping sampler would pull in neighbouring sprites.
+  Its own slice, and the decision between those two is the work.
+- **UV flip / rotation for `UiImage`** — deferred 2026-10-10. Cheap to add on the sub-rect
+  UV machinery that slice lands (swap or transpose the emitted UV corners), and recorded
+  only because nothing currently asks for it. Do not add it speculatively; it is two
+  fields and a precedence question against `sub_rect` that nobody needs answered yet.
+- **Batching the UI image pass** — `RenderSystem` issues **one `draw_ui_image` call per
+  `UiImage`**, each with its own push constants and its own `vkCmdDraw` of six vertices.
+  Recorded 2026-10-10, before it matters rather than after: it is fine at current scale,
+  but it is the number **9-slice will multiply by nine**, so a HUD with a dozen 9-sliced
+  panels goes from ~12 draws to ~108. **Worth measuring rather than pre-optimising** —
+  the fix (one instanced draw, or a small vertex buffer per pass) is well understood, and
+  the trigger is a real frame-time number, not a hunch.
+- **An authored aspect override on `UiImage`** — deliberately NOT added by the aspect-mode
+  slice. `Fit`/`Fill` read the texture's real pixel dimensions; an override field would be
+  a second source of truth for the same fact, and the two would disagree the moment an
+  asset was re-exported. Recorded 2026-10-10 so the omission reads as a decision rather
+  than an oversight.
+- **9-slice scaling for `UiImage`** — split out of U7 on 2026-10-10, at the start of
+  that slice, because the three features U7 grouped are **not** independent:
+  9-slice needs nine different sub-rects of one texture, so it is built *on top of*
+  the sub-rect UV plumbing rather than beside it. Taking it in the same slice would
+  put UV plumbing, an aspect-mode enum and a **nine-fold draw-count change** in one
+  diff, and the draw-count change is the only part of U7 with a performance
+  dimension — a combined review would have to find it amongst two unrelated
+  features. **Depends on** U7's sub-rect UVs, which land first; after that this adds
+  only the nine-quad expansion on machinery already proven. **What it will need
+  deciding:** whether the border insets are authored in pixels (friendlier, needs the
+  texture's dimensions, which U7 is already caching) or normalized; whether the centre
+  patch stretches or tiles; and whether 9 quads per image is acceptable or wants
+  batching — worth measuring rather than pre-optimising, since it is the first thing
+  in the UI path that multiplies draw calls.
+
 **DECOMPOSED 2026-10-07** into six sub-projects — see
 `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. Decomposed now
 because the tier table's condition changed: it rated UI "High if interactive-game
