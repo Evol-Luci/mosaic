@@ -143,6 +143,45 @@ TEST_CASE("Fill crops WITHIN the sub-rect and never outside it", "[ui][fit]")
     REQUIRE(q.u1 - q.u0 == Approx(0.5f)); // the unconstrained axis keeps the full sub-rect
 }
 
+TEST_CASE("Fill crops the other axis when the image is wider than the rect", "[ui][fit]")
+{
+    // The mirror of the Fit pair above, and it was missing: both Fill cases used a square
+    // image on a 2:1 rect, so both took the v-cropping branch and the u-cropping branch
+    // was entered only by the totality sweep, which asserts nothing but isfinite. Found in
+    // review -- the same argument the second Fit case's own comment makes.
+    //
+    // Texture 200x100 (image_aspect 2.0); rect {0.2, 0.2} at screen aspect 0.5 is 1:2 in
+    // pixels (rect_aspect 0.5), so the image is relatively wider and u must crop:
+    // keep = 0.5 / 2.0 = 0.25, centred on 0.5 -> u in [0.375, 0.625].
+    const auto q = resolve_image_quad(200, 100, kRect, 0.5f, Vec2{0, 0}, kWhole,
+                                      static_cast<int>(ImageFitMode::Fill));
+    REQUIRE(q.u0 == Approx(0.375f));
+    REQUIRE(q.u1 == Approx(0.625f));
+    // v untouched, and the geometry untouched -- that is what makes it Fill and not Fit.
+    REQUIRE(q.v0 == Approx(0.0f));
+    REQUIRE(q.v1 == Approx(1.0f));
+    REQUIRE(q.rect.w == Approx(0.2f));
+    REQUIRE(q.rect.h == Approx(0.2f));
+}
+
+TEST_CASE("Fill crops WITHIN the sub-rect on the u axis too", "[ui][fit]")
+{
+    // Containment on the branch the existing containment case does not reach. A 100x50
+    // sub-rect of a 200x100 texture is u,v in [0, 0.5] with image_aspect 2.0; rect_aspect
+    // 0.5 takes the u branch: keep = 0.25, mid = 0.25, half = 0.0625 -> u in
+    // [0.1875, 0.3125]. Cropping against the whole texture would centre on 0.5 instead and
+    // escape the sub-rect entirely.
+    const auto q = resolve_image_quad(200, 100, kRect, 0.5f, Vec2{0, 0}, Vec2{100, 50},
+                                      static_cast<int>(ImageFitMode::Fill));
+    INFO("u=[" << q.u0 << "," << q.u1 << "] v=[" << q.v0 << "," << q.v1 << "]");
+    REQUIRE(q.u0 >= 0.0f);
+    REQUIRE(q.u1 <= 0.5f + 1e-6f);
+    REQUIRE(q.u0 == Approx(0.1875f));
+    REQUIRE(q.u1 == Approx(0.3125f));
+    REQUIRE(q.u1 - q.u0 < 0.5f - 1e-6f); // it really cropped
+    REQUIRE(q.v1 - q.v0 == Approx(0.5f)); // unconstrained axis keeps the full sub-rect
+}
+
 TEST_CASE("a sub-rect past the texture edge is clamped on both halves", "[ui][fit]")
 {
     // Two independent halves -- position and size -- and clamping only one still samples
@@ -164,14 +203,61 @@ TEST_CASE("a sub-rect past the texture edge is clamped on both halves", "[ui][fi
         REQUIRE(q.u1 <= 1.0f + 1e-6f);
         REQUIRE(q.u1 >= q.u0);
     }
-    SECTION("negative position and size clamp to zero rather than wrapping")
+    SECTION("a negative position clamps to zero rather than sampling off the left edge")
     {
-        const auto q = resolve_image_quad(64, 64, kRect, 2.0f, Vec2{-10, -10}, Vec2{-5, -5},
+        // The size must be POSITIVE here. An earlier version of this section passed a
+        // negative size too, which fails the `sub_rect_size_px.x > 0.0f` gate -- so the
+        // whole sub-rect block, including the two position clamps, never executed and the
+        // assertions were satisfied by the untouched 0,0,1,1 defaults. It was a tautology,
+        // and the clamp's lower bound was pinned by nothing in the suite. Found in review.
+        //
+        // Exact values, not bounds: without the lower clamp this is u0 = -10/64 = -0.156
+        // and u1 = 6/64 = 0.094, which with clamp-to-edge sampling replaces most of the
+        // sprite with a smear of the texture's leftmost column, and with a repeat mode
+        // shows a neighbour's art.
+        const auto q = resolve_image_quad(64, 64, kRect, 2.0f, Vec2{-10, -10}, Vec2{16, 16},
                                           static_cast<int>(ImageFitMode::Stretch));
-        REQUIRE(q.u0 >= 0.0f);
-        REQUIRE(q.v0 >= 0.0f);
-        REQUIRE(q.u1 >= q.u0);
-        REQUIRE(q.v1 >= q.v0);
+        REQUIRE(q.u0 == Approx(0.0f));
+        REQUIRE(q.v0 == Approx(0.0f));
+        REQUIRE(q.u1 == Approx(0.25f)); // 16/64, measured from the clamped origin
+        REQUIRE(q.v1 == Approx(0.25f));
+    }
+    SECTION("a negative size falls back to the whole texture")
+    {
+        // The other half of what the old section conflated: a non-positive size is not
+        // clamped, it means "whole texture", the same as a zero size.
+        const auto q = resolve_image_quad(64, 64, kRect, 2.0f, Vec2{8, 8}, Vec2{-5, -5},
+                                          static_cast<int>(ImageFitMode::Stretch));
+        REQUIRE(q.u0 == Approx(0.0f));
+        REQUIRE(q.v0 == Approx(0.0f));
+        REQUIRE(q.u1 == Approx(1.0f));
+        REQUIRE(q.v1 == Approx(1.0f));
+    }
+}
+
+TEST_CASE("a zero sub-rect size on EITHER axis means the whole texture", "[ui][fit]")
+{
+    // The spec names one axis being zero, but every other case passes {0, 0} -- with both
+    // predicates false, mutating the guard's `&&` to `||` left the whole suite green.
+    // Under that mutation {64, 0} enters the block and yields v0 == v1, a zero-height UV
+    // span: the sprite drawn as a single stretched texel row. Found in review.
+    SECTION("zero height")
+    {
+        const auto q = resolve_image_quad(128, 64, kRect, 2.0f, Vec2{32, 16}, Vec2{64, 0},
+                                          static_cast<int>(ImageFitMode::Stretch));
+        REQUIRE(q.u0 == Approx(0.0f));
+        REQUIRE(q.v0 == Approx(0.0f));
+        REQUIRE(q.u1 == Approx(1.0f));
+        REQUIRE(q.v1 == Approx(1.0f));
+    }
+    SECTION("zero width")
+    {
+        const auto q = resolve_image_quad(128, 64, kRect, 2.0f, Vec2{32, 16}, Vec2{0, 32},
+                                          static_cast<int>(ImageFitMode::Stretch));
+        REQUIRE(q.u0 == Approx(0.0f));
+        REQUIRE(q.v0 == Approx(0.0f));
+        REQUIRE(q.u1 == Approx(1.0f));
+        REQUIRE(q.v1 == Approx(1.0f));
     }
 }
 

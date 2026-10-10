@@ -10,8 +10,6 @@
 // There is no GPU in CI, so the backend half is a source contract, the same idiom as
 // shader_specular_contract_test.cpp.
 
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -24,10 +22,6 @@ using mosaic::engine::render::TextureColorSpace;
 using mosaic::tests::normalize_ws;
 using mosaic::tests::read_backend;
 using mosaic::tests::read_shader;
-
-namespace
-{
-} // namespace
 
 namespace
 {

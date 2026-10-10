@@ -209,6 +209,28 @@ view that was actually used to pick what to build next as of this writing.
   a second source of truth for the same fact, and the two would disagree the moment an
   asset was re-exported. Recorded 2026-10-10 so the omission reads as a decision rather
   than an oversight.
+- **`Fit` ignores the anchor when it centres** — surfaced by the U7 whole-branch review on
+  2026-10-10, as a behaviour the spec is silent on rather than as a defect. `Fit` centres
+  the shrunk rect inside the authored rect, so an image anchored `TopRight` with `Fit`
+  **drifts inward** by half the letterbox and no longer touches the edge it was anchored
+  to. "Anchor to the corner" and "centre within the rect" are in genuine tension, and a
+  user placing a HUD icon flush to a corner meets the drift with no warning. Deferred
+  because fixing it means choosing a rule — align the shrunk rect to the anchor's own edge,
+  or add an explicit alignment field — and that is a design decision, not a bug fix; doing
+  it blind would replace one silent behaviour with another. **Depends on** nothing; the
+  arithmetic is three lines in `resolve_image_quad`. Note no test covers anchor interaction
+  with `Fit` today: both `RenderSystem` `Fit` cases use the default anchor.
+- **A sub-rect that lands entirely off the texture renders a one-texel smear** — also from
+  the U7 review, 2026-10-10. `sub_rect_pos = {64, 0}` on a 64-wide texture clamps to
+  `u0 == u1 == 1.0`, a zero-width UV span: under `Stretch` the user gets the rightmost
+  column stretched across the whole rect, and under `Fit`/`Fill` the `src_w_px > 0` guard
+  returns early so the mode is silently ignored and they get `Stretch` of that same column.
+  The spec says "clamped to its bounds" and stops there. Deferred rather than fixed because
+  the alternatives — treat a fully-off-texture sub-rect as the whole texture, or skip the
+  draw the way an unresolved handle is skipped — are both defensible and the input is an
+  authoring mistake either way; what is wrong is only that the mistake is **invisible**.
+  Cheapest real improvement is probably a one-line warning at the seam rather than a
+  behaviour change. **Depends on** nothing.
 - **9-slice scaling for `UiImage`** — split out of U7 on 2026-10-10, at the start of
   that slice, because the three features U7 grouped are **not** independent:
   9-slice needs nine different sub-rects of one texture, so it is built *on top of*
