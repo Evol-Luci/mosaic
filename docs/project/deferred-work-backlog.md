@@ -302,9 +302,19 @@ no scissor, so **clipping/scroll is a renderer change before it is a UI change**
 which is why the decomposition separates it from auto-layout rather than bundling
 them as this list does.
 
-- **U6 interaction depth** — hover enter/exit + visual feedback, pointer
+- ~~**U6 interaction depth** — hover enter/exit + visual feedback, pointer
   capture/drag, z-order-aware overlap resolution. First: its prerequisite just
-  landed, and it is the gap a user meets in the first five seconds. ~~Carries one open
+  landed, and it is the gap a user meets in the first five seconds.~~
+  **SHIPPED 2026-10-10** — two of the three features. Z-order hit resolution now lives in
+  `engine/ui/ui_hit.hpp`'s pure `topmost_hit`, `UiButton` carries its own `order`, and
+  `UiSystem` emits `hover_enter`/`hover_exit` on the button's existing `event` channel with
+  the same `{entity, action}` payload the click path uses. **The motivating bug turned out to
+  be a wrong answer rather than an undefined one:** the press took the FIRST button under
+  the pointer while the panel pass draws the LAST of an equal-order run on top, so a click
+  on two overlapping equal-order buttons went to the button the user could not see.
+  **Capture/drag remains open** (listed above). So do both accepted costs — a button's
+  `order` can disagree with its visual's, and the engine still renders no hover feedback of
+  its own — and neither was resolved by this slice. ~~Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
   `UiPanel` ancestor's.~~ **DECIDED 2026-10-10: `UiButton` gets its own `order`**, matching
   `UiPanel`, `UiImage` and `UiText`, all of which already carry one — `UiButton` was the
@@ -326,6 +336,21 @@ them as this list does.
   is ever to mean more than left-button. **What it will need deciding:** whether a captured
   press follows the pointer outside the window, and whether a drag emits per-frame events
   or only a start/end pair.
+- **A pointer that leaves the window can still hover an edge-anchored button** — resolved
+  question from the U6 spec, measured 2026-10-10 during that slice rather than left open.
+  The spec flagged a risk that hover might "stick" on the last position; it does not. The
+  GLFW provider at `app/main.cpp:301-314` **clamps** the cursor to `[0,1]`, so a pointer
+  outside the window maps onto the window **edge**. Hover therefore tracks to the edge
+  instead of freezing — which is better than sticking, and still wrong for any button flush
+  to that edge: it stays hovered while the pointer is somewhere else entirely, including
+  over another application. The demo's HUD bar starts at x = 0.02 so it is unaffected, which
+  is also why this would not be noticed by eye. **Deferred because the fix belongs in the
+  PROVIDER, not in `UiSystem`:** the clamp is deliberate (it keeps clicks from resolving to
+  wild coordinates), so the honest change is for `PointerState` to carry an "inside the
+  window" flag — GLFW has `glfwGetWindowAttrib(w, GLFW_HOVERED)` for exactly this — and for
+  hover to treat "outside" as hovering nothing. That widening is the same one U9 needs for
+  wheel and multi-button, so it should be done once. Papering over it with a timeout inside
+  `UiSystem` was considered and rejected: it would make hover depend on frame timing.
 - **Engine-rendered hover visuals (a `UiHoverStyle` component)** — considered and rejected
   for U6 on 2026-10-10, in favour of hover *events* that a script reacts to. **Why
   deferred:** it needs a button→visual **ownership** relationship that does not exist.
