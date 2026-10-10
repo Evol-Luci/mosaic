@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <vector>
 
 #include "engine/ui/pointer.hpp"
@@ -25,10 +24,13 @@ struct HitCandidate
 //
 //   1. Higher `order` wins. `order` is a signed int because a scene file can author -1 to
 //      push a button behind its neighbours.
-//   2. Among EQUAL orders, the candidate later in `candidates` wins -- because the panel
-//      pass stable-sorts ascending and draws in that order, so the entity drawn last is
-//      the one on top. Hit-testing adopting the same rule makes it agree with what the
-//      user SEES by construction rather than by coincidence.
+//   2. Among EQUAL orders, the candidate later in `candidates` wins. This matches the
+//      panel pass, which stable-sorts ascending and draws in that order, so the entity
+//      drawn last is on top -- but only in the COMMON CASE, not by construction. The two
+//      iterate different sparse sets (`UiButton`'s and `UiPanel`'s) with independent
+//      insertion histories, and removal is swap-and-pop, so destroying any unrelated
+//      button can reorder an equal-order run. Treat this as a DETERMINISTIC tie-break that
+//      usually agrees with the draw order; author distinct `order` values when it matters.
 //
 // Before this function, UiSystem took the FIRST button under the pointer while the
 // renderer drew the LAST one on top -- opposite ends of the same list -- so a click on two
@@ -43,6 +45,14 @@ struct HitCandidate
 inline mosaic::foundation::EntityID topmost_hit(const std::vector<HitCandidate>& candidates,
                                                 const PointerState& pointer)
 {
+    // No pointer means nothing is hit, whatever the coordinates say. Checked here rather
+    // than in each caller so press and hover cannot disagree about it, and because a
+    // provider's "no pointer" state still carries coordinates -- usually (0,0) or a value
+    // clamped to the surface edge, both of which land inside real buttons.
+    if (!pointer.inside)
+    {
+        return mosaic::foundation::EntityID{};
+    }
     const HitCandidate* best = nullptr;
     for (const HitCandidate& c : candidates)
     {

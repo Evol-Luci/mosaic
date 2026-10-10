@@ -144,7 +144,12 @@ Last for two reasons: it matches where the other three components put it, and it
 `engine/ui` tier, depending on `ui_rect.hpp`, `pointer.hpp` and `foundation/EntityID`.
 
 **`engine/ui/ui_system.hpp`** — the press path calls `topmost_hit` instead of taking the
-first match (deleting the `if (pressed_ != EntityID{}) { return; }` early-out); one new
+first match. **The release path changes with it, which this spec did not originally say:**
+the question becomes "is the pressed button still the *topmost* thing under the pointer"
+rather than "is the pointer still inside it", so releasing onto a button that something now
+covers does not click through. The candidate list is a **snapshot** taken before any event
+fires, so a synchronous handler that adds a covering button during this same update does not
+block that update's click, while the same change made between ticks does (deleting the `if (pressed_ != EntityID{}) { return; }` early-out); one new
 member `hovered_`; and the hover transition emitted per update.
 
 **`app/run/demo_scene.hpp`** — a `hover_enter`/`hover_exit` subscriber that brightens the
@@ -167,10 +172,17 @@ clear A — i.e. clearing the wrong one, which looks like a lost exit event.
 them would mean a drag that starts on empty space suppresses all hover, which reads as the
 UI freezing.
 
-**Hover inherits the play-mode gate.** Hover arrives through the same `pointer_()` provider
-as clicks, which the studio gates on play mode — and the editor now **starts stopped**, so
-hover is inert in the editor until Play. Consistent with clicks, and stated here because a
-tester who does not know it will report hover as broken.
+**Hover is inert in a stopped editor because the LOOP is stopped, not because of a
+play-mode gate.** This is worth stating precisely, because the obvious explanation is wrong
+and acting on it would ship a bug: `ViewportPanel::pointer_state` gates only `down` on
+`play_active` (`studio/viewport.hpp`), never the position. What actually silences hover is
+`app/run/editor.cpp` calling `loop.stop()` while stopped, so `world.tick` — and therefore
+`UiSystem::update` — never runs at all.
+
+**The consequence to keep in mind:** anything that makes the editor tick while stopped — an
+authoring-time system, or a fix for `mosaic editor --ticks N` — turns hover on in authoring
+mode. In this demo that means pointer movement writes `panel->alpha` into a scene the user
+may then save. If that change is made, hover needs its own gate at that time.
 
 ## Testing
 
@@ -202,7 +214,7 @@ tester who does not know it will report hover as broken.
 
 **The behaviour change to shipped code:**
 
-10. **A click now picks the topmost button**, not the last iterated. Two overlapping buttons
+10. **A click now picks the topmost button**, not the **first** iterated. Two overlapping buttons
     with different `order`, one press-release cycle, and the event must carry the topmost
     entity. This is a fix to behaviour that shipped, so it gets its own case rather than
     riding along inside the hover tests.

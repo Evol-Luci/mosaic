@@ -336,8 +336,44 @@ them as this list does.
   is ever to mean more than left-button. **What it will need deciding:** whether a captured
   press follows the pointer outside the window, and whether a drag emits per-frame events
   or only a start/end pair.
-- **A pointer that leaves the window can still hover an edge-anchored button** — resolved
-  question from the U6 spec, measured 2026-10-10 during that slice rather than left open.
+- ~~**A pointer that leaves the window can still hover an edge-anchored button**~~ —
+  **FIXED 2026-10-10 in the U6 review pass, and this entry was WRONG twice over while it
+  stood.** It scoped the problem to `app/main.cpp` and "the pointer is over another
+  application", when in the editor the clamp region is a *panel* inside a window full of
+  other panels — so leaving it is a constant, ordinary action, not an edge case. And it
+  justified deferring by saying the honest fix needed a `PointerState` widening "the same
+  one U9 needs"; that was false for the editor path, where `ViewportPointerSample::hovered`
+  was **already sampled and already consulted three lines away** for `down`. It also never
+  mentioned the `(0,0)` case at all, which is not "tracks to the edge, better than
+  sticking" but the exact phantom hover the `if (!pointer_)` guard was written for, arriving
+  through a different door: headless `mosaic run` never creates a window, so its provider
+  returned `{0,0,false}` every tick and hovered any button containing the origin forever.
+  **What shipped instead:** `PointerState` gained an explicit `inside` flag, honoured in
+  `topmost_hit` so press and hover cannot disagree about it; the editor provider sets it
+  from `hovered`; and headless is given **no** provider rather than one returning zeroes.
+  The lesson worth keeping: the entry asserted the demo was unaffected and therefore eyes
+  would not catch it, and treated that as a reason to defer rather than as a reason to fix.
+- **Hover styling is never cleared when a hovered button is destroyed** — from the U6
+  review, 2026-10-10. `hover_exit` deliberately emits nothing when the hovered entity has
+  lost its `UiButton`, because the channel name lived on that component and there is no
+  honest name left to emit on. Correct as far as it goes, but a script that styled on
+  `hover_enter` has no way to learn it should stop: delete a hovered button at runtime and
+  the styling stays applied forever. Deferred because the fix needs a channel that does not
+  depend on the component — a global `ui_hover_lost` event carrying only the entity id, or
+  caching the last channel name alongside `hovered_` — and choosing between those is a
+  design call. **Depends on** nothing.
+- **The press/hover candidate list is a snapshot, and nothing says so** — from the U6
+  review, 2026-10-10. `UiSystem::update` flattens candidates once, then emits hover, then
+  handles press/release against that same list. So a **synchronous** subscriber that adds a
+  covering button during `hover_enter` does not block that update's click, while the same
+  change made between ticks does. A user would meet "covering a button blocks its click,
+  except when the cover is created by the hover event in the same frame." Now stated in the
+  spec as the rule, but untested, and the test that cites this scenario actually exercises
+  the between-ticks path instead. Deferred because deciding whether the snapshot is the
+  *intended* rule (rather than an artifact) is a design question, and the demo avoids it
+  entirely by using `subscribe_deferred`.
+- **(superseded entry, kept for the reasoning)** The original 2026-10-10 note read:
+  resolved question from the U6 spec, measured during that slice rather than left open.
   The spec flagged a risk that hover might "stick" on the last position; it does not. The
   GLFW provider at `app/main.cpp:301-314` **clamps** the cursor to `[0,1]`, so a pointer
   outside the window maps onto the window **edge**. Hover therefore tracks to the edge

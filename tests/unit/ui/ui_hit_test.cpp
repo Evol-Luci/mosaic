@@ -131,6 +131,32 @@ TEST_CASE("a zero-size button is hit only at its exact corner", "[ui][hit]")
     REQUIRE(topmost_hit(v, PointerState{0.51f, 0.5f, false}) == EntityID{});
 }
 
+TEST_CASE("a pointer that is not present hits nothing", "[ui][hit]")
+{
+    // The hole the `if (!pointer_)` guard in UiSystem did NOT close. That guard handles an
+    // EMPTY provider, but every real provider expresses "there is no pointer" as a ZEROED
+    // PointerState -- and {0, 0} is a real position inside any button anchored TopLeft at
+    // {0,0}, which is exactly what a default-constructed UiButton is (pos {0,0}, size
+    // {0.1,0.1}).
+    //
+    // So headless `mosaic run` -- where glfw_window is never created and the provider
+    // returns {} every tick -- would hover a default-positioned button forever, in a
+    // process with no pointer at all. And in the editor, moving the cursor off the viewport
+    // onto the Inspector clamps the position to the panel edge with `hovered` false, so an
+    // edge-anchored button would stay lit while the user works elsewhere.
+    //
+    // `inside` is how a provider says so, and this is where it is honoured: no pointer
+    // means nothing is hit, whatever the coordinates happen to be.
+    const std::vector<HitCandidate> v{HitCandidate{id(1), 0, kTopLeft}};
+    PointerState absent = kInside;        // coordinates squarely inside the candidate
+    absent.inside = false;
+    REQUIRE(topmost_hit(v, absent) == EntityID{});
+    // And a zeroed state, which is what the real providers actually return.
+    PointerState zeroed{};
+    zeroed.inside = false;
+    REQUIRE(topmost_hit(v, zeroed) == EntityID{});
+}
+
 TEST_CASE("the pointer's down flag does not affect what is hit", "[ui][hit]")
 {
     // topmost_hit answers "what is under the pointer", never "was it pressed". Keeping the

@@ -336,3 +336,27 @@ TEST_CASE("destroying a hovered button emits no exit and clears the state", "[ui
     REQUIRE(h.events.size() == 1);
     REQUIRE(h.events[0].name == "replacement");
 }
+
+TEST_CASE("a provider reporting no pointer emits no hover for a button at the origin",
+          "[ui][input]")
+{
+    // The end-to-end shape of the headless-run bug: the provider is NON-empty (so the
+    // `if (!pointer_)` guard does not fire) but reports no pointer, and the button is a
+    // DEFAULT UiButton whose rect (0,0)..(0.1,0.1) contains the origin.
+    World world;
+    std::vector<ScriptEvent> events;
+    auto e = world.create_entity();
+    UiButton b; // defaults: anchor TopLeft, pos {0,0}, size {0.1,0.1}
+    b.event = "phantom";
+    world.add_component<UiButton>(e, b);
+
+    PointerState absent{};
+    absent.inside = false;
+    world.add_system<UiSystem>([absent] { return absent; });
+    world.events().subscribe<ScriptEvent>(
+        [&](const ScriptEvent& ev) { events.push_back(ev); });
+
+    world.tick(0.016f);
+    world.tick(0.016f);
+    REQUIRE(events.empty());
+}

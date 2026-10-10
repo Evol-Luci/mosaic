@@ -69,7 +69,12 @@ public:
         }
         else if (!p.down && was_down_)
         {
-            if (pressed_ != mosaic::foundation::EntityID{} && topmost_hit(cands, p) == pressed_)
+            // `top`, not a second `topmost_hit(cands, p)` call. That call was literally
+            // equal to `top` -- same `cands`, same `p` -- but READ as "re-resolve after the
+            // hover emission", which it was not: `cands` is snapshotted before any event
+            // fires. Saying `top` makes the snapshot semantics visible instead of implying
+            // a freshness the code does not provide.
+            if (pressed_ != mosaic::foundation::EntityID{} && top == pressed_)
             {
                 emit_button_action(world, pressed_, "click");
             }
@@ -77,10 +82,6 @@ public:
         }
         was_down_ = p.down;
     }
-
-    // What the pointer is currently over, for callers that want the state rather than the
-    // events. Nil when nothing is hovered.
-    mosaic::foundation::EntityID hovered() const { return hovered_; }
 
     // True when the most recent press landed on a UiButton, so world-space click
     // handling (picking, nudging) can decline a click the UI already claimed.
@@ -130,12 +131,6 @@ private:
         return out;
     }
 
-    static bool hit(mosaic::engine::World& world, mosaic::foundation::EntityID e,
-                    const PointerState& p, UiButton& b)
-    {
-        const Rect r = resolve_ui_rect(world, e, button_anchor(b.anchor), b.pos, b.size);
-        return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
-    }
 
     std::function<PointerState()> pointer_;
     bool                         was_down_ = false;
