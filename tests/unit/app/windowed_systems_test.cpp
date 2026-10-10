@@ -97,9 +97,21 @@ TEST_CASE("a ViewportPanel-derived provider clicks a UiButton through UiSystem",
     world.add_system<mosaic::engine::ui::UiSystem>(
         [&panel] { return panel.pointer_state(/*play_active=*/true); });
 
+    // CLICK events only. Since U6 the button's event channel also carries
+    // hover_enter/hover_exit under the SAME name, so this cannot filter by name -- counting
+    // every event on the channel would count the hover_enter this press necessarily
+    // produces, and the assertion below is about the click reaching UiSystem.
     std::vector<std::string> fired;
     world.events().subscribe<mosaic::engine::script::ScriptEvent>(
-        [&fired](const mosaic::engine::script::ScriptEvent& e) { fired.push_back(e.name); });
+        [&fired](const mosaic::engine::script::ScriptEvent& e)
+        {
+            namespace ser = mosaic::foundation::serialization;
+            if (!e.payload.is<ser::Table>()) { return; }
+            const auto* action = e.payload.as<ser::Table>().find("action");
+            if (action == nullptr || !action->is<std::string>()) { return; }
+            if (action->as<std::string>() != "click") { return; }
+            fired.push_back(e.name);
+        });
 
     // Centred 0.2x0.2 button: covers (0.4,0.4)..(0.6,0.6) of the panel.
     const auto e = world.create_entity();

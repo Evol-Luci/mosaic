@@ -224,6 +224,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `x`: 0.100000
   - `y`: 0.100000
 - `event`: ui_click
+- `order`: 0
 
 ## UiImage
 

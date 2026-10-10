@@ -18,6 +18,7 @@ TEST_CASE("UiButton round-trips through reflection", "[ui][reflection]")
     b.pos    = Vec2{0.02f, 0.03f};
     b.size   = Vec2{0.25f, 0.06f};
     b.event  = "hud_click";
+    b.order  = 4; // non-default: a field left at its default round-trips either way
 
     const auto value = mosaic::foundation::serialization::to_value(b);
     UiButton back;
@@ -27,6 +28,7 @@ TEST_CASE("UiButton round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.pos.x == Approx(0.02f));
     REQUIRE(back.size.y == Approx(0.06f));
     REQUIRE(back.event == "hud_click");
+    REQUIRE(back.order == 4);
 }
 
 TEST_CASE("UiButton is a registered built-in component", "[ui][reflection]")

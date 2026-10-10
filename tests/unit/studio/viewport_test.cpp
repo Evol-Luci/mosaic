@@ -439,3 +439,34 @@ TEST_CASE("the editor hands the same provider to both pointer consumers",
     REQUIRE(src.find("register_windowed_systems(world, true, std::move(pointer_deps))")
             != std::string::npos);
 }
+
+TEST_CASE("the viewport provider reports no pointer when the panel is not hovered",
+          "[studio][viewport]")
+{
+    // pointer_state gated only `down` on `hovered`; x and y were clamped unconditionally.
+    // So moving the cursor off the viewport onto another panel kept reporting a position
+    // INSIDE the viewport -- clamped to its edge, or to (0,0) leaving up-left -- and with
+    // hover events (U6) that latches an edge-anchored button lit while the user works
+    // elsewhere. No hover_exit ever fires.
+    //
+    // The signal already existed: ViewportPointerSample::hovered was already sampled from
+    // ImGui and already consulted for `down`. It just was not consulted for presence.
+    mosaic::studio::ViewportPanel panel;
+    panel.set_measured_size(100.0f, 100.0f);
+
+    mosaic::studio::ViewportPointerSample s;
+    s.mouse_x = 50.0f; s.mouse_y = 50.0f;
+
+    s.hovered = true;
+    panel.set_pointer_sample(s, /*play_active=*/true);
+    REQUIRE(panel.pointer_state(true).inside);
+
+    s.hovered = false;                       // cursor left the viewport panel
+    panel.set_pointer_sample(s, /*play_active=*/true);
+    REQUIRE_FALSE(panel.pointer_state(true).inside);
+
+    // And the default sample -- what StudioApp pushes when the Viewport window is closed,
+    // collapsed or has no texture -- must also read as absent rather than as (0,0).
+    panel.set_pointer_sample(mosaic::studio::ViewportPointerSample{}, /*play_active=*/true);
+    REQUIRE_FALSE(panel.pointer_state(true).inside);
+}

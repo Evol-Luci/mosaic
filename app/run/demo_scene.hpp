@@ -293,13 +293,57 @@ inline RuntimeScene setup_runtime(
         });
 
     // Demo: log when the HUD button is clicked (proves the U4 click path end to end).
+    //
+    // The `action` check is NOT optional since U6: hover_enter/hover_exit ride the SAME
+    // "hud_click" channel, so a name-only test logged "HUD button clicked" on every pointer
+    // crossing -- which would have read as the click path firing spuriously.
     world.events().subscribe<mosaic::engine::script::ScriptEvent>(
         [](const mosaic::engine::script::ScriptEvent& e)
         {
-            if (e.name == "hud_click")
-            {
-                mosaic::foundation::log::info("ui", "HUD button clicked");
-            }
+            if (e.name != "hud_click") { return; }
+            namespace ser = mosaic::foundation::serialization;
+            if (!e.payload.is<ser::Table>()) { return; }
+            const auto* action = e.payload.as<ser::Table>().find("action");
+            if (action == nullptr || !action->is<std::string>()) { return; }
+            if (action->as<std::string>() != "click") { return; }
+            mosaic::foundation::log::info("ui", "HUD button clicked");
+        });
+
+    // Demo: brighten the HUD bar while the pointer is over its button, which is the only
+    // thing that makes U6's hover events visible -- the engine renders no hover feedback
+    // of its own, by design.
+    //
+    // DEFERRED, not synchronous. A synchronous handler runs inside UiSystem::update while
+    // `world.for_each<UiButton>` is on the stack, and this one MUTATES a component. A
+    // different component type is safe today, but the deferred discipline exists precisely
+    // to remove that reentrancy hazard, and one tick of latency on a hover tint is
+    // imperceptible.
+    world.events().subscribe_deferred<mosaic::engine::script::ScriptEvent>(
+        [&world](const mosaic::engine::script::ScriptEvent& e)
+        {
+            if (e.name != "hud_click") { return; }
+            namespace ser = mosaic::foundation::serialization;
+            if (!e.payload.is<ser::Table>()) { return; }
+            const auto& table = e.payload.as<ser::Table>();
+            const auto* action = table.find("action");
+            if (action == nullptr || !action->is<std::string>()) { return; }
+            const bool enter = (action->as<std::string>() == "hover_enter");
+            const bool exit  = (action->as<std::string>() == "hover_exit");
+            if (!enter && !exit) { return; }
+            const auto* ent = table.find("entity");
+            if (ent == nullptr || !ent->is<std::uint64_t>()) { return; }
+            // The HUD button and its UiPanel are the SAME entity in this scene, so the
+            // payload's entity id addresses the panel directly -- no button-to-visual
+            // relationship is needed or implied.
+            //
+            // EntityID's single-argument ctor takes the RAW 64-bit handle, which is exactly
+            // what the emitter wrote, so it round-trips index AND generation. Rebuilding it
+            // from a truncated 32-bit index would produce a generation-0 handle that
+            // matches nothing.
+            auto* panel = world.get_component<mosaic::engine::ui::UiPanel>(
+                mosaic::foundation::EntityID{ent->as<std::uint64_t>()});
+            if (panel == nullptr) { return; }
+            panel->alpha = enter ? 0.9f : 0.6f;
         });
 
     auto register_texture = [&](mosaic::foundation::serialization::AssetID id, auto&& pixel_fn)
@@ -672,11 +716,13 @@ inline void build_default_scene(mosaic::engine::World& world)
             Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
 
     world.add_component<mosaic::engine::ui::UiButton>(camera,
+        // Designated, so a future field cannot silently re-bind this the way adding fields
+        // to UiImage re-bound `tint` during U7.
         mosaic::engine::ui::UiButton{
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.02f, 0.02f},
-            mosaic::foundation::math::Vec2{0.25f, 0.06f},
-            "hud_click"});
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.02f, 0.02f},
+            .size   = mosaic::foundation::math::Vec2{0.25f, 0.06f},
+            .event  = "hud_click"});
 
     // A nested child label parented to the camera's HUD-bar UiPanel: its pos/height are
     // relative to the bar (U5a hierarchy), so it tracks the bar. No Transform -> the

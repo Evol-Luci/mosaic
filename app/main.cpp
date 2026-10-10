@@ -300,10 +300,11 @@ int main(int argc, char** argv)
     // about the pointer within a tick, or the UI-claim arbitration breaks.
     auto glfw_pointer = [&glfw_window]() -> mosaic::engine::ui::PointerState
     {
-        if (glfw_window == nullptr) { return {}; }
+        // `inside = false`, not a bare {}: a zeroed state reads as a pointer AT the origin.
+        if (glfw_window == nullptr) { return {0.0f, 0.0f, false, false}; }
         int ww = 0, wh = 0;
         glfwGetWindowSize(glfw_window, &ww, &wh);
-        if (ww <= 0 || wh <= 0) { return {}; }
+        if (ww <= 0 || wh <= 0) { return {0.0f, 0.0f, false, false}; } // minimised
         double mx = 0.0, my = 0.0;
         glfwGetCursorPos(glfw_window, &mx, &my);
         mosaic::engine::ui::PointerState p;
@@ -317,7 +318,13 @@ int main(int argc, char** argv)
         setup_runtime(world, asset_registry, types,
                       [] { return mosaic::script::python::create_python_script_engine(); },
                       script_host, options.script_thread, std::move(audio),
-                      glfw_pointer,
+                      // Headless gets NO provider, not a provider that returns zeroes:
+                      // glfw_window is only created under `options.window` (below), so
+                      // headless would otherwise report {0,0} every tick and hover any
+                      // button whose rect contains the origin -- which a default UiButton's
+                      // does. An empty provider is what UiSystem's own guard is for.
+                      options.window ? std::function<mosaic::engine::ui::PointerState()>(glfw_pointer)
+                                     : std::function<mosaic::engine::ui::PointerState()>{},
                       net_role, net_transport, net_input_provider)
             .render_system;
 

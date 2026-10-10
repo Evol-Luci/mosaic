@@ -131,6 +131,14 @@ public:
         // mid-press, must stop reporting `down` immediately; the latch alone would keep
         // reporting it.
         p.down = play_active && pointer_.hovered && pointer_.button_down && !press_blocked_;
+        // Presence is NOT gated on play_active: a stopped editor still has a cursor, and
+        // conflating the two would mean "no pointer" and "not playing" could not be told
+        // apart. It IS gated on `hovered`, because x/y above are clamped to the panel --
+        // so without this, a cursor that moved onto the Inspector kept reporting a position
+        // inside the viewport, and hover latched an edge-anchored button lit while the user
+        // worked elsewhere. The default sample (Viewport closed, collapsed, or without a
+        // texture) has hovered == false and so reads as absent rather than as (0,0).
+        p.inside = pointer_.hovered;
         return p;
     }
 

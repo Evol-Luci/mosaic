@@ -302,11 +302,119 @@ no scissor, so **clipping/scroll is a renderer change before it is a UI change**
 which is why the decomposition separates it from auto-layout rather than bundling
 them as this list does.
 
-- **U6 interaction depth** — hover enter/exit + visual feedback, pointer
+- ~~**U6 interaction depth** — hover enter/exit + visual feedback, pointer
   capture/drag, z-order-aware overlap resolution. First: its prerequisite just
-  landed, and it is the gap a user meets in the first five seconds. Carries one open
+  landed, and it is the gap a user meets in the first five seconds.~~
+  **SHIPPED 2026-10-10** — two of the three features. Z-order hit resolution now lives in
+  `engine/ui/ui_hit.hpp`'s pure `topmost_hit`, `UiButton` carries its own `order`, and
+  `UiSystem` emits `hover_enter`/`hover_exit` on the button's existing `event` channel with
+  the same `{entity, action}` payload the click path uses. **The motivating bug turned out to
+  be a wrong answer rather than an undefined one:** the press took the FIRST button under
+  the pointer while the panel pass draws the LAST of an equal-order run on top, so a click
+  on two overlapping equal-order buttons went to the button the user could not see.
+  **Capture/drag remains open** (listed above). So do both accepted costs — a button's
+  `order` can disagree with its visual's, and the engine still renders no hover feedback of
+  its own — and neither was resolved by this slice. ~~Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
-  `UiPanel` ancestor's.
+  `UiPanel` ancestor's.~~ **DECIDED 2026-10-10: `UiButton` gets its own `order`**, matching
+  `UiPanel`, `UiImage` and `UiText`, all of which already carry one — `UiButton` was the
+  only UI component without it. The known cost of that choice, recorded so it is not
+  rediscovered as a surprise: a button's `order` and its overlaid visual's `order` **can
+  disagree**, and nothing warns about it. **Scoped 2026-10-10 to z-order + hover**, with
+  capture/drag split out (below).
+- **Pointer capture and drag for `UiButton`** — split out of U6 on 2026-10-10 when U6 was
+  scoped, not dropped. **Why it was separated:** z-order and hover are *coupled* — "which
+  button is hovered" has no answer without a tie-break, so hover built on the current
+  behaviour would flicker between overlapping buttons — whereas capture is partly present
+  already (`UiSystem` remembers `pressed_` and requires release inside the same button), so
+  what remains is a smaller and genuinely independent change. **And it is the riskiest
+  third:** its failure modes are the subtlest (the pointer leaving the window mid-drag, a
+  press surviving a play-mode change), which is the exact bug class that shipped viewport
+  pointer input **dead** while thirteen tests stayed green. Reviewing it beside two
+  unrelated features is how that recurs. **Depends on** U6's z-order work only loosely;
+  it mainly needs the pointer-state widening recorded for U9 (wheel/multi-button) if drag
+  is ever to mean more than left-button. **What it will need deciding:** whether a captured
+  press follows the pointer outside the window, and whether a drag emits per-frame events
+  or only a start/end pair.
+- ~~**A pointer that leaves the window can still hover an edge-anchored button**~~ —
+  **FIXED 2026-10-10 in the U6 review pass, and this entry was WRONG twice over while it
+  stood.** It scoped the problem to `app/main.cpp` and "the pointer is over another
+  application", when in the editor the clamp region is a *panel* inside a window full of
+  other panels — so leaving it is a constant, ordinary action, not an edge case. And it
+  justified deferring by saying the honest fix needed a `PointerState` widening "the same
+  one U9 needs"; that was false for the editor path, where `ViewportPointerSample::hovered`
+  was **already sampled and already consulted three lines away** for `down`. It also never
+  mentioned the `(0,0)` case at all, which is not "tracks to the edge, better than
+  sticking" but the exact phantom hover the `if (!pointer_)` guard was written for, arriving
+  through a different door: headless `mosaic run` never creates a window, so its provider
+  returned `{0,0,false}` every tick and hovered any button containing the origin forever.
+  **What shipped instead:** `PointerState` gained an explicit `inside` flag, honoured in
+  `topmost_hit` so press and hover cannot disagree about it; the editor provider sets it
+  from `hovered`; and headless is given **no** provider rather than one returning zeroes.
+  The lesson worth keeping: the entry asserted the demo was unaffected and therefore eyes
+  would not catch it, and treated that as a reason to defer rather than as a reason to fix.
+- **Hover styling is never cleared when a hovered button is destroyed** — from the U6
+  review, 2026-10-10. `hover_exit` deliberately emits nothing when the hovered entity has
+  lost its `UiButton`, because the channel name lived on that component and there is no
+  honest name left to emit on. Correct as far as it goes, but a script that styled on
+  `hover_enter` has no way to learn it should stop: delete a hovered button at runtime and
+  the styling stays applied forever. Deferred because the fix needs a channel that does not
+  depend on the component — a global `ui_hover_lost` event carrying only the entity id, or
+  caching the last channel name alongside `hovered_` — and choosing between those is a
+  design call. **Depends on** nothing.
+- **The press/hover candidate list is a snapshot, and nothing says so** — from the U6
+  review, 2026-10-10. `UiSystem::update` flattens candidates once, then emits hover, then
+  handles press/release against that same list. So a **synchronous** subscriber that adds a
+  covering button during `hover_enter` does not block that update's click, while the same
+  change made between ticks does. A user would meet "covering a button blocks its click,
+  except when the cover is created by the hover event in the same frame." Now stated in the
+  spec as the rule, but untested, and the test that cites this scenario actually exercises
+  the between-ticks path instead. Deferred because deciding whether the snapshot is the
+  *intended* rule (rather than an artifact) is a design question, and the demo avoids it
+  entirely by using `subscribe_deferred`.
+- **(superseded entry, kept for the reasoning)** The original 2026-10-10 note read:
+  resolved question from the U6 spec, measured during that slice rather than left open.
+  The spec flagged a risk that hover might "stick" on the last position; it does not. The
+  GLFW provider at `app/main.cpp:301-314` **clamps** the cursor to `[0,1]`, so a pointer
+  outside the window maps onto the window **edge**. Hover therefore tracks to the edge
+  instead of freezing — which is better than sticking, and still wrong for any button flush
+  to that edge: it stays hovered while the pointer is somewhere else entirely, including
+  over another application. The demo's HUD bar starts at x = 0.02 so it is unaffected, which
+  is also why this would not be noticed by eye. **Deferred because the fix belongs in the
+  PROVIDER, not in `UiSystem`:** the clamp is deliberate (it keeps clicks from resolving to
+  wild coordinates), so the honest change is for `PointerState` to carry an "inside the
+  window" flag — GLFW has `glfwGetWindowAttrib(w, GLFW_HOVERED)` for exactly this — and for
+  hover to treat "outside" as hovering nothing. That widening is the same one U9 needs for
+  wheel and multi-button, so it should be done once. Papering over it with a timeout inside
+  `UiSystem` was considered and rejected: it would make hover depend on frame timing.
+- **Engine-rendered hover visuals (a `UiHoverStyle` component)** — considered and rejected
+  for U6 on 2026-10-10, in favour of hover *events* that a script reacts to. **Why
+  deferred:** it needs a button→visual **ownership** relationship that does not exist.
+  `UiButton` is deliberately non-visual and `UiParent` is a *transform* hierarchy, not an
+  ownership one, so "tint the thing this button looks like" has no definition today. It
+  would also put interaction state into the render path, which has so far been kept free of
+  it. **The honest cost of deferring:** on the events-only design the engine shows a user
+  **nothing** by itself — a button acknowledges the pointer only if someone wrote a script
+  for it, which is not what a person expects from a button. U6 ships a demo script so the
+  behaviour is visible, but that is a demonstration, not a default. **Depends on** settling
+  UI ownership, which is also what the `order`-disagreement item below needs — they are
+  likely one piece of work.
+- **Hover (and hit-testing) on non-button UI components** — `UiPanel`, `UiImage` and
+  `UiText` are not hit-testable at all; only `UiButton` is. Deferred from U6 on 2026-10-10
+  because making them interactive opens a larger question this slice should not answer:
+  whether every visual is interactive by default (and if so, what a `UiText` click means),
+  or whether interactivity stays opt-in via an overlaid `UiButton` as it is now. **Depends
+  on** nothing technically — the rect resolution already exists for all three — which is
+  exactly why it needs the design decision first rather than an implementation.
+- **A button's `order` can disagree with its visual's `order`** — the accepted cost of the
+  decision above, recorded 2026-10-10 as its own item because it is a real authoring trap
+  rather than a note. `UiButton` carries its own `order` for hit-testing while the panel or
+  image a user *sees* carries an independent one, so a button can claim to be on top of a
+  visual that is drawn underneath it, and the only symptom is a click landing on the wrong
+  thing. Deferred because the fix is not obvious: a validation pass that warns on an
+  overlapping button/visual pair whose orders disagree needs a definition of "belongs to"
+  that does not exist yet (`UiParent` is a transform hierarchy, not an ownership one).
+  Cheapest useful version is probably an editor-time warning, not a runtime one.
 - ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
   atlas sub-rects. Independent of everything else and the cheapest real group.~~
   **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
