@@ -22,20 +22,11 @@
 
 using mosaic::engine::render::TextureColorSpace;
 using mosaic::tests::normalize_ws;
+using mosaic::tests::read_backend;
 using mosaic::tests::read_shader;
 
 namespace
 {
-std::string read_backend()
-{
-    const std::string path =
-        std::string(MOSAIC_TEST_DIR) + "/../modules/render_vulkan/vulkan_render_device.cpp";
-    std::ifstream in(path);
-    REQUIRE(in.good());
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
 } // namespace
 
 namespace
