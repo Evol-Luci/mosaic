@@ -52,18 +52,51 @@ Four findings, each of which changed the design rather than confirming it.
 
 ## Where the work happens, and why not the shader
 
-Fit/Fill is computed **on the CPU in `RenderSystem`**, which adjusts the rect and the UVs
-before emitting the quad.
+Fit/Fill is computed **on the CPU**, in a **pure free function** in `engine/ui/` — not
+inline in `RenderSystem`:
 
-The alternative was to pass the texture aspect into `ui_image.vert` and letterbox there.
-Rejected for one decisive reason: **CPU-side arithmetic is headlessly testable**, because
-`RenderSystem` already has a fake-device harness that captures emitted quads, while shader
-logic can only be pinned by token searches. This session has twice shipped shader-side
-behaviour that no test could execute — once a dead feature that thirteen green tests could
-not see — so verifiability outweighs elegance here. The shader change stays to one line.
+```cpp
+// engine/ui/ui_fit.hpp
+struct ResolvedImageQuad { Rect rect; Vec4 uv; }; // uv = {u0, v0, u1, v1}
 
-It would also have needed the *screen* aspect passed in anyway (see below), so the GPU
-route is more plumbing for less evidence.
+ResolvedImageQuad resolve_image_quad(std::uint32_t texture_w, std::uint32_t texture_h,
+                                     const Rect& authored_rect, float screen_aspect,
+                                     const Vec4& sub_rect_px, int fit_mode);
+```
+
+`RenderSystem` calls it and forwards the result; the backend performs no arithmetic.
+
+**This was a close call, and the reasoning matters more than the verdict — confidence is
+roughly 75/25, not settled.** The alternative was to letterbox in `ui_image.vert`, which
+has a genuinely good argument on its side: the shader can call `textureSize(tex, 0)` and
+obtain the dimensions **for free**, with no plumbing at all. Aspect correction is also
+rasterization-adjacent, so the shader is where it conceptually belongs.
+
+Three things decide it the other way:
+
+1. **The failure mode is invisible to every instrument except a unit test.** The specific
+   bug is "used one of the two aspects", and it produces a *plausible* image rather than a
+   broken one — a square sprite rendered 2:1 looks like someone authored it that way.
+   Review misses it (three lines of arithmetic that read fine) and eyeballing misses it
+   unless the reviewer knows what the art should look like. This project has shipped
+   shader-side behaviour that no test could execute, including a feature that was entirely
+   dead while thirteen green tests stayed green.
+2. **CPU-side is this codebase's existing precedent for exactly this.** `layout_text`
+   already takes `aspect_` and corrects on the CPU; the text pass's own comment says "Uses
+   aspect_". Following it is consistency, not preference.
+3. **`textureSize` saves nothing in the end.** The pixel sub-rect needs the dimensions on
+   the CPU regardless — pixels cannot become UVs in the vertex shader without the same
+   data — so `TextureCache` pays that cost either way.
+
+**The free function is what makes the 25% cheap rather than a bet.** The math lives in one
+documented place, is testable with no fake device at all, and if the shader turns out to be
+right the move is mechanical: the function body becomes the shader body and the call site
+stops adjusting.
+
+**The condition under which this decision should be revisited, stated now so it is
+checkable later:** if the correction ever needs **per-pixel** information — tiling within a
+sub-rect, or a shader-side 9-slice — then it belongs in the shader and the CPU seam becomes
+a dead end. Today the correction is per-quad, so it does not.
 
 ## The change
 
@@ -87,6 +120,9 @@ Vec4  sub_rect = Vec4{0, 0, 0, 0};
 // `anchor` already works on this component, and defaulting to the existing behaviour.
 int   fit_mode = 0;
 ```
+
+**`engine/ui/ui_fit.hpp`** (new) — `resolve_image_quad`, the pure function above. Header
+only, `engine/ui` tier, depending on nothing but `foundation/math` and `ui_rect.hpp`.
 
 **`engine/render/render_device.hpp`** — `UiImageQuad` gains a UV rect, so the backend
 receives resolved UVs and performs no arithmetic.
@@ -122,7 +158,9 @@ stays `{0.2, 0.2}`, rendering a square texture as a 2:1 rectangle. **A test on a
 screen would pass either way**, which is exactly the shape of guard this project keeps
 finding to be worthless, so the case uses a non-square screen deliberately.
 
-Headless, against `RenderSystem`'s existing fake-device harness:
+Most cases test `resolve_image_quad` **directly**, with no world, no device and no fake —
+which is the point of extracting it. Only cases 1 and 6 need the `RenderSystem` harness,
+because they are about the wiring rather than the arithmetic.
 
 1. **Stretch is byte-identical to today** — default component, same rect, full `0..1` UVs.
    The migration guarantee, and the thing whose breakage would silently change every HUD.
