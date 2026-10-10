@@ -7,7 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] — 2026-08-23 / 2026-08-24
+## [Unreleased] — 2026-09-09 / 2026-09-10
+
+### Milestones: UI Pillar Complete (U1–U5, PR #128–#135) · Networking Pillar Launched (N1–N2, PR #136–#137) · Test Suite at 585 Passing Tests
+
+Detailed summaries available in [`docs/updates/2026-09-10-summary.md`](docs/updates/2026-09-10-summary.md), [`docs/updates/2026-09-09-summary.md`](docs/updates/2026-09-09-summary.md), and [`docs/project/advancement-plans-and-evaluation.md`](docs/project/advancement-plans-and-evaluation.md).
+
+#### Added
+- **Networking Subsystem (N1–N2 Slices Launched, PR #136, #137):**
+  - **N1 Neutral Transport Seam & In-Memory Loopback (PR #136):**
+    - Pure-virtual `Transport` interface (`engine/net/transport.hpp`) with `send(conn, channel, bytes)`, `poll() -> vector<NetEvent>`, and `disconnect(conn)`.
+    - `Channel` types (`Reliable`, `Unreliable`) and `NetEvent` structs (`Connected`, `Disconnected`, `Message`).
+    - Deterministic in-memory `LoopbackTransport` (`engine/net/loopback_transport.hpp`) using synchronized FIFO queues for headless CI and multi-peer testing without OS sockets or port conflicts.
+    - Added unit test suite in `tests/unit/net/loopback_transport_test.cpp` (6 tests).
+  - **N2 Session Lifecycle & Protocol Handshake (PR #137):**
+    - Binary protocol framing in `engine/net/message.hpp` (`MessageType::Hello = 1`, `MessageType::Welcome = 2`) with little-endian serialization helpers (`put_u32`, `get_u32`).
+    - `NetworkEvent` bus types (`PeerJoined`, `PeerLeft`, `SessionEstablished`, `Disconnected`) in `engine/net/network_event.hpp`.
+    - `NetworkSystem` (`engine/net/network_system.hpp`) implementing `ecs::System` with `Role::Server` and `Role::Client`. Non-blocking Hello/Welcome handshake, monotonic session ID assignment (starting from 1), session table management, and disconnect cleanup.
+    - Added unit test suites in `tests/unit/net/message_test.cpp` and `tests/unit/net/network_system_test.cpp` (7 tests).
+- **UI Subsystem (U1–U5 Complete, PR #128–#135):**
+  - **U5a Layout / Hierarchy (PR #133):**
+    - `resolve_in(frame, anchor, pos, size)` in `engine/ui/ui_rect.hpp` supporting frame-relative layout.
+    - Reflected `UiParent` component (`engine/ui/ui_parent.hpp`) linking child UI elements to parent container entities.
+    - `ui_hierarchy` resolver (`engine/ui/ui_hierarchy.hpp`) with cycle-safe, depth-capped (16) frame resolution.
+    - Nested text scaling in `engine/ui/text_layout.hpp` (`layout_text` with parent frame parameter).
+    - Routed panels, images, text, and button hit-testing through hierarchy resolution; added demo nested HUD bar text.
+  - **U5b World-Space Text Labels — Pillar Complete (PR #134):**
+    - Reflected `WorldLabel` component (`engine/ui/world_label.hpp`) with font asset, text, size, color, alpha, and offset.
+    - Aspect-correct camera-facing billboard text generator (`build_world_text` in `engine/ui/world_text.hpp`).
+    - `draw_world_text` pure-virtual seam on `RenderDevice` (`WorldGlyphVertex`).
+    - In-world render pass in `RenderSystem` running after meshes/billboards with camera billboard orientation and font atlas binding.
+    - Dedicated Vulkan pipeline (`modules/render_vulkan/shaders/world_text.*`) with depth-testing enabled and depth writes disabled.
+    - Added floating "Orbiter" world label to demo scene.
+- **Audio Subsystem (A1–A4 Complete, PR #113, #114, #115, #116):**
+  - Neutral `AudioBackend` interface (`engine/audio/audio_backend.hpp`) with `play`, `stop`, `set_gain`, `set_pitch`, `set_position`, `is_playing`, `set_listener`, `register_clip`.
+  - Reflected `AudioSource` and `AudioListener` ECS components in `engine/audio/audio_components.hpp`.
+  - `AudioSystem` in `engine/audio/audio_system.hpp` driving playback, pitch/gain, and 3D spatial positioning from ECS state.
+  - Miniaudio device backend in `modules/audio_miniaudio/` wrapping miniaudio v0.11.21; supports headless null-device testing.
+  - Neutral `AudioClip` resource (`engine/audio/audio_clip.hpp`) and standalone pure-C++ RIFF/WAV cooker (`app/asset/audio_cook.hpp`) supporting 16-bit PCM and 32-bit float WAVs into `MOSAAUD1` blobs.
+  - Asset pipeline `.wav` import in `app/asset/asset_io.hpp` and project clip registration.
+  - Runtime integration in `setup_runtime` and `mosaic run --window` with procedural 3D demo tone on orbiter.
+  - Tracked post-pillar audio follow-ups as GitHub issues #117–#122 (PR #123).
+- **VFX Subsystem (V1–V4 Complete, PR #124, #125, #126, #127):**
+  - Reflected `TrailRenderer` component (`engine/vfx/trail_renderer.hpp`) and `TrailSystem` (`engine/vfx/trail_system.hpp`) tracking ring-buffered position history.
+  - Initial billboard-chain trail rendering (V1) reusing `draw_particles`.
+  - Connected camera-facing ribbon trail geometry (`build_ribbon` in `engine/vfx/ribbon.hpp`), `draw_ribbons` seam on `RenderDevice`, and Vulkan ribbon triangle pipeline (`modules/render_vulkan/shaders/ribbon.*`).
+  - Reflected `Decal` component (`engine/vfx/decal.hpp`), `draw_decals` seam on `RenderDevice`, and Vulkan textured quad pipeline (`modules/render_vulkan/shaders/decal.*`).
+  - Reflected `ScreenEffect` component (`engine/vfx/screen_effect.hpp`), `draw_screen_effect` seam on `RenderDevice`, and fullscreen triangle overlay pipeline (`modules/render_vulkan/shaders/screen_effect.*`) with tint and radial vignette composite.
+  - Default scene demo enhancements: ribbon trail on falling physics sphere, ground decal, and camera vignette.
+
+#### Fixed
+- **UI Viewport Inversion (PR #135):**
+  - Resolved screen-space UI elements rendering vertically mirrored under Vulkan negative-height viewports by mapping `clip.y = 1.0 - 2.0 * ny` across `ui.vert`, `ui_image.vert`, and `ui_text.vert`.
+
+#### Testing
+- Expanded test suite to **585 unit and integration test cases** (100% passing across all subsystems).
+
+---
+
+## [2026-08-23 / 2026-08-24]
 
 ### Milestone: Mosaic Studio v0.1 Lean Core Complete (#37 / PR #56, #58) · Post-v0.1 Asset Browser (PR #62) · Vulkan Validation & Synchronization Polish (PR #60, #61)
 

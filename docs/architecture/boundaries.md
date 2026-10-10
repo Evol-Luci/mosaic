@@ -69,6 +69,68 @@ Backends live under `modules/render_vulkan`, `modules/render_d3d12`,
 abstraction to be honest); the interface is backend-neutral from day one. See
 [design/rendering.md](../design/rendering.md).
 
+## 4. The scripting boundary
+
+The scripting engine is runtime-neutral. The engine and editor interact only with
+the neutral `ScriptEngine` interface (`engine/script/script_engine.hpp`):
+
+```cpp
+class ScriptEngine
+{
+public:
+    virtual ScriptResult run_string(const std::string& code) = 0;
+    virtual void set_global(const std::string& name, const Value& val) = 0;
+    virtual void bind_world(World& world) = 0;
+    virtual void bind_commands(CommandStack& stack) = 0;
+    virtual ~ScriptEngine() = default;
+};
+```
+
+The CPython runtime and `pybind11` headers are strictly contained within
+`modules/script_python/` (injected via `create_python_script_engine()`). Neither
+`engine/` nor `studio/` include Python headers or link directly against `libpython`.
+See [design/scripting.md](../design/scripting.md).
+
+## 5. The audio boundary
+
+The audio subsystem is backend-neutral. Higher-level systems and components interact
+solely with the `AudioBackend` interface (`engine/audio/audio_backend.hpp`):
+
+```cpp
+class AudioBackend
+{
+public:
+    virtual VoiceId play(AssetID clip_id, float gain, float pitch, bool looping,
+                         const Vec3& pos, bool spatial) = 0;
+    virtual void stop(VoiceId id) = 0;
+    virtual void set_gain(VoiceId id, float gain) = 0;
+    virtual void set_pitch(VoiceId id, float pitch) = 0;
+    virtual void set_position(VoiceId id, const Vec3& pos) = 0;
+    virtual bool is_playing(VoiceId id) = 0;
+    virtual void set_listener(const Vec3& pos, const Vec3& forward, const Vec3& up) = 0;
+    virtual void register_clip(AssetID id, const float* pcm, uint64_t frame_count,
+                               uint32_t channels, uint32_t sample_rate) = 0;
+    virtual ~AudioBackend() = default;
+};
+```
+
+The miniaudio implementation lives under `modules/audio_miniaudio/` and contains all
+`ma_*` symbols within its translation unit. The engine and asset cooker have zero
+dependency on miniaudio. See [design/audio.md](../design/audio.md).
+
+## 6. The UI and input boundary
+
+The UI and input systems are strictly decoupled from operating system and windowing libraries:
+- **Input Provider Seam (`engine/ui/pointer.hpp`):** `UiSystem` receives pointer interaction exclusively through an injected `std::function<PointerState()>` provider. Neither `engine/` nor `UiSystem` links against or includes GLFW or platform windowing headers. GLFW pointer sampling is confined entirely to the application shell (`app/main.cpp`); headless test runners and tools supply mock/null providers.
+- **Font Cooker Boundary (`app/asset/font_cook.cpp`):** Font file parsing and glyph rasterization (`stb_truetype.h`) are strictly confined to the offline asset cooker. The runtime engine (`engine/ui/font_atlas.hpp`) only consumes the baked, neutral `FontAtlas` memory representation and serialized `MOSAFNT1` asset blobs. See [design/ui.md](../design/ui.md).
+
+## 7. The networking boundary
+
+The networking subsystem enforces strict protocol and transport neutrality:
+- **Transport Seam (`engine/net/transport.hpp`):** Higher-level systems (`NetworkSystem`) interact exclusively with the pure-virtual `Transport` interface (`send()`, `poll()`, `disconnect()`). The engine core contains zero includes of `<sys/socket.h>`, `<winsock2.h>`, or third-party networking libraries (e.g. ENet).
+- **Deterministic Loopback (`engine/net/loopback_transport.hpp`):** Headless tests and offline CI execute via in-memory FIFO message queues without opening network ports, preventing port collisions, firewall prompts, or non-deterministic packet timings.
+- **Socket Implementation Module (`modules/net_enet/`):** Real UDP networking and third-party library bindings are segregated into dedicated backend modules, keeping `engine/` and `core/` completely socket-agnostic. See [design/net.md](../design/net.md).
+
 ## Where the Blender bridge code lives
 
 The detailed Blender-side physics bridge from the source plans — zero-copy ctypes
@@ -81,3 +143,4 @@ This is a deliberate decision (see the design spec, §2.1): the separate-engine
 spine means Blender-hosted physics is a *Studio authoring convenience*, while the
 engine's own physics runs through `PhysicsBackend` → Box3D. The two share concepts
 but not code paths.
+
