@@ -326,6 +326,25 @@ them as this list does.
   is ever to mean more than left-button. **What it will need deciding:** whether a captured
   press follows the pointer outside the window, and whether a drag emits per-frame events
   or only a start/end pair.
+- **Engine-rendered hover visuals (a `UiHoverStyle` component)** — considered and rejected
+  for U6 on 2026-10-10, in favour of hover *events* that a script reacts to. **Why
+  deferred:** it needs a button→visual **ownership** relationship that does not exist.
+  `UiButton` is deliberately non-visual and `UiParent` is a *transform* hierarchy, not an
+  ownership one, so "tint the thing this button looks like" has no definition today. It
+  would also put interaction state into the render path, which has so far been kept free of
+  it. **The honest cost of deferring:** on the events-only design the engine shows a user
+  **nothing** by itself — a button acknowledges the pointer only if someone wrote a script
+  for it, which is not what a person expects from a button. U6 ships a demo script so the
+  behaviour is visible, but that is a demonstration, not a default. **Depends on** settling
+  UI ownership, which is also what the `order`-disagreement item below needs — they are
+  likely one piece of work.
+- **Hover (and hit-testing) on non-button UI components** — `UiPanel`, `UiImage` and
+  `UiText` are not hit-testable at all; only `UiButton` is. Deferred from U6 on 2026-10-10
+  because making them interactive opens a larger question this slice should not answer:
+  whether every visual is interactive by default (and if so, what a `UiText` click means),
+  or whether interactivity stays opt-in via an overlaid `UiButton` as it is now. **Depends
+  on** nothing technically — the rect resolution already exists for all three — which is
+  exactly why it needs the design decision first rather than an implementation.
 - **A button's `order` can disagree with its visual's `order`** — the accepted cost of the
   decision above, recorded 2026-10-10 as its own item because it is a real authoring trap
   rather than a note. `UiButton` carries its own `order` for hit-testing while the panel or
