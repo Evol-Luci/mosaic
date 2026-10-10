@@ -4,10 +4,18 @@
 
 using mosaic::studio::PlayState;
 
-TEST_CASE("PlayState defaults to playing", "[studio][play]")
+TEST_CASE("PlayState defaults to STOPPED so the editor opens in authoring mode",
+          "[studio][play]")
 {
+    // Inverted on 2026-10-10. It defaulted to playing, so the editor began simulating the
+    // instant it opened -- and once viewport clicks were routed to the game while playing,
+    // the default click drove the game and selecting an object required pressing Stop
+    // first. Mosaic is editor-facing, so the default must be authoring.
+    //
+    // This is the ONLY test that pins the default, because `mosaic editor --ticks N` now
+    // starts playing by policy (see editor_play_policy.hpp) and so cannot observe it.
     PlayState play;
-    REQUIRE(play.is_playing());
+    REQUIRE_FALSE(play.is_playing());
 }
 
 TEST_CASE("PlayState play/stop are idempotent and toggle flips", "[studio][play]")

@@ -18,6 +18,7 @@
 #include "app/run/demo_scene.hpp"
 #include "app/run/windowed_systems.hpp"
 #include "engine/ui/ui_system.hpp"
+#include "app/run/editor_play_policy.hpp"
 #include "app/run/frame_pump.hpp"
 #include "app/run/scene_io.hpp"
 #include "app/run/scene_load.hpp"
@@ -211,6 +212,14 @@ int run_editor(const Options& options,
     // added by setup_runtime) are gated behind the RuntimeLoop, so pausing freezes
     // simulation but still reflects edits. It is deliberately NOT added via world.add_system().
     engine::transform::TransformSystem transform_system;
+
+    // The editor opens in authoring mode (PlayState defaults to stopped). A tick-bounded
+    // run is non-interactive, and the tick counter cannot advance while stopped, so such a
+    // run would hang -- see editor_play_policy.hpp for the full reasoning.
+    if (should_start_playing(options))
+    {
+        studio.play_state().play();
+    }
 
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
