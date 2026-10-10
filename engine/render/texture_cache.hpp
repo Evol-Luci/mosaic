@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <unordered_map>
 #include "engine/assets/asset_registry.hpp"
@@ -8,18 +9,43 @@
 #include "foundation/serialization/reference.hpp"
 namespace mosaic::engine::render
 {
+// A resolved texture plus the pixel dimensions of the Image it came from.
+//
+// The dimensions ride along because TextureCache already loads the Image to create the
+// texture; the aspect modes in engine/ui/ui_fit.hpp need them at draw time, and loading
+// the Image again every frame to recover a number this cache already saw would be the
+// wrong trade.
+//
+// INVARIANT: a non-zero `handle` always carries non-zero `width` and `height`. That is
+// what lets RenderSystem's `if (tex == 0) return` double as a dimensions guard, so no
+// caller needs a "dimensions unknown" branch.
+struct TextureInfo
+{
+    TextureHandle handle = 0;
+    std::uint32_t width  = 0;
+    std::uint32_t height = 0;
+};
+
 // Resolves a texture AssetID to a device TextureHandle, uploading via the registry's
 // Image at most once per (id, colour space). Nil/missing/failed -> 0.
 class TextureCache
 {
 public:
+    // Unchanged signature: three of this class's four callers want only the handle.
     TextureHandle get(mosaic::foundation::serialization::AssetID id,
                       mosaic::engine::assets::AssetRegistry& registry, RenderDevice& device,
                       TextureColorSpace space = TextureColorSpace::Srgb)
     {
+        return get_info(id, registry, device, space).handle;
+    }
+
+    TextureInfo get_info(mosaic::foundation::serialization::AssetID id,
+                         mosaic::engine::assets::AssetRegistry& registry, RenderDevice& device,
+                         TextureColorSpace space = TextureColorSpace::Srgb)
+    {
         if (id == mosaic::foundation::serialization::AssetID{})
         {
-            return 0;
+            return TextureInfo{};
         }
         // Keyed by (id, space), not by id alone: one AssetID can legitimately be wanted
         // as both colour and data, and handing back the wrong upload is precisely the
@@ -30,13 +56,21 @@ public:
         {
             return it->second;
         }
-        TextureHandle handle = 0;
+        TextureInfo info;
         if (std::shared_ptr<Image> img = registry.load<Image>(id))
         {
-            handle = device.create_texture(*img, space);
+            info.handle = device.create_texture(*img, space);
+            // Recorded only alongside a successful upload, which is what keeps the
+            // invariant above true: there is no path to a non-zero handle with zero
+            // dimensions.
+            if (info.handle != 0)
+            {
+                info.width = img->width;
+                info.height = img->height;
+            }
         }
-        cache_.emplace(key, handle);
-        return handle;
+        cache_.emplace(key, info);
+        return info;
     }
 
 private:
@@ -54,6 +88,6 @@ private:
                    ^ (static_cast<std::size_t>(k.space) << 1);
         }
     };
-    std::unordered_map<Key, TextureHandle, KeyHash> cache_;
+    std::unordered_map<Key, TextureInfo, KeyHash> cache_;
 };
 } // namespace mosaic::engine::render
