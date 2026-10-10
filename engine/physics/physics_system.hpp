@@ -53,6 +53,28 @@ public:
             .writes<transform::Transform>();
     }
 
+    // Reconcile the physics world with the ECS WITHOUT advancing the simulation: reap
+    // bodies whose entity is gone, create bodies for new physics entities, and push
+    // external Transform edits into the backend.
+    //
+    // update() runs this as its first phase. The EDITOR needs it on its own, because while
+    // stopped `RuntimeLoop::advance` returns without ticking, so update() never runs -- and
+    // bodies are created lazily in here. A freshly opened editor therefore had NO bodies at
+    // all: click-to-select raycasts this world (studio/pick.hpp), so every viewport click
+    // cleared the selection instead of making one, and inspector edits to a RigidBody's
+    // Transform never reached the backend either.
+    //
+    // Deliberately NOT reachable as `update(world, 0.0f)`. That still calls
+    // backend_->step(0, substeps_) and then harvests contact events, so a stopped editor
+    // would emit contact-begin events for anything already touching. Reconciling and
+    // stepping are different operations, and keeping them separable is what makes an
+    // authoring-time sync safe.
+    void sync_to_world(World& world)
+    {
+        const std::lock_guard<std::mutex> lock(backend_mutex_);
+        reconcile_locked(world);
+    }
+
     void update(World& world, float dt) override
     {
         // Contacts are mapped under the lock but emitted outside it. A synchronous
@@ -65,81 +87,7 @@ public:
         std::vector<ContactEvent> contacts;
         {
             const std::lock_guard<std::mutex> lock(backend_mutex_);
-            // 0. Reap bodies whose entity is gone. destroy_entity() is deferred to the end
-            // of tick() and on_destroy() erases every component, so an entry whose
-            // RigidBody has vanished belongs to a destroyed entity -- or to a living one
-            // someone removed RigidBody from, which should also stop simulating. Either way
-            // the body must go: left alone it keeps stepping and keeps colliding, an
-            // invisible obstacle with no mesh to explain it.
-            //
-            // handle_to_entity_ is erased here too, and that matters within THIS tick, not
-            // across ticks: the Box3D backend clears its contact buffer at the top of every
-            // step(), but b3DestroyBody pushes an end-touch event for the destroyed body's
-            // shapes, which step 3 then surfaces. The backend filters those on shape
-            // validity first; this erase is the second line of defence, so step 5a cannot
-            // map a destroyed body's handle back to an entity.
-            for (auto it = bodies_.begin(); it != bodies_.end();)
-            {
-                if (world.get_component<RigidBody>(it->first) != nullptr)
-                {
-                    ++it;
-                    continue;
-                }
-                backend_->destroy_body(it->second);
-                handle_to_entity_.erase(it->second);
-                synced_pose_.erase(it->first);
-                it = bodies_.erase(it);
-            }
-
-            // 1. Lazily create a backend body for each physics entity we have not seen.
-            world.for_each<RigidBody>(
-                [&](mosaic::foundation::EntityID e, RigidBody& rb)
-                {
-                    if (bodies_.find(e) != bodies_.end())
-                    {
-                        return;
-                    }
-                    const transform::Transform* t = world.get_component<transform::Transform>(e);
-                    if (t == nullptr)
-                    {
-                        return;
-                    }
-                    Shape shape;
-                    if (!shape_for(world, e, shape))
-                    {
-                        return;
-                    }
-                    BodyDef def;
-                    def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
-                    def.position = t->position;
-                    // Pass the authored rotation through, so the body the backend creates
-                    // matches the Transform. This also makes the synced_pose_ record below
-                    // truthful -- it has always claimed the body carried t->rotation.
-                    def.rotation = t->rotation;
-                    def.shape = shape;
-                    def.density = rb.density;
-                    const BodyHandle handle = backend_->create_body(def);
-                    bodies_[e] = handle;
-                    handle_to_entity_[handle] = e;
-                    synced_pose_[e] = Pose{t->position, t->rotation};
-                });
-
-            // 2. Push external Transform edits (e.g. inspector drags) into the simulation:
-            // if an entity's Transform no longer matches the pose we last wrote to it, the
-            // user moved it, so teleport the body to the new Transform.
-            for (const auto& [e, handle] : bodies_)
-            {
-                const transform::Transform* t = world.get_component<transform::Transform>(e);
-                if (t == nullptr)
-                {
-                    continue;
-                }
-                if (!pose_matches(*t, synced_pose_[e]))
-                {
-                    backend_->set_body_transform(handle, t->position, t->rotation);
-                    synced_pose_[e] = Pose{t->position, t->rotation};
-                }
-            }
+            reconcile_locked(world);
 
             // 3. Advance the simulation one fixed step.
             backend_->step(dt, substeps_);
@@ -259,6 +207,87 @@ private:
             return true;
         }
         return false;
+    }
+
+    // Steps 0-2 of a tick: everything that makes the backend agree with the ECS, and
+    // nothing that advances time. Caller holds backend_mutex_.
+    void reconcile_locked(World& world)
+    {
+        // 0. Reap bodies whose entity is gone. destroy_entity() is deferred to the end
+        // of tick() and on_destroy() erases every component, so an entry whose
+        // RigidBody has vanished belongs to a destroyed entity -- or to a living one
+        // someone removed RigidBody from, which should also stop simulating. Either way
+        // the body must go: left alone it keeps stepping and keeps colliding, an
+        // invisible obstacle with no mesh to explain it.
+        //
+        // handle_to_entity_ is erased here too, and that matters within THIS tick, not
+        // across ticks: the Box3D backend clears its contact buffer at the top of every
+        // step(), but b3DestroyBody pushes an end-touch event for the destroyed body's
+        // shapes, which step 3 then surfaces. The backend filters those on shape
+        // validity first; this erase is the second line of defence, so step 5a cannot
+        // map a destroyed body's handle back to an entity.
+        for (auto it = bodies_.begin(); it != bodies_.end();)
+        {
+            if (world.get_component<RigidBody>(it->first) != nullptr)
+            {
+                ++it;
+                continue;
+            }
+            backend_->destroy_body(it->second);
+            handle_to_entity_.erase(it->second);
+            synced_pose_.erase(it->first);
+            it = bodies_.erase(it);
+        }
+
+        // 1. Lazily create a backend body for each physics entity we have not seen.
+        world.for_each<RigidBody>(
+            [&](mosaic::foundation::EntityID e, RigidBody& rb)
+            {
+                if (bodies_.find(e) != bodies_.end())
+                {
+                    return;
+                }
+                const transform::Transform* t = world.get_component<transform::Transform>(e);
+                if (t == nullptr)
+                {
+                    return;
+                }
+                Shape shape;
+                if (!shape_for(world, e, shape))
+                {
+                    return;
+                }
+                BodyDef def;
+                def.type = rb.dynamic ? BodyType::Dynamic : BodyType::Static;
+                def.position = t->position;
+                // Pass the authored rotation through, so the body the backend creates
+                // matches the Transform. This also makes the synced_pose_ record below
+                // truthful -- it has always claimed the body carried t->rotation.
+                def.rotation = t->rotation;
+                def.shape = shape;
+                def.density = rb.density;
+                const BodyHandle handle = backend_->create_body(def);
+                bodies_[e] = handle;
+                handle_to_entity_[handle] = e;
+                synced_pose_[e] = Pose{t->position, t->rotation};
+            });
+
+        // 2. Push external Transform edits (e.g. inspector drags) into the simulation:
+        // if an entity's Transform no longer matches the pose we last wrote to it, the
+        // user moved it, so teleport the body to the new Transform.
+        for (const auto& [e, handle] : bodies_)
+        {
+            const transform::Transform* t = world.get_component<transform::Transform>(e);
+            if (t == nullptr)
+            {
+                continue;
+            }
+            if (!pose_matches(*t, synced_pose_[e]))
+            {
+                backend_->set_body_transform(handle, t->position, t->rotation);
+                synced_pose_[e] = Pose{t->position, t->rotation};
+            }
+        }
     }
 
     // Exact match between an entity's Transform and the pose we last synced. The write-back

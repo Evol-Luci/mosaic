@@ -16,6 +16,7 @@
 #include "app/asset/asset_io.hpp"
 #include "app/project/project_io.hpp"
 #include "app/run/demo_scene.hpp"
+#include "engine/physics/physics_system.hpp"
 #include "app/run/windowed_systems.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "app/run/editor_play_policy.hpp"
@@ -248,6 +249,26 @@ int run_editor(const Options& options,
 
         // Refresh derived transforms every frame (even paused) so inspector edits show.
         transform_system.update(world, 0.0f);
+
+        // Reconcile physics with the ECS every frame too, for the same reason and with the
+        // same shape: while stopped, `loop.stop()` above means world.tick never runs, so
+        // PhysicsSystem::update never runs -- and bodies are created lazily inside it. The
+        // editor now STARTS stopped, so a freshly opened editor had no bodies at all:
+        // click-to-select raycasts the physics world (studio/pick.hpp), so every viewport
+        // click cleared the selection instead of making one, and inspector edits to a
+        // RigidBody's Transform never reached the backend.
+        //
+        // sync_to_world reconciles WITHOUT stepping. Calling update(world, 0.0f) instead
+        // would step the backend with dt 0 and then harvest contact events, so a stopped
+        // editor would emit contact-begin events for anything already touching.
+        //
+        // Unconditional rather than gated on !is_playing(): while playing, world.tick runs
+        // this same reconcile as its first phase, so the extra call is idempotent -- and a
+        // gate here would be one more thing to get wrong at the play/stop boundary.
+        if (auto* physics = world.get_system<mosaic::engine::physics::PhysicsSystem>())
+        {
+            physics->sync_to_world(world);
+        }
 
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
