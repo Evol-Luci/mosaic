@@ -57,6 +57,7 @@ add_executable(mosaic_unit_tests
   unit/logging/log_api_test.cpp
   unit/logging/log_thread_safety_test.cpp
   unit/app/options_test.cpp
+  unit/app/editor_play_policy_test.cpp
   unit/app/component_reference_test.cpp
   unit/app/mcp_tools_test.cpp
   unit/app/mcp_protocol_test.cpp

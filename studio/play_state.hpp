@@ -24,7 +24,11 @@ public:
     }
 
 private:
-    bool playing_        = true;
+    // STOPPED by default: Mosaic is editor-facing, so opening the editor puts the user in
+    // authoring mode, where a viewport click selects an object instead of driving the game.
+    // `mosaic editor --ticks N` overrides this at startup -- see
+    // app/run/editor_play_policy.hpp for why it must.
+    bool playing_        = false;
     bool step_requested_ = false;
 };
 
