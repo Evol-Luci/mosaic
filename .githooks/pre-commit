@@ -23,6 +23,7 @@ repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
 python3 tools/ci/check_dependency_rules.py
+python3 tools/ci/check_test_case_names.py
 
 mosaic_bin=""
 for candidate in build/app/mosaic build/debug/app/mosaic build/release/app/mosaic; do
