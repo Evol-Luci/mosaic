@@ -170,6 +170,7 @@ add_executable(mosaic_unit_tests
   unit/app/audio_cook_test.cpp
   unit/app/audio_asset_test.cpp
   unit/ui/ui_rect_test.cpp
+  unit/ui/ui_fit_test.cpp
   unit/ui/ui_hierarchy_test.cpp
   unit/ui/ui_parent_reflection_test.cpp
   unit/ui/ui_panel_reflection_test.cpp
