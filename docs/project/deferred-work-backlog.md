@@ -259,7 +259,19 @@ view that was actually used to pick what to build next as of this writing.
     introduced by U7** — flagged only because that slice was the one that re-read the loop.
     Overlapping HUD images draw in `for_each` order, which is stable but arbitrary. Fold
     into whichever slice next touches UI draw ordering rather than taking it alone.
-- **9-slice scaling for `UiImage`** — split out of U7 on 2026-10-10, at the start of
+- **9-slice scaling for `UiImage`** — **DEFERRED AS A LONGER-TERM GOAL on 2026-10-10**, by
+  explicit decision rather than by running out of time. U7 shipped the UV plumbing 9-slice
+  depends on, so it is *unblocked* and was the obvious next slice — and it is being passed
+  over anyway, in favour of editor-facing work (editor starts stopped, then U6 interaction
+  depth). **Why:** nothing currently asks for 9-slice. It makes authored HUD art scale
+  nicely, which matters when there *is* authored HUD art; the demo has one checker sprite.
+  The two items chosen ahead of it are both things a person meets in the first seconds of
+  using the editor. Taking 9-slice now would be building the most technically interesting
+  remaining UI feature rather than the most needed one. **Nothing about it decays by
+  waiting** — its dependency has landed and cannot un-land, and the three decisions below
+  are unaffected by time. Revisit when something real needs a scalable panel or button
+  background; until then this is deliberately not the next slice.
+  Split out of U7 on 2026-10-10, at the start of
   that slice, because the three features U7 grouped are **not** independent:
   9-slice needs nine different sub-rects of one texture, so it is built *on top of*
   the sub-rect UV plumbing rather than beside it. Taking it in the same slice would
