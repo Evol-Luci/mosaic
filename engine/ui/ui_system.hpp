@@ -2,12 +2,14 @@
 
 #include <functional>
 #include <utility>
+#include <vector>
 
 #include "engine/ecs/system.hpp"
 #include "engine/script/script_event.hpp"
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_hierarchy.hpp"
+#include "engine/ui/ui_hit.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -35,14 +37,11 @@ public:
 
         if (p.down && !was_down_)
         {
-            // Press: record the first button under the pointer.
-            pressed_ = mosaic::foundation::EntityID{};
-            world.for_each<UiButton>(
-                [&](mosaic::foundation::EntityID e, UiButton& b)
-                {
-                    if (pressed_ != mosaic::foundation::EntityID{}) { return; }
-                    if (hit(world, e, p, b)) { pressed_ = e; }
-                });
+            // Press: record the TOPMOST button under the pointer. This used to take the
+            // first button `for_each` yielded, while the panel pass draws the last of an
+            // equal-order run on top -- so a click on two overlapping buttons went to the
+            // one the user could not see.
+            pressed_ = topmost_hit(candidates(world), p);
         }
         else if (!p.down && was_down_)
         {
@@ -72,6 +71,23 @@ public:
     bool press_consumed() const { return pressed_ != mosaic::foundation::EntityID{}; }
 
 private:
+    // Every UiButton flattened into hit candidates. One pass per update, shared by the
+    // press path and the hover path so the two can never disagree about which button is
+    // under the pointer -- if they could, a click and its hover feedback would land on
+    // different buttons, which reads as the UI lying rather than as a bug.
+    static std::vector<HitCandidate> candidates(mosaic::engine::World& world)
+    {
+        std::vector<HitCandidate> out;
+        world.for_each<UiButton>(
+            [&](mosaic::foundation::EntityID e, UiButton& b)
+            {
+                out.push_back(HitCandidate{
+                    e, b.order,
+                    resolve_ui_rect(world, e, button_anchor(b.anchor), b.pos, b.size)});
+            });
+        return out;
+    }
+
     static bool hit(mosaic::engine::World& world, mosaic::foundation::EntityID e,
                     const PointerState& p, UiButton& b)
     {
