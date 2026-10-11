@@ -67,6 +67,79 @@ TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo obje
     REQUIRE(scripted == 3); // the orbiter cube + the scripted puffer emitter + the ball pusher
 }
 
+namespace
+{
+// Records only the HUD image draws, in call order -- the one thing this file needs from a
+// device. Six pure virtuals is the whole RenderDevice contract; everything else defaults to
+// a no-op on the base class.
+class UiImageRecordingDevice : public mosaic::engine::render::RenderDevice
+{
+public:
+    struct Call
+    {
+        std::vector<mosaic::engine::render::UiImageQuad> quads;
+        mosaic::engine::render::TextureHandle            texture;
+    };
+    std::vector<Call> ui_image_draws;
+
+    void begin_frame() override {}
+    void clear(const mosaic::engine::render::Color&) override {}
+    void end_frame() override {}
+    mosaic::engine::render::MeshHandle create_mesh(
+        const std::vector<mosaic::engine::render::Vertex>&,
+        const std::vector<std::uint32_t>&) override
+    {
+        return 1;
+    }
+    mosaic::engine::render::TextureHandle create_texture(
+        const mosaic::engine::render::Image&,
+        mosaic::engine::render::TextureColorSpace) override
+    {
+        return 1;
+    }
+    void draw(mosaic::engine::render::MeshHandle, mosaic::engine::render::TextureHandle,
+              const mosaic::engine::render::DrawParams&) override
+    {
+    }
+    void draw_ui_image(const std::vector<mosaic::engine::render::UiImageQuad>& quads,
+                       mosaic::engine::render::TextureHandle texture) override
+    {
+        ui_image_draws.push_back({quads, texture});
+    }
+};
+} // namespace
+
+TEST_CASE("the default scene's HUD underlay image draws beneath the checker", "[app]")
+{
+    // Pins the demo's OWN claim, which is otherwise only checkable by eye: the warm-tinted
+    // underlay carries order -1 and the checker carries 0, so the underlay must be submitted
+    // FIRST and the checker drawn over it.
+    //
+    // This is the demo's purpose -- it exists so the image pass's sort is visible in a real
+    // frame -- and before the passes sorted, submission order came from `for_each`, where
+    // the later-created underlay would have landed on top. A sandbox cannot screenshot the
+    // window, so without this the demo's claim would rest on nothing.
+    World                                           world;
+    AssetRegistry                                   registry;
+    mosaic::foundation::reflection::TypeRegistry    reg;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(reg, types);
+    auto runtime = setup_runtime(
+        world, registry, types,
+        [] { return mosaic::script::python::create_python_script_engine(); });
+    build_default_scene(world);
+    mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
+
+    UiImageRecordingDevice device;
+    runtime.render_system->render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 2);
+    // Identified by tint, not by index: the underlay is warm (1.0, 0.5, 0.2) and the checker
+    // is untinted white, so this cannot pass by accident if the two were swapped.
+    REQUIRE(device.ui_image_draws[0].quads[0].tint.y == Catch::Approx(0.5f)); // order -1
+    REQUIRE(device.ui_image_draws[1].quads[0].tint.y == Catch::Approx(1.0f)); // order 0
+}
+
 TEST_CASE("setup_runtime registers built-in meshes + demo textures and returns a render system",
           "[app]")
 {

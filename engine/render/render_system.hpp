@@ -441,7 +441,13 @@ public:
         }
 
         // HUD image pass: textured sprites, drawn over panels. Reuses texture_cache_.
+        //
+        // Collected, sorted, then drawn -- the same shape as the panel pass above, so all
+        // three HUD passes read alike. Unlike that pass this cannot batch into ONE call,
+        // because each image carries its own texture handle, so the sort reorders the calls
+        // rather than the quads inside one. Same call count as before.
         {
+            std::vector<std::pair<int, std::pair<UiImageQuad, TextureHandle>>> pending;
             world.for_each<mosaic::engine::ui::UiImage>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
                 {
@@ -461,15 +467,32 @@ public:
                         im.sub_rect_size, im.fit_mode);
                     const auto app = mosaic::engine::ui::resolve_appearance(
                         mosaic::engine::ui::active_hover_style(world, e), im.tint, im.alpha);
-                    device.draw_ui_image(
-                        std::vector<UiImageQuad>{
-                            UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color, app.alpha}},
-                        info.handle);
+                    pending.push_back(
+                        {im.order,
+                         {UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color, app.alpha},
+                          info.handle}});
                 });
+            // stable_sort ASCENDING, matching the panel pass: higher `order` is drawn last
+            // and therefore appears on top, and equal orders keep `for_each` order. The
+            // stability is load-bearing rather than incidental -- ui_hit.hpp's rule 2
+            // documents the hit tie-break as agreeing with "the entity later in iteration
+            // draws on top", which a plain sort would quietly break.
+            std::stable_sort(pending.begin(), pending.end(),
+                             [](const auto& l, const auto& r) { return l.first < r.first; });
+            for (auto& pr : pending)
+            {
+                device.draw_ui_image(std::vector<UiImageQuad>{pr.second.first},
+                                     pr.second.second);
+            }
         }
 
         // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
+        //
+        // Collect/sort/draw as above. Each UiText already emits ONE call carrying all its
+        // glyphs, so like the image pass this reorders calls rather than merging them.
         {
+            std::vector<std::pair<int, std::pair<std::vector<UiGlyphQuad>, TextureHandle>>>
+                pending;
             world.for_each<mosaic::engine::ui::UiText>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiText& t)
                 {
@@ -494,8 +517,14 @@ public:
                     {
                         quads.push_back(UiGlyphQuad{q.rect, q.u0, q.v0, q.u1, q.v1, q.color, q.alpha});
                     }
-                    device.draw_ui_text(quads, atlas);
+                    pending.push_back({t.order, {std::move(quads), atlas}});
                 });
+            std::stable_sort(pending.begin(), pending.end(),
+                             [](const auto& l, const auto& r) { return l.first < r.first; });
+            for (auto& pr : pending)
+            {
+                device.draw_ui_text(pr.second.first, pr.second.second);
+            }
         }
     }
 

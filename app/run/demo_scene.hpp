@@ -741,6 +741,26 @@ inline void build_default_scene(mosaic::engine::World& world)
             .tint    = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
             .alpha   = 1.0f,
             .order   = 0});
+    // A SECOND sprite, deliberately overlapping the checker above and authored at a LOWER
+    // order, so the image pass's sort is visible by eye: it is drawn first and the checker
+    // sits on top of it. Before the passes sorted, draw order came from `for_each` and this
+    // would have landed on top instead -- which is exactly the bug the sort fixes, and the
+    // only way to check it in a real frame.
+    //
+    // Offset half a tile down-left of the checker and tinted warm so the overlap reads as an
+    // overlap rather than as one larger sprite.
+    const auto hud_underlay = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiImage>(hud_underlay,
+        mosaic::engine::ui::UiImage{
+            .texture = kCheckerTextureId,
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
+            .pos     = mosaic::foundation::math::Vec2{0.09f, 0.09f},
+            .size    = mosaic::foundation::math::Vec2{0.12f, 0.12f},
+            .fit_mode = static_cast<int>(mosaic::engine::ui::ImageFitMode::Fit),
+            .tint    = mosaic::foundation::math::Vec3{1.0f, 0.5f, 0.2f},
+            .alpha   = 1.0f,
+            .order   = -1});
+
     world.add_component<mosaic::engine::ui::UiText>(camera,
         mosaic::engine::ui::UiText{
             kBuiltinFontId, "MOSAIC",

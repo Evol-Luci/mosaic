@@ -905,6 +905,47 @@ TEST_CASE("RenderSystem emits a UiQuad per visible UiPanel, order-sorted", "[ren
     REQUIRE(quads[1].rect.w == Approx(0.1f));
 }
 
+TEST_CASE("RenderSystem emits equal-order UiPanels in iteration order", "[render][ui]")
+{
+    // A PRE-EXISTING GAP, found by a mutation probe while sorting the image and text passes:
+    // swapping this pass's stable_sort for std::sort left the suite green. The panel pass is
+    // the reference the other two now copy, and ui_hit.hpp's rule 2 documents the hit
+    // tie-break as agreeing with "the entity later in iteration draws on top" -- so the
+    // stability here is load-bearing for hit-testing, not a detail of this pass.
+    //
+    // Twenty, because libstdc++'s std::sort falls back to insertion sort below 17 elements
+    // and is stable in practice there; the introsort boundary measured exactly 17.
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    constexpr int kCount = 20;
+    for (int i = 0; i < kCount; ++i)
+    {
+        auto    e = world.create_entity();
+        UiPanel p;
+        p.anchor = static_cast<int>(Anchor::TopLeft);
+        p.pos    = {0.01f * static_cast<float>(i), 0.1f};
+        p.size   = {0.05f, 0.05f};
+        p.order  = 7; // all equal
+        world.add_component<UiPanel>(e, p);
+    }
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws.front();
+    REQUIRE(quads.size() == kCount);
+    for (int i = 0; i < kCount; ++i)
+    {
+        REQUIRE(quads[static_cast<std::size_t>(i)].rect.x == Approx(0.01f * static_cast<float>(i)));
+    }
+}
+
 TEST_CASE("RenderSystem skips fully transparent UiPanels", "[render][ui]")
 {
     using mosaic::engine::ui::UiPanel;
@@ -1025,6 +1066,191 @@ TEST_CASE("RenderSystem emits glyph quads for a UiText with a registered font", 
     REQUIRE(device.ui_text_draws.size() == 1);
     REQUIRE(device.ui_text_draws[0].quads.size() == 2); // A, B
     REQUIRE(device.ui_text_draws[0].atlas != 0);        // atlas uploaded
+}
+
+TEST_CASE("RenderSystem draws UiImages in ascending order", "[render][ui]")
+{
+    // Authored high-then-low so a pass that just iterates emits 10 before 0. Higher `order`
+    // must be drawn LAST, because these are alpha-blended quads and the last one drawn is
+    // the one on top -- the same rule the panel pass already follows.
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto    tex_id = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto    front = world.create_entity();
+    UiImage f;
+    f.texture = tex_id;
+    f.anchor  = static_cast<int>(Anchor::TopLeft);
+    f.pos     = {0.3f, 0.3f};
+    f.order   = 10;
+    world.add_component<UiImage>(front, f);
+
+    auto    back = world.create_entity();
+    UiImage b;
+    b.texture = tex_id;
+    b.anchor  = static_cast<int>(Anchor::TopLeft);
+    b.pos     = {0.1f, 0.1f};
+    b.order   = 0;
+    world.add_component<UiImage>(back, b);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // One call per image, as before -- different textures cannot be batched, so sorting
+    // changes the ORDER of the calls and not their number.
+    REQUIRE(device.ui_image_draws.size() == 2);
+    REQUIRE(device.ui_image_draws[0].quads[0].rect.x == Approx(0.1f)); // order 0 first
+    REQUIRE(device.ui_image_draws[1].quads[0].rect.x == Approx(0.3f)); // order 10 on top
+}
+
+TEST_CASE("RenderSystem draws equal-order UiImages in iteration order", "[render][ui]")
+{
+    // Stability, which is what makes the tie-break DETERMINISTIC rather than whatever
+    // std::sort happens to do. ui_hit.hpp's rule 2 leans on "the entity later in iteration
+    // draws on top", so a plain sort here would quietly break the agreement it documents.
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto    tex_id = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    // TWENTY, and the count is load-bearing. libstdc++'s std::sort falls back to insertion
+    // sort below 17 elements, which IS stable in practice -- so with three images a
+    // std::sort mutant passes and the stability claim goes untested. Measured: the
+    // introsort boundary is exactly 17 on this toolchain.
+    constexpr int kCount = 20;
+    for (int i = 0; i < kCount; ++i)
+    {
+        auto    e = world.create_entity();
+        UiImage im;
+        im.texture = tex_id;
+        im.anchor  = static_cast<int>(Anchor::TopLeft);
+        im.pos     = {0.01f * static_cast<float>(i), 0.1f};
+        im.order   = 5; // all equal
+        world.add_component<UiImage>(e, im);
+    }
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == kCount);
+    for (int i = 0; i < kCount; ++i)
+    {
+        REQUIRE(device.ui_image_draws[static_cast<std::size_t>(i)].quads[0].rect.x
+                == Approx(0.01f * static_cast<float>(i)));
+    }
+}
+
+TEST_CASE("RenderSystem draws a negative-order UiImage first", "[render][ui]")
+{
+    // `order` is signed, so -1 must sort BELOW a default-constructed 0. A comparison on an
+    // unsigned type, or one on magnitudes, puts it on top instead.
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto    tex_id = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto    normal = world.create_entity();
+    UiImage n;
+    n.texture = tex_id;
+    n.anchor  = static_cast<int>(Anchor::TopLeft);
+    n.pos     = {0.2f, 0.2f};
+    n.order   = 0;
+    world.add_component<UiImage>(normal, n);
+
+    auto    behind = world.create_entity();
+    UiImage bh;
+    bh.texture = tex_id;
+    bh.anchor  = static_cast<int>(Anchor::TopLeft);
+    bh.pos     = {0.4f, 0.4f};
+    bh.order   = -1;
+    world.add_component<UiImage>(behind, bh);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 2);
+    REQUIRE(device.ui_image_draws[0].quads[0].rect.x == Approx(0.4f)); // -1 draws first
+    REQUIRE(device.ui_image_draws[1].quads[0].rect.x == Approx(0.2f));
+}
+
+TEST_CASE("RenderSystem draws UiText in ascending order", "[render][ui]")
+{
+    // Distinct glyph COUNTS identify which text each call came from without depending on
+    // glyph geometry: "ABC" is three quads, "A" is one.
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto   front = world.create_entity();
+    UiText f;
+    f.font   = font_id;
+    f.text   = "ABC";
+    f.height = 0.1f;
+    f.order  = 10;
+    world.add_component<UiText>(front, f);
+
+    auto   back = world.create_entity();
+    UiText b;
+    b.font   = font_id;
+    b.text   = "A";
+    b.height = 0.1f;
+    b.order  = 0;
+    world.add_component<UiText>(back, b);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_text_draws.size() == 2);
+    REQUIRE(device.ui_text_draws[0].quads.size() == 1); // order 0 ("A") first
+    REQUIRE(device.ui_text_draws[1].quads.size() == 3); // order 10 ("ABC") on top
+}
+
+TEST_CASE("RenderSystem draws equal-order UiText in iteration order", "[render][ui]")
+{
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    // Twenty, for the same reason as the UiImage case above: below 17 elements std::sort is
+    // incidentally stable and the mutant survives. Each text is one character longer than
+    // the last, so its glyph count identifies which call it came from.
+    constexpr int kCount = 20;
+    for (int i = 1; i <= kCount; ++i)
+    {
+        auto   e = world.create_entity();
+        UiText t;
+        t.font   = font_id;
+        t.text   = std::string(static_cast<std::size_t>(i), 'A');
+        t.height = 0.1f;
+        t.order  = 2; // all equal
+        world.add_component<UiText>(e, t);
+    }
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_text_draws.size() == kCount);
+    for (int i = 1; i <= kCount; ++i)
+    {
+        REQUIRE(device.ui_text_draws[static_cast<std::size_t>(i - 1)].quads.size()
+                == static_cast<std::size_t>(i));
+    }
 }
 
 TEST_CASE("RenderSystem skips UiText that is empty, transparent, or unresolved", "[render][ui]")

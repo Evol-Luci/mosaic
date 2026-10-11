@@ -33,6 +33,15 @@ struct UiImage
     int   fit_mode = 0;
     Vec3  tint   = Vec3{1.0f, 1.0f, 1.0f};
     float alpha  = 1.0f;
+    // Z-order WITHIN THIS PASS: higher draws on top. Among equal orders the entity later in
+    // iteration draws on top, via a stable sort -- the same rule UiPanel::order follows, and
+    // the one ui_hit.hpp's rule 2 assumes.
+    //
+    // THE PASS BOUNDARY IS ABSOLUTE AND THIS ORDER CANNOT CROSS IT. The three HUD passes run
+    // in a fixed sequence -- panels, then images over panels, then text over both -- so a
+    // UiImage is above every UiPanel no matter what either `order` says, and a negative value
+    // here will NOT push it behind one. It only ranks images against each other. A unified
+    // z-order across all UI is recorded in the backlog as its own (larger) piece of work.
     int   order  = 0;
 };
 
