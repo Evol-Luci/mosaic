@@ -471,7 +471,12 @@ them as this list does.
   because it is a different and much larger piece of work** than the recorded item asked for,
   and the cheap lint plausibly prevents most instances. **Depends on** nothing new —
   `resolve_ui_rect` already exists — so this is a scoping decision, not a blocker.
-- **`UiImage::order` and `UiText::order` are ignored by the renderer entirely** — confirmed
+- ~~**`UiImage::order` and `UiText::order` are ignored by the renderer entirely**~~ —
+  **FIXED 2026-10-11.** Both passes now collect, `stable_sort` ascending, then emit, so higher
+  `order` draws on top within its own pass and equal orders keep `for_each` order. The
+  semantics are documented on both components for the first time. Original finding, which
+  still explains the pass-boundary limitation below:
+  confirmed
   2026-10-11 by reading `engine/render/render_system.hpp`'s three HUD passes. They are fixed
   and sequential (panels, then images over panels, then text over both) and **only the panel
   pass `stable_sort`s**. So a `UiText` is above a `UiPanel` unconditionally, whatever either
@@ -482,6 +487,17 @@ them as this list does.
   either. The 🟢 quick win "Sort the HUD image pass by `UiImage::order`" is half of the fix;
   the text pass needs the same treatment and is **not** currently tracked as a quick win.
   Until both land, any cross-pass `order` comparison is meaningless.
+- **A unified z-order across all UI, crossing the pass boundary** — the explicit non-goal of
+  the pass-sorting slice, 2026-10-11, and the limitation a user is most likely to hit next.
+  `order` now ranks panels against panels, images against images and text against text, but
+  the three HUD passes still run in a fixed sequence, so **a `UiText` is above every `UiPanel`
+  whatever either `order` says** and a negative `UiText::order` will not push a label behind a
+  panel. Making one `order` space work across all UI means collapsing three passes into one
+  sorted stream over three different pipelines and handle types, plus a decision about how to
+  batch what is currently batched per pass. **Deferred because it is architectural** — its own
+  spec — while the within-pass fix was bounded and unblocked two inert fields today.
+  **Depends on** nothing; it is a scope decision. Recorded in both component headers so a
+  reader meets the limitation where they meet the field.
 - **A button overlaying a `UiPanel` on a DIFFERENT entity is invisible to the lint** — the
   deliberate blind spot of the entity-identity ownership rule, recorded 2026-10-11 rather than
   left implicit. Detecting it needs the same rect-overlap analysis as the pairwise check above,
@@ -2200,7 +2216,7 @@ note set for re-deriving at all.
 |---|---|
 | **Tighten the "position starts past the edge" test to exact values** | Two `REQUIRE`s change from bounds to `u0 == u1 == 1.0`, plus a `v`-axis pair that is currently absent. The real work is finding a clamp mutation that is **defined** rather than UB — the obvious one calls `std::clamp` with `lo > hi` — so expect the thinking to be in choosing the probe, not writing the assertions. |
 | **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
-| **Sort the HUD image pass by `UiImage::order`** | The panel pass already does it, so this is a copy of a shipped loop onto a sibling path. `order` is already reflected, documented, and ignored — which is the worst of the three states. **Re-rated 2026-10-11: the TEXT pass needs the same fix**, confirmed by reading all three HUD passes while building the order lint. Do both in one slice; doing only the image half leaves exactly the same inconsistency one component over. |
+| ~~**Sort the HUD image pass by `UiImage::order`**~~ | **SHIPPED 2026-10-11, image AND text together.** Two of this row's own claims were wrong. It was **not** "a copy of a shipped loop": the panel pass batches every quad into ONE `draw_ui` call after sorting, while the image and text passes draw per entity with their own texture/atlas handles — so each needed a collect → sort → emit reshape, not a copied `stable_sort`. And `order` was **not** "documented" on either component: both fields carried no comment at all, unlike `UiPanel::order`. The semantics are now written down, including that the order cannot cross a pass boundary. |
 | **An Inspector `field_int` (`DragInt`)** | Surfaced 2026-10-11 by the order lint, whose advice names a field the editor cannot edit. One override on `ImGuiFieldVisitor` alongside the existing `field_float`, and `order`/`anchor`/`fit_mode` stop being read-only labels. The work is choosing whether an `anchor` or a `fit_mode` should really be a free int rather than a combo box — which is a reason to ship the plain `DragInt` first, not a reason to defer. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
