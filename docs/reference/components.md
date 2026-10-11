@@ -226,6 +226,14 @@ Every built-in engine component, with its fields and their default values. Field
 - `event`: ui_click
 - `order`: 0
 
+## UiHoverStyle
+
+- `tint`
+  - `x`: 1.000000
+  - `y`: 1.000000
+  - `z`: 1.000000
+- `alpha_scale`: 1.000000
+
 ## UiImage
 
 - `texture`: 00000000-0000-0000-0000-000000000000
