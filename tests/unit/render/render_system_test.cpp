@@ -1935,3 +1935,42 @@ TEST_CASE("a child UiText inherits its hovered ancestor's style", "[render]")
     REQUIRE(!device.ui_text_draws.empty());
     REQUIRE(device.ui_text_draws[0].quads.at(0).alpha == Approx(0.5f));
 }
+
+TEST_CASE("a hovered UiImage emits the multiplied tint and alpha", "[render]")
+{
+    // The image pass had NO hover test. Reverting its two lines to `im.tint, im.alpha`
+    // survived the whole suite, because the drop-the-style probe goes red via the panel and
+    // text cases regardless. A hovered HUD icon would have rendered unstyled while the
+    // panel behind it brightened -- with CI green.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const AssetID tex = register_white_texture(registry, 64, 32);
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiImage im;
+    im.texture = tex;
+    im.tint = Vec3{0.4f, 0.5f, 0.6f};
+    im.alpha = 0.5f;
+    world.add_component<mosaic::engine::ui::UiImage>(e, im);
+    mosaic::engine::ui::UiHoverStyle s;
+    s.tint = Vec3{2.0f, 1.0f, 0.5f};
+    s.alpha_scale = 1.2f;
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(e, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(e, mosaic::engine::ui::UiHovered{});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 1);
+    const auto& q = device.ui_image_draws[0].quads.at(0);
+    REQUIRE(q.tint.x == Approx(0.8f)); // 0.4 * 2.0
+    REQUIRE(q.tint.y == Approx(0.5f)); // 0.5 * 1.0
+    REQUIRE(q.tint.z == Approx(0.3f)); // 0.6 * 0.5
+    REQUIRE(q.alpha == Approx(0.6f));  // 0.5 * 1.2
+    // The style must not have touched the U7 fit maths: full UVs, authored rect.
+    REQUIRE(q.u0 == Approx(0.0f));
+    REQUIRE(q.u1 == Approx(1.0f));
+}

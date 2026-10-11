@@ -239,9 +239,16 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
        phantom hover, and loading that scene would start up already highlighted.
 
      **The ownership rule:** an element is styled by the nearest `UiHoverStyle` at or above
-     it in the `UiParent` chain, and only if that chain reaches a `UiHovered`. So a style
-     authored on a panel applies to the labels parented inside it, and a child can override
-     by authoring its own. A button therefore owns the UI components on its **own entity** —
+     it in the `UiParent` chain, and only if that chain reaches a `UiHovered`. The two
+     searches are independent and both run the whole chain — a style *above* the hovered
+     entity still governs it. So a style authored on a panel applies to the labels parented
+     inside it **and to a button parented inside it**, and a child can override by authoring
+     its own.
+
+     **What does not happen:** hovering a child never styles its parent. The walk only goes
+     up, so a hovered button highlights itself (using whatever style governs it) and not the
+     panel containing it. If you want the container to react, the container is what needs to
+     be hit-testable. A button therefore owns the UI components on its **own entity** —
      which is how every button in this repository is already authored.
 
      Two limits worth knowing. A style can never **reveal** an element whose authored alpha

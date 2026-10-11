@@ -70,16 +70,41 @@ struct UiAppearance
 inline const UiHoverStyle* active_hover_style(mosaic::engine::World& world,
                                               mosaic::foundation::EntityID e)
 {
-    constexpr int kMaxDepth = 16;
-    const UiHoverStyle* nearest = nullptr;
-    mosaic::foundation::EntityID at = e;
-    for (int depth = 0; depth < kMaxDepth; ++depth)
+    // 16 ANCESTORS, which is what resolve_parent_frame in ui_hierarchy.hpp contributes to a
+    // rect: it reads e's UiParent, recurses, and its `depth >= 16` guard first fires on the
+    // sixteenth ancestor. So this inspects e plus 16 ancestors -- 17 entities. An earlier
+    // version looped 16 times total and therefore reached one level LESS far than the rect
+    // resolution, which would have left an element exactly 16 links down positioned inside
+    // its ancestor's frame while rendering unstyled.
+    constexpr int kMaxAncestors = 16;
+
+    // BOTH searches run the whole chain, and only their answers are combined at the end.
+    //
+    // An earlier version returned the moment it found the tag, which silently truncated the
+    // STYLE search there -- so a style on an entity ABOVE the hovered one was never looked
+    // for. Since only UiButton is hit-testable the tag always lands on the button, and an
+    // author's first instinct is to style the containing panel, so the most natural thing to
+    // author did nothing at all. The spec's rule is "the nearest UiHoverStyle found on the
+    // way up", with hovered-ness from a tag anywhere at or above; truncating one search at
+    // the other's answer is not that rule.
+    const UiHoverStyle*          nearest = nullptr;
+    bool                         hovered = false;
+    mosaic::foundation::EntityID at      = e;
+
+    for (int step = 0; step <= kMaxAncestors; ++step)
     {
+        // Defence in depth, not the thing that makes this safe: World::get_component defers
+        // to ComponentRegistry::get, which begins with its OWN is_valid check and returns
+        // nullptr for a nil or stale id. (Below that, SparseSet::position_of also compares
+        // the full 64-bit EntityID, and generations start at 1, so the nil handle can never
+        // match a live entity even in slot 0.) Verified by a mutation probe: removing this
+        // changes no observable behaviour. It stays because it states the precondition
+        // locally and costs one branch -- a reader should not believe it is load-bearing.
         if (!world.is_valid(at))
         {
-            return nullptr;
+            break;
         }
-        // The nearest style wins, so only record the first one found going up.
+        // The nearest style wins, so only the first one found going up is recorded.
         if (nearest == nullptr)
         {
             if (const UiHoverStyle* s = world.get_component<UiHoverStyle>(at))
@@ -87,26 +112,23 @@ inline const UiHoverStyle* active_hover_style(mosaic::engine::World& world,
                 nearest = s;
             }
         }
-        // A tag anywhere at or above the element means hovered. Found one -> the style
-        // recorded so far (possibly none) is the answer.
+        // A tag anywhere at or above the element means hovered. Noted, not returned on:
+        // the style search must keep climbing past it.
         if (world.get_component<UiHovered>(at) != nullptr)
         {
-            return nearest;
+            hovered = true;
         }
         const UiParent* up = world.get_component<UiParent>(at);
         if (up == nullptr)
         {
-            return nullptr; // top of the chain, and nothing was hovered
+            break; // top of the chain
         }
-        at = up->parent; // may be nil or stale
-        // The is_valid check at the top of the loop is defence in depth rather than the
-        // thing that makes this safe: get_component already returns nullptr for a nil or
-        // stale id, because the sparse set compares the FULL EntityID including its
-        // generation. Verified by a mutation probe -- removing is_valid changes no
-        // observable behaviour. It stays because it states the precondition locally and
-        // costs one branch, but a reader should not believe it is load-bearing.
+        at = up->parent; // may be nil or stale; the check at the top of the loop handles it
     }
-    return nullptr; // cap exhausted: fail closed rather than guess
+
+    // Hovering is not itself a visual state: a hovered chain with no style anywhere returns
+    // nullptr, so a button without a style looks normal.
+    return hovered ? nearest : nullptr;
 }
 
 // Apply `style` to an authored colour and alpha. nullptr -> unchanged.

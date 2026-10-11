@@ -438,7 +438,10 @@ TEST_CASE("a saved scene contains no UiHovered even while hovering", "[ui][input
     mosaic::engine::reflection::register_builtin_components(registry, types);
     const auto value = mosaic::engine::scene::to_value(h.world, types);
 
-    // Cheapest total check: the serialized form must not mention the type name anywhere.
     const std::string text = mosaic::foundation::serialization::to_json(value);
+    // POSITIVE CONTROL FIRST. Without it, `find(...) == npos` is satisfied by any output
+    // that lacks the string -- including empty output -- so a regression in to_value or
+    // to_json would leave this test passing while claiming to have verified the trap.
+    REQUIRE(text.find("UiButton") != std::string::npos);
     REQUIRE(text.find("UiHovered") == std::string::npos);
 }

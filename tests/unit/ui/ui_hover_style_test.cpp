@@ -244,6 +244,40 @@ TEST_CASE("a UiParent cycle terminates instead of recursing forever", "[ui][hove
     REQUIRE(active_hover_style(world, a) == nullptr);
 }
 
+TEST_CASE("a style above the hovered entity still governs it", "[ui][hover]")
+{
+    // The configuration every other inheritance case fails to distinguish: the tag and the
+    // style on DIFFERENT entities, with the style ABOVE the tag.
+    //
+    // Only UiButton is hit-testable, so the tag always lands on the button. An author's
+    // first instinct is to put the style on the containing panel -- and before this was
+    // fixed, that silently did nothing at all: the walk returned the moment it saw the tag,
+    // so a style one level further up was never looked for.
+    //
+    // The spec's rule is "the nearest UiHoverStyle found ON THE WAY UP", with hovered-ness
+    // coming from a tag anywhere at or above. Both searches run over the whole chain; only
+    // their answers are combined.
+    World world;
+    const auto panel = world.create_entity();
+    UiHoverStyle s;
+    s.alpha_scale = 0.3f;
+    world.add_component<UiPanel>(panel, UiPanel{});
+    world.add_component<UiHoverStyle>(panel, s); // style on the CONTAINER
+
+    const auto button = world.create_entity();
+    world.add_component<UiPanel>(button, UiPanel{});
+    world.add_component<UiParent>(button, UiParent{panel});
+    world.add_component<UiHovered>(button, UiHovered{}); // tag on the CHILD
+
+    const UiHoverStyle* got = active_hover_style(world, button);
+    REQUIRE(got != nullptr);
+    REQUIRE(got->alpha_scale == Approx(0.3f));
+
+    // And the container itself is NOT styled: its own chain reaches no tag, because the
+    // walk only ever goes up. A hovered child does not highlight its parent.
+    REQUIRE(active_hover_style(world, panel) == nullptr);
+}
+
 TEST_CASE("a style inside the cap with no tag anywhere yields no style", "[ui][hover]")
 {
     // Found by a mutation probe that produced NO red: changing the cap-exhausted return
@@ -267,6 +301,36 @@ TEST_CASE("a style inside the cap with no tag anywhere yields no style", "[ui][h
     // chain.back() is the bottom; walking up, this is 2 links away and inside the cap.
     world.add_component<UiHoverStyle>(chain[17], UiHoverStyle{});
     REQUIRE(active_hover_style(world, chain.back()) == nullptr);
+}
+
+TEST_CASE("a style eleven links up is still found", "[ui][hover]")
+{
+    // Constrains the depth cap DOWNWARD, which nothing else did: a probe lowering
+    // kMaxAncestors from 16 to 3 passed the entire suite. Every other case is either depth
+    // <= 1 or deeper than the cap and expecting nullptr, so the constant's value was
+    // unconstrained in the direction that matters.
+    //
+    // It matters because a shallow cap breaks inheritance in hierarchies people really
+    // build -- panel > row > group > label is already depth 3 -- and the failure is silent:
+    // the style simply stops applying past some depth, with nothing to indicate why.
+    World world;
+    std::vector<mosaic::foundation::EntityID> chain;
+    for (int i = 0; i < 12; ++i)
+    {
+        const auto e = world.create_entity();
+        world.add_component<UiPanel>(e, UiPanel{});
+        if (!chain.empty()) { world.add_component<UiParent>(e, UiParent{chain.back()}); }
+        chain.push_back(e);
+    }
+    UiHoverStyle s;
+    s.alpha_scale = 0.4f;
+    world.add_component<UiHoverStyle>(chain.front(), s);
+    world.add_component<UiHovered>(chain.front(), UiHovered{});
+
+    // chain.back() is eleven links below the styled, hovered root.
+    const UiHoverStyle* got = active_hover_style(world, chain.back());
+    REQUIRE(got != nullptr);
+    REQUIRE(got->alpha_scale == Approx(0.4f));
 }
 
 TEST_CASE("a chain deeper than the cap yields no style", "[ui][hover]")
