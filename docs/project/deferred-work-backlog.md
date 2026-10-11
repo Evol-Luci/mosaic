@@ -447,13 +447,62 @@ them as this list does.
   thing. ~~Deferred because the fix is not obvious: a validation pass that warns on an
   overlapping button/visual pair whose orders disagree needs a definition of "belongs to"
   that does not exist yet (`UiParent` is a transform hierarchy, not an ownership one).~~
-  **UNBLOCKED 2026-10-10.** The ownership rule is now stated (see the `UiHoverStyle` item):
+  ~~**UNBLOCKED 2026-10-10.** The ownership rule is now stated (see the `UiHoverStyle` item):
   a button owns the UI components on its **own entity**. So the check is concrete — an entity
   carrying both a `UiButton` and a `UiPanel`/`UiImage`/`UiText` whose `order` values differ —
-  and needs no new relation. Still held back from the hover slice deliberately, because it is
-  a **diagnostic** rather than a rendering feature, and bundling a warning system into a
-  rendering diff is how a reviewer loses track of which half to scrutinise. Cheapest useful
-  version is still an editor-time warning rather than a runtime one.
+  and needs no new relation.~~ **SHIPPED 2026-10-11 as a button-vs-`UiPanel` lint**, and the
+  "`UiPanel`/`UiImage`/`UiText`" framing above turned out to be **wrong in two of its three
+  parts**. `engine/ui/ui_order_check.hpp`'s `find_order_disagreements` compares a `UiButton`'s
+  `order` against the `UiPanel` on its own entity only; `studio/order_warnings.hpp`'s
+  `OrderWarningModel` de-duplicates so an every-frame check warns on the transition; the
+  editor frame loop logs `log::warn("ui", ...)` into the Console panel. Still held back from
+  the hover slice deliberately, because it is a **diagnostic** rather than a rendering
+  feature, and bundling a warning system into a rendering diff is how a reviewer loses track
+  of which half to scrutinise. **It is a heuristic lint, not a correctness check** — see the
+  reframing item below.
+- **The REAL `order` bug is pairwise and relative, not per-entity and absolute** — found
+  2026-10-11 while building the lint above, which is why that lint is honest about being a
+  heuristic. A single button in a scene cannot misroute a click whatever its `order` says: the
+  failure needs **two overlapping buttons**, where A's `UiButton::order` ranks above B's while
+  A's `UiPanel::order` ranks below B's, so the click goes to A and the user sees B on top. The
+  shipped lint catches the authoring slip that bug grows from (editing a panel's order and
+  forgetting its button), which is cheap; the real check needs resolved-rect overlap testing
+  between every pair of buttons, the screen aspect, and is O(n²) over buttons. **Deferred
+  because it is a different and much larger piece of work** than the recorded item asked for,
+  and the cheap lint plausibly prevents most instances. **Depends on** nothing new —
+  `resolve_ui_rect` already exists — so this is a scoping decision, not a blocker.
+- **`UiImage::order` and `UiText::order` are ignored by the renderer entirely** — confirmed
+  2026-10-11 by reading `engine/render/render_system.hpp`'s three HUD passes. They are fixed
+  and sequential (panels, then images over panels, then text over both) and **only the panel
+  pass `stable_sort`s**. So a `UiText` is above a `UiPanel` unconditionally, whatever either
+  `order` says, and both fields are reflected, documented and inert. This is **why the lint
+  above compares panels only**: an earlier version compared all three and fired on the shipped
+  demo, whose `camera` entity carries `UiPanel{0}`, `UiImage{0}` and `UiText{1}` — a finding
+  **no button order could have silenced**, because those three do not agree with each other
+  either. The 🟢 quick win "Sort the HUD image pass by `UiImage::order`" is half of the fix;
+  the text pass needs the same treatment and is **not** currently tracked as a quick win.
+  Until both land, any cross-pass `order` comparison is meaningless.
+- **A button overlaying a `UiPanel` on a DIFFERENT entity is invisible to the lint** — the
+  deliberate blind spot of the entity-identity ownership rule, recorded 2026-10-11 rather than
+  left implicit. Detecting it needs the same rect-overlap analysis as the pairwise check above,
+  so the two are **one piece of work**, not two.
+- **The demo scene undercuts the ownership rule's evidence base** — noticed 2026-10-11. The
+  hover slice cited "the shipped template's entity 8 carries `UiButton` + `UiImage` + `UiPanel`
+  + `UiText` together" as proof that co-location means ownership. But `app/run/demo_scene.hpp`
+  piles the unrelated "MOSAIC" title and the checker `UiImage` onto the `camera` entity purely
+  for convenience — they are not part of the HUD button in any sense a user would recognise.
+  **Co-location is not always ownership**, so the rule is a convention the repository happens
+  to follow, not an invariant the data enforces. Deferred because nothing breaks today: the
+  shipped lint reads only `UiPanel`, which on that entity genuinely is the button's visual.
+  Worth revisiting before any feature leans harder on "the components on a button's entity".
+- **`int` fields are read-only in the Inspector (no `field_int`)** — recorded 2026-10-11.
+  `ImGuiFieldVisitor` (`studio/inspector.hpp`) implements `field_float`, `field_string`,
+  `field_asset` and `field_readonly` only, so every `order`, `anchor` and `fit_mode` renders as
+  a label. **This makes the new lint's advice unactionable inside the editor**: a user reads
+  "UiButton order 7 but UiPanel order 0" in the Console and then has to go and edit the scene
+  file or write a script, because the field the warning names cannot be typed into. Cheap on
+  the existing visitor machinery — one `field_int` override plus a `DragInt` — and it is the
+  natural companion to the lint rather than part of it.
 - ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
   atlas sub-rects. Independent of everything else and the cheapest real group.~~
   **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
@@ -2151,7 +2200,8 @@ note set for re-deriving at all.
 |---|---|
 | **Tighten the "position starts past the edge" test to exact values** | Two `REQUIRE`s change from bounds to `u0 == u1 == 1.0`, plus a `v`-axis pair that is currently absent. The real work is finding a clamp mutation that is **defined** rather than UB — the obvious one calls `std::clamp` with `lo > hi` — so expect the thinking to be in choosing the probe, not writing the assertions. |
 | **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
-| **Sort the HUD image pass by `UiImage::order`** | The panel pass already does it, so this is a copy of a shipped loop onto a sibling path. `order` is already reflected, documented, and ignored — which is the worst of the three states. |
+| **Sort the HUD image pass by `UiImage::order`** | The panel pass already does it, so this is a copy of a shipped loop onto a sibling path. `order` is already reflected, documented, and ignored — which is the worst of the three states. **Re-rated 2026-10-11: the TEXT pass needs the same fix**, confirmed by reading all three HUD passes while building the order lint. Do both in one slice; doing only the image half leaves exactly the same inconsistency one component over. |
+| **An Inspector `field_int` (`DragInt`)** | Surfaced 2026-10-11 by the order lint, whose advice names a field the editor cannot edit. One override on `ImGuiFieldVisitor` alongside the existing `field_float`, and `order`/`anchor`/`fit_mode` stop being read-only labels. The work is choosing whether an `anchor` or a `fit_mode` should really be a free int rather than a combo box — which is a reason to ship the plain `DragInt` first, not a reason to defer. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 

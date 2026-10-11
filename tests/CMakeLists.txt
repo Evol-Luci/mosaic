@@ -114,6 +114,7 @@ add_executable(mosaic_unit_tests
   unit/studio/viewport_test.cpp
   unit/studio/play_state_test.cpp
   unit/studio/scene_file_test.cpp
+  unit/studio/order_warnings_test.cpp
   unit/studio/console_test.cpp
   unit/studio/script_console_test.cpp
   unit/studio/script_editor_test.cpp
@@ -174,6 +175,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_rect_test.cpp
   unit/ui/ui_fit_test.cpp
   unit/ui/ui_hit_test.cpp
+  unit/ui/ui_order_check_test.cpp
   unit/ui/ui_hover_style_test.cpp
   unit/ui/ui_hover_style_reflection_test.cpp
   unit/ui/ui_hierarchy_test.cpp
