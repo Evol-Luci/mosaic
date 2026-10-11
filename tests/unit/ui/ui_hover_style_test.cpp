@@ -244,6 +244,31 @@ TEST_CASE("a UiParent cycle terminates instead of recursing forever", "[ui][hove
     REQUIRE(active_hover_style(world, a) == nullptr);
 }
 
+TEST_CASE("a style inside the cap with no tag anywhere yields no style", "[ui][hover]")
+{
+    // Found by a mutation probe that produced NO red: changing the cap-exhausted return
+    // from nullptr to `nearest` left the whole suite green, because the only deep-chain case
+    // put the style ABOVE the cap, where `nearest` is null either way.
+    //
+    // This is the input that distinguishes them: a 20-link chain whose style sits two links
+    // up -- well inside the cap -- with no UiHovered anywhere. Correct code exhausts the cap
+    // and returns nullptr. The mutant returns the style it happened to collect, which styles
+    // an element while nothing is hovered at all: a permanently highlighted element, which
+    // looks deliberate and so never gets reported.
+    World world;
+    std::vector<mosaic::foundation::EntityID> chain;
+    for (int i = 0; i < 20; ++i)
+    {
+        const auto e = world.create_entity();
+        world.add_component<UiPanel>(e, UiPanel{});
+        if (!chain.empty()) { world.add_component<UiParent>(e, UiParent{chain.back()}); }
+        chain.push_back(e);
+    }
+    // chain.back() is the bottom; walking up, this is 2 links away and inside the cap.
+    world.add_component<UiHoverStyle>(chain[17], UiHoverStyle{});
+    REQUIRE(active_hover_style(world, chain.back()) == nullptr);
+}
+
 TEST_CASE("a chain deeper than the cap yields no style", "[ui][hover]")
 {
     // 20 links with the hovered, styled entity at the TOP: beyond the cap of 16, so the

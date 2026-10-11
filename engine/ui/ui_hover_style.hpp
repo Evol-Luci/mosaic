@@ -98,7 +98,13 @@ inline const UiHoverStyle* active_hover_style(mosaic::engine::World& world,
         {
             return nullptr; // top of the chain, and nothing was hovered
         }
-        at = up->parent; // may be nil or stale; the is_valid check above catches both
+        at = up->parent; // may be nil or stale
+        // The is_valid check at the top of the loop is defence in depth rather than the
+        // thing that makes this safe: get_component already returns nullptr for a nil or
+        // stale id, because the sparse set compares the FULL EntityID including its
+        // generation. Verified by a mutation probe -- removing is_valid changes no
+        // observable behaviour. It stays because it states the precondition locally and
+        // costs one branch, but a reader should not believe it is load-bearing.
     }
     return nullptr; // cap exhausted: fail closed rather than guess
 }

@@ -387,8 +387,15 @@ them as this list does.
   hover to treat "outside" as hovering nothing. That widening is the same one U9 needs for
   wheel and multi-button, so it should be done once. Papering over it with a timeout inside
   `UiSystem` was considered and rejected: it would make hover depend on frame timing.
-- **Engine-rendered hover visuals (a `UiHoverStyle` component)** — **UNBLOCKED and specified
-  2026-10-10**: `docs/superpowers/specs/2026-10-10-ui-hover-ownership-design.md`. The blocker
+- ~~**Engine-rendered hover visuals (a `UiHoverStyle` component)**~~ — **SHIPPED 2026-10-10.**
+  `UiHoverStyle` (authored, reflected) multiplies an element's colour and alpha while
+  hovered; `UiHovered` (runtime, deliberately **unregistered**) marks the hovered entity;
+  `active_hover_style` walks up the `UiParent` chain and `resolve_appearance` does the
+  multiply and clamp; the three UI render passes apply it as a **render-time override** so
+  nothing mutates the authored values. The demo now authors a style instead of running a
+  script, and its nested "HP" label inherits the style from the bar it is parented to.
+  **Still open:** the `order`-disagreement item below, which this slice unblocked but
+  deliberately did not take. Originally recorded as **UNBLOCKED and specified 2026-10-10**: `docs/superpowers/specs/2026-10-10-ui-hover-ownership-design.md`. The blocker
   turned out to be a non-problem. **The ownership relation already existed as entity
   identity:** every button in the repository shares an entity with its visuals (the shipped
   template's entity 8 carries `UiButton` + `UiImage` + `UiPanel` + `UiText`; the demo puts
