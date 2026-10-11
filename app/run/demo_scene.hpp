@@ -25,6 +25,7 @@
 #include "engine/vfx/trail_system.hpp"
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/ui/ui_fit.hpp"
+#include "engine/ui/ui_hover_style.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
@@ -307,43 +308,6 @@ inline RuntimeScene setup_runtime(
             if (action == nullptr || !action->is<std::string>()) { return; }
             if (action->as<std::string>() != "click") { return; }
             mosaic::foundation::log::info("ui", "HUD button clicked");
-        });
-
-    // Demo: brighten the HUD bar while the pointer is over its button, which is the only
-    // thing that makes U6's hover events visible -- the engine renders no hover feedback
-    // of its own, by design.
-    //
-    // DEFERRED, not synchronous. A synchronous handler runs inside UiSystem::update while
-    // `world.for_each<UiButton>` is on the stack, and this one MUTATES a component. A
-    // different component type is safe today, but the deferred discipline exists precisely
-    // to remove that reentrancy hazard, and one tick of latency on a hover tint is
-    // imperceptible.
-    world.events().subscribe_deferred<mosaic::engine::script::ScriptEvent>(
-        [&world](const mosaic::engine::script::ScriptEvent& e)
-        {
-            if (e.name != "hud_click") { return; }
-            namespace ser = mosaic::foundation::serialization;
-            if (!e.payload.is<ser::Table>()) { return; }
-            const auto& table = e.payload.as<ser::Table>();
-            const auto* action = table.find("action");
-            if (action == nullptr || !action->is<std::string>()) { return; }
-            const bool enter = (action->as<std::string>() == "hover_enter");
-            const bool exit  = (action->as<std::string>() == "hover_exit");
-            if (!enter && !exit) { return; }
-            const auto* ent = table.find("entity");
-            if (ent == nullptr || !ent->is<std::uint64_t>()) { return; }
-            // The HUD button and its UiPanel are the SAME entity in this scene, so the
-            // payload's entity id addresses the panel directly -- no button-to-visual
-            // relationship is needed or implied.
-            //
-            // EntityID's single-argument ctor takes the RAW 64-bit handle, which is exactly
-            // what the emitter wrote, so it round-trips index AND generation. Rebuilding it
-            // from a truncated 32-bit index would produce a generation-0 handle that
-            // matches nothing.
-            auto* panel = world.get_component<mosaic::engine::ui::UiPanel>(
-                mosaic::foundation::EntityID{ent->as<std::uint64_t>()});
-            if (panel == nullptr) { return; }
-            panel->alpha = enter ? 0.9f : 0.6f;
         });
 
     auto register_texture = [&](mosaic::foundation::serialization::AssetID id, auto&& pixel_fn)
@@ -714,6 +678,24 @@ inline void build_default_scene(mosaic::engine::World& world)
             static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
             mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
             Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
+
+    // Hover feedback, now RENDERED BY THE ENGINE rather than scripted. The HUD bar's panel,
+    // button and style all live on this one entity, which IS the ownership rule: a button
+    // owns the UI components on its own entity.
+    //
+    // This replaces a deferred subscriber that assigned panel->alpha directly. That worked,
+    // and it was the wrong pattern to ship as the example: it destroyed the authored alpha,
+    // relied on the exit event arriving to restore it, and a scene saved while hovering
+    // would have persisted the hover tint into the file.
+    //
+    // 1.4x brightens the blue bar noticeably without clipping it, and lifts alpha 0.6 ->
+    // 0.84 so the whole bar firms up rather than just changing colour. The nested "HP" label
+    // is parented to this entity, so it INHERITS this style and brightens with the bar --
+    // the ownership rule visible by eye.
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(camera,
+        mosaic::engine::ui::UiHoverStyle{
+            .tint        = mosaic::foundation::math::Vec3{1.4f, 1.4f, 1.4f},
+            .alpha_scale = 1.4f});
 
     world.add_component<mosaic::engine::ui::UiButton>(camera,
         // Designated, so a future field cannot silently re-bind this the way adding fields

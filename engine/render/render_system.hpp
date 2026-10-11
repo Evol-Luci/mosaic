@@ -33,6 +33,7 @@
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_fit.hpp"
+#include "engine/ui/ui_hover_style.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/ui/world_text.hpp"
@@ -420,7 +421,13 @@ public:
                     if (p.alpha <= 0.0f) { return; }
                     const auto rect = mosaic::engine::ui::resolve_ui_rect(
                         world, e, to_anchor(p.anchor), p.pos, p.size);
-                    pending.push_back({p.order, UiQuad{rect, p.color, p.alpha}});
+                    // Hover feedback is a render-time override: nothing writes to p.color,
+                    // so the authored value survives and a scene saved while hovering
+                    // carries no hover tint. The early-out above stays on the AUTHORED
+                    // alpha -- 0 means hidden, and a style must not reveal it.
+                    const auto app = mosaic::engine::ui::resolve_appearance(
+                        mosaic::engine::ui::active_hover_style(world, e), p.color, p.alpha);
+                    pending.push_back({p.order, UiQuad{rect, app.color, app.alpha}});
                 });
             std::stable_sort(pending.begin(), pending.end(),
                              [](const auto& l, const auto& r) { return l.first < r.first; });
@@ -452,9 +459,11 @@ public:
                     const auto q = mosaic::engine::ui::resolve_image_quad(
                         info.width, info.height, rect, aspect_, im.sub_rect_pos,
                         im.sub_rect_size, im.fit_mode);
+                    const auto app = mosaic::engine::ui::resolve_appearance(
+                        mosaic::engine::ui::active_hover_style(world, e), im.tint, im.alpha);
                     device.draw_ui_image(
                         std::vector<UiImageQuad>{
-                            UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, im.tint, im.alpha}},
+                            UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color, app.alpha}},
                         info.handle);
                 });
         }
@@ -472,10 +481,12 @@ public:
                     if (atlas == 0) { return; }
                     const mosaic::engine::ui::Rect frame =
                         mosaic::engine::ui::resolve_parent_frame(world, e);
+                    const auto app = mosaic::engine::ui::resolve_appearance(
+                        mosaic::engine::ui::active_hover_style(world, e), t.color, t.alpha);
                     const std::vector<mosaic::engine::ui::TextQuad> tq =
                         mosaic::engine::ui::layout_text(*font, t.text, to_anchor(t.anchor),
-                                                        t.pos, t.height, aspect_, t.color, t.alpha,
-                                                        frame);
+                                                        t.pos, t.height, aspect_,
+                                                        app.color, app.alpha, frame);
                     if (tq.empty()) { return; }
                     std::vector<UiGlyphQuad> quads;
                     quads.reserve(tq.size());

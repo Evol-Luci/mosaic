@@ -6,6 +6,11 @@
 
 #include "engine/script/script_event.hpp"
 #include "engine/ui/pointer.hpp"
+#include "engine/reflection/builtin_components.hpp"
+#include "engine/scene/scene.hpp"
+#include "engine/ui/ui_hover_style.hpp"
+#include "foundation/reflection/type_registry.hpp"
+#include "foundation/serialization/json_backend.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "engine/world/world.hpp"
@@ -359,4 +364,84 @@ TEST_CASE("a provider reporting no pointer emits no hover for a button at the or
     world.tick(0.016f);
     world.tick(0.016f);
     REQUIRE(events.empty());
+}
+
+TEST_CASE("the hovered button carries a UiHovered tag", "[ui][input]")
+{
+    Harness h;
+    REQUIRE_FALSE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick(); // hover it
+    REQUIRE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+
+    h.ptr = {0.9f, 0.9f, false};   h.tick(); // leave
+    REQUIRE_FALSE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+}
+
+TEST_CASE("only the topmost of two overlapping buttons is tagged", "[ui][input]")
+{
+    // The tag must follow the SAME resolution the click does, or an element would highlight
+    // while a different one answered the click -- the UI lying rather than a bug.
+    Harness h;
+    const auto top = h.add_overlapping(5, "on_top");
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    REQUIRE(h.world.has_component<mosaic::engine::ui::UiHovered>(top));
+    REQUIRE_FALSE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+}
+
+TEST_CASE("moving between buttons moves the tag", "[ui][input]")
+{
+    // Two non-overlapping buttons, so one pointer move crosses from one into the other. The
+    // tag must come OFF the first in the same update it goes onto the second; a hover_exit
+    // that forgets the removal leaves two elements highlighted at once.
+    Harness h;
+    const auto e = h.world.create_entity();
+    UiButton b;
+    b.anchor = 0; b.pos = Vec2{0.5f, 0.5f}; b.size = Vec2{0.2f, 0.2f};
+    b.event = "second";
+    h.world.add_component<UiButton>(e, b);
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    h.ptr = {0.55f, 0.55f, false}; h.tick();
+
+    REQUIRE(h.world.has_component<mosaic::engine::ui::UiHovered>(e));
+    REQUIRE_FALSE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+}
+
+TEST_CASE("a button that loses its UiButton while hovered leaves no stale tag",
+          "[ui][input]")
+{
+    // Extends the U6 edge case. The hover_exit EVENT is deliberately silent there, because
+    // the channel name lived on the component that is gone -- but the TAG must still come
+    // off, or the element stays highlighted forever with nothing able to clear it.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    REQUIRE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+
+    h.world.remove_component<UiButton>(h.button);
+    h.tick();
+    REQUIRE_FALSE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+}
+
+TEST_CASE("a saved scene contains no UiHovered even while hovering", "[ui][input]")
+{
+    // The persistence trap, asserted end to end rather than trusted to the missing
+    // registration line: serialize a world WHILE an element is hovered and confirm the
+    // marker does not appear in the output.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    REQUIRE(h.world.has_component<mosaic::engine::ui::UiHovered>(h.button));
+
+    mosaic::foundation::reflection::TypeRegistry    registry;
+    mosaic::engine::reflection::ComponentReflection types;
+    mosaic::engine::reflection::register_builtin_components(registry, types);
+    const auto value = mosaic::engine::scene::to_value(h.world, types);
+
+    const std::string text = mosaic::foundation::serialization::to_json(value);
+    // POSITIVE CONTROL FIRST. Without it, `find(...) == npos` is satisfied by any output
+    // that lacks the string -- including empty output -- so a regression in to_value or
+    // to_json would leave this test passing while claiming to have verified the trap.
+    REQUIRE(text.find("UiButton") != std::string::npos);
+    REQUIRE(text.find("UiHovered") == std::string::npos);
 }

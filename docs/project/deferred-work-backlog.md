@@ -387,9 +387,25 @@ them as this list does.
   hover to treat "outside" as hovering nothing. That widening is the same one U9 needs for
   wheel and multi-button, so it should be done once. Papering over it with a timeout inside
   `UiSystem` was considered and rejected: it would make hover depend on frame timing.
-- **Engine-rendered hover visuals (a `UiHoverStyle` component)** — considered and rejected
-  for U6 on 2026-10-10, in favour of hover *events* that a script reacts to. **Why
-  deferred:** it needs a button→visual **ownership** relationship that does not exist.
+- ~~**Engine-rendered hover visuals (a `UiHoverStyle` component)**~~ — **SHIPPED 2026-10-10.**
+  `UiHoverStyle` (authored, reflected) multiplies an element's colour and alpha while
+  hovered; `UiHovered` (runtime, deliberately **unregistered**) marks the hovered entity;
+  `active_hover_style` walks up the `UiParent` chain and `resolve_appearance` does the
+  multiply and clamp; the three UI render passes apply it as a **render-time override** so
+  nothing mutates the authored values. The demo now authors a style instead of running a
+  script, and its nested "HP" label inherits the style from the bar it is parented to.
+  **Still open:** the `order`-disagreement item below, which this slice unblocked but
+  deliberately did not take. Originally recorded as **UNBLOCKED and specified 2026-10-10**: `docs/superpowers/specs/2026-10-10-ui-hover-ownership-design.md`. The blocker
+  turned out to be a non-problem. **The ownership relation already existed as entity
+  identity:** every button in the repository shares an entity with its visuals (the shipped
+  template's entity 8 carries `UiButton` + `UiImage` + `UiPanel` + `UiText`; the demo puts
+  `UiButton` on the `camera` entity that already holds the HUD `UiPanel`), with no
+  counter-example anywhere. The convention was in the data and had simply never been written
+  down. The stated rule is now "the element's own entity, or its nearest `UiParent`
+  ancestor", resolved by walking **up** — `UiParent` points upward, so finding descendants
+  would have meant scanning every entity. Original reasoning kept below, because it was wrong
+  in an instructive way. **Why it was deferred:** it needs a button→visual **ownership**
+  relationship that does not exist.
   `UiButton` is deliberately non-visual and `UiParent` is a *transform* hierarchy, not an
   ownership one, so "tint the thing this button looks like" has no definition today. It
   would also put interaction state into the render path, which has so far been kept free of
@@ -399,6 +415,23 @@ them as this list does.
   behaviour is visible, but that is a demonstration, not a default. **Depends on** settling
   UI ownership, which is also what the `order`-disagreement item below needs — they are
   likely one piece of work.
+- **An absolute hover colour, rather than a multiplier** — non-goal of the hover slice,
+  2026-10-10. `UiHoverStyle` multiplies the authored colour and alpha, because `{1,1,1}` and
+  `1.0` make a default-constructed style an exact no-op and one style then composes across
+  differently-coloured elements. The cost is that hover cannot be a *specific* colour
+  ("highlight to exactly this blue"), only a scaling of what was authored. Deferred because an
+  absolute override needs an extra "is set" flag to stay safely default-constructable, plus a
+  precedence rule against the multiplier — cheap on this machinery, and wanted by nothing yet.
+- **Pressed and disabled visual states** — non-goal of the hover slice, 2026-10-10. The same
+  mechanism would serve them: a runtime tag plus an authored style. Deferred because each
+  needs its own decision about **precedence when several apply at once** (hovered *and*
+  pressed, disabled overriding both), and that ordering question is the actual work rather
+  than the components. **Depends on** nothing; the hover slice establishes the pattern.
+- **Hover transitions or easing** — non-goal of the hover slice, 2026-10-10. Hover is
+  instantaneous: the style applies on the frame the tag appears. Animating it needs a
+  per-element clock the UI subsystem does not have, which is a larger addition than the fade
+  itself. Not to be confused with the particle system's existing over-life easing curves,
+  which are unrelated machinery.
 - **Hover (and hit-testing) on non-button UI components** — `UiPanel`, `UiImage` and
   `UiText` are not hit-testable at all; only `UiButton` is. Deferred from U6 on 2026-10-10
   because making them interactive opens a larger question this slice should not answer:
@@ -411,10 +444,16 @@ them as this list does.
   rather than a note. `UiButton` carries its own `order` for hit-testing while the panel or
   image a user *sees* carries an independent one, so a button can claim to be on top of a
   visual that is drawn underneath it, and the only symptom is a click landing on the wrong
-  thing. Deferred because the fix is not obvious: a validation pass that warns on an
+  thing. ~~Deferred because the fix is not obvious: a validation pass that warns on an
   overlapping button/visual pair whose orders disagree needs a definition of "belongs to"
-  that does not exist yet (`UiParent` is a transform hierarchy, not an ownership one).
-  Cheapest useful version is probably an editor-time warning, not a runtime one.
+  that does not exist yet (`UiParent` is a transform hierarchy, not an ownership one).~~
+  **UNBLOCKED 2026-10-10.** The ownership rule is now stated (see the `UiHoverStyle` item):
+  a button owns the UI components on its **own entity**. So the check is concrete — an entity
+  carrying both a `UiButton` and a `UiPanel`/`UiImage`/`UiText` whose `order` values differ —
+  and needs no new relation. Still held back from the hover slice deliberately, because it is
+  a **diagnostic** rather than a rendering feature, and bundling a warning system into a
+  rendering diff is how a reviewer loses track of which half to scrutinise. Cheapest useful
+  version is still an editor-time warning rather than a runtime one.
 - ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
   atlas sub-rects. Independent of everything else and the cheapest real group.~~
   **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained

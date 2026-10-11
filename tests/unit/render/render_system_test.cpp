@@ -36,6 +36,7 @@
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_hover_style.hpp"
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/world_label.hpp"
 #include "foundation/math/mat4.hpp"
@@ -1776,4 +1777,200 @@ TEST_CASE("RenderSystem forwards a pixel sub-rect as UVs", "[render]")
     REQUIRE(q.v0 == Approx(0.25f));  // 16/64
     REQUIRE(q.u1 == Approx(0.375f)); // 48/128
     REQUIRE(q.v1 == Approx(0.75f));  // 48/64
+}
+
+TEST_CASE("a panel with no hover style emits its authored colour", "[render]")
+{
+    // The migration guarantee at the seam. Nothing in the repository has a UiHoverStyle, so
+    // every existing HUD takes this path and must be byte-identical.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiPanel p;
+    p.color = Vec3{0.4f, 0.5f, 0.6f};
+    p.alpha = 0.5f;
+    world.add_component<mosaic::engine::ui::UiPanel>(e, p);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    // ui_draws is a vector OF vectors of UiQuad -- not draw-call structs with a `.quads`
+    // member, unlike ui_image_draws and ui_text_draws. Existing cases use .front().
+    const auto& q = device.ui_draws.front().at(0);
+    REQUIRE(q.color.x == Approx(0.4f));
+    REQUIRE(q.alpha == Approx(0.5f));
+}
+
+TEST_CASE("a hovered panel emits the multiplied colour and alpha", "[render]")
+{
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiPanel p;
+    p.color = Vec3{0.4f, 0.5f, 0.6f};
+    p.alpha = 0.5f;
+    world.add_component<mosaic::engine::ui::UiPanel>(e, p);
+    mosaic::engine::ui::UiHoverStyle s;
+    s.tint = Vec3{2.0f, 1.0f, 0.5f};
+    s.alpha_scale = 1.2f;
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(e, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(e, mosaic::engine::ui::UiHovered{});
+
+    rs.render(world, device, registry);
+
+    const auto& q = device.ui_draws.front().at(0);
+    REQUIRE(q.color.x == Approx(0.8f)); // 0.4 * 2.0
+    REQUIRE(q.color.y == Approx(0.5f)); // 0.5 * 1.0
+    REQUIRE(q.color.z == Approx(0.3f)); // 0.6 * 0.5
+    REQUIRE(q.alpha == Approx(0.6f));   // 0.5 * 1.2
+}
+
+TEST_CASE("only the hovered one of two styled panels is highlighted", "[render]")
+{
+    // Review focus 4. The natural wrong implementations -- "a style exists" or "anything is
+    // hovered" -- highlight both, and with one element on screen that looks correct.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    mosaic::engine::ui::UiHoverStyle s;
+    s.alpha_scale = 0.5f;
+
+    const auto hovered = world.create_entity();
+    mosaic::engine::ui::UiPanel a;
+    a.alpha = 1.0f; a.order = 0;
+    world.add_component<mosaic::engine::ui::UiPanel>(hovered, a);
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(hovered, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(hovered,
+                                                       mosaic::engine::ui::UiHovered{});
+
+    const auto plain = world.create_entity();
+    mosaic::engine::ui::UiPanel b;
+    b.alpha = 1.0f; b.order = 1; // drawn after, so it is the LAST quad
+    world.add_component<mosaic::engine::ui::UiPanel>(plain, b);
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(plain, s);
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws.front();
+    REQUIRE(quads.size() == 2);
+    REQUIRE(quads.front().alpha == Approx(0.5f)); // hovered -> styled
+    REQUIRE(quads.back().alpha == Approx(1.0f));  // not hovered -> authored
+}
+
+TEST_CASE("a hover style never reveals a hidden panel", "[render]")
+{
+    // alpha 0 means hidden, and the early-out stays on the AUTHORED alpha so a style cannot
+    // override that. A resolved-alpha early-out would make an invisible element appear on
+    // hover, which reads as a rendering glitch rather than as a style.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiPanel p;
+    p.alpha = 0.0f; // hidden
+    world.add_component<mosaic::engine::ui::UiPanel>(e, p);
+    mosaic::engine::ui::UiHoverStyle s;
+    s.alpha_scale = 100.0f; // would clamp to 1 if it were applied
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(e, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(e, mosaic::engine::ui::UiHovered{});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.empty());
+}
+
+TEST_CASE("a child UiText inherits its hovered ancestor's style", "[render]")
+{
+    // The inheritance no pure test can see: it is the PASS's lookup that walks the chain.
+    // This is the demo's exact shape -- a hovered panel with a label parented to it.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const AssetID font = register_font(registry);
+
+    const auto panel = world.create_entity();
+    mosaic::engine::ui::UiPanel p;
+    p.alpha = 1.0f;
+    world.add_component<mosaic::engine::ui::UiPanel>(panel, p);
+    mosaic::engine::ui::UiHoverStyle s;
+    s.alpha_scale = 0.5f;
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(panel, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(panel,
+                                                       mosaic::engine::ui::UiHovered{});
+
+    const auto label = world.create_entity();
+    mosaic::engine::ui::UiText t;
+    t.font = font;
+    t.text = "HP";
+    t.alpha = 1.0f;
+    world.add_component<mosaic::engine::ui::UiText>(label, t);
+    world.add_component<mosaic::engine::ui::UiParent>(
+        label, mosaic::engine::ui::UiParent{panel});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(!device.ui_text_draws.empty());
+    REQUIRE(device.ui_text_draws[0].quads.at(0).alpha == Approx(0.5f));
+}
+
+TEST_CASE("a hovered UiImage emits the multiplied tint and alpha", "[render]")
+{
+    // The image pass had NO hover test. Reverting its two lines to `im.tint, im.alpha`
+    // survived the whole suite, because the drop-the-style probe goes red via the panel and
+    // text cases regardless. A hovered HUD icon would have rendered unstyled while the
+    // panel behind it brightened -- with CI green.
+    World world;
+    FakeRenderDevice device;
+    AssetRegistry registry;
+    RenderSystem rs;
+    rs.set_aspect(2.0f);
+    add_camera(world, Vec3{0, 0, 5});
+
+    const AssetID tex = register_white_texture(registry, 64, 32);
+    const auto e = world.create_entity();
+    mosaic::engine::ui::UiImage im;
+    im.texture = tex;
+    im.tint = Vec3{0.4f, 0.5f, 0.6f};
+    im.alpha = 0.5f;
+    world.add_component<mosaic::engine::ui::UiImage>(e, im);
+    mosaic::engine::ui::UiHoverStyle s;
+    s.tint = Vec3{2.0f, 1.0f, 0.5f};
+    s.alpha_scale = 1.2f;
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(e, s);
+    world.add_component<mosaic::engine::ui::UiHovered>(e, mosaic::engine::ui::UiHovered{});
+
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_draws.size() == 1);
+    const auto& q = device.ui_image_draws[0].quads.at(0);
+    REQUIRE(q.tint.x == Approx(0.8f)); // 0.4 * 2.0
+    REQUIRE(q.tint.y == Approx(0.5f)); // 0.5 * 1.0
+    REQUIRE(q.tint.z == Approx(0.3f)); // 0.6 * 0.5
+    REQUIRE(q.alpha == Approx(0.6f));  // 0.5 * 1.2
+    // The style must not have touched the U7 fit maths: full UVs, authored rect.
+    REQUIRE(q.u0 == Approx(0.0f));
+    REQUIRE(q.u1 == Approx(1.0f));
 }

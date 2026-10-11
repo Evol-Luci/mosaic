@@ -228,9 +228,37 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
      rests inside it. Moving directly from button A to button B emits `hover_exit(A)` then
      `hover_enter(B)`, in that order. Hover is independent of `down`, so it tracks the
      pointer during a drag that began elsewhere.
-   - **The engine renders no hover feedback of its own.** `UiButton` is a hit region and
-     `UiSystem` does no drawing; styling a hovered element is a script's job, reacting to
-     these events. See `app/run/demo_scene.hpp` for the reference subscriber.
+   - **Rendered hover feedback** is opt-in, via two components:
+     - `UiHoverStyle` (authored, reflected) carries `tint` and `alpha_scale`, which
+       **multiply** the element's authored colour and alpha. The defaults (`{1,1,1}` and
+       `1.0`) are an exact no-op, so adding the component without configuring it changes
+       nothing.
+     - `UiHovered` is a runtime marker `UiSystem` puts on the hovered entity. It is
+       **deliberately not registered** for reflection, so it can never be serialized into a
+       scene file — otherwise saving while the cursor rested on a button would persist a
+       phantom hover, and loading that scene would start up already highlighted.
+
+     **The ownership rule:** an element is styled by the nearest `UiHoverStyle` at or above
+     it in the `UiParent` chain, and only if that chain reaches a `UiHovered`. The two
+     searches are independent and both run the whole chain — a style *above* the hovered
+     entity still governs it. So a style authored on a panel applies to the labels parented
+     inside it **and to a button parented inside it**, and a child can override by authoring
+     its own.
+
+     **What does not happen:** hovering a child never styles its parent. The walk only goes
+     up, so a hovered button highlights itself (using whatever style governs it) and not the
+     panel containing it. If you want the container to react, the container is what needs to
+     be hit-testable. A button therefore owns the UI components on its **own entity** —
+     which is how every button in this repository is already authored.
+
+     Two limits worth knowing. A style can never **reveal** an element whose authored alpha
+     is 0: hidden stays hidden. And hovering with no style anywhere changes nothing — hover
+     is not itself a visual state.
+
+     Feedback is applied as a **render-time override**. Nothing writes to `UiPanel::color`,
+     `UiImage::tint` or `UiText::color`, so the authored values survive and a scene saved
+     mid-hover is unaffected. Scripts may still react to the hover events directly for
+     behaviour the style cannot express.
    - Script components and event listeners receive these events via standard
      `on_event(name, payload)` handlers.
 
