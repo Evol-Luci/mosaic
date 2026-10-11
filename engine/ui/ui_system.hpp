@@ -10,6 +10,7 @@
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_hit.hpp"
+#include "engine/ui/ui_hover_style.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -54,10 +55,15 @@ public:
                 // Return value deliberately ignored: a false means the hovered entity lost
                 // its UiButton, and clearing hovered_ below is the whole response.
                 emit_button_action(world, hovered_, "hover_exit");
+                // The TAG comes off even when the event could not be emitted. The event
+                // needs the component's channel name; the tag does not, and an element left
+                // tagged stays highlighted forever with nothing able to clear it.
+                world.remove_component<UiHovered>(hovered_);
             }
             if (top != mosaic::foundation::EntityID{})
             {
                 emit_button_action(world, top, "hover_enter");
+                world.add_component<UiHovered>(top, UiHovered{});
             }
             hovered_ = top;
         }
