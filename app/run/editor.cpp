@@ -41,7 +41,9 @@
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/script_python/python_script_engine.hpp"
 #include "modules/script_python_studio/studio_plugin_script_engine.hpp"
+#include "engine/ui/ui_order_check.hpp"
 #include "studio/console.hpp"
+#include "studio/order_warnings.hpp"
 #include "studio/studio_app.hpp"
 #include "studio/viewport.hpp"
 
@@ -224,6 +226,12 @@ int run_editor(const Options& options,
 
     engine::runtime::RuntimeLoop loop(static_cast<float>(1.0 / options.fixed_hz));
 
+    // Editor-time only: nothing installs this in `mosaic run`, which is what makes the
+    // order-disagreement diagnostic a warning to an AUTHOR rather than noise in a shipped
+    // game's log. Lives out here so it survives across frames -- it is what keeps an
+    // every-frame check from warning sixty times a second.
+    mosaic::studio::OrderWarningModel order_warnings;
+
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
 
@@ -239,7 +247,7 @@ int run_editor(const Options& options,
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
     deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
-                     &loop, &transform_system] {
+                     &loop, &transform_system, &order_warnings] {
         glfwPollEvents();
 
         // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
@@ -320,6 +328,24 @@ int run_editor(const Options& options,
                 mosaic::foundation::log::error("scene", "reload failed: {}",
                                                studio.scene_file().path());
             }
+        }
+
+        // AFTER the reload block, so a scene that loads with a disagreement is reported on
+        // the frame it loads rather than one frame later.
+        //
+        // A button's hit-test `order` and its own panel's draw `order` are independent (see
+        // ui_button.hpp), so they can drift apart -- and the symptom, once a second
+        // overlapping button exists, is a click landing on something the user cannot see.
+        // A heuristic lint rather than a correctness check; find_order_disagreements says
+        // why. The model warns on the transition, so this is silent on every frame where
+        // nothing changed.
+        for (const auto& d : order_warnings.emit(mosaic::engine::ui::find_order_disagreements(world)))
+        {
+            mosaic::foundation::log::warn(
+                "ui",
+                "entity {} has UiButton order {} but UiPanel order {} -- the hit region and "
+                "the panel a user sees are stacked independently",
+                d.e.value(), d.button_order, d.panel_order);
         }
     };
 
