@@ -2300,6 +2300,30 @@ note set for re-deriving at all.
 | ~~**Sort the HUD image pass by `UiImage::order`**~~ | **SHIPPED 2026-10-11, image AND text together.** Two of this row's own claims were wrong. It was **not** "a copy of a shipped loop": the panel pass batches every quad into ONE `draw_ui` call after sorting, while the image and text passes draw per entity with their own texture/atlas handles — so each needed a collect → sort → emit reshape, not a copied `stable_sort`. And `order` was **not** "documented" on either component: both fields carried no comment at all, unlike `UiPanel::order`. The semantics are now written down, including that the order cannot cross a pass boundary. |
 | ~~**An Inspector `field_int` (`DragInt`)**~~ | **SHIPPED 2026-10-11.** `FieldVisitor::field_int` (defaulting to `field_readonly`, like every other optional field hook), one `std::is_same_v<U, int>` branch in `FieldVisitorAdapter`, one `DragInt` override. The payoff is wider than the order lint that prompted it: `ParticleEmitter`'s `burst`/`burst_trigger`/`max_particles` and three easing curves, `TrailRenderer::max_points`, `AudioSource::attenuation_model` and `NavAgent::goal_x`/`goal_y` all became editable too. `int` only, deliberately — the reflected `std::uint32_t` fields are ids, dimensions and versions. Combo boxes for the enum-as-int fields are the follow-up below. |
 
+**Re-derived 2026-10-12** after seven slices landed (#240–#246: the order lint, the HUD
+pass sorting, `field_int`, the manual-verification record, the pairwise conflict check, its
+end-to-end proof, and the anchor-clamper unification). Material comes from reading that code
+back, not from re-reading the same source docs.
+
+**The pass found two stale claims and shipped both in the same commit**, since each was a
+comment correction rather than work to schedule:
+
+| Item | Outcome |
+|---|---|
+| ~~**`UiButton::order`'s "KNOWN COST" comment said the disagreement could not be validated**~~ | **FIXED 2026-10-12.** It read "validating that needs an ownership relation ... which does not exist" — true when written, false three slices later. Two validations now ship (`find_order_disagreements`, `find_order_conflicts`) and the editor reports both. The worst kind of stale comment: it sat on the field and told a reader the diagnostic they were looking for was impossible. |
+| ~~**`ui_hit.hpp`'s rule 2 described a hazard that is now reported**~~ | **FIXED 2026-10-12.** Its "author distinct `order` values when it matters" paragraph explains that an unrelated destroy can reorder an equal-order run; that is precisely what an `Ambiguous` conflict warns about, so it now says so. |
+
+**The two carried items below are the actionable remainder** — both re-confirmed as still
+valid and still small. The well is otherwise close to dry: everything else surfaced tonight
+is either already shipped, needs a human's eyes or judgement (the `Ambiguous` noise level, a
+real two-button scene), or is a dependency decision (`imgui_test_engine`). **Do not re-run
+this pass expecting new material** until real new work has landed — that is the condition the
+2026-09-20 note set, and three of the four passes since have obeyed it.
+
+One trigger rather than an item: the editor frame loop now has **two** diagnostic blocks that
+each build `WarningLedger` entries, emit, and format a warning. A third wants a small shared
+helper; two does not.
+
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 | Item | Why this tier |

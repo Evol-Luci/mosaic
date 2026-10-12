@@ -32,6 +32,11 @@ struct HitCandidate
 //      button can reorder an equal-order run. Treat this as a DETERMINISTIC tie-break that
 //      usually agrees with the draw order; author distinct `order` values when it matters.
 //
+//      YOU DO NOT HAVE TO SPOT THAT YOURSELF ANY MORE: find_order_conflicts in
+//      ui_order_check.hpp reports an overlapping pair with one order tied as `Ambiguous`,
+//      and the editor warns about it -- naming this paragraph's hazard, that an unrelated
+//      destroy can flip which button answers.
+//
 // Before this function, UiSystem took the FIRST button under the pointer while the
 // renderer drew the LAST one on top -- opposite ends of the same list -- so a click on two
 // overlapping equal-order buttons went to the one the user could not see.
