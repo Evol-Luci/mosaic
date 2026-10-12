@@ -328,3 +328,69 @@ TEST_CASE("normalization holds when iteration order is reversed by a destroy", "
     REQUIRE(found[0].b_button_order == 2);
     REQUIRE(found[0].b_panel_order == 7);
 }
+
+TEST_CASE("a per-entity finding is dropped when its entity is in a conflict", "[ui][conflict]")
+{
+    // ONE LINE PER PROBLEM. The per-entity lint and the pairwise check both have something
+    // to say about a button whose own orders disagree AND which conflicts with a neighbour,
+    // and the pairwise message is strictly the more useful of the two: it already carries
+    // all four orders plus the consequence. Reporting both says the same thing twice.
+    //
+    // Found by a human working the verification checklist -- the editor emitted two warnings
+    // for one authoring mistake, which no test noticed because each diagnostic was correct
+    // on its own.
+    using mosaic::engine::ui::OrderConflict;
+    using mosaic::engine::ui::OrderDisagreement;
+    using mosaic::engine::ui::without_entities_in_conflict;
+
+    const EntityID in_conflict{10, 1};
+    const EntityID alone{20, 1};
+
+    const std::vector<OrderDisagreement> disagreements{
+        OrderDisagreement{in_conflict, 5, 0},
+        OrderDisagreement{alone, 3, 1},
+    };
+    const std::vector<OrderConflict> conflicts{
+        OrderConflict{EntityID{9, 1}, in_conflict, OrderConflictKind::Inverted, 0, 0, 5, -1},
+    };
+
+    const auto kept = without_entities_in_conflict(disagreements, conflicts);
+
+    REQUIRE(kept.size() == 1);
+    REQUIRE(kept[0].e == alone); // the one the pairwise check says nothing about
+}
+
+TEST_CASE("the suppression matches an entity in either position of a pair", "[ui][conflict]")
+{
+    // `a` and `b` are assigned by entity value, not by which one the author edited, so a
+    // suppression that only checked `a` would still double-report half the time -- and which
+    // half would depend on entity ids, which is the worst kind of intermittent.
+    using mosaic::engine::ui::OrderConflict;
+    using mosaic::engine::ui::OrderDisagreement;
+    using mosaic::engine::ui::without_entities_in_conflict;
+
+    const EntityID low{4, 1};
+    const EntityID high{8, 1};
+    const std::vector<OrderConflict> conflicts{
+        OrderConflict{low, high, OrderConflictKind::Inverted, 0, 0, 5, -1},
+    };
+
+    REQUIRE(without_entities_in_conflict({OrderDisagreement{low, 1, 2}}, conflicts).empty());
+    REQUIRE(without_entities_in_conflict({OrderDisagreement{high, 1, 2}}, conflicts).empty());
+}
+
+TEST_CASE("with no conflicts every per-entity finding survives", "[ui][conflict]")
+{
+    // The common case, and the lint's whole reason to exist: a single button whose orders
+    // drifted apart, before any second button makes it a real misroute.
+    using mosaic::engine::ui::OrderDisagreement;
+    using mosaic::engine::ui::without_entities_in_conflict;
+
+    const std::vector<OrderDisagreement> disagreements{
+        OrderDisagreement{EntityID{1, 1}, 5, 0},
+        OrderDisagreement{EntityID{2, 1}, 3, 1},
+    };
+
+    REQUIRE(without_entities_in_conflict(disagreements, {}).size() == 2);
+    REQUIRE(without_entities_in_conflict({}, {}).empty());
+}

@@ -345,13 +345,19 @@ int run_editor(const Options& options,
         // AFTER the reload block, so a scene that loads with a disagreement is reported on
         // the frame it loads rather than one frame later.
         //
+        // Conflicts are found FIRST because they outrank the per-entity lint: an entity the
+        // pairwise check already names gets one line, not two. See
+        // without_entities_in_conflict for why that precedence is right.
+        const auto conflicts = mosaic::engine::ui::find_order_conflicts(world);
+
         // A button's hit-test `order` and its own panel's draw `order` are independent (see
         // ui_button.hpp), so they can drift apart -- and the symptom, once a second
         // overlapping button exists, is a click landing on something the user cannot see.
         // A heuristic lint rather than a correctness check; find_order_disagreements says
         // why. The model warns on the transition, so this is silent on every frame where
         // nothing changed.
-        for (const auto& d : order_warnings.emit(mosaic::engine::ui::find_order_disagreements(world)))
+        for (const auto& d : order_warnings.emit(mosaic::engine::ui::without_entities_in_conflict(
+                 mosaic::engine::ui::find_order_disagreements(world), conflicts)))
         {
             mosaic::foundation::log::warn(
                 "ui",
@@ -361,11 +367,11 @@ int run_editor(const Options& options,
         }
 
         // The CORRECTNESS check the per-entity lint above stands in for: two overlapping
-        // buttons whose click ranking disagrees with their visual ranking. Both run -- the
-        // lint catches the authoring slip BEFORE a second button exists, which is precisely
-        // when this has nothing to say.
+        // buttons whose click ranking disagrees with their visual ranking. The lint still
+        // runs, for the case this one cannot speak to -- a single button whose orders
+        // drifted apart, before any second button makes it a real misroute -- but it stands
+        // down for any entity named here.
         {
-            const auto conflicts = mosaic::engine::ui::find_order_conflicts(world);
             std::vector<mosaic::studio::WarningLedger::Entry> entries;
             entries.reserve(conflicts.size());
             for (const auto& c : conflicts)

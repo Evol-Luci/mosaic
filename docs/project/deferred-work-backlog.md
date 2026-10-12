@@ -470,7 +470,9 @@ them as this list does.
   would fire on every pair of overlapping default-constructed buttons. Overlap is inclusive,
   matching `topmost_hit`, so buttons touching along an edge count. The per-entity lint
   **stays** — it catches the authoring slip before a second button exists, which is exactly
-  when this check has nothing to say. Original framing, which was right:  found
+  when this check has nothing to say — but **it stands down for any entity this check names**
+  (`without_entities_in_conflict`, added 2026-10-12 after a human working the verification
+  checklist saw two warnings for one mistake). One problem, one line. Original framing, which was right:  found
   2026-10-11 while building the lint above, which is why that lint is honest about being a
   heuristic. A single button in a scene cannot misroute a click whatever its `order` says: the
   failure needs **two overlapping buttons**, where A's `UiButton::order` ranks above B's while

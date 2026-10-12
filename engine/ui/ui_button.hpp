@@ -55,7 +55,9 @@ struct UiButton
     // engine/ui/ui_order_check.hpp provides find_order_disagreements (this entity's button
     // order against its own panel's -- a heuristic lint for the authoring slip) and
     // find_order_conflicts (overlapping PAIRS whose rankings genuinely disagree -- the
-    // correctness check). The editor reports both into its Console every frame.
+    // correctness check). The editor reports both into its Console every frame, except that the
+    // per-entity lint stands down for any entity the pairwise check already names -- one
+    // authoring mistake earns one line.
     //
     // The cost that remains is narrower than the original note: the fields are still
     // independent, so nothing PREVENTS the disagreement -- a diagnostic tells you about it.

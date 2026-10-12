@@ -203,4 +203,53 @@ inline std::vector<OrderConflict> find_order_conflicts(mosaic::engine::World& wo
     }
     return out;
 }
+
+// The per-entity findings worth reporting once the pairwise check has had its say: those
+// whose entity appears in no conflict.
+//
+// ONE LINE PER PROBLEM. Both checks have something true to say about a button whose own two
+// orders disagree AND which conflicts with a neighbour, but the pairwise message is strictly
+// the more useful: it carries all four orders plus the consequence ("the click goes to the
+// one drawn underneath"). Emitting the per-entity line beside it says the same thing twice.
+//
+// The lint keeps its whole value, which is the case the pairwise check cannot speak to at
+// all: a SINGLE button whose orders drifted apart, before any second button turns it into a
+// real misroute.
+//
+// Matching on BOTH ends of a pair is load-bearing. `a` and `b` are assigned by entity value,
+// not by which one an author edited, so checking only `a` would still double-report about
+// half the time -- and which half would depend on entity ids, which is the worst kind of
+// intermittent.
+//
+// Separated from both checks on purpose: each stays a pure, independent answer to its own
+// question, and the PRECEDENCE between them -- a presentation decision -- lives here, where
+// a reader looking for "why didn't I get the other warning" will find it.
+//
+// Found by a human working a verification checklist on 2026-10-12. Both diagnostics were
+// individually correct, so no test noticed; only someone reading the Console saw two lines
+// for one mistake.
+inline std::vector<OrderDisagreement> without_entities_in_conflict(
+    const std::vector<OrderDisagreement>& disagreements,
+    const std::vector<OrderConflict>&     conflicts)
+{
+    std::vector<OrderDisagreement> kept;
+    kept.reserve(disagreements.size());
+    for (const OrderDisagreement& d : disagreements)
+    {
+        bool spoken_for = false;
+        for (const OrderConflict& c : conflicts)
+        {
+            if (c.a == d.e || c.b == d.e)
+            {
+                spoken_for = true;
+                break;
+            }
+        }
+        if (!spoken_for)
+        {
+            kept.push_back(d);
+        }
+    }
+    return kept;
+}
 } // namespace mosaic::engine::ui
