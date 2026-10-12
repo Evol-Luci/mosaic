@@ -197,11 +197,36 @@ TEST_CASE("a sub-rect past the texture edge is clamped on both halves", "[ui][fi
     }
     SECTION("position starts past the edge")
     {
+        // EXACT values, not bounds. Both halves of the clamp collapse to the far edge: x0
+        // clamps to tw, then x1 = clamp(x0 + 16, x0, tw) is tw as well, so the sub-rect is
+        // the degenerate line u0 == u1 == 1.
+        //
+        // The bounds this replaces (`u0 <= 1`, `u1 <= 1 + eps`, `u1 >= u0`) were satisfied by
+        // any collapsed-or-smaller rect -- an upper bound written `tw - 1` yields u0 = 0.984
+        // and passed all three. The v axis was not asserted at all, so a clamp applied only
+        // to x passed too.
+        //
+        // NOTE FOR A FUTURE PROBE: the obvious mutant, dropping the position clamp, is NOT a
+        // valid probe. It makes x1 = std::clamp(1015, 999, 64) with lo > hi, which is
+        // undefined behaviour rather than wrong behaviour. Mutate the upper bound instead.
         const auto q = resolve_image_quad(64, 64, kRect, 2.0f, Vec2{999, 999}, Vec2{16, 16},
                                           static_cast<int>(ImageFitMode::Stretch));
-        REQUIRE(q.u0 <= 1.0f);
-        REQUIRE(q.u1 <= 1.0f + 1e-6f);
-        REQUIRE(q.u1 >= q.u0);
+        REQUIRE(q.u0 == Approx(1.0f));
+        REQUIRE(q.u1 == Approx(1.0f));
+        REQUIRE(q.v0 == Approx(1.0f));
+        REQUIRE(q.v1 == Approx(1.0f));
+    }
+    SECTION("position past the edge of a non-square texture clamps per axis")
+    {
+        // 64 wide, 32 tall, so the two axes have DIFFERENT bounds. At 64x64 a clamp that
+        // measured y against the width was undetectable; here it would give v0 = 64/32 = 2,
+        // sampling far outside the texture.
+        const auto q = resolve_image_quad(64, 32, kRect, 2.0f, Vec2{999, 999}, Vec2{16, 16},
+                                          static_cast<int>(ImageFitMode::Stretch));
+        REQUIRE(q.u0 == Approx(1.0f));
+        REQUIRE(q.u1 == Approx(1.0f));
+        REQUIRE(q.v0 == Approx(1.0f));
+        REQUIRE(q.v1 == Approx(1.0f));
     }
     SECTION("a negative position clamps to zero rather than sampling off the left edge")
     {
