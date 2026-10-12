@@ -507,6 +507,12 @@ them as this list does.
   widget write back and set `changed_`" — but it is exactly where a typo would land silently.
   **Deferred because it needs an ImGui context in the test binary** (a headless context is
   possible but is new test infrastructure), not because the gap is acceptable.
+- **The order lint's drag-burst: reviewed 2026-10-12 and kept.** Not deferred work — recorded
+  so it is not reopened as a bug. Dragging `UiButton::order` in the Inspector emits one warning
+  per intermediate value, because `OrderWarningModel` keys a finding on the entity *and* both
+  numbers. Each line is a genuinely different disagreement, so this is not a de-duplication
+  failure. Debouncing during an active drag was considered and **declined**. The decision is
+  also written into `studio/order_warnings.hpp` beside the code that causes it.
 - **A unified z-order across all UI, crossing the pass boundary** — the explicit non-goal of
   the pass-sorting slice, 2026-10-11, and the limitation a user is most likely to hit next.
   `order` now ranks panels against panels, images against images and text against text, but

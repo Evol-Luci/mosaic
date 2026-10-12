@@ -28,6 +28,14 @@ public:
     // changed (5-vs-2 becoming 5-vs-9) is a DIFFERENT disagreement with a different fix, and
     // a model keyed on the entity alone would stay silent about it forever after the first
     // warning.
+    //
+    // THE VISIBLE CONSEQUENCE, REVIEWED AND KEPT: dragging an `order` in the Inspector passes
+    // through every intermediate value, so one drag from 0 to 7 emits roughly seven warnings.
+    // That looks like a de-duplication bug and is not one -- each line reports a genuinely
+    // different disagreement. It became reachable only once field_int made `order` draggable,
+    // was then exercised at the window on 2026-10-12, and the warning level was accepted as
+    // it stands. Debouncing during an active drag was considered and deliberately not added.
+    // Do not "fix" the burst without revisiting that decision.
     std::vector<mosaic::engine::ui::OrderDisagreement> emit(
         const std::vector<mosaic::engine::ui::OrderDisagreement>& current)
     {
