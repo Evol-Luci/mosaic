@@ -84,6 +84,58 @@ struct EntityCapturingVisitor : FieldVisitor
         seen_value  = value;
     }
 };
+
+// A reflectable carrying the two field kinds that are easy to confuse: `int` must reach
+// field_int, while `bool` must keep going to its own branch rather than being swept up as an
+// integral type.
+struct IntHolder
+{
+    int  order = 3;
+    bool flag  = true;
+};
+
+template <class V>
+void reflect(V& visitor, IntHolder& h)
+{
+    visitor.member("order", h.order);
+    visitor.member("flag", h.flag);
+}
+
+// Does NOT override field_int, to prove the default falls back to field_readonly -- the same
+// pattern field_asset, field_string and field_entity each follow, and what keeps the other
+// thirteen FieldVisitor implementors in this repository compiling unchanged.
+struct NoIntOverrideVisitor : FieldVisitor
+{
+    std::vector<std::string> events;
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view n, const std::string& d) override
+    {
+        events.push_back("ro:" + std::string(n) + "=" + d);
+    }
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
+
+// Overrides field_int and writes back, the way ImGuiFieldVisitor's DragInt-backed override
+// does.
+struct IntWritingVisitor : FieldVisitor
+{
+    int                      new_value;
+    std::vector<std::string> seen;
+    explicit IntWritingVisitor(int v) : new_value(v) {}
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view n, const std::string& d) override
+    {
+        seen.push_back("ro:" + std::string(n) + "=" + d);
+    }
+    void field_int(std::string_view n, int& value) override
+    {
+        seen.push_back("int:" + std::string(n));
+        value = new_value;
+    }
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
 } // namespace
 
 TEST_CASE("FieldVisitorAdapter visits a Transform as groups, floats, and a readonly parent", "[reflection]")
@@ -170,4 +222,48 @@ TEST_CASE("FieldVisitorAdapter routes an EntityID field to field_entity when ove
     REQUIRE(v.saw_entity);
     REQUIRE(v.seen_name == "parent");
     REQUIRE(v.seen_value == t.parent);
+}
+
+TEST_CASE("FieldVisitorAdapter routes an int field to field_int when overridden", "[reflection]")
+{
+    IntHolder           h;
+    IntWritingVisitor   vis(42);
+    FieldVisitorAdapter adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(vis.seen.size() == 2);
+    REQUIRE(vis.seen[0] == "int:order");
+    // The bool did NOT become an int: it keeps its own readonly branch, above the int one in
+    // the adapter's ladder. This is belt-and-braces rather than the real defence -- a probe
+    // confirmed that a branch broad enough to swallow bool does not compile at all, since
+    // field_int takes `int&` and a `bool&` cannot bind to it.
+    REQUIRE(vis.seen[1] == "ro:flag=true");
+}
+
+TEST_CASE("FieldVisitorAdapter writes int edits into the live object", "[reflection]")
+{
+    IntHolder           h;
+    IntWritingVisitor   vis(42);
+    FieldVisitorAdapter adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(h.order == 42); // the edit reached the component, not a copy
+    REQUIRE(h.flag);        // and nothing else moved
+}
+
+TEST_CASE("FieldVisitorAdapter falls back an int field to field_readonly when field_int is not overridden",
+          "[reflection]")
+{
+    // The migration guarantee. Thirteen other FieldVisitor implementors do not override this,
+    // including the MarkdownFieldVisitor that generates docs/reference/components.md -- and
+    // the fallback renders std::to_string, byte-identical to what the generic arithmetic
+    // branch produced before, so that generated file does not move.
+    IntHolder            h;
+    NoIntOverrideVisitor vis;
+    FieldVisitorAdapter  adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(vis.events.size() == 2);
+    REQUIRE(vis.events[0] == "ro:order=3");
+    REQUIRE(vis.events[1] == "ro:flag=true");
 }

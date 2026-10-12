@@ -487,6 +487,26 @@ them as this list does.
   either. The 🟢 quick win "Sort the HUD image pass by `UiImage::order`" is half of the fix;
   the text pass needs the same treatment and is **not** currently tracked as a quick win.
   Until both land, any cross-pass `order` comparison is meaningless.
+- **Combo boxes for enum-as-int fields, instead of a bare `DragInt`** — the explicit non-goal
+  of the `field_int` slice, 2026-10-11. `UiPanel`/`UiText`/`UiImage`'s `anchor`, `UiImage`'s
+  `fit_mode`, `ParticleEmitter`'s three easing curves and `AudioSource::attenuation_model` are
+  all enums stored as `int`, so the Inspector now lets a user drag `anchor` to 47. **Nothing
+  breaks** — every one of those paths was checked and defends itself, `to_anchor` clamping
+  outside 0–8, `resolve_image_quad` falling back to Stretch, `apply_easing` and
+  `to_ma_attenuation_model` both having a `default:` arm — but the value is meaningless and
+  the widget says nothing about it. **Deferred because the real fix needs enum metadata on the
+  reflection surface** so a visitor can enumerate named values, which `reflect()` does not
+  carry today; that is its own design, plausibly architectural, rather than a widget swap.
+  **Depends on** that metadata and nothing else.
+- **`ImGuiFieldVisitor` has no test coverage at all** — noticed 2026-10-11 while adding
+  `field_int`, and pre-existing rather than introduced by it. There is no
+  `tests/unit/studio/inspector_test.cpp`: `field_float`, `field_string`, `field_asset` and now
+  `field_int` are each one `ImGui::` call that no test executes, because ImGui needs a live
+  context. The adapter *dispatch* is well covered in
+  `tests/unit/reflection/field_visitor_test.cpp`, so what is untested is narrow — "does this
+  widget write back and set `changed_`" — but it is exactly where a typo would land silently.
+  **Deferred because it needs an ImGui context in the test binary** (a headless context is
+  possible but is new test infrastructure), not because the gap is acceptable.
 - **A unified z-order across all UI, crossing the pass boundary** — the explicit non-goal of
   the pass-sorting slice, 2026-10-11, and the limitation a user is most likely to hit next.
   `order` now ranks panels against panels, images against images and text against text, but
@@ -511,7 +531,9 @@ them as this list does.
   to follow, not an invariant the data enforces. Deferred because nothing breaks today: the
   shipped lint reads only `UiPanel`, which on that entity genuinely is the button's visual.
   Worth revisiting before any feature leans harder on "the components on a button's entity".
-- **`int` fields are read-only in the Inspector (no `field_int`)** — recorded 2026-10-11.
+- ~~**`int` fields are read-only in the Inspector (no `field_int`)**~~ — **FIXED 2026-10-11**,
+  so the order lint's advice is now actionable in-editor: the field the warning names can be
+  dragged. Original entry: recorded 2026-10-11.
   `ImGuiFieldVisitor` (`studio/inspector.hpp`) implements `field_float`, `field_string`,
   `field_asset` and `field_readonly` only, so every `order`, `anchor` and `fit_mode` renders as
   a label. **This makes the new lint's advice unactionable inside the editor**: a user reads
@@ -2217,7 +2239,7 @@ note set for re-deriving at all.
 | **Tighten the "position starts past the edge" test to exact values** | Two `REQUIRE`s change from bounds to `u0 == u1 == 1.0`, plus a `v`-axis pair that is currently absent. The real work is finding a clamp mutation that is **defined** rather than UB — the obvious one calls `std::clamp` with `lo > hi` — so expect the thinking to be in choosing the probe, not writing the assertions. |
 | **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
 | ~~**Sort the HUD image pass by `UiImage::order`**~~ | **SHIPPED 2026-10-11, image AND text together.** Two of this row's own claims were wrong. It was **not** "a copy of a shipped loop": the panel pass batches every quad into ONE `draw_ui` call after sorting, while the image and text passes draw per entity with their own texture/atlas handles — so each needed a collect → sort → emit reshape, not a copied `stable_sort`. And `order` was **not** "documented" on either component: both fields carried no comment at all, unlike `UiPanel::order`. The semantics are now written down, including that the order cannot cross a pass boundary. |
-| **An Inspector `field_int` (`DragInt`)** | Surfaced 2026-10-11 by the order lint, whose advice names a field the editor cannot edit. One override on `ImGuiFieldVisitor` alongside the existing `field_float`, and `order`/`anchor`/`fit_mode` stop being read-only labels. The work is choosing whether an `anchor` or a `fit_mode` should really be a free int rather than a combo box — which is a reason to ship the plain `DragInt` first, not a reason to defer. |
+| ~~**An Inspector `field_int` (`DragInt`)**~~ | **SHIPPED 2026-10-11.** `FieldVisitor::field_int` (defaulting to `field_readonly`, like every other optional field hook), one `std::is_same_v<U, int>` branch in `FieldVisitorAdapter`, one `DragInt` override. The payoff is wider than the order lint that prompted it: `ParticleEmitter`'s `burst`/`burst_trigger`/`max_particles` and three easing curves, `TrailRenderer::max_points`, `AudioSource::attenuation_model` and `NavAgent::goal_x`/`goal_y` all became editable too. `int` only, deliberately — the reflected `std::uint32_t` fields are ids, dimensions and versions. Combo boxes for the enum-as-int fields are the follow-up below. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 

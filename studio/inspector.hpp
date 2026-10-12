@@ -6,7 +6,8 @@
 namespace mosaic::studio
 {
 
-// Renders each visited field as an ImGui widget: floats are editable (DragFloat), AssetID
+// Renders each visited field as an ImGui widget: floats are editable (DragFloat), ints are
+// editable (DragInt), AssetID
 // fields show their id plus an "Assign" button (writes the browser's current selection into
 // the live field), everything else is a read-only label. Nested groups render as an
 // indented, ID-scoped block so same-named leaves (e.g. position.x vs scale.x) don't collide.
@@ -20,6 +21,7 @@ public:
     }
 
     void field_float(std::string_view name, float& value) override;
+    void field_int(std::string_view name, int& value) override;
     void field_readonly(std::string_view name, const std::string& display) override;
     void field_asset(std::string_view name,
                      mosaic::foundation::serialization::AssetID& value) override;

@@ -14,6 +14,20 @@ void ImGuiFieldVisitor::field_float(std::string_view name, float& value)
     if (ImGui::DragFloat(std::string(name).c_str(), &value, 0.05f)) { changed_ = true; }
 }
 
+void ImGuiFieldVisitor::field_int(std::string_view name, int& value)
+{
+    // Speed 1.0 rather than DragFloat's 0.05: an int field's useful range is small and
+    // whole, so a drag should step by one rather than needing a long sweep per unit.
+    //
+    // No clamping here, deliberately. Several of these fields are enums-as-int (UiPanel's
+    // `anchor`, UiImage's `fit_mode`, ParticleEmitter's easing curves) and the engine already
+    // defends itself -- anchor clamps to TopLeft out of range, fit_mode falls back to
+    // Stretch. Clamping in the widget would also need the visitor to know which ints are
+    // enums, which is metadata the reflection surface does not carry; proper combo boxes are
+    // recorded in the backlog as the real fix.
+    if (ImGui::DragInt(std::string(name).c_str(), &value, 1.0f)) { changed_ = true; }
+}
+
 void ImGuiFieldVisitor::field_readonly(std::string_view name, const std::string& display)
 {
     ImGui::LabelText(std::string(name).c_str(), "%s", display.c_str());

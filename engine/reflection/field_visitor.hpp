@@ -41,6 +41,19 @@ public:
         field_readonly(name, value);
     }
 
+    // An editable integer field. The visitor may reassign it (e.g. from a drag widget).
+    // Default falls back to the read-only display so existing visitors keep compiling --
+    // and the fallback renders exactly what the generic arithmetic branch below used to, so
+    // nothing that does not override this changes behaviour.
+    //
+    // `int` only, deliberately. The other integer types reflected in this engine are ids,
+    // dimensions and versions (Image::width, NetReplicated::id, AssetMetadata::version) --
+    // values a user should not be dragging. Widening this is one more branch in the adapter.
+    virtual void field_int(std::string_view name, int& value)
+    {
+        field_readonly(name, std::to_string(value));
+    }
+
     // A reference-to-entity field. Read-only (unlike field_asset/field_string, there is
     // no reassignment use case here yet -- an entity picker widget could add one later).
     // Default falls back to the read-only display so existing visitors keep compiling.
@@ -102,6 +115,17 @@ struct FieldVisitorAdapter
         else if constexpr (std::is_same_v<U, std::string>)
         {
             visitor.field_string(name, value);
+        }
+        else if constexpr (std::is_same_v<U, int>)
+        {
+            // Below the bool branch, which keeps its own true/false rendering. Worth being
+            // precise about why that ordering is safe rather than merely conventional: a
+            // branch broad enough to catch bool (is_integral_v, say) would NOT compile, let
+            // alone misbehave, because field_int takes `int&` and a `bool&` cannot bind to
+            // it. Verified with a mutation probe -- the mutant failed to build. So the
+            // compiler enforces this, and the ro:flag assertion in field_visitor_test.cpp is
+            // a cheap guard rather than the thing holding the line.
+            visitor.field_int(name, value);
         }
         else if constexpr (std::is_arithmetic_v<U>)
         {
