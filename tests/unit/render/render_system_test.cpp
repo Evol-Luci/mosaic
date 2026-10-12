@@ -20,6 +20,10 @@
 #include "engine/render/material.hpp"
 #include "engine/render/mesh_renderer.hpp"
 #include "engine/render/render_device.hpp"
+#include "engine/script/script_event.hpp"
+#include "engine/ui/pointer.hpp"
+#include "engine/ui/ui_order_check.hpp"
+#include "engine/ui/ui_system.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/render/shadow.hpp"
 #include "engine/transform/transform.hpp"
@@ -2199,4 +2203,97 @@ TEST_CASE("a hovered UiImage emits the multiplied tint and alpha", "[render]")
     // The style must not have touched the U7 fit maths: full UVs, authored rect.
     REQUIRE(q.u0 == Approx(0.0f));
     REQUIRE(q.u1 == Approx(1.0f));
+}
+
+TEST_CASE("a conflicting pair really does misroute the click", "[render][ui][conflict]")
+{
+    // THE END-TO-END CLAIM find_order_conflicts cannot make about itself. It reports that two
+    // overlapping buttons are ranked one way for the click and the other way for the draw;
+    // that this CAUSES the wrong button to answer rests on two mechanisms that were covered
+    // separately and never together -- topmost_hit's ordering and the panel pass's sort.
+    //
+    // One world, both halves, so the consequence is demonstrated rather than inferred:
+    //
+    //   clicked : UiButton order 5 (wins the click), UiPanel order 1 (drawn first, underneath)
+    //   seen    : UiButton order 2 (loses the click), UiPanel order 7 (drawn last, on top)
+    //
+    // The user points at the overlap, sees `seen`, and `clicked` answers.
+    using mosaic::engine::script::ScriptEvent;
+    using mosaic::engine::ui::Anchor;
+    using mosaic::engine::ui::PointerState;
+    using mosaic::engine::ui::UiButton;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiSystem;
+    using mosaic::foundation::serialization::Table;
+
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto make = [&world](float x, int button_order, int panel_order, const char* event)
+    {
+        const auto e = world.create_entity();
+        UiButton   b;
+        b.anchor = static_cast<int>(Anchor::TopLeft);
+        b.pos    = {x, 0.1f};
+        b.size   = {0.3f, 0.3f};
+        b.order  = button_order;
+        b.event  = event;
+        world.add_component<UiButton>(e, b);
+        UiPanel p;
+        p.anchor = static_cast<int>(Anchor::TopLeft);
+        p.pos    = {x, 0.1f};
+        p.size   = {0.3f, 0.3f};
+        p.order  = panel_order;
+        world.add_component<UiPanel>(e, p);
+        return e;
+    };
+
+    make(0.1f, 5, 1, "clicked"); // x 0.1 .. 0.4
+    make(0.2f, 2, 7, "seen");    // x 0.2 .. 0.5, so they overlap over x 0.2 .. 0.4
+
+    // The diagnostic flags it...
+    const auto conflicts = mosaic::engine::ui::find_order_conflicts(world);
+    REQUIRE(conflicts.size() == 1);
+    REQUIRE(conflicts[0].kind == mosaic::engine::ui::OrderConflictKind::Inverted);
+
+    // ...HALF ONE: the click goes to the higher UiButton::order.
+    PointerState ptr;
+    world.add_system<UiSystem>([&ptr]() { return ptr; });
+    std::vector<ScriptEvent> events;
+    world.events().subscribe<ScriptEvent>([&events](const ScriptEvent& ev)
+                                          { events.push_back(ev); });
+
+    ptr = PointerState{0.3f, 0.2f, true}; // inside both rects
+    world.tick(0.016f);
+    ptr = PointerState{0.3f, 0.2f, false};
+    world.tick(0.016f);
+
+    std::vector<std::string> clicked;
+    for (const auto& ev : events)
+    {
+        if (!ev.payload.is<Table>()) { continue; }
+        const auto* action = ev.payload.as<Table>().find("action");
+        if (action != nullptr && action->is<std::string>()
+            && action->as<std::string>() == "click")
+        {
+            clicked.push_back(ev.name);
+        }
+    }
+    REQUIRE(clicked == std::vector<std::string>{"clicked"});
+
+    // ...HALF TWO: the panel pass draws the OTHER one last, so that is what the user sees.
+    // Ascending order means the last quad in the batch is on top.
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws.front();
+    REQUIRE(quads.size() == 2);
+    REQUIRE(quads[0].rect.x == Approx(0.1f)); // panel order 1 -- the one that was CLICKED
+    REQUIRE(quads[1].rect.x == Approx(0.2f)); // panel order 7 -- the one that is SEEN
+
+    // Said plainly: the entity that answered the click is the one drawn underneath.
+    REQUIRE(quads.back().rect.x != Approx(0.1f));
 }

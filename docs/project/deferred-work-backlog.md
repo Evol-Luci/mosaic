@@ -531,7 +531,15 @@ them as this list does.
   refactor touching the render system, and bundling it into a diagnostic diff is how a
   reviewer loses track of which half to scrutinise. Pre-existing, correctness-safe (all three
   are identical), cheap whenever someone wants it. **Depends on** nothing.
-- **No end-to-end test that a conflicting pair actually misroutes a click** — recorded
+- ~~**No end-to-end test that a conflicting pair actually misroutes a click**~~ — **CLOSED
+  2026-10-12**, the same night it was filed. `tests/unit/render/render_system_test.cpp`'s "a
+  conflicting pair really does misroute the click" builds one world with an inverted pair,
+  drives a real `PointerState` through press and release, asserts the `ScriptEvent` came from
+  the button with the higher `UiButton::order`, then renders the same world through
+  `FakeRenderDevice` and asserts the OTHER button's panel is the last quad in the batch —
+  so the one that answered is provably the one drawn underneath. Probed both ways: inverting
+  `topmost_hit`'s ordering and reversing the panel pass's sort each turn it red, so it holds
+  both mechanisms and not just one. Original entry: recorded
   2026-10-12 as the one thing the pairwise check cannot prove about itself. It reports that
   `UiButton::order` and `UiPanel::order` rank a pair differently; that this *causes* the wrong
   button to receive the event rests on `topmost_hit`'s tests plus the panel pass's sort, each
