@@ -176,6 +176,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_fit_test.cpp
   unit/ui/ui_hit_test.cpp
   unit/ui/ui_order_check_test.cpp
+  unit/ui/ui_button_rects_test.cpp
   unit/ui/ui_hover_style_test.cpp
   unit/ui/ui_hover_style_reflection_test.cpp
   unit/ui/ui_hierarchy_test.cpp

@@ -8,6 +8,7 @@
 #include "engine/script/script_event.hpp"
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
+#include "engine/ui/ui_button_rects.hpp"
 #include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_hit.hpp"
 #include "engine/ui/ui_hover_style.hpp"
@@ -18,12 +19,6 @@
 
 namespace mosaic::engine::ui
 {
-// Clamp an int to a ui::Anchor (out of range -> TopLeft). Mirrors render's to_anchor.
-inline Anchor button_anchor(int a)
-{
-    return (a >= 0 && a <= 8) ? static_cast<Anchor>(a) : Anchor::TopLeft;
-}
-
 // First stateful UI system: reads an injected pointer each tick and emits a named
 // ScriptEvent when the pointer presses and releases inside the same UiButton.
 class UiSystem : public mosaic::engine::ecs::System
@@ -124,17 +119,13 @@ private:
     // press path and the hover path so the two can never disagree about which button is
     // under the pointer -- if they could, a click and its hover feedback would land on
     // different buttons, which reads as the UI lying rather than as a bug.
+    //
+    // The flatten itself now lives in ui_button_rects.hpp, because the order-conflict
+    // diagnostic has to agree with it exactly -- a second implementation would police rects
+    // nobody clicks on.
     static std::vector<HitCandidate> candidates(mosaic::engine::World& world)
     {
-        std::vector<HitCandidate> out;
-        world.for_each<UiButton>(
-            [&](mosaic::foundation::EntityID e, UiButton& b)
-            {
-                out.push_back(HitCandidate{
-                    e, b.order,
-                    resolve_ui_rect(world, e, button_anchor(b.anchor), b.pos, b.size)});
-            });
-        return out;
+        return button_hit_candidates(world);
     }
 
 
