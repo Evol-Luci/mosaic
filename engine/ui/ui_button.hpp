@@ -44,11 +44,24 @@ struct UiButton
     // demo_scene.hpp's positional brace init compiling, since adding it before `event`
     // would bind "hud_click" to an int.
     //
-    // KNOWN COST, accepted deliberately: this order and the order of the UiPanel/UiImage a
-    // user actually SEES are independent, so they can disagree. A button can claim to be
-    // above a visual drawn below it, and the only symptom is a click landing on the wrong
-    // thing. Validating that needs an ownership relation between a button and its visual,
-    // which does not exist (UiParent is a transform hierarchy); recorded in the backlog.
+    // KNOWN COST: this order and the UiPanel order that decides what a user actually SEES
+    // are independent, so they can disagree. A button can claim to be above a panel drawn
+    // below it, and the only symptom is a click landing on the wrong thing.
+    //
+    // IT IS NOW VALIDATED, in two places, and this comment used to say the opposite -- that
+    // validating it "needs an ownership relation ... which does not exist". That was true
+    // when written and false three slices later: the ownership rule is entity identity (a
+    // button owns the UI components on its own entity), and on top of it
+    // engine/ui/ui_order_check.hpp provides find_order_disagreements (this entity's button
+    // order against its own panel's -- a heuristic lint for the authoring slip) and
+    // find_order_conflicts (overlapping PAIRS whose rankings genuinely disagree -- the
+    // correctness check). The editor reports both into its Console every frame.
+    //
+    // The cost that remains is narrower than the original note: the fields are still
+    // independent, so nothing PREVENTS the disagreement -- a diagnostic tells you about it.
+    // Only UiPanel ranks a button's visual, because since the HUD passes were sorted the
+    // image and text passes are separate and always above panels; UiImage::order cannot be
+    // compared with a button's at all.
     int         order  = 0;
 };
 
