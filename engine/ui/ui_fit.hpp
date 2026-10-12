@@ -30,6 +30,40 @@ struct ResolvedImageQuad
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
 };
 
+// Does an authored sub-rect start past the far edge of its texture?
+//
+// The mistake this spots is a mistyped `sub_rect_pos`. Past the far edge BOTH halves of
+// resolve_image_quad's clamp collapse onto that edge -- x0 clamps to tw, then
+// x1 = clamp(x0 + size, x0, tw) is tw as well -- so the sprite is drawn from a degenerate
+// one-texel line. That behaviour is defensible; its silence is not, which is why this is a
+// predicate for a diagnostic rather than a behaviour change. Choosing between "treat as the
+// whole texture" and "skip the draw" is a design call nobody has needed to make yet.
+//
+// A NEGATIVE position is deliberately NOT a finding. The lower clamp pulls it back on, so it
+// samples a shifted-but-valid region instead of collapsing -- a different mistake, and one
+// with visible output to notice.
+//
+// The gates mirror resolve_image_quad's own, so this cannot report a case that function
+// treats as the whole-texture default: a zero-size sub-rect (what every existing scene
+// carries) and a missing texture are both silent.
+//
+// Pure, and takes dimensions rather than an asset, so it stays testable with no registry and
+// no device. The caller that holds the texture does the lookup -- see app/run/editor.cpp.
+inline bool sub_rect_off_texture(std::uint32_t texture_w, std::uint32_t texture_h,
+                                 Vec2 sub_rect_pos_px, Vec2 sub_rect_size_px)
+{
+    if (texture_w == 0 || texture_h == 0)
+    {
+        return false;
+    }
+    if (!(sub_rect_size_px.x > 0.0f) || !(sub_rect_size_px.y > 0.0f))
+    {
+        return false;
+    }
+    return sub_rect_pos_px.x >= static_cast<float>(texture_w)
+           || sub_rect_pos_px.y >= static_cast<float>(texture_h);
+}
+
 // Resolve a UiImage's authored rect and pixel sub-rect into a quad to draw.
 //
 // `sub_rect_size_px` of zero on either axis means the whole texture, which is what a
