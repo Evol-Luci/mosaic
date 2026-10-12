@@ -8,12 +8,6 @@
 
 namespace mosaic::engine::ui
 {
-// Clamp an int to a ui::Anchor (out of range -> TopLeft).
-inline Anchor hierarchy_anchor(int a)
-{
-    return (a >= 0 && a <= 8) ? static_cast<Anchor>(a) : Anchor::TopLeft;
-}
-
 // The frame a child positions within: its parent UiPanel's resolved rect (recursive),
 // or the whole screen {0,0,1,1} if no UiParent / invalid parent / parent has no UiPanel.
 inline Rect resolve_parent_frame(mosaic::engine::World& world,
@@ -27,7 +21,7 @@ inline Rect resolve_parent_frame(mosaic::engine::World& world,
     UiPanel* pp = world.get_component<UiPanel>(up->parent);
     if (pp == nullptr) { return kScreen; }
     const Rect parent_frame = resolve_parent_frame(world, up->parent, depth + 1);
-    return resolve_in(parent_frame, hierarchy_anchor(pp->anchor), pp->pos, pp->size);
+    return resolve_in(parent_frame, to_anchor(pp->anchor), pp->pos, pp->size);
 }
 
 // This element's screen rect, resolved within its parent frame.

@@ -15,6 +15,24 @@ enum class Anchor
     BottomLeft,  Bottom, BottomRight
 };
 
+// Clamp an int to an Anchor, falling back to TopLeft out of range.
+//
+// Lives HERE, beside the enum, because three callers need it and a scene file can hold any
+// int: `anchor` is a reflected int on UiPanel, UiImage, UiText and UiButton.
+//
+// It existed three times until 2026-10-12 -- to_anchor in render_system.hpp,
+// hierarchy_anchor in ui_hierarchy.hpp and button_anchor in ui_button_rects.hpp -- each with
+// its own `a <= 8` bound. That was a correctness hazard rather than mere duplication: adding
+// a tenth Anchor value meant updating three independent bounds, and missing one would make
+// hit-testing and rendering disagree about where a button is. The upper bound is written
+// against BottomRight rather than a literal 8, so extending the enum needs no edit here at
+// all.
+inline Anchor to_anchor(int a)
+{
+    return (a >= 0 && a <= static_cast<int>(Anchor::BottomRight)) ? static_cast<Anchor>(a)
+                                                                  : Anchor::TopLeft;
+}
+
 // A resolved rectangle in normalized screen space: origin top-left, x/y/w/h in [0,1].
 struct Rect
 {

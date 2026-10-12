@@ -45,12 +45,6 @@
 
 namespace mosaic::engine::render
 {
-inline mosaic::engine::ui::Anchor to_anchor(int a)
-{
-    return (a >= 0 && a <= 8) ? static_cast<mosaic::engine::ui::Anchor>(a)
-                              : mosaic::engine::ui::Anchor::TopLeft;
-}
-
 // Render-time traversal: finds the active camera and lights, sends the frame's
 // world-space lighting once via set_frame_lighting, then draws every entity with
 // WorldTransform + MeshRenderer. Shading is done in WORLD space (Lambert), so each
@@ -420,7 +414,7 @@ public:
                 {
                     if (p.alpha <= 0.0f) { return; }
                     const auto rect = mosaic::engine::ui::resolve_ui_rect(
-                        world, e, to_anchor(p.anchor), p.pos, p.size);
+                        world, e, mosaic::engine::ui::to_anchor(p.anchor), p.pos, p.size);
                     // Hover feedback is a render-time override: nothing writes to p.color,
                     // so the authored value survives and a scene saved while hovering
                     // carries no hover tint. The early-out above stays on the AUTHORED
@@ -457,7 +451,7 @@ public:
                     const TextureInfo info = texture_cache_.get_info(im.texture, registry, device);
                     if (info.handle == 0) { return; }
                     const mosaic::engine::ui::Rect rect = mosaic::engine::ui::resolve_ui_rect(
-                        world, e, to_anchor(im.anchor), im.pos, im.size);
+                        world, e, mosaic::engine::ui::to_anchor(im.anchor), im.pos, im.size);
                     // All the arithmetic lives in ui_fit.hpp, which is testable with no
                     // world and no device. aspect_ is the SCREEN aspect and is load-bearing:
                     // a normalized rect is not square, so the correction needs it as well as
@@ -507,7 +501,7 @@ public:
                     const auto app = mosaic::engine::ui::resolve_appearance(
                         mosaic::engine::ui::active_hover_style(world, e), t.color, t.alpha);
                     const std::vector<mosaic::engine::ui::TextQuad> tq =
-                        mosaic::engine::ui::layout_text(*font, t.text, to_anchor(t.anchor),
+                        mosaic::engine::ui::layout_text(*font, t.text, mosaic::engine::ui::to_anchor(t.anchor),
                                                         t.pos, t.height, aspect_,
                                                         app.color, app.alpha, frame);
                     if (tq.empty()) { return; }

@@ -56,3 +56,33 @@ TEST_CASE("resolve_rect edge anchors mix an edge and a centered axis", "[ui][lay
     REQUIRE(right.x == Approx(1.0f - 0.30f - 0.05f)); // in from right
     REQUIRE(right.y == Approx(0.5f - 0.15f / 2.0f));  // centered Y
 }
+
+TEST_CASE("to_anchor maps every in-range int and clamps the rest", "[ui][layout]")
+{
+    // ONE clamp, where the enum it clamps to is defined. Until 2026-10-12 this existed three
+    // times -- to_anchor in render_system.hpp, hierarchy_anchor in ui_hierarchy.hpp and
+    // button_anchor in ui_button_rects.hpp -- each with its own `a <= 8` bound.
+    //
+    // That was a correctness hazard, not just duplication: adding a tenth Anchor value meant
+    // updating three independent bounds, and missing one would make hit-testing and rendering
+    // disagree about where a button is. Which is the very class of bug the pairwise order
+    // check (#244) exists to report.
+    //
+    // Every value is asserted rather than just the ends, so a mapping that transposed two
+    // middle anchors cannot pass.
+    using mosaic::engine::ui::to_anchor;
+    REQUIRE(to_anchor(0) == Anchor::TopLeft);
+    REQUIRE(to_anchor(1) == Anchor::Top);
+    REQUIRE(to_anchor(2) == Anchor::TopRight);
+    REQUIRE(to_anchor(3) == Anchor::Left);
+    REQUIRE(to_anchor(4) == Anchor::Center);
+    REQUIRE(to_anchor(5) == Anchor::Right);
+    REQUIRE(to_anchor(6) == Anchor::BottomLeft);
+    REQUIRE(to_anchor(7) == Anchor::Bottom);
+    REQUIRE(to_anchor(8) == Anchor::BottomRight);
+
+    // Out of range falls back to TopLeft, which is what all three callers documented.
+    REQUIRE(to_anchor(9) == Anchor::TopLeft);
+    REQUIRE(to_anchor(-1) == Anchor::TopLeft);
+    REQUIRE(to_anchor(1000) == Anchor::TopLeft);
+}
