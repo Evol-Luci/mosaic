@@ -1,3 +1,4 @@
+#include <string>
 #include <vector>
 
 #include <catch2/catch_test_macros.hpp>
@@ -8,6 +9,7 @@
 using mosaic::engine::ui::OrderDisagreement;
 using mosaic::foundation::EntityID;
 using mosaic::studio::OrderWarningModel;
+using mosaic::studio::WarningLedger;
 
 namespace
 {
@@ -91,4 +93,45 @@ TEST_CASE("an empty world emits nothing", "[studio][order]")
     // The state the editor is in on almost every frame of its life.
     OrderWarningModel m;
     REQUIRE(m.emit({}).empty());
+}
+
+TEST_CASE("the ledger emits a key the first time and not the second", "[studio][ledger]")
+{
+    WarningLedger                           ledger;
+    const std::vector<WarningLedger::Entry> one{{"k1", "sig-a"}};
+
+    const auto first = ledger.emit(one);
+    REQUIRE(first.size() == 1);
+    REQUIRE(first[0] == 0); // an INDEX into `current`, so a caller maps it to its finding
+
+    REQUIRE(ledger.emit(one).empty());
+}
+
+TEST_CASE("the ledger re-emits a key whose signature changed", "[studio][ledger]")
+{
+    // The property the order lint's accepted drag-burst depends on: a finding whose numbers
+    // moved is a different finding, not a repeat.
+    WarningLedger ledger;
+    REQUIRE(ledger.emit({{"k1", "sig-a"}}).size() == 1);
+    REQUIRE(ledger.emit({{"k1", "sig-b"}}).size() == 1);
+}
+
+TEST_CASE("the ledger forgets a key that stops being reported", "[studio][ledger]")
+{
+    // Rebuild-don't-grow. A set that only ever grew would go permanently silent about a
+    // problem the user fixed and then reintroduced.
+    WarningLedger ledger;
+    REQUIRE(ledger.emit({{"k1", "sig-a"}}).size() == 1);
+    REQUIRE(ledger.emit({}).empty());
+    REQUIRE(ledger.emit({{"k1", "sig-a"}}).size() == 1);
+}
+
+TEST_CASE("the ledger tracks two keys independently", "[studio][ledger]")
+{
+    WarningLedger ledger;
+    REQUIRE(ledger.emit({{"k1", "sig"}}).size() == 1);
+
+    const auto second = ledger.emit({{"k1", "sig"}, {"k2", "sig"}});
+    REQUIRE(second.size() == 1);
+    REQUIRE(second[0] == 1); // the index of k2, not of k1
 }
