@@ -460,7 +460,17 @@ them as this list does.
   feature, and bundling a warning system into a rendering diff is how a reviewer loses track
   of which half to scrutinise. **It is a heuristic lint, not a correctness check** — see the
   reframing item below.
-- **The REAL `order` bug is pairwise and relative, not per-entity and absolute** — found
+- ~~**The REAL `order` bug is pairwise and relative, not per-entity and absolute**~~ —
+  **SHIPPED 2026-10-12** as `find_order_conflicts` in `engine/ui/ui_order_check.hpp`, with the
+  button-rect flatten extracted to `engine/ui/ui_button_rects.hpp` so the check polices the
+  exact rects `UiSystem`'s hit test uses. Two kinds: **Inverted** (both axes ordered,
+  opposite rankings — the definite bug) and **Ambiguous** (one axis tied, so the outcome
+  falls to iteration order and can flip when an unrelated button is destroyed). Both-axes-tied
+  is deliberately silent: the author expressed no preference either way, and reporting it
+  would fire on every pair of overlapping default-constructed buttons. Overlap is inclusive,
+  matching `topmost_hit`, so buttons touching along an edge count. The per-entity lint
+  **stays** — it catches the authoring slip before a second button exists, which is exactly
+  when this check has nothing to say. Original framing, which was right:  found
   2026-10-11 while building the lint above, which is why that lint is honest about being a
   heuristic. A single button in a scene cannot misroute a click whatever its `order` says: the
   failure needs **two overlapping buttons**, where A's `UiButton::order` ranks above B's while
@@ -513,6 +523,28 @@ them as this list does.
   numbers. Each line is a genuinely different disagreement, so this is not a de-duplication
   failure. Debouncing during an active drag was considered and **declined**. The decision is
   also written into `studio/order_warnings.hpp` beside the code that causes it.
+- **Three copies of the same anchor clamper** — `to_anchor` in
+  `engine/render/render_system.hpp`, `hierarchy_anchor` in `engine/ui/ui_hierarchy.hpp` and
+  `button_anchor` in `engine/ui/ui_button_rects.hpp` are the same four-line
+  `(a >= 0 && a <= 8) ? cast : TopLeft` in three files. Noticed 2026-10-12 while moving the
+  third one, and a **deliberate non-goal of that slice**: collapsing them is an unrelated
+  refactor touching the render system, and bundling it into a diagnostic diff is how a
+  reviewer loses track of which half to scrutinise. Pre-existing, correctness-safe (all three
+  are identical), cheap whenever someone wants it. **Depends on** nothing.
+- **No end-to-end test that a conflicting pair actually misroutes a click** — recorded
+  2026-10-12 as the one thing the pairwise check cannot prove about itself. It reports that
+  `UiButton::order` and `UiPanel::order` rank a pair differently; that this *causes* the wrong
+  button to receive the event rests on `topmost_hit`'s tests plus the panel pass's sort, each
+  covered separately but never together. A test that drives a real `PointerState` into a
+  conflicting pair and asserts which entity gets the `ScriptEvent` would close it. **Depends
+  on** nothing — `UiSystem` already takes an injected pointer, so it is headless; it was left
+  out only to keep the slice's diff about the check itself.
+- **Cross-entity overlap is still invisible to both order diagnostics** — restated
+  2026-10-12 now that the pairwise check exists and *still* cannot see it. A button whose
+  visual lives on a different entity is skipped whole by `find_order_conflicts`, because the
+  ownership rule gives it no visual rank. Detecting it needs rect-overlap analysis between a
+  button and panels it does not own, which is a different and much larger question than the
+  pair comparison that shipped.
 - **A unified z-order across all UI, crossing the pass boundary** — the explicit non-goal of
   the pass-sorting slice, 2026-10-11, and the limitation a user is most likely to hit next.
   `order` now ranks panels against panels, images against images and text against text, but
