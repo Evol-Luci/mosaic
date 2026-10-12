@@ -11,14 +11,6 @@
 
 namespace mosaic::engine::ui
 {
-// Clamp an int to a ui::Anchor (out of range -> TopLeft). Mirrors render's to_anchor and
-// ui_hierarchy's hierarchy_anchor; the triplication is pre-existing and recorded in the
-// backlog rather than folded into this slice.
-inline Anchor button_anchor(int a)
-{
-    return (a >= 0 && a <= 8) ? static_cast<Anchor>(a) : Anchor::TopLeft;
-}
-
 // Every UiButton flattened into hit candidates.
 //
 // SHARED ON PURPOSE, and this is the whole reason the function moved out of UiSystem. The
@@ -34,7 +26,7 @@ inline std::vector<HitCandidate> button_hit_candidates(mosaic::engine::World& wo
         {
             out.push_back(HitCandidate{
                 e, b.order,
-                resolve_ui_rect(world, e, button_anchor(b.anchor), b.pos, b.size)});
+                resolve_ui_rect(world, e, to_anchor(b.anchor), b.pos, b.size)});
         });
     return out;
 }

@@ -12,7 +12,6 @@
 using Catch::Approx;
 using mosaic::engine::World;
 using mosaic::engine::ui::Anchor;
-using mosaic::engine::ui::button_anchor;
 using mosaic::engine::ui::button_hit_candidates;
 using mosaic::engine::ui::UiButton;
 using mosaic::engine::ui::UiPanel;
@@ -68,14 +67,6 @@ TEST_CASE("button_hit_candidates resolves a nested button inside its parent fram
     REQUIRE(cands.size() == 1);
     REQUIRE(cands[0].rect.x == Approx(0.1f)); // 0.2 * 0.5
     REQUIRE(cands[0].rect.w == Approx(0.2f)); // 0.4 * 0.5
-}
-
-TEST_CASE("button_anchor clamps an out-of-range anchor to TopLeft", "[ui][buttonrects]")
-{
-    REQUIRE(button_anchor(0) == Anchor::TopLeft);
-    REQUIRE(button_anchor(8) == Anchor::BottomRight);
-    REQUIRE(button_anchor(9) == Anchor::TopLeft);
-    REQUIRE(button_anchor(-1) == Anchor::TopLeft);
 }
 
 TEST_CASE("button_hit_candidates is empty with no buttons", "[ui][buttonrects]")

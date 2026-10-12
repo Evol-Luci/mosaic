@@ -509,7 +509,16 @@ them as this list does.
   carry today; that is its own design, plausibly architectural, rather than a widget swap.
   **Depends on** that metadata and nothing else.
 - **`ImGuiFieldVisitor` has no test coverage at all** — noticed 2026-10-11 while adding
-  `field_int`, and pre-existing rather than introduced by it. There is no
+  `field_int`, and pre-existing rather than introduced by it. **Re-scoped 2026-10-12, and the
+  earlier framing was too optimistic:** "needs a headless ImGui context" undersells it. A
+  context with a null backend is easy — `CreateContext`, set `io.DisplaySize`, build the
+  default font atlas, run `NewFrame`/`Render`. But *exercising* a `DragInt`'s write-back needs
+  a simulated **multi-frame mouse drag** against ImGui's internal active-item state, which is
+  exactly what `imgui_test_engine` exists for and which is **not vendored** here (ImGui 1.91.5
+  arrives via `FetchContent`; no test engine). A hand-rolled harness would buy weak coverage
+  ("the widget does not crash", "`changed_` stays false when idle") for real effort. So this
+  item is really **"adopt `imgui_test_engine`"** — a new third-party dependency, and therefore
+  a decision for a human rather than something to pick up unattended. Original entry: There is no
   `tests/unit/studio/inspector_test.cpp`: `field_float`, `field_string`, `field_asset` and now
   `field_int` are each one `ImGui::` call that no test executes, because ImGui needs a live
   context. The adapter *dispatch* is well covered in
@@ -523,7 +532,11 @@ them as this list does.
   numbers. Each line is a genuinely different disagreement, so this is not a de-duplication
   failure. Debouncing during an active drag was considered and **declined**. The decision is
   also written into `studio/order_warnings.hpp` beside the code that causes it.
-- **Three copies of the same anchor clamper** — `to_anchor` in
+- ~~**Three copies of the same anchor clamper**~~ — **FIXED 2026-10-12.** One
+  `mosaic::engine::ui::to_anchor` now lives in `engine/ui/ui_rect.hpp`, beside the `Anchor`
+  enum it clamps to, and all five call sites use it. Its upper bound is written against
+  `Anchor::BottomRight` rather than a literal `8`, so extending the enum needs no edit there
+  at all — which was the actual hazard, not the duplication. Original entry: `to_anchor` in
   `engine/render/render_system.hpp`, `hierarchy_anchor` in `engine/ui/ui_hierarchy.hpp` and
   `button_anchor` in `engine/ui/ui_button_rects.hpp` are the same four-line
   `(a >= 0 && a <= 8) ? cast : TopLeft` in three files. Noticed 2026-10-12 while moving the
