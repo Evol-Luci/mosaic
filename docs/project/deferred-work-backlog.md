@@ -2296,7 +2296,7 @@ note set for re-deriving at all.
 | Item | Why it is a quick win |
 |---|---|
 | ~~**Tighten the "position starts past the edge" test to exact values**~~ | **SHIPPED 2026-10-12**, and the prediction was exactly right: the assertions took a minute, choosing the probe was the work. The old bounds (`u0 <= 1`, `u1 <= 1 + eps`, `u1 >= u0`) passed at `u0 = 0.984`, which is what an upper bound written `tw - 1` produces — so that off-by-one is the **defined** probe, and it is now red on both axes. A second section at 64x32 was added because at 64x64 a clamp measuring y against the *width* is undetectable. **Confirmed UB trap, worth remembering:** mutating the position clamp away entirely, or clamping y against the width, makes the next line `std::clamp(v, lo, hi)` with `lo > hi` — one of those aborted on a libstdc++ debug assertion rather than returning a wrong value. The real code never trips it, because `x1`'s `lo` is the already-clamped `x0`; but a probe of this function must mutate a *bound*, never remove the clamp. |
-| **Warn when a sub-rect lands entirely off its texture** | One diagnostic at the `resolve_image_quad` seam. A user who mistypes `sub_rect_pos` today gets a silent one-texel smear; the behaviour is defensible but its invisibility is not. Deliberately a *warning* rather than a behaviour change, because "treat as whole texture" and "skip the draw" are both defensible and choosing between them is a design call, not a quick win. |
+| ~~**Warn when a sub-rect lands entirely off its texture**~~ | **SHIPPED 2026-10-12, and this row under-rated it.** "One diagnostic at the `resolve_image_quad` seam" is the one place it cannot go: that is a pure header-only function the render pass calls for every image every frame, so a `log::warn` there would fire 60 times a second with no ledger within reach — engine code cannot see the studio-side one. The shape that works is the pattern the order diagnostics established: a pure `sub_rect_off_texture` predicate in `engine/ui/ui_fit.hpp` beside the clamp it describes, plus a loop in `app/run/editor.cpp` where the asset registry actually is, de-duplicated through `WarningLedger`. A slice rather than a one-liner. The *warning-not-behaviour-change* call in this row was right and was kept. **One asymmetry worth knowing:** a NEGATIVE `sub_rect_pos` is not a finding — the lower clamp pulls it back on-texture, so it samples a shifted-but-valid region instead of collapsing. |
 | ~~**Sort the HUD image pass by `UiImage::order`**~~ | **SHIPPED 2026-10-11, image AND text together.** Two of this row's own claims were wrong. It was **not** "a copy of a shipped loop": the panel pass batches every quad into ONE `draw_ui` call after sorting, while the image and text passes draw per entity with their own texture/atlas handles — so each needed a collect → sort → emit reshape, not a copied `stable_sort`. And `order` was **not** "documented" on either component: both fields carried no comment at all, unlike `UiPanel::order`. The semantics are now written down, including that the order cannot cross a pass boundary. |
 | ~~**An Inspector `field_int` (`DragInt`)**~~ | **SHIPPED 2026-10-11.** `FieldVisitor::field_int` (defaulting to `field_readonly`, like every other optional field hook), one `std::is_same_v<U, int>` branch in `FieldVisitorAdapter`, one `DragInt` override. The payoff is wider than the order lint that prompted it: `ParticleEmitter`'s `burst`/`burst_trigger`/`max_particles` and three easing curves, `TrailRenderer::max_points`, `AudioSource::attenuation_model` and `NavAgent::goal_x`/`goal_y` all became editable too. `int` only, deliberately — the reflected `std::uint32_t` fields are ids, dimensions and versions. Combo boxes for the enum-as-int fields are the follow-up below. |
 
@@ -2320,9 +2320,13 @@ real two-button scene), or is a dependency decision (`imgui_test_engine`). **Do 
 this pass expecting new material** until real new work has landed — that is the condition the
 2026-09-20 note set, and three of the four passes since have obeyed it.
 
-One trigger rather than an item: the editor frame loop now has **two** diagnostic blocks that
-each build `WarningLedger` entries, emit, and format a warning. A third wants a small shared
-helper; two does not.
+One trigger rather than an item, **corrected 2026-10-12 after looking at the code again**:
+the editor frame loop now has three diagnostic blocks, but only **two** of them build
+`WarningLedger` entries generically — the per-entity order lint goes through the typed
+`OrderWarningModel` wrapper and is a single line. So the count that matters is *generic*
+blocks, and it is two, not three. A helper over two sites would absorb about five lines and
+add an abstraction to a long frame loop, so it was weighed and declined. Fire this at the
+*third generic* block, not the third diagnostic.
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 

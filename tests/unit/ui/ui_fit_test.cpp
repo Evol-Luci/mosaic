@@ -332,3 +332,35 @@ TEST_CASE("an out-of-range fit_mode falls back to Stretch", "[ui][fit]")
         REQUIRE(q.u1 == Approx(1.0f));
     }
 }
+
+TEST_CASE("sub_rect_off_texture spots a sub-rect that starts past the far edge", "[ui][fit]")
+{
+    using mosaic::engine::ui::sub_rect_off_texture;
+
+    // THE MISTAKE IT EXISTS FOR: a mistyped sub_rect_pos. Past the far edge, both halves of
+    // resolve_image_quad's clamp collapse to that edge, and the sprite becomes a one-texel
+    // smear -- defensible behaviour whose invisibility is not.
+    REQUIRE(sub_rect_off_texture(64, 64, Vec2{999, 0}, Vec2{16, 16}));
+    REQUIRE(sub_rect_off_texture(64, 64, Vec2{0, 999}, Vec2{16, 16}));
+    REQUIRE(sub_rect_off_texture(64, 64, Vec2{64, 0}, Vec2{16, 16})); // exactly at it
+
+    // A NEGATIVE position is NOT off the texture, and this is the asymmetry worth pinning.
+    // The lower clamp pulls it back on, so it samples a shifted-but-valid region rather than
+    // collapsing -- a different mistake with visible output, and warning about it here would
+    // be wrong.
+    REQUIRE_FALSE(sub_rect_off_texture(64, 64, Vec2{-100, -100}, Vec2{16, 16}));
+
+    // Inside, and partially overhanging, are both fine: the far clamp just trims the region.
+    REQUIRE_FALSE(sub_rect_off_texture(64, 64, Vec2{10, 10}, Vec2{16, 16}));
+    REQUIRE_FALSE(sub_rect_off_texture(64, 64, Vec2{60, 60}, Vec2{16, 16}));
+
+    // Per axis, so a non-square texture cannot hide an error on the shorter one.
+    REQUIRE(sub_rect_off_texture(64, 32, Vec2{0, 40}, Vec2{16, 16}));
+    REQUIRE_FALSE(sub_rect_off_texture(64, 32, Vec2{40, 0}, Vec2{16, 16}));
+
+    // The gate mirrors resolve_image_quad's own: a zero-size sub-rect means "whole texture",
+    // which is what every existing scene carries, so it is never a finding. Nor is a missing
+    // texture -- there is nothing to be off.
+    REQUIRE_FALSE(sub_rect_off_texture(64, 64, Vec2{999, 999}, Vec2{0, 0}));
+    REQUIRE_FALSE(sub_rect_off_texture(0, 0, Vec2{999, 999}, Vec2{16, 16}));
+}

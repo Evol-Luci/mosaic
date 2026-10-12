@@ -44,6 +44,9 @@
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/script_python/python_script_engine.hpp"
 #include "modules/script_python_studio/studio_plugin_script_engine.hpp"
+#include "engine/render/image.hpp"
+#include "engine/ui/ui_fit.hpp"
+#include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_order_check.hpp"
 #include "studio/console.hpp"
 #include "studio/order_warnings.hpp"
@@ -238,6 +241,7 @@ int run_editor(const Options& options,
     // four numbers, so it builds its own key and signature. Editor-time only, like the
     // per-entity lint -- nothing installs either in `mosaic run`.
     mosaic::studio::WarningLedger     conflict_warnings;
+    mosaic::studio::WarningLedger     sub_rect_warnings;
 
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
@@ -254,7 +258,8 @@ int run_editor(const Options& options,
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
     deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
-                     &loop, &transform_system, &order_warnings, &conflict_warnings] {
+                     &loop, &transform_system, &order_warnings, &conflict_warnings,
+                     &sub_rect_warnings] {
         glfwPollEvents();
 
         // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
@@ -398,6 +403,68 @@ int run_editor(const Options& options,
                         c.a.value(), c.b.value(), c.a_button_order, c.b_button_order,
                         c.a_panel_order, c.b_panel_order);
                 }
+            }
+        }
+
+        // A UiImage whose sub-rect starts past the far edge of its texture. Without this a
+        // mistyped `sub_rect_pos` is silent: resolve_image_quad clamps both halves onto the
+        // edge and the sprite becomes a one-texel smear, which looks like a broken asset
+        // rather than a wrong number.
+        //
+        // The predicate is pure and lives in engine/ui/ui_fit.hpp beside the clamp it
+        // describes; the texture lookup happens HERE because only this tier has the
+        // registry. Deliberately not a warning inside resolve_image_quad itself -- that is a
+        // header-only function the render pass calls for every image every frame, with no
+        // ledger within reach to de-duplicate it.
+        {
+            struct OffTexture
+            {
+                mosaic::foundation::EntityID e;
+                mosaic::foundation::math::Vec2 pos;
+                std::uint32_t                  tw = 0;
+                std::uint32_t                  th = 0;
+            };
+            std::vector<OffTexture> found;
+            world.for_each<mosaic::engine::ui::UiImage>(
+                [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
+                {
+                    // load() is a cache lookup after the first call, and resolves nothing
+                    // for an unset or unknown AssetID -- which is silent by design, since a
+                    // missing texture is a different problem with its own diagnostics.
+                    const auto img = asset_registry.load<mosaic::engine::render::Image>(im.texture);
+                    if (!img)
+                    {
+                        return;
+                    }
+                    if (mosaic::engine::ui::sub_rect_off_texture(img->width, img->height,
+                                                                 im.sub_rect_pos,
+                                                                 im.sub_rect_size))
+                    {
+                        found.push_back(OffTexture{e, im.sub_rect_pos, img->width, img->height});
+                    }
+                });
+
+            std::vector<mosaic::studio::WarningLedger::Entry> entries;
+            entries.reserve(found.size());
+            for (const auto& f : found)
+            {
+                // The texture size is part of the signature as well as the position: the
+                // same authored sub-rect can go from valid to off-texture when the image
+                // behind it is replaced by a smaller one, and that is worth saying again.
+                entries.push_back(mosaic::studio::WarningLedger::Entry{
+                    std::to_string(f.e.value()),
+                    std::to_string(f.pos.x) + ":" + std::to_string(f.pos.y) + ":"
+                        + std::to_string(f.tw) + ":" + std::to_string(f.th)});
+            }
+            for (const std::size_t i : sub_rect_warnings.emit(entries))
+            {
+                const auto& f = found[i];
+                mosaic::foundation::log::warn(
+                    "ui",
+                    "entity {} has a UiImage sub_rect_pos of ({}, {}), outside its {}x{} "
+                    "texture -- the sub-rect collapses to the edge and the sprite draws as a "
+                    "one-texel smear",
+                    f.e.value(), f.pos.x, f.pos.y, f.tw, f.th);
             }
         }
     };
