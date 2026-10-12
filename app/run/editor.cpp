@@ -6,8 +6,11 @@
 #include <csignal>
 #include <cstdio>  // fprintf
 #include <filesystem>
+#include <cstddef>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <unistd.h> // readlink, execl -- Linux-specific relaunch path, see the reopen_path comment below
 
@@ -231,6 +234,10 @@ int run_editor(const Options& options,
     // game's log. Lives out here so it survives across frames -- it is what keeps an
     // every-frame check from warning sixty times a second.
     mosaic::studio::OrderWarningModel order_warnings;
+    // A second ledger rather than a second model: a pairwise finding has two entities and
+    // four numbers, so it builds its own key and signature. Editor-time only, like the
+    // per-entity lint -- nothing installs either in `mosaic run`.
+    mosaic::studio::WarningLedger     conflict_warnings;
 
     using clock = std::chrono::steady_clock;
     const auto start = clock::now();
@@ -247,7 +254,7 @@ int run_editor(const Options& options,
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
     deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
-                     &loop, &transform_system, &order_warnings] {
+                     &loop, &transform_system, &order_warnings, &conflict_warnings] {
         glfwPollEvents();
 
         // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
@@ -346,6 +353,52 @@ int run_editor(const Options& options,
                 "entity {} has UiButton order {} but UiPanel order {} -- the hit region and "
                 "the panel a user sees are stacked independently",
                 d.e.value(), d.button_order, d.panel_order);
+        }
+
+        // The CORRECTNESS check the per-entity lint above stands in for: two overlapping
+        // buttons whose click ranking disagrees with their visual ranking. Both run -- the
+        // lint catches the authoring slip BEFORE a second button exists, which is precisely
+        // when this has nothing to say.
+        {
+            const auto conflicts = mosaic::engine::ui::find_order_conflicts(world);
+            std::vector<mosaic::studio::WarningLedger::Entry> entries;
+            entries.reserve(conflicts.size());
+            for (const auto& c : conflicts)
+            {
+                // `a` is already the lower entity value, so the key is stable per pair
+                // however the two were reached.
+                entries.push_back(mosaic::studio::WarningLedger::Entry{
+                    std::to_string(c.a.value()) + "/" + std::to_string(c.b.value()),
+                    std::to_string(static_cast<int>(c.kind)) + ":"
+                        + std::to_string(c.a_button_order) + ":"
+                        + std::to_string(c.a_panel_order) + ":"
+                        + std::to_string(c.b_button_order) + ":"
+                        + std::to_string(c.b_panel_order)});
+            }
+            for (const std::size_t i : conflict_warnings.emit(entries))
+            {
+                const auto& c = conflicts[i];
+                if (c.kind == mosaic::engine::ui::OrderConflictKind::Inverted)
+                {
+                    mosaic::foundation::log::warn(
+                        "ui",
+                        "entities {} and {} overlap, but the click goes to the one drawn "
+                        "underneath (UiButton orders {} and {}; UiPanel orders {} and {})",
+                        c.a.value(), c.b.value(), c.a_button_order, c.b_button_order,
+                        c.a_panel_order, c.b_panel_order);
+                }
+                else
+                {
+                    mosaic::foundation::log::warn(
+                        "ui",
+                        "entities {} and {} overlap and one of their orders is tied "
+                        "(UiButton {} and {}; UiPanel {} and {}) -- which receives the click "
+                        "falls to iteration order and can change when an unrelated button is "
+                        "destroyed",
+                        c.a.value(), c.b.value(), c.a_button_order, c.b_button_order,
+                        c.a_panel_order, c.b_panel_order);
+                }
+            }
         }
     };
 
