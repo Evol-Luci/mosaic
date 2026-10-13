@@ -23,9 +23,15 @@ using mosaic::foundation::math::Vec2;
 // fires on every pointer crossing. Adding hover had to fix three such handlers in this
 // repository, including the demo's own.
 //
-// Hover is independent of the press state: it tracks the pointer during a drag that began
-// elsewhere. It requires a pointer to be PRESENT (see PointerState::inside), so it is
-// silent headless and while the cursor is outside the surface.
+// Hover is SUBORDINATE to the press state, as of pointer capture. While a press is held, the
+// pointer belongs to the button it landed on: no other button hovers, and the captured one
+// is hovered only while the cursor is inside its own rect -- so it un-highlights when you
+// drag off and re-highlights when you drag back. With no press held, hover tracks whatever
+// is topmost under the cursor. (This comment previously said hover was independent of the
+// press, which was true until capture shipped.)
+//
+// It requires a pointer to be PRESENT (see PointerState::inside), so it is silent headless
+// and while the cursor is outside the surface.
 struct UiButton
 {
     int         anchor = 0;

@@ -41,9 +41,23 @@ public:
         const std::vector<HitCandidate> cands = candidates(world);
         const mosaic::foundation::EntityID top = topmost_hit(cands, p);
 
+        // WHILE CAPTURED, THE POINTER BELONGS TO ONE BUTTON. Hover resolves against the
+        // captured entity alone: it is hovered when the cursor is inside it and not
+        // otherwise, and nothing else can hover at all. That is what makes a press-and-slide
+        // read correctly -- the highlight tracks whether releasing here would fire, rather
+        // than tracking whatever happens to be under the cursor.
+        //
+        // `top == captured_` rather than a fresh containment test, because `top` already
+        // answers it from the same snapshot the press path uses. A second test could
+        // disagree with the first.
+        const mosaic::foundation::EntityID hover_target =
+            (captured_ != mosaic::foundation::EntityID{})
+                ? ((top == captured_) ? captured_ : mosaic::foundation::EntityID{})
+                : top;
+
         // --- hover, before press, so a script sees the enter for the button it is about
         // --- to be told was clicked.
-        if (top != hovered_)
+        if (hover_target != hovered_)
         {
             if (hovered_ != mosaic::foundation::EntityID{})
             {
@@ -55,12 +69,12 @@ public:
                 // tagged stays highlighted forever with nothing able to clear it.
                 world.remove_component<UiHovered>(hovered_);
             }
-            if (top != mosaic::foundation::EntityID{})
+            if (hover_target != mosaic::foundation::EntityID{})
             {
-                emit_button_action(world, top, "hover_enter");
-                world.add_component<UiHovered>(top, UiHovered{});
+                emit_button_action(world, hover_target, "hover_enter");
+                world.add_component<UiHovered>(hover_target, UiHovered{});
             }
-            hovered_ = top;
+            hovered_ = hover_target;
         }
 
         if (p.down && !was_down_)

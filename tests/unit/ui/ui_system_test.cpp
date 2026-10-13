@@ -51,6 +51,14 @@ struct Harness
     }
     void tick() { world.tick(0.016f); }
 
+    // UiSystem is owned by the World, so reach it the way the production caller does.
+    // NOT const: World::get_system<S>() is a non-const member returning S*.
+    bool press_consumed_for_test()
+    {
+        UiSystem* s = world.get_system<UiSystem>();
+        return s != nullptr && s->press_consumed();
+    }
+
     // The names of events carrying `action`, in emission order.
     //
     // The button's event channel now carries hover as well as click, so a test that means
@@ -444,4 +452,92 @@ TEST_CASE("a saved scene contains no UiHovered even while hovering", "[ui][input
     // to_json would leave this test passing while claiming to have verified the trap.
     REQUIRE(text.find("UiButton") != std::string::npos);
     REQUIRE(text.find("UiHovered") == std::string::npos);
+}
+
+TEST_CASE("a captured button stops another from hovering", "[ui][input]")
+{
+    // CAPTURE IS A ROUTING RULE. While a press is held, the pointer belongs to the button
+    // it landed on, so dragging onto a neighbour must not light the neighbour up -- the
+    // click is still going to the captured one, and feedback that says otherwise lies.
+    //
+    // The two buttons must overlap only PARTIALLY, which add_overlapping cannot express:
+    // it places its button on the harness button's own rect, so a higher order would steal
+    // the press itself and a lower one would never be topmost anywhere. A disjoint neighbour
+    // at a higher order is the only arrangement where the press lands on A while B is
+    // genuinely topmost later -- which is exactly the case capture has to suppress.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.world.create_entity();
+    UiButton   b;
+    b.anchor = 0;
+    b.pos    = Vec2{0.3f, 0.0f};
+    b.size   = Vec2{0.2f, 0.2f}; // x 0.3..0.5, clear of the harness button's 0..0.2
+    b.event  = "neighbour";
+    b.order  = 5; // topmost where it sits
+    h.world.add_component<UiButton>(other, b);
+
+    // Press where ONLY the harness button is, so it takes the capture.
+    h.ptr = {0.05f, 0.05f, true};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    // Drag onto the neighbour. Without capture it would hover, being topmost there.
+    h.ptr = {0.35f, 0.05f, true};
+    h.tick();
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(other));
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button)); // off its own rect
+    REQUIRE(h.names_with_action("hover_enter") == std::vector<std::string>{"test_click"});
+}
+
+TEST_CASE("a captured button un-hovers off its rect and re-hovers on return", "[ui][input]")
+{
+    // The affordance that tells a user whether releasing here will fire the button. The
+    // capture is kept either way -- only the hover tag follows the cursor in and out.
+    using mosaic::engine::ui::UiHovered;
+    Harness h;
+
+    h.ptr = {0.05f, 0.05f, true};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    h.ptr = {0.9f, 0.9f, true}; // dragged well outside, still held
+    h.tick();
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+
+    h.ptr = {0.05f, 0.05f, true}; // dragged back in
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    // And the capture survived the round trip: releasing inside still clicks.
+    h.ptr = {0.05f, 0.05f, false};
+    h.tick();
+    REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
+}
+
+TEST_CASE("with no press hover still follows the cursor across buttons", "[ui][input]")
+{
+    // The shipped behaviour, unchanged. Capture only applies while a press is held.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.add_overlapping(5, "on_top");
+
+    h.ptr = {0.05f, 0.05f, false};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(other)); // order 5 is topmost
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+}
+
+TEST_CASE("an absent pointer never captures", "[ui][input]")
+{
+    // Headless `mosaic run` reports inside == false forever, and PointerState's `inside`
+    // defaults to TRUE -- so a provider meaning "no pointer" must say so, and this pins that
+    // the capture path honours it. Without it, a down-but-absent pointer would capture a
+    // button nobody is pointing at.
+    using mosaic::engine::ui::UiHovered;
+    Harness h;
+    h.ptr = PointerState{0.05f, 0.05f, true, false}; // down, but no pointer present
+    h.tick();
+
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+    REQUIRE_FALSE(h.press_consumed_for_test());
 }
