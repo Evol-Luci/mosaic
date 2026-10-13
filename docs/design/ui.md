@@ -209,14 +209,18 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
      when the resolution matters.
    - Tracks press transitions: a press records the **topmost** button under the pointer, and
      a release clicks only if that button is still the topmost one there.
-   - Emits a `ScriptEvent` to the `EventBus` for **three** actions on the button's single
-     `event` channel:
+   - Emits a `ScriptEvent` to the `EventBus` for **seven** actions on the button's single
+     `event` channel. The three drag actions that carry a position add `x`/`y` in normalized
+     screen space; the rest carry exactly `entity` and `action`:
      ```json
      {
        "event": "<button.event>",
        "payload": {
          "entity": "<entity_id>",
          "action": "click" | "hover_enter" | "hover_exit"
+                 | "drag_start" | "drag" | "drag_end" | "drag_cancel",
+         "x": 0.0,
+         "y": 0.0
        }
      }
      ```
@@ -226,8 +230,24 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
      in this repository, including the demo's own.
    - `hover_enter` fires once on the **transition** onto a button, not while the pointer
      rests inside it. Moving directly from button A to button B emits `hover_exit(A)` then
-     `hover_enter(B)`, in that order. Hover is independent of `down`, so it tracks the
-     pointer during a drag that began elsewhere.
+     `hover_enter(B)`, in that order.
+   - **Hover is subordinate to the press**, as of pointer capture. While a press is held the
+     pointer belongs to the button it landed on: no other button hovers, and the captured one
+     is hovered only while the cursor is inside its own rect — so it un-highlights when you
+     drag off and re-highlights when you drag back. With no press held, hover tracks whatever
+     is topmost. (This line previously said hover was independent of `down`, which was true
+     until capture shipped.)
+   - **Drag.** Once a press lands on a button, that button owns the pointer until release.
+     `drag_start` fires when the pointer moves past `kDragThreshold` (`0.01`, measured from
+     the press point) — not on the press, or every click would emit one. `drag` follows per
+     moving frame; a motionless frame emits nothing. The press ends as `drag_end` if the
+     pointer is still on the surface, or `drag_cancel` if it left — `PointerState::inside`
+     distinguishes them, and aborting a drag is a different outcome from completing one. A
+     press that never crosses the threshold emits no drag action at all.
+   - If the captured entity is destroyed, or loses its `UiButton`, the capture is **dropped
+     silently** — no `drag_end`, no `drag_cancel`, because the channel name lived on the
+     component. Holding it instead would leave hover resolving against a ghost, and nothing
+     in the UI could highlight until the button came up.
    - **Rendered hover feedback** is opt-in, via two components:
      - `UiHoverStyle` (authored, reflected) carries `tint` and `alpha_scale`, which
        **multiply** the element's authored colour and alpha. The defaults (`{1,1,1}` and

@@ -312,7 +312,8 @@ them as this list does.
   be a wrong answer rather than an undefined one:** the press took the FIRST button under
   the pointer while the panel pass draws the LAST of an equal-order run on top, so a click
   on two overlapping equal-order buttons went to the button the user could not see.
-  **Capture/drag remains open** (listed above). So do both accepted costs — a button's
+  ~~**Capture/drag remains open** (listed above).~~ **U6 IS COMPLETE as of 2026-10-12** —
+  capture/drag shipped; see its own entry. So do both accepted costs — a button's
   `order` can disagree with its visual's, and the engine still renders no hover feedback of
   its own — and neither was resolved by this slice. ~~Carries one open
   question for a human — whether `UiButton` gets its own `order` or inherits its
@@ -322,7 +323,19 @@ them as this list does.
   rediscovered as a surprise: a button's `order` and its overlaid visual's `order` **can
   disagree**, and nothing warns about it. **Scoped 2026-10-10 to z-order + hover**, with
   capture/drag split out (below).
-- **Pointer capture and drag for `UiButton`** — split out of U6 on 2026-10-10 when U6 was
+- ~~**Pointer capture and drag for `UiButton`**~~ — **SHIPPED 2026-10-12, closing U6.**
+  `UiSystem::pressed_` became `captured_`, which is what it already meant; hover now resolves
+  against the captured entity alone, so no other button lights up mid-drag and the captured
+  one is hovered only while the cursor is inside its own rect. Four new actions on the
+  button's existing channel: `drag_start` (on movement past `kDragThreshold`, **not** on
+  press, or every click would also emit one), `drag` per moving frame, `drag_end` on release,
+  `drag_cancel` when the pointer leaves the surface. `drag_start`/`drag`/`drag_end` carry
+  `x`/`y`; `click` and the hover actions keep their exact `{entity, action}` shape.
+  **Both open questions this entry named are answered:** a captured press does *not* follow
+  the pointer outside the surface — the editor's provider deliberately drops `down` there, so
+  a drag cannot keep running while the user clicks in the Inspector — and a drag emits
+  per-frame events *and* a start/end pair, since `drag_start` is an edge and `drag` a stream.
+  Original entry: split out of U6 on 2026-10-10 when U6 was
   scoped, not dropped. **Why it was separated:** z-order and hover are *coupled* — "which
   button is hovered" has no answer without a tie-break, so hover built on the current
   behaviour would flicker between overlapping buttons — whereas capture is partly present
@@ -568,6 +581,58 @@ them as this list does.
   ownership rule gives it no visual rank. Detecting it needs rect-overlap analysis between a
   button and panels it does not own, which is a different and much larger question than the
   pair comparison that shipped.
+- **The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in
+  `mosaic run --window`** — found by review 2026-10-12. `app/main.cpp`'s pointer lambda leaves
+  `inside` at its default `true` except for a null or minimised window, and clamps `x`/`y`
+  into `[0,1]`. GLFW keeps reporting the button pressed while the cursor is outside a focused
+  window, so dragging off the edge and releasing there gives `down` false with `inside` true →
+  a **`drag_end` carrying a clamped coordinate the user never pointed at**. That is exactly
+  the dishonesty the capture spec cites as its reason for omitting the position from
+  `drag_cancel` — but the reasoning only holds for the editor's provider, which gates `inside`
+  on `hovered`. **Deferred because the fix is a behaviour decision about the standalone
+  runtime** (should hover stop at the window edge there, as it does in the editor?) rather
+  than part of the slice that exposed it. Nothing is affected today: no shipped handler reads
+  a drag action.
+- **`UiSystem`'s drag branch does not gate on `p.inside` while the release path does** —
+  latent, found by review 2026-10-12. Unreachable with both shipped providers (the editor
+  drops `down` off-panel; GLFW never drops `inside`), but a third provider reporting
+  `down && !inside` — the obvious shape for "cursor left but button held" — would stream
+  `drag` at clamped coordinates forever and never reach `drag_cancel`. One `&& p.inside` makes
+  the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
+  effect; worth folding into whichever slice adds a third provider.
+- **A press surviving a play-mode change emits a stale drag action** — found by review
+  2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
+  U6 ("its failure modes are the subtlest: the pointer leaving the window mid-drag, a press
+  surviving a play-mode change"). While the editor is stopped, `World::tick` never runs, so
+  `UiSystem` freezes mid-press with `was_down_` true. Press the HUD button, drag past the
+  threshold, hit **Stop**, then later **Play** or **Step**: the first tick takes the release
+  edge and emits a `drag_cancel` — or `drag_end` plus `click` if the cursor happens to be back
+  over the button — for a gesture that ended seconds earlier. The `click` half is pre-existing;
+  the slice widens it from one stale action to three. **The right fix is in the editor**
+  (reset the system's press state on a play-state transition), not in `UiSystem`, which is why
+  it is deferred rather than patched where it was noticed.
+- **A one-frame hover lag on the release frame** — `hover_target` is computed before the
+  release edge clears `captured_`, so releasing over a *different* button leaves it unhovered
+  for that frame and it enters on the next. About 16ms at 60Hz. Recorded 2026-10-12 so it is
+  not rediscovered as a bug; not worth changing.
+- **A pixel-accurate drag threshold** — `kDragThreshold` is `0.01` in **normalized** screen
+  units, so it is anisotropic: about 19px horizontally against 10px vertically at 1920x1080.
+  A pixel threshold needs the screen aspect inside `UiSystem`, which it does not have and
+  which would have to be threaded in the way `resolve_image_quad` takes it. Recorded
+  2026-10-12 as the accepted cost of the capture/drag slice. **Depends on** nothing; it is a
+  plumbing question, not a design one.
+- **The drag threshold's value is unvalidated** — `0.01` is a guess until a human drags
+  something. Whether it feels comfortable, and whether the un-highlight on drag-off reads
+  correctly, are exactly the claims no test can make; both are queued for the next human
+  verification pass. Recorded 2026-10-12 so the number is not mistaken for a measured one.
+- **Drag on non-button elements** — only `UiButton` is hit-testable, so only a button can
+  capture. The same boundary the hover slice drew, and widening it is the recorded "hover and
+  hit-testing on non-button UI components" item above rather than a separate question.
+- **Suppressing `click` after a drag** — the road not taken, 2026-10-12. Releasing inside a
+  button after dragging emits `drag_end` **and** `click`, because press-wiggle-release is a
+  click to any user and suppressing it would change shipped behaviour for an input nobody
+  considers a drag. A handler wanting drag-only behaviour filters on `action`, which every
+  handler must already do. Recorded so it is not revisited as an oversight.
 - **A unified z-order across all UI, crossing the pass boundary** — the explicit non-goal of
   the pass-sorting slice, 2026-10-11, and the limitation a user is most likely to hit next.
   `order` now ranks panels against panels, images against images and text against text, but

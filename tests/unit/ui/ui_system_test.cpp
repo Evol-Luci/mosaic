@@ -51,6 +51,14 @@ struct Harness
     }
     void tick() { world.tick(0.016f); }
 
+    // UiSystem is owned by the World, so reach it the way the production caller does.
+    // NOT const: World::get_system<S>() is a non-const member returning S*.
+    bool press_consumed_for_test()
+    {
+        UiSystem* s = world.get_system<UiSystem>();
+        return s != nullptr && s->press_consumed();
+    }
+
     // The names of events carrying `action`, in emission order.
     //
     // The button's event channel now carries hover as well as click, so a test that means
@@ -70,6 +78,22 @@ struct Harness
             }
         }
         return out;
+    }
+
+    // The first event carrying `action`, or nullptr. For asserting on a payload rather than
+    // only on which channel fired.
+    const ScriptEvent* find_event_with_action(const std::string& action) const
+    {
+        for (const auto& ev : events)
+        {
+            if (!ev.payload.is<Table>()) { continue; }
+            const auto* a = ev.payload.as<Table>().find("action");
+            if (a != nullptr && a->is<std::string>() && a->as<std::string>() == action)
+            {
+                return &ev;
+            }
+        }
+        return nullptr;
     }
 
     // A second button overlapping the first, at a caller-chosen order and event name, so a
@@ -444,4 +468,336 @@ TEST_CASE("a saved scene contains no UiHovered even while hovering", "[ui][input
     // to_json would leave this test passing while claiming to have verified the trap.
     REQUIRE(text.find("UiButton") != std::string::npos);
     REQUIRE(text.find("UiHovered") == std::string::npos);
+}
+
+TEST_CASE("a captured button stops another from hovering", "[ui][input]")
+{
+    // CAPTURE IS A ROUTING RULE. While a press is held, the pointer belongs to the button
+    // it landed on, so dragging onto a neighbour must not light the neighbour up -- the
+    // click is still going to the captured one, and feedback that says otherwise lies.
+    //
+    // The two buttons must overlap only PARTIALLY, which add_overlapping cannot express:
+    // it places its button on the harness button's own rect, so a higher order would steal
+    // the press itself and a lower one would never be topmost anywhere. A disjoint neighbour
+    // at a higher order is the only arrangement where the press lands on A while B is
+    // genuinely topmost later -- which is exactly the case capture has to suppress.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.world.create_entity();
+    UiButton   b;
+    b.anchor = 0;
+    b.pos    = Vec2{0.3f, 0.0f};
+    b.size   = Vec2{0.2f, 0.2f}; // x 0.3..0.5, clear of the harness button's 0..0.2
+    b.event  = "neighbour";
+    b.order  = 5; // topmost where it sits
+    h.world.add_component<UiButton>(other, b);
+
+    // Press where ONLY the harness button is, so it takes the capture.
+    h.ptr = {0.05f, 0.05f, true};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    // Drag onto the neighbour. Without capture it would hover, being topmost there.
+    h.ptr = {0.35f, 0.05f, true};
+    h.tick();
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(other));
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button)); // off its own rect
+    REQUIRE(h.names_with_action("hover_enter") == std::vector<std::string>{"test_click"});
+}
+
+TEST_CASE("a captured button un-hovers off its rect and re-hovers on return", "[ui][input]")
+{
+    // The affordance that tells a user whether releasing here will fire the button. The
+    // capture is kept either way -- only the hover tag follows the cursor in and out.
+    using mosaic::engine::ui::UiHovered;
+    Harness h;
+
+    h.ptr = {0.05f, 0.05f, true};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    h.ptr = {0.9f, 0.9f, true}; // dragged well outside, still held
+    h.tick();
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+
+    h.ptr = {0.05f, 0.05f, true}; // dragged back in
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(h.button));
+
+    // And the capture survived the round trip: releasing inside still clicks.
+    h.ptr = {0.05f, 0.05f, false};
+    h.tick();
+    REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
+}
+
+TEST_CASE("with no press hover still follows the cursor across buttons", "[ui][input]")
+{
+    // The shipped behaviour, unchanged. Capture only applies while a press is held.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.add_overlapping(5, "on_top");
+
+    h.ptr = {0.05f, 0.05f, false};
+    h.tick();
+    REQUIRE(h.world.has_component<UiHovered>(other)); // order 5 is topmost
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+}
+
+TEST_CASE("an absent pointer never captures", "[ui][input]")
+{
+    // Headless `mosaic run` reports inside == false forever, and PointerState's `inside`
+    // defaults to TRUE -- so a provider meaning "no pointer" must say so, and this pins that
+    // the capture path honours it. Without it, a down-but-absent pointer would capture a
+    // button nobody is pointing at.
+    using mosaic::engine::ui::UiHovered;
+    Harness h;
+    h.ptr = PointerState{0.05f, 0.05f, true, false}; // down, but no pointer present
+    h.tick();
+
+    REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
+    REQUIRE_FALSE(h.press_consumed_for_test());
+}
+
+TEST_CASE("a press that never moves emits a click and no drag", "[ui][input]")
+{
+    // THE MOST COMMON INPUT THERE IS. If drag_start fired on press instead of on movement,
+    // every click in the engine would also emit drag_start and drag_end, and no handler
+    // could tell a click from a one-pixel drag.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
+    REQUIRE(h.names_with_action("drag_start").empty());
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+}
+
+TEST_CASE("movement past the threshold emits one drag_start then a drag per frame",
+          "[ui][input]")
+{
+    // drag_start is an EDGE, drag is a stream. A drag_start per frame would make a handler
+    // re-initialise its state on every move, which is the bug this ordering prevents.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick(); // press, no movement yet
+    h.ptr = {0.10f, 0.05f, true};  h.tick(); // 0.05 > 0.01 threshold
+    h.ptr = {0.15f, 0.05f, true};  h.tick();
+
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+    REQUIRE(h.names_with_action("drag").size() == 1); // the second move only
+}
+
+TEST_CASE("movement below the threshold emits nothing until it is crossed", "[ui][input]")
+{
+    // The threshold exists so a hand tremor is still a click. Crossing it later must still
+    // start the drag -- measured from the PRESS point, not from the previous frame, or a
+    // slow drag would never accumulate enough to cross.
+    Harness h;
+    h.ptr = {0.050f, 0.050f, true}; h.tick();
+    h.ptr = {0.055f, 0.050f, true}; h.tick(); // 0.005 < 0.01
+    REQUIRE(h.names_with_action("drag_start").empty());
+
+    h.ptr = {0.070f, 0.050f, true}; h.tick(); // 0.020 from the press point
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+}
+
+TEST_CASE("a frame with no movement emits no drag", "[ui][input]")
+{
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // identical position
+    REQUIRE(h.names_with_action("drag").empty());
+}
+
+TEST_CASE("holding still after a drag frame emits no further drag", "[ui][input]")
+{
+    // The case above stops one frame too early to pin anything: it only ever compares
+    // against the position drag_start recorded. This one moves TWICE, so the comparison has
+    // to be against the previous DRAG frame -- which is the assignment a mutation probe
+    // showed was unguarded.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick(); // press
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = {0.30f, 0.05f, true}; h.tick(); // drag
+    h.ptr = {0.30f, 0.05f, true}; h.tick(); // held still -- must be silent
+    h.ptr = {0.30f, 0.05f, true}; h.tick();
+
+    REQUIRE(h.names_with_action("drag").size() == 1);
+}
+
+TEST_CASE("drag actions carry the pointer position and click does not", "[ui][input]")
+{
+    // A drag without coordinates cannot drive anything. A click WITH them would be a payload
+    // change to a shape three shipped handlers already read.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.10f, true}; h.tick();
+
+    const auto* start = h.find_event_with_action("drag_start");
+    REQUIRE(start != nullptr);
+    REQUIRE(start->payload.as<Table>().find("x") != nullptr);
+    REQUIRE(start->payload.as<Table>().find("y") != nullptr);
+
+    h.ptr = {0.20f, 0.10f, false}; h.tick();
+    const auto* click = h.find_event_with_action("click");
+    REQUIRE(click != nullptr);
+    REQUIRE(click->payload.as<Table>().find("x") == nullptr);
+}
+
+TEST_CASE("releasing inside after a drag emits drag_end and then click", "[ui][input]")
+{
+    // Press-wiggle-release is a click to any user, so the drag does NOT suppress it. A
+    // handler that wants drag-only behaviour filters on `action`, which every handler must
+    // already do.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.15f, 0.05f, true};  h.tick(); // drag_start
+    h.ptr = {0.15f, 0.05f, false}; h.tick(); // release, still inside the button
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+    REQUIRE(h.names_with_action("click").size() == 1);
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+}
+
+TEST_CASE("releasing outside the captured button emits drag_end and no click", "[ui][input]")
+{
+    // The pointer is still on the surface -- it just is not on the button any more. That is
+    // a completed drag that happened to end elsewhere, not an abort.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.90f, 0.90f, true};  h.tick(); // dragged off the button, still present
+    h.ptr = {0.90f, 0.90f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+    REQUIRE(h.names_with_action("click").empty());
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+}
+
+TEST_CASE("the pointer leaving the surface mid-drag cancels it", "[ui][input]")
+{
+    // down false WITH inside false is the editor provider's way of saying the cursor left
+    // the viewport panel -- deliberately, so a drag cannot keep running while the user
+    // clicks in the Inspector. Aborting and completing are different outcomes, and
+    // conflating them is where drag code goes wrong.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = PointerState{0.20f, 0.05f, false, false}; // left the surface
+    h.tick();
+
+    REQUIRE(h.names_with_action("drag_cancel").size() == 1);
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("leaving the surface without dragging emits nothing", "[ui][input]")
+{
+    // No drag started, so there is none to cancel. Without the dragging_ gate this would
+    // fire drag_cancel for a press the user simply moved away from.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = PointerState{0.05f, 0.05f, false, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("a press after a cancel starts a clean capture", "[ui][input]")
+{
+    // State leaking between presses would make the second drag inherit the first's threshold
+    // origin, so a short second drag would start instantly or never.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick();                     // drag_start #1
+    h.ptr = PointerState{0.20f, 0.05f, false, false}; h.tick(); // cancel
+
+    h.ptr = {0.05f, 0.05f, true};  h.tick();                // fresh press
+    h.ptr = {0.055f, 0.05f, true}; h.tick();                // below threshold
+    REQUIRE(h.names_with_action("drag_start").size() == 1); // still just the first
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    REQUIRE(h.names_with_action("click").size() == 1);
+}
+
+TEST_CASE("destroying the captured button mid-drag emits nothing further", "[ui][input]")
+{
+    // emit_button_action already returns false when the entity lost its UiButton -- the
+    // channel name lived on the component, so there is no honest name to emit on. Capture
+    // inherits that discipline rather than inventing a fallback channel.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    const auto before = h.names_with_action("drag_start").size();
+
+    h.world.destroy_entity(h.button);
+    h.tick(); // commits the deferred destruction, and runs UiSystem with a stale capture
+
+    h.ptr = {0.30f, 0.05f, true};  h.tick();
+    h.ptr = {0.30f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_start").size() == before);
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("a plain click after a completed drag emits no drag action", "[ui][input]")
+{
+    // dragging_ must be cleared when the press ends, or it leaks into the NEXT press: that
+    // press would skip the threshold entirely (emitting drag without drag_start) and its
+    // release would emit a second drag_end for a click that never dragged.
+    //
+    // Found by a mutation probe. The after-cancel test counts drag_starts, which a stale
+    // flag leaves untouched -- it is the ABSENCE of the other two actions that pins this.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.20f, 0.05f, true};  h.tick(); // drag_start
+    h.ptr = {0.20f, 0.05f, false}; h.tick(); // drag_end + click
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+
+    // A second press that never moves: a click, and nothing else.
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1); // still just the first
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+    REQUIRE(h.names_with_action("click").size() == 2);
+}
+
+TEST_CASE("a destroyed captured button releases the capture", "[ui][input]")
+{
+    // THE SPEC SAYS CAPTURE IS DROPPED when the captured entity is no longer valid, and the
+    // first implementation did not do it -- it relied on emit_button_action returning false
+    // and ignored the return, so captured_ stayed set until release.
+    //
+    // The cost was not a crash but a dead UI: with capture still held by a ghost, hover
+    // resolves against an entity that no longer exists, so NOTHING can highlight for the
+    // rest of the press. A user drags across a UI that has stopped responding, with no event
+    // explaining why. press_consumed() also stayed true, so world-space picking kept
+    // declining a press the UI no longer owned.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.world.create_entity();
+    UiButton   b;
+    b.anchor = 0;
+    b.pos    = Vec2{0.3f, 0.0f};
+    b.size   = Vec2{0.2f, 0.2f}; // x 0.3..0.5, disjoint from the harness button
+    b.event  = "neighbour";
+    b.order  = 5;
+    h.world.add_component<UiButton>(other, b);
+
+    h.ptr = {0.05f, 0.05f, true}; h.tick(); // captures the harness button
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+
+    h.world.destroy_entity(h.button);
+    h.tick(); // commits the destruction, and runs UiSystem with a dead capture
+
+    // Still held, now over the neighbour. With the capture dropped this is ordinary hover.
+    h.ptr = {0.35f, 0.05f, true}; h.tick();
+
+    REQUIRE(h.world.has_component<UiHovered>(other));
+    REQUIRE_FALSE(h.press_consumed_for_test());
 }
