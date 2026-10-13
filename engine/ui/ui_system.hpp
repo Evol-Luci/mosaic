@@ -49,6 +49,30 @@ public:
             return;
         }
         const PointerState p = pointer_();
+
+        // A CAPTURED ENTITY CAN DIE MID-PRESS -- destroyed, or merely stripped of its
+        // UiButton by a script or an interactivity toggle. Drop the capture, silently: the
+        // channel name lived on the component, so there is no honest name to emit a
+        // drag_end or drag_cancel on, which is the same reason the hover path gives for
+        // emitting nothing for an entity that lost its button.
+        //
+        // Dropped HERE, before hover resolves, and that placement is the point. Holding a
+        // capture for a ghost does not crash -- every emit already returns false -- it makes
+        // the UI go DEAD: hover resolves against an entity that no longer exists, so nothing
+        // can highlight until the button comes up, and press_consumed() keeps world-space
+        // picking declining a press the UI no longer owns. Dropping it restores ordinary
+        // hover on the very next frame.
+        //
+        // Tested on get_component rather than is_valid because losing the UiButton is the
+        // broader condition and the one emit_button_action itself guards on; a destroyed
+        // entity satisfies it too.
+        if (captured_ != mosaic::foundation::EntityID{}
+            && world.get_component<UiButton>(captured_) == nullptr)
+        {
+            captured_ = mosaic::foundation::EntityID{};
+            dragging_ = false;
+        }
+
         const std::vector<HitCandidate> cands = candidates(world);
         const mosaic::foundation::EntityID top = topmost_hit(cands, p);
 

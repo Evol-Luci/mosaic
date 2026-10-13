@@ -766,3 +766,38 @@ TEST_CASE("a plain click after a completed drag emits no drag action", "[ui][inp
     REQUIRE(h.names_with_action("drag_start").size() == 1);
     REQUIRE(h.names_with_action("click").size() == 2);
 }
+
+TEST_CASE("a destroyed captured button releases the capture", "[ui][input]")
+{
+    // THE SPEC SAYS CAPTURE IS DROPPED when the captured entity is no longer valid, and the
+    // first implementation did not do it -- it relied on emit_button_action returning false
+    // and ignored the return, so captured_ stayed set until release.
+    //
+    // The cost was not a crash but a dead UI: with capture still held by a ghost, hover
+    // resolves against an entity that no longer exists, so NOTHING can highlight for the
+    // rest of the press. A user drags across a UI that has stopped responding, with no event
+    // explaining why. press_consumed() also stayed true, so world-space picking kept
+    // declining a press the UI no longer owned.
+    using mosaic::engine::ui::UiHovered;
+    Harness    h;
+    const auto other = h.world.create_entity();
+    UiButton   b;
+    b.anchor = 0;
+    b.pos    = Vec2{0.3f, 0.0f};
+    b.size   = Vec2{0.2f, 0.2f}; // x 0.3..0.5, disjoint from the harness button
+    b.event  = "neighbour";
+    b.order  = 5;
+    h.world.add_component<UiButton>(other, b);
+
+    h.ptr = {0.05f, 0.05f, true}; h.tick(); // captures the harness button
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+
+    h.world.destroy_entity(h.button);
+    h.tick(); // commits the destruction, and runs UiSystem with a dead capture
+
+    // Still held, now over the neighbour. With the capture dropped this is ordinary hover.
+    h.ptr = {0.35f, 0.05f, true}; h.tick();
+
+    REQUIRE(h.world.has_component<UiHovered>(other));
+    REQUIRE_FALSE(h.press_consumed_for_test());
+}

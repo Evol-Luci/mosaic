@@ -581,6 +581,40 @@ them as this list does.
   ownership rule gives it no visual rank. Detecting it needs rect-overlap analysis between a
   button and panels it does not own, which is a different and much larger question than the
   pair comparison that shipped.
+- **The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in
+  `mosaic run --window`** — found by review 2026-10-12. `app/main.cpp`'s pointer lambda leaves
+  `inside` at its default `true` except for a null or minimised window, and clamps `x`/`y`
+  into `[0,1]`. GLFW keeps reporting the button pressed while the cursor is outside a focused
+  window, so dragging off the edge and releasing there gives `down` false with `inside` true →
+  a **`drag_end` carrying a clamped coordinate the user never pointed at**. That is exactly
+  the dishonesty the capture spec cites as its reason for omitting the position from
+  `drag_cancel` — but the reasoning only holds for the editor's provider, which gates `inside`
+  on `hovered`. **Deferred because the fix is a behaviour decision about the standalone
+  runtime** (should hover stop at the window edge there, as it does in the editor?) rather
+  than part of the slice that exposed it. Nothing is affected today: no shipped handler reads
+  a drag action.
+- **`UiSystem`'s drag branch does not gate on `p.inside` while the release path does** —
+  latent, found by review 2026-10-12. Unreachable with both shipped providers (the editor
+  drops `down` off-panel; GLFW never drops `inside`), but a third provider reporting
+  `down && !inside` — the obvious shape for "cursor left but button held" — would stream
+  `drag` at clamped coordinates forever and never reach `drag_cancel`. One `&& p.inside` makes
+  the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
+  effect; worth folding into whichever slice adds a third provider.
+- **A press surviving a play-mode change emits a stale drag action** — found by review
+  2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
+  U6 ("its failure modes are the subtlest: the pointer leaving the window mid-drag, a press
+  surviving a play-mode change"). While the editor is stopped, `World::tick` never runs, so
+  `UiSystem` freezes mid-press with `was_down_` true. Press the HUD button, drag past the
+  threshold, hit **Stop**, then later **Play** or **Step**: the first tick takes the release
+  edge and emits a `drag_cancel` — or `drag_end` plus `click` if the cursor happens to be back
+  over the button — for a gesture that ended seconds earlier. The `click` half is pre-existing;
+  the slice widens it from one stale action to three. **The right fix is in the editor**
+  (reset the system's press state on a play-state transition), not in `UiSystem`, which is why
+  it is deferred rather than patched where it was noticed.
+- **A one-frame hover lag on the release frame** — `hover_target` is computed before the
+  release edge clears `captured_`, so releasing over a *different* button leaves it unhovered
+  for that frame and it enters on the next. About 16ms at 60Hz. Recorded 2026-10-12 so it is
+  not rediscovered as a bug; not worth changing.
 - **A pixel-accurate drag threshold** — `kDragThreshold` is `0.01` in **normalized** screen
   units, so it is anisotropic: about 19px horizontally against 10px vertically at 1920x1080.
   A pixel threshold needs the screen aspect inside `UiSystem`, which it does not have and
