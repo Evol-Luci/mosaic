@@ -98,16 +98,53 @@ public:
         }
         else if (!p.down && was_down_)
         {
+            const Vec2 at{p.x, p.y};
+            // THE TWO ENDINGS, and they are distinguishable without new plumbing. `inside`
+            // false means the pointer LEFT THE SURFACE rather than that the button came up
+            // where the user meant it to -- the editor's provider drops `down` the moment
+            // the cursor leaves the viewport panel, on purpose, so a drag cannot keep
+            // running while the user clicks in the Inspector.
+            //
+            // Both are gated on `dragging_`: a press that never crossed the threshold
+            // started no drag, so it ends none. Without that gate, every press the user
+            // simply moved away from would fire drag_cancel.
+            if (dragging_)
+            {
+                if (p.inside)
+                {
+                    emit_button_action(world, captured_, "drag_end", &at);
+                }
+                else
+                {
+                    // No position: the provider clamps x/y to the panel edge once the cursor
+                    // is outside, so reporting it would report a point the user never
+                    // pointed at.
+                    emit_button_action(world, captured_, "drag_cancel");
+                }
+            }
             // `top`, not a second `topmost_hit(cands, p)` call. That call was literally
             // equal to `top` -- same `cands`, same `p` -- but READ as "re-resolve after the
             // hover emission", which it was not: `cands` is snapshotted before any event
             // fires. Saying `top` makes the snapshot semantics visible instead of implying
             // a freshness the code does not provide.
+            //
+            // Emitted AFTER drag_end so a handler that commits a drag and then sees the
+            // click reads them in that order; the reverse would look like a click that
+            // preceded the drag ending. The click rule itself is unchanged: the release must
+            // land on the captured button, which is stricter than merely still being on the
+            // surface.
             if (captured_ != mosaic::foundation::EntityID{} && top == captured_)
             {
                 emit_button_action(world, captured_, "click");
             }
             captured_ = mosaic::foundation::EntityID{};
+            // Defence in depth, not the thing that makes this safe: the PRESS edge already
+            // sets dragging_ = false, and between a release and the next press nothing reads
+            // it -- the drag branch requires a non-nil captured_, which the line above just
+            // cleared. Verified by a mutation probe: removing this changes no observable
+            // behaviour. It stays because it states the invariant locally and costs nothing;
+            // a reader should not believe it is load-bearing.
+            dragging_ = false;
         }
         // Drag, while the press is still held by a button. Nothing is emitted for a press
         // that has not moved past the threshold: that is a click, and a click emits no drag

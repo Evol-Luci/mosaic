@@ -644,3 +644,125 @@ TEST_CASE("drag actions carry the pointer position and click does not", "[ui][in
     REQUIRE(click != nullptr);
     REQUIRE(click->payload.as<Table>().find("x") == nullptr);
 }
+
+TEST_CASE("releasing inside after a drag emits drag_end and then click", "[ui][input]")
+{
+    // Press-wiggle-release is a click to any user, so the drag does NOT suppress it. A
+    // handler that wants drag-only behaviour filters on `action`, which every handler must
+    // already do.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.15f, 0.05f, true};  h.tick(); // drag_start
+    h.ptr = {0.15f, 0.05f, false}; h.tick(); // release, still inside the button
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+    REQUIRE(h.names_with_action("click").size() == 1);
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+}
+
+TEST_CASE("releasing outside the captured button emits drag_end and no click", "[ui][input]")
+{
+    // The pointer is still on the surface -- it just is not on the button any more. That is
+    // a completed drag that happened to end elsewhere, not an abort.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.90f, 0.90f, true};  h.tick(); // dragged off the button, still present
+    h.ptr = {0.90f, 0.90f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+    REQUIRE(h.names_with_action("click").empty());
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+}
+
+TEST_CASE("the pointer leaving the surface mid-drag cancels it", "[ui][input]")
+{
+    // down false WITH inside false is the editor provider's way of saying the cursor left
+    // the viewport panel -- deliberately, so a drag cannot keep running while the user
+    // clicks in the Inspector. Aborting and completing are different outcomes, and
+    // conflating them is where drag code goes wrong.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = PointerState{0.20f, 0.05f, false, false}; // left the surface
+    h.tick();
+
+    REQUIRE(h.names_with_action("drag_cancel").size() == 1);
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("leaving the surface without dragging emits nothing", "[ui][input]")
+{
+    // No drag started, so there is none to cancel. Without the dragging_ gate this would
+    // fire drag_cancel for a press the user simply moved away from.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = PointerState{0.05f, 0.05f, false, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("a press after a cancel starts a clean capture", "[ui][input]")
+{
+    // State leaking between presses would make the second drag inherit the first's threshold
+    // origin, so a short second drag would start instantly or never.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick();                     // drag_start #1
+    h.ptr = PointerState{0.20f, 0.05f, false, false}; h.tick(); // cancel
+
+    h.ptr = {0.05f, 0.05f, true};  h.tick();                // fresh press
+    h.ptr = {0.055f, 0.05f, true}; h.tick();                // below threshold
+    REQUIRE(h.names_with_action("drag_start").size() == 1); // still just the first
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+    REQUIRE(h.names_with_action("click").size() == 1);
+}
+
+TEST_CASE("destroying the captured button mid-drag emits nothing further", "[ui][input]")
+{
+    // emit_button_action already returns false when the entity lost its UiButton -- the
+    // channel name lived on the component, so there is no honest name to emit on. Capture
+    // inherits that discipline rather than inventing a fallback channel.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    const auto before = h.names_with_action("drag_start").size();
+
+    h.world.destroy_entity(h.button);
+    h.tick(); // commits the deferred destruction, and runs UiSystem with a stale capture
+
+    h.ptr = {0.30f, 0.05f, true};  h.tick();
+    h.ptr = {0.30f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_start").size() == before);
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("a plain click after a completed drag emits no drag action", "[ui][input]")
+{
+    // dragging_ must be cleared when the press ends, or it leaks into the NEXT press: that
+    // press would skip the threshold entirely (emitting drag without drag_start) and its
+    // release would emit a second drag_end for a click that never dragged.
+    //
+    // Found by a mutation probe. The after-cancel test counts drag_starts, which a stale
+    // flag leaves untouched -- it is the ABSENCE of the other two actions that pins this.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.20f, 0.05f, true};  h.tick(); // drag_start
+    h.ptr = {0.20f, 0.05f, false}; h.tick(); // drag_end + click
+    REQUIRE(h.names_with_action("drag_end").size() == 1);
+
+    // A second press that never moves: a click, and nothing else.
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_end").size() == 1); // still just the first
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+    REQUIRE(h.names_with_action("click").size() == 2);
+}
