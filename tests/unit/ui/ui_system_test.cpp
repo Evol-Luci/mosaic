@@ -80,6 +80,22 @@ struct Harness
         return out;
     }
 
+    // The first event carrying `action`, or nullptr. For asserting on a payload rather than
+    // only on which channel fired.
+    const ScriptEvent* find_event_with_action(const std::string& action) const
+    {
+        for (const auto& ev : events)
+        {
+            if (!ev.payload.is<Table>()) { continue; }
+            const auto* a = ev.payload.as<Table>().find("action");
+            if (a != nullptr && a->is<std::string>() && a->as<std::string>() == action)
+            {
+                return &ev;
+            }
+        }
+        return nullptr;
+    }
+
     // A second button overlapping the first, at a caller-chosen order and event name, so a
     // test can assert WHICH of two stacked buttons answered.
     mosaic::foundation::EntityID add_overlapping(int order, const std::string& event)
@@ -540,4 +556,91 @@ TEST_CASE("an absent pointer never captures", "[ui][input]")
 
     REQUIRE_FALSE(h.world.has_component<UiHovered>(h.button));
     REQUIRE_FALSE(h.press_consumed_for_test());
+}
+
+TEST_CASE("a press that never moves emits a click and no drag", "[ui][input]")
+{
+    // THE MOST COMMON INPUT THERE IS. If drag_start fired on press instead of on movement,
+    // every click in the engine would also emit drag_start and drag_end, and no handler
+    // could tell a click from a one-pixel drag.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
+    REQUIRE(h.names_with_action("drag_start").empty());
+    REQUIRE(h.names_with_action("drag").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+}
+
+TEST_CASE("movement past the threshold emits one drag_start then a drag per frame",
+          "[ui][input]")
+{
+    // drag_start is an EDGE, drag is a stream. A drag_start per frame would make a handler
+    // re-initialise its state on every move, which is the bug this ordering prevents.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick(); // press, no movement yet
+    h.ptr = {0.10f, 0.05f, true};  h.tick(); // 0.05 > 0.01 threshold
+    h.ptr = {0.15f, 0.05f, true};  h.tick();
+
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+    REQUIRE(h.names_with_action("drag").size() == 1); // the second move only
+}
+
+TEST_CASE("movement below the threshold emits nothing until it is crossed", "[ui][input]")
+{
+    // The threshold exists so a hand tremor is still a click. Crossing it later must still
+    // start the drag -- measured from the PRESS point, not from the previous frame, or a
+    // slow drag would never accumulate enough to cross.
+    Harness h;
+    h.ptr = {0.050f, 0.050f, true}; h.tick();
+    h.ptr = {0.055f, 0.050f, true}; h.tick(); // 0.005 < 0.01
+    REQUIRE(h.names_with_action("drag_start").empty());
+
+    h.ptr = {0.070f, 0.050f, true}; h.tick(); // 0.020 from the press point
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+}
+
+TEST_CASE("a frame with no movement emits no drag", "[ui][input]")
+{
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // identical position
+    REQUIRE(h.names_with_action("drag").empty());
+}
+
+TEST_CASE("holding still after a drag frame emits no further drag", "[ui][input]")
+{
+    // The case above stops one frame too early to pin anything: it only ever compares
+    // against the position drag_start recorded. This one moves TWICE, so the comparison has
+    // to be against the previous DRAG frame -- which is the assignment a mutation probe
+    // showed was unguarded.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick(); // press
+    h.ptr = {0.20f, 0.05f, true}; h.tick(); // drag_start
+    h.ptr = {0.30f, 0.05f, true}; h.tick(); // drag
+    h.ptr = {0.30f, 0.05f, true}; h.tick(); // held still -- must be silent
+    h.ptr = {0.30f, 0.05f, true}; h.tick();
+
+    REQUIRE(h.names_with_action("drag").size() == 1);
+}
+
+TEST_CASE("drag actions carry the pointer position and click does not", "[ui][input]")
+{
+    // A drag without coordinates cannot drive anything. A click WITH them would be a payload
+    // change to a shape three shipped handlers already read.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    h.ptr = {0.20f, 0.10f, true}; h.tick();
+
+    const auto* start = h.find_event_with_action("drag_start");
+    REQUIRE(start != nullptr);
+    REQUIRE(start->payload.as<Table>().find("x") != nullptr);
+    REQUIRE(start->payload.as<Table>().find("y") != nullptr);
+
+    h.ptr = {0.20f, 0.10f, false}; h.tick();
+    const auto* click = h.find_event_with_action("click");
+    REQUIRE(click != nullptr);
+    REQUIRE(click->payload.as<Table>().find("x") == nullptr);
 }

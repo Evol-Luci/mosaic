@@ -19,6 +19,17 @@
 
 namespace mosaic::engine::ui
 {
+// How far the pointer must travel from the press point before a press becomes a drag.
+//
+// NORMALIZED SCREEN UNITS, so this is ANISOTROPIC: at 1920x1080 it is about 19px
+// horizontally and 10px vertically. Accepted for now -- a pixel-accurate threshold needs the
+// screen aspect, which UiSystem does not have and would have to be threaded in the way
+// resolve_image_quad takes it. Recorded in the backlog.
+//
+// The VALUE is a guess until a human drags something; its feel is the one claim no test
+// here can make.
+inline constexpr float kDragThreshold = 0.01f;
+
 // First stateful UI system: reads an injected pointer each tick and emits a named
 // ScriptEvent when the pointer presses and releases inside the same UiButton.
 class UiSystem : public mosaic::engine::ecs::System
@@ -81,6 +92,9 @@ public:
         {
             // Press: the TOPMOST button under the pointer, not the first one iterated.
             captured_ = top;
+            press_at_ = Vec2{p.x, p.y};
+            last_at_  = press_at_;
+            dragging_ = false;
         }
         else if (!p.down && was_down_)
         {
@@ -95,6 +109,32 @@ public:
             }
             captured_ = mosaic::foundation::EntityID{};
         }
+        // Drag, while the press is still held by a button. Nothing is emitted for a press
+        // that has not moved past the threshold: that is a click, and a click emits no drag
+        // action at all.
+        if (p.down && was_down_ && captured_ != mosaic::foundation::EntityID{})
+        {
+            const Vec2 at{p.x, p.y};
+            if (!dragging_)
+            {
+                // Squared comparison, so the threshold needs no square root and the constant
+                // stays readable as a distance.
+                const float dx = at.x - press_at_.x;
+                const float dy = at.y - press_at_.y;
+                if (dx * dx + dy * dy > kDragThreshold * kDragThreshold)
+                {
+                    dragging_ = true;
+                    emit_button_action(world, captured_, "drag_start", &at);
+                    last_at_ = at;
+                }
+            }
+            else if (at.x != last_at_.x || at.y != last_at_.y)
+            {
+                emit_button_action(world, captured_, "drag", &at);
+                last_at_ = at;
+            }
+        }
+
         was_down_ = p.down;
     }
 
@@ -115,8 +155,13 @@ private:
     // emit for an entity it recorded on a PREVIOUS update -- which may since have lost its
     // UiButton. Returns false in that case, with nothing emitted: the channel name lived on
     // the component, so there is no honest name to emit on.
+    //
+    // `at` is the pointer position, included only for the drag actions. Passing nullptr
+    // keeps the payload at exactly {entity, action} -- the shipped shape that click,
+    // hover_enter and hover_exit must keep, since handlers already read it.
     static bool emit_button_action(mosaic::engine::World& world,
-                                   mosaic::foundation::EntityID e, const char* action)
+                                   mosaic::foundation::EntityID e, const char* action,
+                                   const Vec2* at = nullptr)
     {
         UiButton* b = world.get_component<UiButton>(e);
         if (b == nullptr)
@@ -127,6 +172,11 @@ private:
         ser::Table payload;
         payload["entity"] = ser::Value(static_cast<std::uint64_t>(e.value()));
         payload["action"] = ser::Value(std::string(action));
+        if (at != nullptr)
+        {
+            payload["x"] = ser::Value(static_cast<double>(at->x));
+            payload["y"] = ser::Value(static_cast<double>(at->y));
+        }
         world.events().emit(
             mosaic::engine::script::ScriptEvent{b->event, ser::Value(std::move(payload))});
         return true;
@@ -154,5 +204,12 @@ private:
     // pointer belongs to this entity and hover resolves against it alone.
     mosaic::foundation::EntityID captured_ = {};
     mosaic::foundation::EntityID hovered_  = {};
+    // Where the press landed, so the threshold is measured from the PRESS rather than from
+    // the previous frame -- otherwise a slow drag never accumulates enough to cross it.
+    Vec2                         press_at_{0.0f, 0.0f};
+    // The previous frame's position, so a motionless frame emits no drag.
+    Vec2                         last_at_{0.0f, 0.0f};
+    // Has drag_start fired for this press? drag_start is an edge; drag is a stream.
+    bool                         dragging_ = false;
 };
 } // namespace mosaic::engine::ui
