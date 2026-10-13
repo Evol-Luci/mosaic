@@ -66,7 +66,7 @@ public:
         if (p.down && !was_down_)
         {
             // Press: the TOPMOST button under the pointer, not the first one iterated.
-            pressed_ = top;
+            captured_ = top;
         }
         else if (!p.down && was_down_)
         {
@@ -75,11 +75,11 @@ public:
             // hover emission", which it was not: `cands` is snapshotted before any event
             // fires. Saying `top` makes the snapshot semantics visible instead of implying
             // a freshness the code does not provide.
-            if (pressed_ != mosaic::foundation::EntityID{} && top == pressed_)
+            if (captured_ != mosaic::foundation::EntityID{} && top == captured_)
             {
-                emit_button_action(world, pressed_, "click");
+                emit_button_action(world, captured_, "click");
             }
-            pressed_ = mosaic::foundation::EntityID{};
+            captured_ = mosaic::foundation::EntityID{};
         }
         was_down_ = p.down;
     }
@@ -87,7 +87,10 @@ public:
     // True when the most recent press landed on a UiButton, so world-space click
     // handling (picking, nudging) can decline a click the UI already claimed.
     // Valid after this system's update() has run for the frame.
-    bool press_consumed() const { return pressed_ != mosaic::foundation::EntityID{}; }
+    //
+    // Named for the question its CALLER asks ("did the UI take this press?"), not for the
+    // field behind it -- ClickNudgeSystem does not care that the press is also a capture.
+    bool press_consumed() const { return captured_ != mosaic::foundation::EntityID{}; }
 
 private:
     // Emit `action` on the button's own event channel. One helper for click and hover
@@ -131,7 +134,11 @@ private:
 
     std::function<PointerState()> pointer_;
     bool                         was_down_ = false;
-    mosaic::foundation::EntityID pressed_  = {};
+    // WHO OWNS THE POINTER, not merely who was pressed. It already persisted across frames
+    // and gated the click on a same-button release -- that was half a capture rule without
+    // the name. The rename is what makes the routing readable: while this is set, the
+    // pointer belongs to this entity and hover resolves against it alone.
+    mosaic::foundation::EntityID captured_ = {};
     mosaic::foundation::EntityID hovered_  = {};
 };
 } // namespace mosaic::engine::ui
