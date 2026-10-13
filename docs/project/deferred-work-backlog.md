@@ -581,8 +581,17 @@ them as this list does.
   ownership rule gives it no visual rank. Detecting it needs rect-overlap analysis between a
   button and panels it does not own, which is a different and much larger question than the
   pair comparison that shipped.
-- **The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in
-  `mosaic run --window`** — found by review 2026-10-12. `app/main.cpp`'s pointer lambda leaves
+- ~~**The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in
+  `mosaic run --window`**~~ — **FIXED 2026-10-12: the standalone runtime now matches the
+  editor.** The policy moved to `app/run/window_pointer.hpp` as a pure
+  `window_pointer_state(cursor_x, cursor_y, window_w, window_h, button_down)`, which is the
+  same split `studio/viewport.hpp` makes for the editor's provider and for the same stated
+  reason — the policy is the part worth testing and stays testable only if the GLFW calls
+  live at the call site. Presence is gated on the cursor being over the window, `down` is
+  gated on presence, and the edges are inclusive to match `topmost_hit`. **Two visible
+  consequences, both intended:** a cursor on the desktop no longer hovers an edge-anchored
+  button, and a drag off the window edge now ends as `drag_cancel` rather than a `drag_end`
+  carrying a clamped coordinate. Original entry: found by review 2026-10-12. `app/main.cpp`'s pointer lambda leaves
   `inside` at its default `true` except for a null or minimised window, and clamps `x`/`y`
   into `[0,1]`. GLFW keeps reporting the button pressed while the cursor is outside a focused
   window, so dragging off the edge and releasing there gives `down` false with `inside` true →
@@ -615,6 +624,23 @@ them as this list does.
   release edge clears `captured_`, so releasing over a *different* button leaves it unhovered
   for that frame and it enters on the next. About 16ms at 60Hz. Recorded 2026-10-12 so it is
   not rediscovered as a bug; not worth changing.
+- **DECISIONS TAKEN 2026-10-12** on the five questions the UI arc left standing, recorded so
+  they are not re-litigated:
+  - **`Ambiguous` order conflicts stay as they are** until a real scene has overlapping
+    buttons. The noise question cannot be judged from a repository whose only scene has one
+    button, and guessing at it now would tune against an imagined scene.
+  - **No `imgui_test_engine`**, so `ImGuiFieldVisitor`'s widget calls stay machine-untested.
+    The cost is larger than "a test-only dependency" suggests: ImGui carries hook points
+    guarded by `IMGUI_ENABLE_TEST_ENGINE` (eight sites in `imgui.cpp`), so adopting it means
+    compiling the ImGui the **editor** links with that define, or maintaining two ImGui
+    builds. For coverage of four widget calls whose dispatch layer is already well tested,
+    that is not worth it. Revisit only if an Inspector widget bug actually ships.
+  - **Enum metadata on the reflection surface is worth adding** — the prerequisite for combo
+    boxes on `anchor`, `fit_mode` and the easing curves, which today are bare `DragInt`s a
+    user can drag to 47.
+  - **Bloom is wanted soon**, which fires the trigger the 🟡 offscreen HDR target has been
+    waiting on. That item is now live work rather than a conditional.
+  - ~~**Standalone pointer semantics should match the editor**~~ — done, above.
 - **A pixel-accurate drag threshold** — `kDragThreshold` is `0.01` in **normalized** screen
   units, so it is anisotropic: about 19px horizontally against 10px vertically at 1920x1080.
   A pixel threshold needs the screen aspect inside `UiSystem`, which it does not have and

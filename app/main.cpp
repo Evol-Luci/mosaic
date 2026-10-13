@@ -19,6 +19,7 @@
 #include "app/run/mcp.hpp"
 #include "app/run/plugin.hpp"
 #include "app/run/click_nudge.hpp"
+#include "app/run/window_pointer.hpp"
 #include "app/run/windowed_systems.hpp"
 #include "app/run/create.hpp"
 #include "app/run/docs.hpp"
@@ -302,16 +303,16 @@ int main(int argc, char** argv)
     {
         // `inside = false`, not a bare {}: a zeroed state reads as a pointer AT the origin.
         if (glfw_window == nullptr) { return {0.0f, 0.0f, false, false}; }
+        // Three reads, then the POLICY -- which lives in window_pointer.hpp so it is testable
+        // without a window, the same split studio/viewport.hpp makes for the editor's
+        // provider. This lambda holds nothing but the GLFW calls.
         int ww = 0, wh = 0;
         glfwGetWindowSize(glfw_window, &ww, &wh);
-        if (ww <= 0 || wh <= 0) { return {0.0f, 0.0f, false, false}; } // minimised
         double mx = 0.0, my = 0.0;
         glfwGetCursorPos(glfw_window, &mx, &my);
-        mosaic::engine::ui::PointerState p;
-        p.x = std::clamp(static_cast<float>(mx / ww), 0.0f, 1.0f);
-        p.y = std::clamp(static_cast<float>(my / wh), 0.0f, 1.0f);
-        p.down = glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        return p;
+        const bool button_down =
+            glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        return mosaic::app::window_pointer_state(mx, my, ww, wh, button_down);
     };
 
     auto render_system =
