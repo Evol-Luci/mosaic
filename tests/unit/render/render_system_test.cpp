@@ -113,6 +113,7 @@ public:
     void draw(MeshHandle m, TextureHandle t, const DrawParams& p) override
     {
         draws.push_back({m, t, p});
+        ordered_calls.push_back("draw");
     }
 
     struct ShadowDrawCall { MeshHandle mesh; Mat4 light_mvp; };
@@ -140,6 +141,7 @@ public:
                      const mosaic::engine::render::SkyboxParams& p) override
     {
         skybox_calls.push_back(p);
+        ordered_calls.push_back("skybox");
     }
 
     struct ParticleDrawCall { std::vector<ParticleInstance> instances; ParticleDrawParams params; };
@@ -148,6 +150,7 @@ public:
                         const ParticleDrawParams& params) override
     {
         particle_draws.push_back({instances, params});
+        ordered_calls.push_back("particles");
     }
 
     struct RibbonDrawCall { std::vector<RibbonVertex> vertices; RibbonDrawParams params; };
@@ -168,12 +171,14 @@ public:
     void draw_screen_effect(const ScreenEffectParams& params) override
     {
         screen_effect_draws.push_back(params);
+        ordered_calls.push_back("screen_effect");
     }
 
     std::vector<std::vector<mosaic::engine::render::UiQuad>> ui_draws;
     void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
     {
         ui_draws.push_back(quads);
+        ordered_calls.push_back("ui");
     }
 
     struct UiImageDrawCall { std::vector<mosaic::engine::render::UiImageQuad> quads;
@@ -183,6 +188,7 @@ public:
                        mosaic::engine::render::TextureHandle texture) override
     {
         ui_image_draws.push_back({quads, texture});
+        ordered_calls.push_back("ui_image");
     }
 
     struct UiTextDrawCall { std::vector<mosaic::engine::render::UiGlyphQuad> quads;
@@ -192,6 +198,7 @@ public:
                       mosaic::engine::render::TextureHandle atlas) override
     {
         ui_text_draws.push_back({quads, atlas});
+        ordered_calls.push_back("ui_text");
     }
 
     struct WorldTextDrawCall { std::vector<mosaic::engine::render::WorldGlyphVertex> verts;
@@ -203,6 +210,32 @@ public:
                          mosaic::engine::render::TextureHandle atlas) override
     {
         world_text_draws.push_back({verts, view_proj, atlas});
+        ordered_calls.push_back("world_text");
+    }
+
+    // A single ordered log, because the thing under test is RELATIVE order: "the resolve
+    // happens after the world draws and before the UI ones". Separate per-call vectors
+    // cannot express that -- they record counts, not sequence.
+    std::vector<std::string> ordered_calls;
+    std::vector<float>       hdr_exposures;
+
+    void begin_hdr_scene_pass(const Color&) override { ordered_calls.push_back("hdr_begin"); }
+    void end_hdr_scene_pass() override { ordered_calls.push_back("hdr_end"); }
+    void draw_hdr_resolve(float exposure) override
+    {
+        ordered_calls.push_back("hdr_resolve");
+        hdr_exposures.push_back(exposure);
+    }
+
+    // Index of the first occurrence, or -1. Comparing indices is how the tests say "before"
+    // and "after" without depending on how many draws happened in between.
+    int index_of(const std::string& name) const
+    {
+        for (std::size_t i = 0; i < ordered_calls.size(); ++i)
+        {
+            if (ordered_calls[i] == name) { return static_cast<int>(i); }
+        }
+        return -1;
     }
 };
 
@@ -2296,4 +2329,143 @@ TEST_CASE("a conflicting pair really does misroute the click", "[render][ui][con
 
     // Said plainly: the entity that answered the click is the one drawn underneath.
     REQUIRE(quads.back().rect.x != Approx(0.1f));
+}
+
+TEST_CASE("world-space drawing happens inside the hdr pass and the UI after the resolve",
+          "[render][hdr]")
+{
+    // THE BOUNDARY, which is the whole slice. A UiPanel's colour is authored -- {0.1,0.6,0.9}
+    // is a value someone typed and expects to see -- so pushing it through ACES would make
+    // what appears on screen depend on how bright the scene behind it is.
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+    const AssetID mesh_id = register_cube(registry);
+    auto          mesh    = world.create_entity();
+    world.add_component<WorldTransform>(mesh, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+    world.add_component<MeshRenderer>(mesh, MeshRenderer{mesh_id});
+
+    auto    e = world.create_entity();
+    UiPanel p;
+    p.anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft);
+    p.pos    = {0.1f, 0.1f};
+    p.size   = {0.2f, 0.2f};
+    world.add_component<UiPanel>(e, p);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    const int begin   = device.index_of("hdr_begin");
+    const int draw    = device.index_of("draw");
+    const int end     = device.index_of("hdr_end");
+    const int resolve = device.index_of("hdr_resolve");
+    const int ui      = device.index_of("ui");
+
+    REQUIRE(begin >= 0);
+    REQUIRE(draw > begin);  // the mesh is inside the HDR pass
+    REQUIRE(end > draw);    // the pass closes after the world draws
+    REQUIRE(resolve > end); // the resolve follows it
+    REQUIRE(ui > resolve);  // and the UI lands on the resolved image
+}
+
+TEST_CASE("a scene with no UI still resolves", "[render][hdr]")
+{
+    // `mosaic run --window` on a scene with no HUD. If the resolve were emitted by the UI
+    // path, this frame would show the untouched swapchain -- a black screen.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("hdr_resolve") >= 0);
+    REQUIRE(device.index_of("ui") == -1);
+}
+
+TEST_CASE("a frame with no world content still brackets the hdr pass", "[render][hdr]")
+{
+    // UI only. An unbalanced begin without an end would leave the backend in a pass it never
+    // closes, which is a validation error rather than a visual one -- and therefore the kind
+    // that only shows up on a real device.
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto    e = world.create_entity();
+    UiPanel p;
+    p.anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft);
+    p.size   = {0.2f, 0.2f};
+    world.add_component<UiPanel>(e, p);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("hdr_begin") >= 0);
+    REQUIRE(device.index_of("hdr_end") > device.index_of("hdr_begin"));
+    REQUIRE(device.index_of("hdr_resolve") > device.index_of("hdr_end"));
+    REQUIRE(device.index_of("ui") > device.index_of("hdr_resolve"));
+}
+
+TEST_CASE("a world with no camera still runs the sequence once", "[render][hdr]")
+{
+    // The state every freshly created World is in. render() has NO early return for a missing
+    // camera -- it falls back to a default view and projection -- so the pass structure is
+    // unconditional, and a conditional resolve would make this a special case.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("hdr_begin") >= 0);
+    REQUIRE(device.index_of("hdr_resolve") >= 0);
+    REQUIRE(device.hdr_exposures.size() == 1);
+    REQUIRE(device.hdr_exposures[0] == Approx(1.0f)); // Camera::exposure's default
+}
+
+TEST_CASE("the resolve receives the active camera's exposure", "[render][hdr]")
+{
+    // Exposure is passed to the resolve rather than read from the lighting UBO inside the
+    // backend: it is a property of the resolve now, and a parameter is testable where a UBO
+    // field read is not.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    cam = add_camera(world, Vec3{0, 0, 5});
+    world.get_component<mosaic::engine::render::Camera>(cam)->exposure = 2.5f;
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.hdr_exposures.size() == 1);
+    REQUIRE(device.hdr_exposures[0] == Approx(2.5f));
+}
+
+TEST_CASE("the vignette and world text are inside the hdr pass", "[render][hdr]")
+{
+    // Both are world-space by the spec's boundary. The vignette attenuates light, which is
+    // what a real lens does BEFORE exposure, so it belongs before the curve rather than as a
+    // post-hoc darkening of the final image.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    world.add_component<mosaic::engine::vfx::ScreenEffect>(
+        e, mosaic::engine::vfx::ScreenEffect{Vec3{0, 0, 0}, 0.0f, 0.4f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    const int effect = device.index_of("screen_effect");
+    REQUIRE(effect > device.index_of("hdr_begin"));
+    REQUIRE(effect < device.index_of("hdr_end"));
 }
