@@ -173,6 +173,17 @@ public:
         frame_lighting.exposure = exposure;
         device.set_frame_lighting(frame_lighting);
 
+        // EVERYTHING WORLD-SPACE FROM HERE goes into the linear HDR target: opaque meshes,
+        // the skybox, decals, particles, ribbons, the vignette and world text. They are tone
+        // mapped together by the resolve below, which is what gives a bright particle
+        // somewhere above 1.0 to live until bloom can find it. Tone mapping used to happen
+        // per object in cube.frag and skybox.frag, so the other four were never tone mapped
+        // at all -- they blended against a buffer already through the curve.
+        //
+        // The clear is the colour the swapchain pass used to take. Nothing downstream reads
+        // it, since the resolve writes every pixel.
+        device.begin_hdr_scene_pass(Color{0.0f, 0.0f, 0.0f, 1.0f});
+
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
             {
@@ -404,6 +415,16 @@ public:
                     if (!verts.empty()) { device.draw_world_text(verts, projection * view, atlas); }
                 });
         }
+
+        // END OF WORLD SPACE. The UI passes below draw onto the RESOLVED image, deliberately:
+        // a UiPanel's colour is authored rather than captured, so tone mapping it would make
+        // what appears on screen depend on how bright the scene behind it is -- the HUD would
+        // dim whenever the world got bright.
+        device.end_hdr_scene_pass();
+        // A DRAW, not a pass, into whatever colour target is currently bound: the swapchain
+        // in `mosaic run --window`, the offscreen viewport target in the editor. That is what
+        // keeps both paths on one code path.
+        device.draw_hdr_resolve(exposure);
 
         // HUD pass: screen-space alpha-blended panels, drawn last (topmost, over the
         // screen-effect overlay). order-sorted so higher `order` draws on top.
