@@ -641,6 +641,16 @@ them as this list does.
   - **Bloom is wanted soon**, which fires the trigger the 🟡 offscreen HDR target has been
     waiting on. That item is now live work rather than a conditional.
   - ~~**Standalone pointer semantics should match the editor**~~ — done, above.
+- **The resolve must not take its UV from clip position** — found 2026-10-13 while scoping the
+  backend half, before any of it was written. Both render passes use a **negative-height
+  (Y-flipped) viewport** (`vulkan_render_device.cpp:1854` and `:2043`); `ui.vert` compensates
+  explicitly with `clip.y = 1 - 2*ny`, but `screen_effect.vert` does **not** — and nobody
+  noticed because a vignette is radially symmetric, so a vertical flip is invisible in it.
+  The plan said to reuse `screen_effect.vert` for the resolve, which would have shipped an
+  upside-down scene detectable only by eye. **Resolution: derive the UV from
+  `gl_FragCoord.xy`**, which is framebuffer space and immune to the viewport flip, rather
+  than from clip position. Recorded here because the same trap waits for every future
+  fullscreen pass that samples a texture — bloom's blur chain first among them.
 - **A pixel-accurate drag threshold** — `kDragThreshold` is `0.01` in **normalized** screen
   units, so it is anisotropic: about 19px horizontally against 10px vertically at 1920x1080.
   A pixel threshold needs the screen aspect inside `UiSystem`, which it does not have and
@@ -2437,7 +2447,7 @@ recent-projects list (PR #197).
 
 | Item | Shape |
 |---|---|
-| **An offscreen HDR render target plus a fullscreen resolve pass** | New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+| **An offscreen HDR render target plus a fullscreen resolve pass** — **HALF SHIPPED 2026-10-13.** The engine-side boundary is in (`RenderDevice`'s three default-no-op hooks, and `RenderSystem` bracketing world-space drawing between them), fully pinned by seven ordering cases and five probes. **The Vulkan backend half remains**: the `R16G16B16A16_SFLOAT` target, the resolve pipeline, and moving `tonemap_aces` out of `cube.frag`/`skybox.frag`. Split deliberately, because the backend half has no automated gate — nothing in the suite creates a `VkDevice`, so its only checks are a validation-layer grep and a human at the window — and keeping it in its own diff is what makes that reviewable. Spec and plan: `docs/superpowers/specs/2026-10-13-render-hdr-target-resolve-design.md`, `docs/superpowers/plans/2026-10-13-render-hdr-target-resolve.md` (Tasks 3–5 outstanding). Original entry: | New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
 
 Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before
