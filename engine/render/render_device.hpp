@@ -316,6 +316,26 @@ public:
     virtual void end_viewport_pass() {}
     virtual ViewportTextureId viewport_texture() const { return 0; }
 
+    // --- offscreen HDR scene target -------------------------------------------------
+    // World-space rendering goes into a linear HDR target; draw_hdr_resolve then tone maps it
+    // as one image. Tone mapping used to live in cube.frag and skybox.frag, which meant
+    // decals, particles, ribbons and world text were never tone mapped at all -- and a
+    // "bright" particle could not be bright: it was written into a buffer whose ceiling is
+    // 1.0, leaving no headroom for a bloom pass to find.
+    //
+    // draw_hdr_resolve is a DRAW, not a pass, and that is load-bearing: it renders a
+    // fullscreen triangle into whatever colour target is currently bound -- the swapchain in
+    // `mosaic run --window`, the offscreen viewport target in the editor. Neither caller
+    // needs to know which, so both stay on one code path, which is what 37d worked to achieve
+    // and a resolve-as-a-pass would have undone.
+    //
+    // Default no-ops, like the viewport hooks above: a device implementing none renders
+    // untone-mapped. Acceptable because only the Vulkan backend produces pixels; every other
+    // implementation in this tree records calls and draws nothing.
+    virtual void begin_hdr_scene_pass(const Color& /*clear*/) {}
+    virtual void end_hdr_scene_pass() {}
+    virtual void draw_hdr_resolve(float /*exposure*/) {}
+
     // Shadow pass: render depth-only geometry from the directional light's point of
     // view into a dedicated shadow map. Default no-op (a backend that doesn't
     // implement shadows simply never populates one; the main pass's shadow lookup

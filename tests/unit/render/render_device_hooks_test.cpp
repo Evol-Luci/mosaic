@@ -55,3 +55,16 @@ TEST_CASE("shadow hooks default to no-op", "[render][shadow]")
     device.end_shadow_pass();
     // No assertion beyond "must not throw" -- these are pure no-ops on a base device.
 }
+
+TEST_CASE("hdr scene hooks default to no-op", "[render][hdr]")
+{
+    // Same contract the viewport hooks carry: a device that implements none of these must
+    // still be constructible and callable. The consequence -- that such a device renders
+    // untone-mapped -- is acceptable because only the Vulkan backend produces pixels; every
+    // other implementation in this tree records calls and draws nothing.
+    MinimalDevice device;
+    device.begin_hdr_scene_pass(Color{0.0f, 0.0f, 0.0f, 1.0f});
+    device.draw_hdr_resolve(1.0f);
+    device.end_hdr_scene_pass();
+    SUCCEED("the default hooks are callable and do nothing");
+}
