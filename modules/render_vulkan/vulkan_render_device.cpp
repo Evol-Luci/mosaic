@@ -292,7 +292,11 @@ public:
         create_depth_resources();
         create_render_pass();
         create_offscreen_render_pass();
+        create_hdr_render_pass();
         create_framebuffers();
+        // SWAPCHAIN-SIZED: the scene renders once at full resolution and the editor samples
+        // the resolved result into whatever panel size it has.
+        create_hdr_target(extent_.width, extent_.height);
         create_descriptor_infrastructure();
         create_shadow_resources();
         create_shadow_descriptor();
@@ -331,6 +335,12 @@ public:
             // Offscreen viewport target — free while the ImGui-Vulkan backend is still
             // up (destroy_offscreen_target calls ImGui_ImplVulkan_RemoveTexture).
             destroy_offscreen_target();
+            destroy_hdr_target();
+            if (hdr_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdr_sampler_, nullptr); }
+            if (hdr_render_pass_ != VK_NULL_HANDLE)
+            {
+                vkDestroyRenderPass(device_, hdr_render_pass_, nullptr);
+            }
             if (vp_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_pipeline_, nullptr); }
             if (vp_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, vp_sampler_, nullptr); }
             if (vp_render_pass_ != VK_NULL_HANDLE)
@@ -2734,6 +2744,150 @@ private:
                  "vkCreateSampler(offscreen)");
     }
 
+    // The HDR scene pass. A copy of create_offscreen_render_pass above with ONE changed
+    // line -- the colour format -- because that is genuinely the only difference: same depth
+    // attachment, same subpass, same two dependencies, and the second of those serves the
+    // same purpose here (making the colour image visible to the fragment shader that samples
+    // it, which is now the resolve rather than ImGui).
+    void create_hdr_render_pass()
+    {
+        VkAttachmentDescription color{};
+        // THE ONLY DIFFERENCE: a float format, so values above 1.0 survive the pass instead
+        // of clamping at the attachment. That headroom is the whole point -- without it a
+        // "bright" particle cannot be bright, and bloom has nothing to find.
+        color.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        color.samples = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference color_ref{};
+        color_ref.attachment = 0;
+        color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription depth{};
+        depth.format = kDepthFormat;
+        depth.samples = VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depth_ref{};
+        depth_ref.attachment = 1;
+        depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &color_ref;
+        subpass.pDepthStencilAttachment = &depth_ref;
+
+        // Two dependencies: external -> subpass (start), subpass -> external (make the
+        // color image visible to the fragment shader sampling it in the resolve).
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        std::array<VkAttachmentDescription, 2> attachments{color, depth};
+
+        VkRenderPassCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        ci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        ci.pAttachments = attachments.data();
+        ci.subpassCount = 1;
+        ci.pSubpasses = &subpass;
+        ci.dependencyCount = static_cast<uint32_t>(deps.size());
+        ci.pDependencies = deps.data();
+
+        vk_check(vkCreateRenderPass(device_, &ci, nullptr, &hdr_render_pass_),
+                 "vkCreateRenderPass(hdr)");
+
+        VkSamplerCreateInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        si.magFilter = VK_FILTER_LINEAR;
+        si.minFilter = VK_FILTER_LINEAR;
+        si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.maxLod = 1.0f;
+        vk_check(vkCreateSampler(device_, &si, nullptr, &hdr_sampler_),
+                 "vkCreateSampler(hdr)");
+    }
+
+    void destroy_hdr_target()
+    {
+        // No ImGui descriptor to remove -- that is the one thing destroy_offscreen_target
+        // does that this must not copy, since nothing composites the HDR target directly.
+        if (hdr_framebuffer_ != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device_, hdr_framebuffer_, nullptr);
+            hdr_framebuffer_ = VK_NULL_HANDLE;
+        }
+        if (hdr_color_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdr_color_view_, nullptr); hdr_color_view_ = VK_NULL_HANDLE; }
+        if (hdr_color_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, hdr_color_, nullptr); hdr_color_ = VK_NULL_HANDLE; }
+        if (hdr_color_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, hdr_color_mem_, nullptr); hdr_color_mem_ = VK_NULL_HANDLE; }
+        if (hdr_depth_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdr_depth_view_, nullptr); hdr_depth_view_ = VK_NULL_HANDLE; }
+        if (hdr_depth_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, hdr_depth_, nullptr); hdr_depth_ = VK_NULL_HANDLE; }
+        if (hdr_depth_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, hdr_depth_mem_, nullptr); hdr_depth_mem_ = VK_NULL_HANDLE; }
+        hdr_extent_ = {0, 0};
+    }
+
+    void create_hdr_target(uint32_t width, uint32_t height)
+    {
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.extent = {width, height, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &ci, nullptr, &hdr_color_), "vkCreateImage(hdr color)");
+        bind_image_memory(hdr_color_, hdr_color_mem_, "hdr color");
+        hdr_color_view_ =
+            make_image_view(hdr_color_, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        VkImageCreateInfo di = ci;
+        di.format = kDepthFormat;
+        di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        vk_check(vkCreateImage(device_, &di, nullptr, &hdr_depth_), "vkCreateImage(hdr depth)");
+        bind_image_memory(hdr_depth_, hdr_depth_mem_, "hdr depth");
+        hdr_depth_view_ = make_image_view(hdr_depth_, kDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        std::array<VkImageView, 2> attachments{hdr_color_view_, hdr_depth_view_};
+        VkFramebufferCreateInfo fb{};
+        fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fb.renderPass = hdr_render_pass_;
+        fb.attachmentCount = static_cast<uint32_t>(attachments.size());
+        fb.pAttachments = attachments.data();
+        fb.width = width;
+        fb.height = height;
+        fb.layers = 1;
+        vk_check(vkCreateFramebuffer(device_, &fb, nullptr, &hdr_framebuffer_),
+                 "vkCreateFramebuffer(hdr)");
+        hdr_extent_ = {width, height};
+    }
+
     void destroy_offscreen_target()
     {
         if (vp_imgui_tex_ != VK_NULL_HANDLE)
@@ -4445,6 +4599,11 @@ private:
         create_image_views();
         create_depth_resources();
         create_framebuffers();
+        // The HDR target is swapchain-sized, so it is stale the moment the swapchain is.
+        // A stale one is sampled at the wrong resolution and shows as a smeared or cropped
+        // frame on every resize.
+        destroy_hdr_target();
+        create_hdr_target(extent_.width, extent_.height);
         // The swapchain image count can change on recreation; rebuild the per-image
         // present semaphores to match (device is idle from vkDeviceWaitIdle above).
         create_render_finished_semaphores();
@@ -4642,6 +4801,30 @@ private:
     VkFramebuffer   vp_framebuffer_ = VK_NULL_HANDLE;
     VkSampler       vp_sampler_ = VK_NULL_HANDLE;       // persistent across resizes
     VkDescriptorSet vp_imgui_tex_ = VK_NULL_HANDLE;     // from ImGui_ImplVulkan_AddTexture
+
+    // --- the linear HDR scene target -------------------------------------------------
+    // Same lifecycle as the offscreen viewport target above: created with the swapchain,
+    // destroyed with it, recreated on resize, and the same finalLayout trick
+    // (SHADER_READ_ONLY_OPTIMAL) so the resolve samples it with no manual barrier.
+    //
+    // Its OWN depth, because a framebuffer binds specific image views and this is a different
+    // render pass from the viewport's -- sharing would mean one pass writing depth the other
+    // declared LOAD_OP_CLEAR on.
+    //
+    // SWAPCHAIN-SIZED, not panel-sized: the scene is rendered once at full resolution and the
+    // editor samples the RESOLVED result into whatever panel size it has. Sizing this to the
+    // panel would re-render the scene at panel resolution and fork the two paths again.
+    VkRenderPass    hdr_render_pass_ = VK_NULL_HANDLE;
+    VkImage         hdr_color_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_color_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_color_view_ = VK_NULL_HANDLE;
+    VkImage         hdr_depth_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_depth_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_depth_view_ = VK_NULL_HANDLE;
+    VkFramebuffer   hdr_framebuffer_ = VK_NULL_HANDLE;
+    VkSampler       hdr_sampler_ = VK_NULL_HANDLE;      // persistent across resizes
+    VkExtent2D      hdr_extent_ = {0, 0};
+    bool            in_hdr_pass_ = false;
 };
 
 } // namespace
