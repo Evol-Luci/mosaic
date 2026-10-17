@@ -31,6 +31,12 @@ Every built-in engine component, with its fields and their default values. Field
 - `max_distance`: 100.000000
 - `rolloff`: 1.000000
 
+## Bloom
+
+- `intensity`: 0.000000
+- `threshold`: 1.000000
+- `knee`: 0.500000
+
 ## Camera
 
 - `fov_y_radians`: 1.047200

@@ -205,6 +205,7 @@ add_executable(mosaic_unit_tests
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
   unit/vfx/screen_effect_test.cpp
+  unit/vfx/bloom_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app
