@@ -1243,14 +1243,59 @@ them as this list does.
     Deferred 2026-10-16 because nothing has asked for a second curve;
     cheapness is not a reason to add a knob. Depends on nothing.
 
-  - **Bloom.** **Unblocked 2026-10-16** — the HDR target above now exists,
-    so values above 1.0 survive to a point where something can detect
-    them, which is the whole thing bloom needs and could not have. The
-    next rendering slice. It is also the probable trigger for the
-    RenderGraph: a mip chain's pass count varies with resolution, which is
-    the first genuinely *dynamic* pass need this renderer will have had,
-    and that is the bar this backlog set for the graph. Deferred
-    2026-10-04, blocked until now.
+  - **Bloom.** **Unblocked 2026-10-16, specced 2026-10-17** — the HDR
+    target above now exists, so values above 1.0 survive to a point where
+    something can detect them, which is the whole thing bloom needs and
+    could not have. The next rendering slice; the design is
+    `docs/superpowers/specs/2026-10-17-render-bloom-design.md`. The claim
+    this entry used to carry — that bloom is the RenderGraph's trigger —
+    **is wrong**, and the design says why; the graph's trigger has been
+    restated in its own entry below. Deferred 2026-10-04, blocked until
+    2026-10-16.
+
+    Its design deferred five things, each its own entry below: lens dirt
+    and anamorphic bloom, per-object bloom masks, temporal stability,
+    a bloom quality setting, and retuning the demo's threshold.
+
+  - **Lens dirt, anamorphic and streak bloom** — the three effects most
+    often bundled with bloom in a shipping renderer. Deferred from the
+    bloom design 2026-10-17: each is a *separate* effect with its own
+    authored assets (a dirt texture; a directional rather than isotropic
+    kernel), not a parameter on the one being built. Depends on bloom
+    shipping; nothing else.
+
+  - **Per-object bloom masks** — "this material glows, that one does not",
+    independent of how bright it is. Deferred from the bloom design
+    2026-10-17 because it needs a channel the renderer does not have: a
+    stencil bit, or a fourth component in a target that currently spends
+    alpha on nothing. Threshold bloom is the brightness-driven version and
+    is strictly cheaper. Depends on a decision about where that channel
+    lives.
+
+  - **Temporal stability for bloom (TAA or a history buffer)** — the soft
+    knee handles a highlight crossing the *threshold*, but a sub-pixel
+    specular highlight that appears and disappears between frames still
+    flickers, and the mip chain amplifies it. Deferred from the bloom
+    design 2026-10-17: fixing it needs frame-to-frame history, which is a
+    renderer-wide feature (it would also want to serve antialiasing) and
+    much larger than the effect that exposes it. Depends on a history
+    buffer existing.
+
+  - **A bloom quality setting / configurable mip count** — `N` is derived
+    from the resolution and clamped at 6. Deferred from the bloom design
+    2026-10-17 for the same reason the second tone curve was: a knob needs
+    a reason, and nothing has asked. The derivation is one function, so
+    making it authorable later is cheap. Depends on nothing.
+
+  - **Retune the demo's bloom threshold** — *conditional*, pending the next
+    human verification pass. The demo lights itself with a real outdoor HDR
+    sky whose radiance genuinely exceeds 1.0, so at the design's default
+    threshold of 1.0 the sky and horizon will glow. That is physically
+    right but may veil the image. Deferred from the bloom design 2026-10-17
+    because the sandbox cannot screenshot a GUI window, so which side of it
+    the demo lands on is not knowable from here. If it does veil, the fix
+    is the *scene's* authored threshold, not the pipeline. Depends on a
+    human at the window.
   - ~~**Exposure control.**~~ — **SHIPPED 2026-10-07.** Tone mapping shipped
     with a hard-coded curve. Deferred 2026-10-04 because the knob's home was
     undecided (a `Camera` member? the lighting UBO? a push constant?) for no
@@ -1358,11 +1403,20 @@ them as this list does.
   conventional. Deferred: low priority today, and worth doing at the
   moment bloom adds its mip-chain passes rather than immediately before.
 
-- **The RenderGraph** — deferred again. Its re-stated trigger is a
-  *dynamic* pass need, and the HDR resolve added one more fixed pass,
-  so it does not meet the bar. Bloom is the likely real trigger: a mip
-  chain's pass count varies with resolution, which is the first
-  genuinely dynamic need this renderer will have had.
+- **The RenderGraph** — deferred again, and its **trigger is now
+  sharper**. This backlog twice predicted bloom would fire it, on the
+  grounds that a mip chain's pass count varies with resolution. The
+  bloom design (2026-10-17) found that wrong: a mip chain is a *linear*
+  chain whose length is a function of resolution and is recomputed on
+  resize — the same lifecycle the HDR target already has — so in code it
+  is `for (i = 0; i < levels_; ++i)`, a loop, not a graph. There is no
+  conditionality, no reordering, no data-dependent topology. **The real
+  trigger, restated:** passes whose *existence or order* depends on
+  per-frame scene content ("run the reflection pass only if a reflective
+  material is visible"; several cameras with inter-target dependencies),
+  or a user-authorable post chain where the order is data rather than
+  code. Deferred because nothing has asked for one of those yet. See
+  `docs/superpowers/specs/2026-10-17-render-bloom-design.md`.
 
 - ~~**Retune the demo's particle, ribbon, decal and world-text colours**~~
   — **DONE 2026-10-17**, after the human verification pass said yes. The
@@ -2531,11 +2585,13 @@ recent-projects list (PR #197).
 |---|---|
 | ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — **SHIPPED 2026-10-16.** The engine-side boundary landed 2026-10-13 (#255); the Vulkan backend half followed in this branch: the `R16G16B16A16_SFLOAT` target, the resolve pipeline pair, and `tonemap_aces` moved out of `cube.frag`/`skybox.frag` into `hdr_resolve.frag`, its only copy in the tree. **Bloom is unblocked.** Two things the estimate missed, in opposite directions: every pipeline was built TWICE (once per destination pass), so the scene's seven pairs collapsed to seven singles and the backend got smaller, not bigger; and the editor opens its viewport pass around the whole of `render()`, so that pass had to become lazy before the HDR pass could open without nesting inside it. The gate was what the entry predicted — 1358/1358 says nothing about the image, and a validation-layer grep plus a human at the window are the real checks. Original entry: || New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
 
-**Re-derived 2026-10-16.** That item shipped, and **bloom** takes its place in
-this tier: a bright-pass, a blur, a mip chain whose pass count varies with
-resolution, and a composite back over the resolved image. It is also where the
-RenderGraph question finally gets a real trigger, since a varying pass count is
-the first genuinely dynamic need this renderer will have had.
+**Re-derived 2026-10-16, corrected 2026-10-17.** That item shipped, and
+**bloom** takes its place in this tier: a prefilter with a soft knee, a mip
+chain whose length is a function of resolution, an additive upsample, and a
+composite inside the tone curve. It is **not** where the RenderGraph gets its
+trigger — the bloom design showed the chain is a loop, not a graph, and the
+graph's trigger has been restated in the Rendering section above. See
+`docs/superpowers/specs/2026-10-17-render-bloom-design.md`.
 
 Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before
