@@ -522,7 +522,10 @@ inline void build_default_scene(mosaic::engine::World& world)
                              mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.5707963f),
                              Vec3{3, 3, 1}, {}});
     world.add_component<mosaic::engine::vfx::Decal>(decal,
-        mosaic::engine::vfx::Decal{kStripesTextureId, Vec3{1.0f, 0.9f, 0.6f}, 0.85f});
+    // The worst-hit of the four: {1.0, 0.9, 0.6} mapped to (0.80, 0.78, 0.67), dropping
+    // saturation from 0.40 to 0.16 -- a warm stripe that went nearly grey and vanished
+    // against the white ground. Shows as (0.95, 0.80, 0.44) now.
+        mosaic::engine::vfx::Decal{kStripesTextureId, Vec3{2.85f, 1.0f, 0.30f}, 0.85f});
 
     const auto box = world.create_entity();
     world.add_component<transform::Transform>(box,
@@ -798,9 +801,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     trail.initial_velocity = Vec3{0.0f, 0.0f, 0.0f};
     trail.spread           = 0.2f;
     trail.acceleration     = Vec3{0.0f, 0.0f, 0.0f};
-    trail.color            = Vec3{0.2f, 0.9f, 0.3f};   // match the cube (green)
+    trail.color            = Vec3{0.10f, 1.75f, 0.15f}; // match the cube (green)
     trail.size             = 0.08f;
-    trail.end_color        = Vec3{0.9f, 0.9f, 0.2f};   // fade to yellow
+    trail.end_color        = Vec3{2.10f, 1.55f, 0.10f}; // fade to yellow
     trail.end_size         = 0.01f;
     trail.alpha            = 1.0f;
     trail.end_alpha        = 0.0f;
@@ -829,9 +832,13 @@ inline void build_default_scene(mosaic::engine::World& world)
     emitter.initial_velocity = Vec3{0.0f, 4.0f, 0.0f};
     emitter.spread           = 1.0f;
     emitter.acceleration     = Vec3{0.0f, -9.81f, 0.0f};
-    emitter.color            = Vec3{1.0f, 0.5f, 0.1f};
+    // Shows as (0.95, 0.44, 0.04) after ACES -- a vivid orange. Authored {1.0, 0.5, 0.1}
+    // until 2026-10-17, which the curve turned into (0.80, 0.62, 0.13): the green channel
+    // RISES through the curve, so it read yellow rather than orange. Above 1.0 is
+    // meaningful now, and the roll-off is what keeps it from clipping flat.
+    emitter.color            = Vec3{2.85f, 0.30f, 0.05f};
     emitter.size             = 0.15f;
-    emitter.end_color        = Vec3{0.7f, 0.1f, 0.4f};   // orange -> magenta over life
+    emitter.end_color        = Vec3{1.0f, 0.05f, 0.50f}; // orange -> magenta over life
     emitter.end_size         = 0.03f;                    // shrink as it fades
     emitter.alpha            = 1.0f;                      // opaque at birth
     emitter.end_alpha        = 0.0f;                      // fade fully out at death
@@ -851,9 +858,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     puff.initial_velocity = Vec3{0.0f, 5.0f, 0.0f};
     puff.spread           = 2.0f;
     puff.acceleration     = Vec3{0.0f, -9.81f, 0.0f};
-    puff.color            = Vec3{0.3f, 0.8f, 1.0f};      // cyan
+    puff.color            = Vec3{0.15f, 1.25f, 2.85f};   // cyan
     puff.size             = 0.12f;
-    puff.end_color        = Vec3{0.1f, 0.2f, 0.6f};      // deepen to blue
+    puff.end_color        = Vec3{0.05f, 0.15f, 0.65f};   // deepen to blue
     puff.end_size         = 0.02f;
     puff.alpha            = 1.0f;
     puff.end_alpha        = 0.0f;
