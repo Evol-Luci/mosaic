@@ -6,45 +6,14 @@ layout(push_constant) uniform Push {
     mat4  inv_view_rotation; // world-from-view, translation removed
     float tan_half_fov_y;
     float aspect;
-    // Must be the same value the lit pass scales by, or the sky and the geometry drift
-    // apart in brightness. It arrives as a push constant because this pipeline does not
-    // bind the per-frame UBO -- set 0 here is the environment cubemap.
+    // NO LONGER READ BY THIS SHADER. Exposure is applied once in hdr_resolve.frag. The
+    // member stays declared because this block's layout is shared byte-for-byte with the
+    // C++ SkyboxPush struct and dropping it here alone is silent corruption, not a
+    // compile error. Removing it from both sides is tracked in the deferred backlog.
     float exposure;
 } pc;
 layout(location = 0) out vec4 outColor;
 
-// ACES filmic approximation (Narkowicz). IDENTICAL to cube.frag's copy, and a contract
-// test pins them equal -- a shared GLSL include would be better, but the shader build
-// has no include step, so the test is what holds them together.
-//
-// This shader must tone map, which is a change from slice 1's reasoning. That slice
-// applied the curve in cube.frag ALONE, on the grounds that every other
-// colour-producing shader is unlit and cannot exceed 1.0. A skybox sampling HDR
-// radiance can, and routinely does.
-vec3 tonemap_aces(vec3 x)
-{
-    // The curve floors its own input, which is not a duplicate of the exposure floor at
-    // the call site -- it guards a DIFFERENT input. `x` can arrive negative from an
-    // unclamped light colour: DirectionalLight::color is a reflected Vec3 with no clamp
-    // anywhere, and the Studio inspector renders it as three unbounded DragFloats, so a
-    // colour of (-1,-1,-1) is one drag away. A negative input makes this function return
-    // WHITE: its numerator 2.51x^2 + 0.03x turns positive below x = -0.012 while its
-    // denominator is strictly positive for every real x (discriminant -1.0127), so the
-    // ratio clamps to 1.0 and the response is non-monotonic across zero.
-    //
-    // Flooring HERE makes that unreachable for every caller, present and future, instead
-    // of requiring each call site to remember. The call sites still floor exposure
-    // separately, because that catches a negative knob even when the colour is ALSO
-    // negative -- flooring only the product would multiply two negatives into a positive
-    // and brighten.
-    x = max(x, vec3(0.0));
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
 
 void main()
 {
@@ -58,9 +27,9 @@ void main()
     vec3 dir = normalize(mat3(pc.inv_view_rotation) * view_dir);
 
     vec3 radiance = texture(environment, dir).rgb;
-    // max(..., 0.0) for the reason cube.frag records at length: a negative exposure makes
-    // ACES return WHITE, not black, because its numerator turns positive below -0.012
-    // while its denominator never does. Both shaders must floor it or the sky and the
-    // geometry would disagree about what a negative exposure means.
-    outColor = vec4(tonemap_aces(radiance * max(pc.exposure, 0.0)), 1.0);
+    // LINEAR HDR, like every other world-space shader now: hdr_resolve.frag applies the
+    // curve and the exposure once over the whole scene. The sky is the shader that most
+    // needs the headroom -- it samples HDR radiance that routinely exceeds 1.0, and until
+    // the resolve existed that excess was clamped away at this attachment.
+    outColor = vec4(radiance, 1.0);
 }

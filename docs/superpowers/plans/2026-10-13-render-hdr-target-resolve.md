@@ -375,144 +375,182 @@ git commit -m "feat(render): RenderSystem brackets world-space drawing in an HDR
 
 ---
 
-### Task 3: The Vulkan HDR target
+### Task 3: The HDR render pass and target
+
+> **REVISED 2026-10-16**, after execution found the original Tasks 3–4 understated the work.
+> Every pipeline in `vulkan_render_device.cpp` is built **twice** — once against the
+> swapchain pass (`render_pass_`) and once against the viewport pass (`vp_render_pass_`),
+> ~23 members across ~11 pairs at `:3288`–`:4235`. Vulkan pipeline/render-pass compatibility
+> means the scene's pipelines must be rebuilt against the HDR pass once the scene renders
+> there. The original plan's "one pipeline per pass" note was written about the resolve alone.
+>
+> **The end state is simpler than today.** The scene renders into ONE pass regardless of final
+> destination, so its 7 pairs collapse to 7 singles; only the resolve and the UI need a pair.
+> Fourteen pipelines become eight.
+>
+> | Group | Today | After |
+> |---|---|---|
+> | Scene: `pipeline_`, `skybox_`, `decal_`, `particle_`, `ribbon_`, `world_text_`, `screen_effect_` | 7 pairs | **7 singles** (HDR pass) |
+> | UI: `ui_`, `ui_image_`, `ui_text_` | 3 pairs | 3 pairs (unchanged) |
+> | Resolve | — | **1 new pair** |
+> | `shadow_pipeline_` | 1, own pass | unchanged |
 
 **Files:**
-- Modify: `modules/render_vulkan/vulkan_render_device.hpp` (declare the target + overrides)
-- Modify: `modules/render_vulkan/vulkan_render_device.cpp` (create, destroy, recreate, record)
+- Modify: `modules/render_vulkan/vulkan_render_device.cpp` (members ~`:4636`; create/destroy beside `create_offscreen_render_pass` `:2659`, `create_offscreen_target` `:2758`, `destroy_offscreen_target` `:2737`; recreate in `recreate_swapchain` `:4429`)
 
 **Interfaces:**
-- Consumes: the hooks from Task 1.
-- Produces: a working HDR target. Task 4 adds the resolve pipeline that samples it.
+- Produces: `hdr_render_pass_`, `hdr_color_view_`, `hdr_sampler_`, `hdr_framebuffer_`, `in_hdr_pass_`, and `create_hdr_target` / `destroy_hdr_target`. Tasks 4 and 5 consume all of them.
 
-- [ ] **Step 1: Add the target's members**
+- [ ] **Step 1: Add the members**
 
-The offscreen viewport target is the template throughout this task: its render pass is
-`create_offscreen_render_pass` (`vulkan_render_device.cpp:2659`), its images are
-`create_offscreen_target` (:2758), and it is torn down by `destroy_offscreen_target` (:2737).
-Read those three before writing, then mirror them.
-
-In `vulkan_render_device.hpp`, beside the `vp_*` members:
+Beside the `vp_*` block at `:4636`:
 
 ```cpp
     // The linear HDR scene target. Same lifecycle as the offscreen viewport target above --
     // created with the swapchain, destroyed with it, recreated on resize -- and the same
-    // finalLayout trick: SHADER_READ_ONLY_OPTIMAL so the resolve can sample it without a
-    // manual barrier.
-    VkImage        hdr_color_      = VK_NULL_HANDLE;
-    VkDeviceMemory hdr_color_mem_  = VK_NULL_HANDLE;
-    VkImageView    hdr_color_view_ = VK_NULL_HANDLE;
-    VkImage        hdr_depth_      = VK_NULL_HANDLE;
-    VkDeviceMemory hdr_depth_mem_  = VK_NULL_HANDLE;
-    VkImageView    hdr_depth_view_ = VK_NULL_HANDLE;
-    VkFramebuffer  hdr_framebuffer_ = VK_NULL_HANDLE;
-    VkRenderPass   hdr_render_pass_ = VK_NULL_HANDLE;
-    VkSampler      hdr_sampler_     = VK_NULL_HANDLE;
-    bool           in_hdr_pass_     = false;
+    // finalLayout trick: SHADER_READ_ONLY_OPTIMAL so the resolve samples it with no manual
+    // barrier. Its own depth, because a framebuffer binds specific views and this is a
+    // different render pass from the viewport's.
+    VkRenderPass    hdr_render_pass_ = VK_NULL_HANDLE;
+    VkImage         hdr_color_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_color_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_color_view_ = VK_NULL_HANDLE;
+    VkImage         hdr_depth_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_depth_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_depth_view_ = VK_NULL_HANDLE;
+    VkFramebuffer   hdr_framebuffer_ = VK_NULL_HANDLE;
+    VkSampler       hdr_sampler_ = VK_NULL_HANDLE;
+    VkExtent2D      hdr_extent_ = {0, 0};
+    bool            in_hdr_pass_ = false;
 ```
-
-> **Its own depth, not the viewport's.** `create_offscreen_target` creates a depth image per
-> target for the same reason: a framebuffer binds specific views, and the HDR pass and the
-> viewport pass are different render passes with different framebuffers. Sharing would mean
-> one pass writing depth the other declared `LOAD_OP_CLEAR` on.
 
 - [ ] **Step 2: Create the render pass**
 
-A copy of `create_offscreen_render_pass` with one changed line — the colour format:
+`create_hdr_render_pass()`, a copy of `create_offscreen_render_pass` (`:2659`) with **one
+changed line**, plus its own sampler as that function does at `:2724`:
 
 ```cpp
-    void create_hdr_render_pass()
-    {
-        VkAttachmentDescription color{};
         // THE ONLY DIFFERENCE from create_offscreen_render_pass: a float format, so values
-        // above 1.0 survive the pass instead of clamping. That headroom is the whole point.
+        // above 1.0 survive the pass instead of clamping at the attachment. That headroom is
+        // the whole point -- without it a "bright" particle cannot be bright.
         color.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        color.samples = VK_SAMPLE_COUNT_1_BIT;
-        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        // Sampled by the resolve, so hand it over already in the layout the sampler wants.
-        color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 ```
 
-and from there identical to `create_offscreen_render_pass`'s depth attachment, subpass, and
-two dependencies — copy them verbatim, including the comment explaining the second
-dependency, since it serves the same purpose here (making the colour image visible to the
-fragment shader that samples it).
+Everything else — the depth attachment, the subpass, both dependencies, the sampler
+(`VK_FILTER_LINEAR`, `CLAMP_TO_EDGE`, `maxLod = 1.0f`) — is copied verbatim, including the
+comment explaining the second dependency, which serves the same purpose here.
 
-Call it from the same place `create_offscreen_render_pass()` is called (:294).
+Call it where `create_offscreen_render_pass()` is called (`:294`), and destroy the pass and
+sampler where its counterparts are destroyed (`:335`–`:338`).
 
-- [ ] **Step 3: Create and destroy the images**
+- [ ] **Step 3: Create and destroy the target**
 
-Mirroring `create_offscreen_target`, which already has the helpers:
+`create_hdr_target(w, h)` mirrors `create_offscreen_target` (`:2758`) exactly, substituting
+`VK_FORMAT_R16G16B16A16_SFLOAT` for `swapchain_format_` in both the image `ci.format` and the
+`make_image_view` call, writing to the `hdr_*` members, and ending with
+`hdr_extent_ = {w, h};`. It has **no ImGui descriptor** — that is the one thing the viewport
+version does that this must not copy, since nothing composites the HDR target directly.
+
+`destroy_hdr_target()` mirrors `destroy_offscreen_target` (`:2737`): framebuffer, then the
+two view/image/memory triples, each reset to `VK_NULL_HANDLE`, then `hdr_extent_ = {0, 0};`.
+It has no `ImGui_ImplVulkan_RemoveTexture` call for the same reason.
+
+- [ ] **Step 4: Size it with the swapchain, and recreate on resize**
+
+The HDR target is the size of the **swapchain**, not the editor panel: the scene is rendered
+once at full resolution and the editor samples the resolved result into whatever panel size
+it has. Call `create_hdr_target(extent_.width, extent_.height)` wherever the swapchain's
+own resources are created, and `destroy_hdr_target()` / `create_hdr_target(...)` in
+`recreate_swapchain()` (`:4429`) beside the equivalent swapchain teardown.
+
+> A stale-sized HDR target is sampled at the wrong resolution and shows as a smeared or
+> cropped frame on every resize. **Not unit-testable** — no test creates a `VkDevice` — so
+> verify by running `mosaic run --window` and resizing, and say so in the commit message.
+
+- [ ] **Step 5: Build and run the whole suite**
+
+```bash
+cmake --build build/debug -j4 && (cd build/debug && ctest)
+```
+Expected: PASS. Nothing in the suite touches Vulkan, so this is a compile gate plus a
+no-regression check. **The target is created but nothing renders into it yet**, so all three
+entry points must still behave exactly as before — run them and confirm zero validation
+errors before moving on, because this is the last point where that is true by construction.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add modules/render_vulkan/vulkan_render_device.cpp
+git commit -m "feat(render): an R16G16B16A16_SFLOAT scene target in the Vulkan backend"
+```
+
+---
+
+### Task 4: Retarget the scene pipelines, then resolve
+
+**This task's intermediate state is not runnable**, and that is unavoidable: the moment the
+scene renders into the HDR pass, the window is black until the resolve samples it. Both
+halves therefore land in **one commit**. The build stays green throughout; only the image is
+wrong in between.
+
+**Files:**
+- Create: `modules/render_vulkan/shaders/hdr_resolve.frag`, `hdr_resolve.vert`
+- Modify: `modules/render_vulkan/shaders/cube.frag`, `skybox.frag` (remove tone mapping)
+- Modify: `modules/render_vulkan/CMakeLists.txt` (register both shaders)
+- Modify: `modules/render_vulkan/vulkan_render_device.cpp`
+
+- [ ] **Step 1: Collapse the seven scene pipeline pairs to singles**
+
+For each of `pipeline_`, `skybox_pipeline_`, `decal_pipeline_`, `particle_pipeline_`,
+`ribbon_pipeline_`, `world_text_pipeline_`, `screen_effect_pipeline_`:
+
+- Delete the `vp_*` twin's member, its creation block, and its destruction.
+- Change the survivor's `pi.renderPass = render_pass_;` to `pi.renderPass = hdr_render_pass_;`.
+- At every bind site, delete the `viewport_pass_open_ ? vp_x : x` selector and bind the
+  single pipeline.
 
 ```cpp
-    void create_hdr_target(uint32_t width, uint32_t height)
-    {
-        VkImageCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ci.imageType = VK_IMAGE_TYPE_2D;
-        ci.extent = {width, height, 1};
-        ci.mipLevels = 1;
-        ci.arrayLayers = 1;
-        ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        ci.samples = VK_SAMPLE_COUNT_1_BIT;
-        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        vk_check(vkCreateImage(device_, &ci, nullptr, &hdr_color_), "vkCreateImage(hdr color)");
-        bind_image_memory(hdr_color_, hdr_color_mem_, "hdr color");
-        hdr_color_view_ =
-            make_image_view(hdr_color_, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
-
-        VkImageCreateInfo di = ci;
-        di.format = kDepthFormat;
-        di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        vk_check(vkCreateImage(device_, &di, nullptr, &hdr_depth_), "vkCreateImage(hdr depth)");
-        bind_image_memory(hdr_depth_, hdr_depth_mem_, "hdr depth");
-        hdr_depth_view_ = make_image_view(hdr_depth_, kDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
-
-        std::array<VkImageView, 2> attachments{hdr_color_view_, hdr_depth_view_};
-        VkFramebufferCreateInfo fb{};
-        fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        fb.renderPass = hdr_render_pass_;
-        fb.attachmentCount = static_cast<uint32_t>(attachments.size());
-        fb.pAttachments = attachments.data();
-        fb.width = width;
-        fb.height = height;
-        fb.layers = 1;
-        vk_check(vkCreateFramebuffer(device_, &fb, nullptr, &hdr_framebuffer_),
-                 "vkCreateFramebuffer(hdr)");
-    }
+    // ONE pipeline, not a pair. The scene now renders into the HDR pass whatever its final
+    // destination is -- the swapchain in `mosaic run --window`, the editor's viewport target
+    // after the resolve -- so the variant that existed only to satisfy the viewport pass has
+    // nothing left to be compatible with. Fourteen pipelines become eight.
 ```
 
-`destroy_hdr_target` mirrors `destroy_offscreen_target` — same six handles, same order, each
-reset to `VK_NULL_HANDLE`. It has no ImGui descriptor to remove, which is the one thing the
-viewport version does that this must not copy.
+The UI pipelines (`ui_`, `ui_image_`, `ui_text_`) **keep their pair and their selector**:
+they draw after the resolve, into whichever destination pass is recording.
 
-The sampler is created once at device setup, not per target: `VK_FILTER_LINEAR`,
-`VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE`.
-
-- [ ] **Step 4: Implement the two pass hooks**
+- [ ] **Step 2: Implement the two pass hooks**
 
 ```cpp
     void begin_hdr_scene_pass(const mosaic::engine::render::Color& clear) override
     {
-        if (in_hdr_pass_ || hdr_framebuffer_ == VK_NULL_HANDLE) { return; }
+        if (frame_skipped_ || in_hdr_pass_ || hdr_framebuffer_ == VK_NULL_HANDLE) { return; }
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        // Negative height, matching the swapchain and viewport passes: the scene's projection
+        // math assumes the Y-flip. See ui.vert for what screen-space shaders must do about it.
+        viewport.y = static_cast<float>(hdr_extent_.height);
+        viewport.width = static_cast<float>(hdr_extent_.width);
+        viewport.height = -static_cast<float>(hdr_extent_.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd_[frame_], 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.extent = hdr_extent_;
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+
         std::array<VkClearValue, 2> clears{};
         clears[0].color = {{clear.r, clear.g, clear.b, clear.a}};
         clears[1].depthStencil = {1.0f, 0};
-        VkRenderPassBeginInfo bi{};
-        bi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        bi.renderPass = hdr_render_pass_;
-        bi.framebuffer = hdr_framebuffer_;
-        bi.renderArea.extent = swapchain_extent_;
-        bi.clearValueCount = static_cast<uint32_t>(clears.size());
-        bi.pClearValues = clears.data();
-        vkCmdBeginRenderPass(current_cmd(), &bi, VK_SUBPASS_CONTENTS_INLINE);
+        VkRenderPassBeginInfo rp{};
+        rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass = hdr_render_pass_;
+        rp.framebuffer = hdr_framebuffer_;
+        rp.renderArea.extent = hdr_extent_;
+        rp.clearValueCount = static_cast<uint32_t>(clears.size());
+        rp.pClearValues = clears.data();
+        vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
         in_hdr_pass_ = true;
     }
 
@@ -521,63 +559,35 @@ The sampler is created once at device setup, not per target: `VK_FILTER_LINEAR`,
         // Guarded both ways: a double-begin or an end without a begin is a validation error
         // rather than a visible bug, which is the kind that only appears on a real device.
         if (!in_hdr_pass_) { return; }
-        vkCmdEndRenderPass(current_cmd());
+        vkCmdEndRenderPass(cmd_[frame_]);
         in_hdr_pass_ = false;
     }
 ```
 
-> **Implementer:** `current_cmd()` and `swapchain_extent_` are the names assumed for the
-> frame's command buffer and the swapchain size. Grep for how `begin_viewport_pass` reaches
-> both and use whatever it uses — this file's conventions win over the names here.
+Copy the exact viewport/scissor idiom from `begin_viewport_pass` (`:2032`) rather than the
+above if it differs — that function is the authority on this file's conventions.
 
-- [ ] **Step 5: Recreate on resize (Review Focus 5)**
+- [ ] **Step 3: Write the resolve shaders**
 
-Call `destroy_hdr_target()` then `create_hdr_target(w, h)` from `recreate_swapchain()`
-(:4429), wherever it does the same for the viewport target. A stale-sized HDR target is
-sampled at the wrong resolution and shows as a smeared or cropped frame on every resize.
-
-**Not unit-testable** — no test creates a `VkDevice`. Verify by running
-`mosaic run --window` and resizing, and say so in the commit message.
-
-- [ ] **Step 6: Build and run the whole suite**
-
-```bash
-cmake --build build/debug -j4 && (cd build/debug && ctest)
-```
-Expected: PASS. Nothing in the suite touches Vulkan, so this is a compile gate plus a
-no-regression check.
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add modules/render_vulkan/vulkan_render_device.hpp modules/render_vulkan/vulkan_render_device.cpp
-git commit -m "feat(render): an R16G16B16A16_SFLOAT scene target in the Vulkan backend"
-```
-
----
-
-### Task 4: The resolve, and tone mapping moves
-
-**Files:**
-- Create: `modules/render_vulkan/shaders/hdr_resolve.frag`
-- Modify: `modules/render_vulkan/shaders/cube.frag` (remove 3 `tonemap_aces` sites + the exposure multiply)
-- Modify: `modules/render_vulkan/shaders/skybox.frag` (remove 2)
-- Modify: `modules/render_vulkan/CMakeLists.txt` (register the new shader)
-- Modify: `modules/render_vulkan/vulkan_render_device.cpp` (resolve pipeline + `draw_hdr_resolve`)
-
-**Interfaces:**
-- Consumes: the HDR target from Task 3.
-- Produces: the finished pipeline.
-
-- [ ] **Step 1: Write the resolve fragment shader**
-
-Create `modules/render_vulkan/shaders/hdr_resolve.frag`, moving `tonemap_aces` verbatim out
-of `cube.frag` — including its comments, which explain why the curve floors its own input:
+`hdr_resolve.vert` — its **own** vertex shader, not `screen_effect.vert`:
 
 ```glsl
 #version 450
 
-layout(location = 0) in vec2 fragUV;
+void main()
+{
+    // Fullscreen triangle from gl_VertexIndex, same as screen_effect.vert. No UV output:
+    // the fragment shader derives it from gl_FragCoord instead. See hdr_resolve.frag.
+    vec2 pos = vec2((gl_VertexIndex == 1) ? 3.0 : -1.0, (gl_VertexIndex == 2) ? 3.0 : -1.0);
+    gl_Position = vec4(pos, 0.0, 1.0);
+}
+```
+
+`hdr_resolve.frag`:
+
+```glsl
+#version 450
+
 layout(location = 0) out vec4 outColor;
 
 layout(set = 0, binding = 0) uniform sampler2D hdrScene;
@@ -585,10 +595,9 @@ layout(set = 0, binding = 0) uniform sampler2D hdrScene;
 layout(push_constant) uniform Resolve { float exposure; } pc;
 
 // ACES filmic approximation (Narkowicz), moved here from cube.frag. It used to run per
-// object, which meant decals, particles, ribbons and world text were never tone mapped at
-// all -- they blended against a buffer that had already been through the curve. Running it
-// once over the whole scene is what makes a value above 1.0 meaningful, and therefore what
-// makes bloom possible.
+// object, which left decals, particles, ribbons and world text untouched by the curve --
+// they blended against a buffer already through it. Running it once over the whole scene is
+// what makes a value above 1.0 meaningful, and therefore what makes bloom possible.
 vec3 tonemap_aces(vec3 x)
 {
     const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
@@ -598,27 +607,57 @@ vec3 tonemap_aces(vec3 x)
 
 void main()
 {
-    vec3 hdr = texture(hdrScene, fragUV).rgb;
-    // Exposure scales the value ENTERING the curve, as it did in cube.frag. Applied after,
-    // it would scale an already-clamped [0,1] value, so it could darken but never brighten
-    // -- which is most of what exposure is for.
+    // UV FROM gl_FragCoord, NOT from an interpolated clip position, and this is load-bearing.
+    // Every render pass here uses a NEGATIVE-HEIGHT viewport (the Y-flip ui.vert compensates
+    // for). A fullscreen triangle that derives its UV from clip space inherits that flip and
+    // samples the scene upside down. screen_effect.vert has exactly that bug and nobody
+    // noticed, because a vignette is radially symmetric. gl_FragCoord is framebuffer space,
+    // so this is correct by construction rather than by reasoning no test can check.
+    vec2 uv = gl_FragCoord.xy / vec2(textureSize(hdrScene, 0));
+    vec3 hdr = texture(hdrScene, uv).rgb;
+    // Exposure scales the value ENTERING the curve, as it did in cube.frag. Applied after, it
+    // would scale an already-clamped [0,1] value -- it could darken but never brighten, which
+    // is most of what exposure is for.
     outColor = vec4(tonemap_aces(hdr * pc.exposure), 1.0);
 }
 ```
 
-Reuse `screen_effect.vert` as the vertex stage rather than writing a second fullscreen
-triangle.
+Register both in `modules/render_vulkan/CMakeLists.txt` wherever `screen_effect.*` is listed.
+A missing registration fails at pipeline creation, not at build.
 
-- [ ] **Step 2: Register the shader**
+- [ ] **Step 4: The resolve pipeline pair, and `draw_hdr_resolve`**
 
-Add `hdr_resolve.frag` wherever `screen_effect.frag` is listed in
-`modules/render_vulkan/CMakeLists.txt`. Build and confirm the `.spv` is produced; a missing
-registration fails at pipeline creation, not at build.
+The resolve needs **a pair** — `resolve_pipeline_` and `vp_resolve_pipeline_` — because it
+draws into whichever destination pass is recording. Build them exactly as the UI pipelines
+are built (`:3853`/`:3859` is the pattern: one against `render_pass_`, one against
+`vp_render_pass_`), with:
+- no vertex input, no depth test, no blending
+- a `set = 0` combined-image-sampler descriptor for the HDR view
+- a `float` push constant for exposure
 
-- [ ] **Step 3: Remove tone mapping from the object shaders**
+```cpp
+    void draw_hdr_resolve(float exposure) override
+    {
+        if (frame_skipped_ || hdr_color_view_ == VK_NULL_HANDLE) { return; }
+        // The SAME selector the UI draws use. The resolve never begins a pass: it draws into
+        // whatever is recording, which is what keeps the window and editor paths identical.
+        VkPipeline pipe = viewport_pass_open_ ? vp_resolve_pipeline_ : resolve_pipeline_;
+        if (pipe == VK_NULL_HANDLE) { return; }
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        // ... bind the descriptor set sampling hdr_color_view_ through hdr_sampler_ ...
+        vkCmdPushConstants(cmd_[frame_], resolve_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(float), &exposure);
+        vkCmdDraw(cmd_[frame_], 3, 1, 0, 0);
+    }
+```
 
-In `cube.frag`, delete `tonemap_aces` and its three call sites, and the exposure multiply;
-the shader now writes **linear HDR**. Leave a comment where the call was:
+Follow `draw_ui_image` for how this file allocates and binds a per-frame sampler descriptor;
+it already solves exactly this problem for the UI's textures.
+
+- [ ] **Step 5: Remove tone mapping from the object shaders**
+
+In `cube.frag`, delete `tonemap_aces` and its three call sites and the exposure multiply,
+leaving:
 
 ```glsl
     // No tone mapping here: this writes LINEAR HDR into the scene target, and
@@ -626,29 +665,11 @@ the shader now writes **linear HDR**. Leave a comment where the call was:
     // particles, ribbons and world text untouched by the curve.
 ```
 
-Same in `skybox.frag` for its two sites. Remove the now-unused `exposure` field from the
-push-constant block **only if nothing else reads it** — check before deleting, since the
-block's layout is shared with the C++ side and a mismatch is silent corruption.
+Same in `skybox.frag` for its two sites. Remove the now-unused `exposure` push-constant field
+**only if nothing else reads it** — check first, since the block's layout is shared with the
+C++ side and a mismatch is silent corruption.
 
-- [ ] **Step 4: Implement `draw_hdr_resolve` (Review Focus 4)**
-
-```cpp
-    void draw_hdr_resolve(float exposure) override;
-```
-
-It binds the resolve pipeline, binds a descriptor set sampling `hdr_view_` through
-`hdr_sampler_`, pushes `exposure`, and draws 3 vertices.
-
-**It must NOT begin a render pass.** It draws into whatever pass is currently recording —
-the swapchain pass in `mosaic run --window`, the offscreen viewport pass in the editor. That
-is the whole reason the hook is a draw: the two paths stay identical, and the resolve never
-needs to know its destination.
-
-The resolve pipeline therefore needs to be compatible with **both** render passes. If their
-formats differ, create one pipeline per pass and select on which is recording; note in a
-comment which case applies here rather than leaving a reader to work it out.
-
-- [ ] **Step 5: Build, full suite, lints**
+- [ ] **Step 6: Build, full suite, lints**
 
 ```bash
 cmake --build build/debug -j4
@@ -657,25 +678,24 @@ python3 tools/ci/check_dependency_rules.py && echo deps-ok
 python3 tools/ci/check_test_case_names.py && echo names-ok
 ```
 
-- [ ] **Step 6: Verify on a real device**
+- [ ] **Step 7: The only real gate — validation layers on a device**
 
 ```bash
-./build/debug/app/mosaic run --ticks 5 --json >/dev/null; echo "run=$?"
 timeout 60 ./build/debug/app/mosaic run --window --ticks 60 >/dev/null 2>/tmp/w.err; echo "window=$?"
-grep -iE 'validation|error' /tmp/w.err | head
+grep -icE 'validation|error' /tmp/w.err
 timeout 60 ./build/debug/app/mosaic editor --ticks 40 >/dev/null 2>/tmp/e.err; echo "editor=$?"
-grep -iE 'validation|error' /tmp/e.err | head
+grep -icE 'validation|error' /tmp/e.err
 ```
 
-Expected: all exit 0, and **no Vulkan validation errors** — the backend logs them through the
-engine logger, so they appear here. A layout-transition or render-pass-compatibility mistake
-shows up as a validation error and nothing else; this command is the only gate that catches
-it.
+Expected: both exit 0 with **zero** validation errors. A pipeline/render-pass incompatibility,
+a missed layout transition or an unbalanced pass shows up here and **nowhere else** — the
+build is silent about all three. If this count is not zero, stop and read the messages; do not
+proceed to the commit.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add modules/render_vulkan/ docs/
+git add modules/render_vulkan/
 git commit -m "feat(render): tone map once in a fullscreen resolve, not per object"
 ```
 

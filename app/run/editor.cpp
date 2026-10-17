@@ -290,6 +290,10 @@ int run_editor(const Options& options,
             physics->sync_to_world(world);
         }
 
+        // The SCENE's background -- see app/main.cpp for why this cannot be left to
+        // device->clear() alone. The viewport clear below is the panel target's, which
+        // the resolve overwrites in full.
+        render_system->set_clear_color(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
         device->begin_frame();
         device->clear(engine::render::Color{0.10f, 0.10f, 0.12f, 1.0f});
 

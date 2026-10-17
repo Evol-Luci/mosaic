@@ -638,8 +638,8 @@ them as this list does.
   - **Enum metadata on the reflection surface is worth adding** — the prerequisite for combo
     boxes on `anchor`, `fit_mode` and the easing curves, which today are bare `DragInt`s a
     user can drag to 47.
-  - **Bloom is wanted soon**, which fires the trigger the 🟡 offscreen HDR target has been
-    waiting on. That item is now live work rather than a conditional.
+  - ~~**Bloom is wanted soon**, which fires the trigger the 🟡 offscreen HDR target has been
+    waiting on.~~ — the HDR target **shipped 2026-10-16**; bloom is the next rendering slice.
   - ~~**Standalone pointer semantics should match the editor**~~ — done, above.
 - **The resolve must not take its UV from clip position** — found 2026-10-13 while scoping the
   backend half, before any of it was written. Both render passes use a **negative-height
@@ -955,14 +955,17 @@ them as this list does.
     when to re-capture. Deferred 2026-10-05. Depends on 4c landing
     first, since a probe is only useful once something consumes an
     environment.
-  - **A GLSL include mechanism for shared shader code** — the reason
-    `tonemap_aces` is duplicated into the skybox shader rather than
-    shared: the shader build has no include step, and adding one is a
-    build-system change rather than a rendering one. Deferred
-    2026-10-05 during 4b's design. A contract test pins the duplicated
-    copies as identical, which is a weaker guarantee than one
-    definition; this becomes worth doing the moment a third shader needs
-    the same function.
+  - **A GLSL include mechanism for shared shader code** — originally the
+    reason `tonemap_aces` was duplicated into the skybox shader rather
+    than shared: the shader build has no include step, and adding one is
+    a build-system change rather than a rendering one. Deferred
+    2026-10-05 during 4b's design. **That particular duplication is gone
+    as of 2026-10-16** — the HDR resolve moved the curve out of both
+    object shaders into `hdr_resolve.frag`, which is now its only copy in
+    the tree, and the contract test pins that rather than pinning two
+    copies equal. The item stands because nothing about the build
+    changed: the next function two shaders both want will reach the same
+    wall. Lower priority now that the one real instance resolved itself.
   - **Runtime-selectable cubemap face size** — fixed at 512 by 4b.
     Deferred 2026-10-05: it is a quality-versus-memory knob with nothing
     to balance it against yet, and `AssetMetadata::import_settings`
@@ -1199,9 +1202,23 @@ them as this list does.
     metallic/roughness workflow is the base model; each layer is its own
     feature with its own parameters and its own BRDF lobe. Deferred
     2026-10-04 as out of scope for standing up the base.
-  - **An offscreen HDR render target with a fullscreen resolve pass.**
-    The correct-compositing form of tone mapping, and the prerequisite
-    for bloom. Deferred 2026-10-04 during the tone-mapping design:
+  - ~~**An offscreen HDR render target with a fullscreen resolve pass.**~~
+    — **SHIPPED 2026-10-16.** The scene renders into a swapchain-sized
+    `R16G16B16A16_SFLOAT` target and `hdr_resolve.frag` tone maps the whole
+    image once on the way to the destination. **The boundary:** everything
+    world-space is inside — opaque meshes, skybox, decals, particles,
+    ribbons, the vignette, world text — and the UI draws onto the resolved
+    result, because a `UiPanel`'s colour is authored rather than captured
+    and through ACES the HUD would dim whenever the world got bright. The
+    resolve is a **draw, not a pass**: a fullscreen triangle into whichever
+    target is recording, which is what keeps `mosaic run --window` and the
+    editor on one code path. **Bloom is now unblocked.** The original
+    reasoning is kept below, because its trigger fired exactly as written.
+    What it did not anticipate: collapsing the scene's pipeline pairs
+    (every pipeline was built twice, once per destination pass) made the
+    backend *smaller*, fourteen scene pipelines to seven, and the editor's
+    viewport pass had to become lazy so the HDR pass could open without
+    nesting inside it. Deferred 2026-10-04 during the tone-mapping design:
     nothing in the renderer blends additively today — every pipeline in
     `vulkan_render_device.cpp` is either `SRC_ALPHA` (eight of nine, with
     `VK_BLEND_FACTOR_ONE` only as `srcAlphaBlendFactor`) or, for the opaque
@@ -1218,9 +1235,22 @@ them as this list does.
     and every reasonable curve maps 1.0 to about 0.8 — mapping them
     would darken authored colour for nothing. A test pins that, so a
     later "consistency" edit has to argue with it.
-  - **Bloom.** Depends on the HDR render target above; there is nowhere
-    to read bright pixels back from until that exists. Deferred
-    2026-10-04.
+  - **A configurable tone-mapping curve** — ACES (Narkowicz) stays. Now in
+    ONE place rather than two, which makes swapping it a one-function
+    edit, but *choosing* a second curve is its own question: what the
+    alternatives are for (Reinhard reads flatter, AgX rolls off longer),
+    whether it is per-camera or per-project, and how it serialises.
+    Deferred 2026-10-16 because nothing has asked for a second curve;
+    cheapness is not a reason to add a knob. Depends on nothing.
+
+  - **Bloom.** **Unblocked 2026-10-16** — the HDR target above now exists,
+    so values above 1.0 survive to a point where something can detect
+    them, which is the whole thing bloom needs and could not have. The
+    next rendering slice. It is also the probable trigger for the
+    RenderGraph: a mip chain's pass count varies with resolution, which is
+    the first genuinely *dynamic* pass need this renderer will have had,
+    and that is the bar this backlog set for the graph. Deferred
+    2026-10-04, blocked until now.
   - ~~**Exposure control.**~~ — **SHIPPED 2026-10-07.** Tone mapping shipped
     with a hard-coded curve. Deferred 2026-10-04 because the knob's home was
     undecided (a `Camera` member? the lighting UBO? a push constant?) for no
@@ -1304,6 +1334,41 @@ them as this list does.
     the migration is a prerequisite that makes this tractable, but does
     not deliver it. Spot lights inherit the same one-light-per-type
     limitation directional/point already had.
+
+- **Remove the dead `exposure` fields from `cube.frag` and
+  `skybox.frag`** — the HDR resolve slice (2026-10-16) moved exposure
+  into `hdr_resolve.frag`, which takes it as a push-constant parameter.
+  The old declarations are now unread: `fl.exposure` (a trailing `vec4`
+  in cube.frag's per-frame UBO) and `pc.exposure` (a `float` in
+  skybox.frag's push block). Deferred rather than done in that slice
+  because each block's layout is shared byte-for-byte with a C++ struct
+  — `FrameLighting` and `SkyboxPush` — so dropping the GLSL member alone
+  is silent corruption rather than a compile error, and the matching C++
+  change is a separate edit with its own size assertion to update.
+  Depends on nothing; it is a two-sided deletion, not a design question.
+
+- **Give the viewport pass its own lazy-open flag independent of the
+  HDR pass** — the same slice made `begin_viewport_pass` lazy
+  (`viewport_pass_requested_` + `ensure_viewport_pass`) so the HDR scene
+  pass could open without nesting inside it. The pass-state bookkeeping
+  in the Vulkan backend is now three booleans (`swapchain_pass_open_`,
+  `viewport_pass_open_`/`_requested_`, `in_hdr_pass_`) read by a dozen
+  draw entry points. A single `enum class PassState` would make the
+  invariant "exactly one pass is recording" checkable instead of
+  conventional. Deferred: low priority today, and worth doing at the
+  moment bloom adds its mip-chain passes rather than immediately before.
+
+- **The RenderGraph** — deferred again. Its re-stated trigger is a
+  *dynamic* pass need, and the HDR resolve added one more fixed pass,
+  so it does not meet the bar. Bloom is the likely real trigger: a mip
+  chain's pass count varies with resolution, which is the first
+  genuinely dynamic need this renderer will have had.
+
+- **Retune the demo's particle, ribbon, decal and world-text colours** —
+  only if a human at the window says they need it. Those four were never
+  tone-mapped before the HDR resolve; they are now, and the spec accepted
+  that appearance shift as a correction rather than a regression. Depends
+  on the human verification pass for this slice.
 
 ## Project templates
 
@@ -2447,7 +2512,13 @@ recent-projects list (PR #197).
 
 | Item | Shape |
 |---|---|
-| **An offscreen HDR render target plus a fullscreen resolve pass** — **HALF SHIPPED 2026-10-13.** The engine-side boundary is in (`RenderDevice`'s three default-no-op hooks, and `RenderSystem` bracketing world-space drawing between them), fully pinned by seven ordering cases and five probes. **The Vulkan backend half remains**: the `R16G16B16A16_SFLOAT` target, the resolve pipeline, and moving `tonemap_aces` out of `cube.frag`/`skybox.frag`. Split deliberately, because the backend half has no automated gate — nothing in the suite creates a `VkDevice`, so its only checks are a validation-layer grep and a human at the window — and keeping it in its own diff is what makes that reviewable. Spec and plan: `docs/superpowers/specs/2026-10-13-render-hdr-target-resolve-design.md`, `docs/superpowers/plans/2026-10-13-render-hdr-target-resolve.md` (Tasks 3–5 outstanding). Original entry: | New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+| ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — **SHIPPED 2026-10-16.** The engine-side boundary landed 2026-10-13 (#255); the Vulkan backend half followed in this branch: the `R16G16B16A16_SFLOAT` target, the resolve pipeline pair, and `tonemap_aces` moved out of `cube.frag`/`skybox.frag` into `hdr_resolve.frag`, its only copy in the tree. **Bloom is unblocked.** Two things the estimate missed, in opposite directions: every pipeline was built TWICE (once per destination pass), so the scene's seven pairs collapsed to seven singles and the backend got smaller, not bigger; and the editor opens its viewport pass around the whole of `render()`, so that pass had to become lazy before the HDR pass could open without nesting inside it. The gate was what the entry predicted — 1358/1358 says nothing about the image, and a validation-layer grep plus a human at the window are the real checks. Original entry: || New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+
+**Re-derived 2026-10-16.** That item shipped, and **bloom** takes its place in
+this tier: a bright-pass, a blur, a mip chain whose pass count varies with
+resolution, and a composite back over the resolved image. It is also where the
+RenderGraph question finally gets a real trigger, since a varying pass count is
+the first genuinely dynamic need this renderer will have had.
 
 Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before

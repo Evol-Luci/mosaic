@@ -34,6 +34,12 @@ layout(set = 2, binding = 0) uniform FrameLighting {
     // Exposure in .x, .yzw unused. A trailing vec4 rather than one of the unused .w slots
     // above: camera_position.w is already the IBL flag, and the backend's comment warns
     // what claiming such a slot costs. Appended last so no existing member's offset moves.
+    //
+    // NO LONGER READ BY THIS SHADER. Exposure is applied once in hdr_resolve.frag, which
+    // receives it as a parameter to draw_hdr_resolve. The member stays declared because
+    // this block's layout is shared byte-for-byte with the C++ FrameLighting struct and
+    // dropping it here alone is silent corruption, not a compile error. Removing it from
+    // both sides is tracked in the deferred backlog.
     vec4 exposure;
 } fl;
 // Image-based lighting, in its own descriptor set because these are per-FRAME products
@@ -141,39 +147,6 @@ vec3 brdf(vec3 n, vec3 v, vec3 L, vec3 albedo, float metallic, float roughness)
     return (diffuse + specular) * NdotL * step(0.0, dot(n, L));
 }
 
-// ACES filmic approximation (Narkowicz). Maps linear HDR to the linear display range
-// so bright highlights roll off instead of clipping flat against the 8-bit target.
-//
-// This must NOT also gamma-correct: the swapchain is B8G8R8A8_SRGB, so the hardware
-// encodes linear -> sRGB on write. A pow(c, 1.0/2.2) here would double-correct.
-//
-// Applied in cube.frag only. The other scene shaders are unlit -- they output authored
-// colour times alpha and cannot exceed 1.0 -- so mapping them would darken authored
-// colour, since this curve takes 1.0 to roughly 0.8.
-vec3 tonemap_aces(vec3 x)
-{
-    // The curve floors its own input, which is not a duplicate of the exposure floor at
-    // the call site -- it guards a DIFFERENT input. `x` can arrive negative from an
-    // unclamped light colour: DirectionalLight::color is a reflected Vec3 with no clamp
-    // anywhere, and the Studio inspector renders it as three unbounded DragFloats, so a
-    // colour of (-1,-1,-1) is one drag away. A negative input makes this function return
-    // WHITE: its numerator 2.51x^2 + 0.03x turns positive below x = -0.012 while its
-    // denominator is strictly positive for every real x (discriminant -1.0127), so the
-    // ratio clamps to 1.0 and the response is non-monotonic across zero.
-    //
-    // Flooring HERE makes that unreachable for every caller, present and future, instead
-    // of requiring each call site to remember. The call sites still floor exposure
-    // separately, because that catches a negative knob even when the colour is ALSO
-    // negative -- flooring only the product would multiply two negatives into a positive
-    // and brighten.
-    x = max(x, vec3(0.0));
-    const float a = 2.51;
-    const float b = 0.03;
-    const float c = 2.43;
-    const float d = 0.59;
-    const float e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
-}
 
 void main()
 {
@@ -296,23 +269,14 @@ void main()
                 + dir_term * fl.light_color.xyz
                 + pt_term * fl.point_color.xyz
                 + spot_term * fl.spot_color.xyz;
-    // Exposure scales the value ENTERING the curve. Outside it -- tonemap_aces(color) *
-    // exposure -- the scale would apply to an already-clamped [0,1] value, so it could
-    // darken but never brighten, which is most of what exposure is for.
+    // LINEAR HDR, not display colour: no tone map, no exposure. Both moved to
+    // hdr_resolve.frag, which maps the whole frame once after every world-space pass has
+    // written into the R16G16B16A16_SFLOAT scene target.
     //
-    // Floored at 0, and NOT because negative exposure is merely meaningless. ACES'
-    // numerator 2.51x^2 + 0.03x is POSITIVE for x < -0.012 while its denominator is
-    // strictly positive for all real x (discriminant -1.0127), so a negative input
-    // produces a large positive ratio that clamps to 1.0 -- WHITE. x = -1 gives 1.2525.
-    // The response is not even monotonic across zero: x = -0.005 is black, x = -0.1 is
-    // 0.21, x = -1 is white. So `exposure = -2` where `2` was meant -- one character in a
-    // scene file -- renders a confident, plausible-looking, completely wrong image.
-    //
-    // Clamped HERE and not on the component, which is this project's established split:
-    // Material does not clamp roughness either, cube.frag does, so an authored value
-    // round-trips byte-for-byte while the shader stays well-defined. Camera keeps what
-    // was authored; this refuses to brighten with it. The top end is deliberately NOT
-    // bounded -- a huge exposure overflows to NaN near 1.2e19, the same garbage-in
-    // posture roughness already documents, and capping it would invent a maximum.
-    outColor = vec4(tonemap_aces(color * max(fl.exposure.x, 0.0)), 1.0);
+    // Doing it here was per-OBJECT, and that is what made it wrong rather than merely
+    // redundant: decals, particles, ribbons and world text never called the curve at all,
+    // so they blended against a buffer already through it. It also clamped at 1.0 before
+    // anything downstream could look for a bright pixel, which is exactly the headroom
+    // bloom needs. Values above 1.0 are now meaningful here and survive to the resolve.
+    outColor = vec4(color, 1.0);
 }

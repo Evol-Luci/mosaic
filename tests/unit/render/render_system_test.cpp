@@ -219,7 +219,13 @@ public:
     std::vector<std::string> ordered_calls;
     std::vector<float>       hdr_exposures;
 
-    void begin_hdr_scene_pass(const Color&) override { ordered_calls.push_back("hdr_begin"); }
+    std::vector<Color>       hdr_clears;
+
+    void begin_hdr_scene_pass(const Color& c) override
+    {
+        ordered_calls.push_back("hdr_begin");
+        hdr_clears.push_back(c);
+    }
     void end_hdr_scene_pass() override { ordered_calls.push_back("hdr_end"); }
     void draw_hdr_resolve(float exposure) override
     {
@@ -2468,4 +2474,57 @@ TEST_CASE("the vignette and world text are inside the hdr pass", "[render][hdr]"
     const int effect = device.index_of("screen_effect");
     REQUIRE(effect > device.index_of("hdr_begin"));
     REQUIRE(effect < device.index_of("hdr_end"));
+}
+
+TEST_CASE("the scene clear colour reaches the HDR pass", "[render]")
+{
+    // Found in the branch review, 2026-10-16. RenderSystem hard-coded black into
+    // begin_hdr_scene_pass, on the reasoning that nothing downstream reads the clear
+    // because the resolve writes every pixel. True of the DESTINATION's clear; false of
+    // the HDR pass's, which is now the one the scene is composited over.
+    //
+    // Concrete failure: a scene with no environment draws no skybox, so the background IS
+    // the clear. `mosaic run --window` set {0.1, 0.1, 0.12} and got it until this slice;
+    // afterwards every such scene rendered pure black, because ACES(0) = 0. The demo has
+    // an environment and its fullscreen skybox covers every pixel, which is why nothing
+    // on the verification path would have shown it.
+    //
+    // It lives on RenderSystem rather than being read back off the device because the
+    // pass order lives here: the HDR pass is the scene's background now, and the clear is
+    // part of what that pass is.
+    AssetRegistry    registry;
+    World            world;
+    RenderSystem     system;
+    FakeRenderDevice device;
+
+    system.set_clear_color(Color{0.25f, 0.5f, 0.75f, 1.0f});
+    system.render(world, device, registry);
+
+    REQUIRE(device.hdr_clears.size() == 1);
+    REQUIRE(device.hdr_clears[0].r == Catch::Approx(0.25f));
+    REQUIRE(device.hdr_clears[0].g == Catch::Approx(0.5f));
+    REQUIRE(device.hdr_clears[0].b == Catch::Approx(0.75f));
+    // Alpha stays opaque whatever was asked for. The editor composites the resolved panel
+    // target with ImGui::Image, which RESPECTS alpha, so a translucent scene background
+    // would let the panel behind it show through -- screen_effect.frag records what that
+    // looked like the last time it happened.
+    REQUIRE(device.hdr_clears[0].a == Catch::Approx(1.0f));
+}
+
+TEST_CASE("the scene clear colour defaults to opaque black", "[render]")
+{
+    // A caller that never sets one gets what RenderSystem used to hard-code, so the
+    // default is a continuation rather than a new behaviour to discover.
+    AssetRegistry    registry;
+    World            world;
+    RenderSystem     system;
+    FakeRenderDevice device;
+
+    system.render(world, device, registry);
+
+    REQUIRE(device.hdr_clears.size() == 1);
+    REQUIRE(device.hdr_clears[0].r == Catch::Approx(0.0f));
+    REQUIRE(device.hdr_clears[0].g == Catch::Approx(0.0f));
+    REQUIRE(device.hdr_clears[0].b == Catch::Approx(0.0f));
+    REQUIRE(device.hdr_clears[0].a == Catch::Approx(1.0f));
 }

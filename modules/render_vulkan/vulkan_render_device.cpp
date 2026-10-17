@@ -292,7 +292,11 @@ public:
         create_depth_resources();
         create_render_pass();
         create_offscreen_render_pass();
+        create_hdr_render_pass();
         create_framebuffers();
+        // SWAPCHAIN-SIZED: the scene renders once at full resolution and the editor samples
+        // the resolved result into whatever panel size it has.
+        create_hdr_target(extent_.width, extent_.height);
         create_descriptor_infrastructure();
         create_shadow_resources();
         create_shadow_descriptor();
@@ -305,6 +309,7 @@ public:
         create_decal_pipeline();
         create_skybox_pipeline();
         create_screen_effect_pipeline();
+        create_resolve_pipeline();
         create_ui_pipeline();
         create_ui_image_pipeline();
         create_ui_text_pipeline();
@@ -331,7 +336,17 @@ public:
             // Offscreen viewport target — free while the ImGui-Vulkan backend is still
             // up (destroy_offscreen_target calls ImGui_ImplVulkan_RemoveTexture).
             destroy_offscreen_target();
-            if (vp_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_pipeline_, nullptr); }
+            destroy_hdr_target();
+            if (resolve_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, resolve_pipeline_, nullptr); }
+            if (vp_resolve_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_resolve_pipeline_, nullptr); }
+            if (resolve_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, resolve_pipeline_layout_, nullptr); }
+            // Frees hdr_set_ with it -- the pool owns the set, and nothing else allocates here.
+            if (hdr_descriptor_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, hdr_descriptor_pool_, nullptr); }
+            if (hdr_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdr_sampler_, nullptr); }
+            if (hdr_render_pass_ != VK_NULL_HANDLE)
+            {
+                vkDestroyRenderPass(device_, hdr_render_pass_, nullptr);
+            }
             if (vp_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, vp_sampler_, nullptr); }
             if (vp_render_pass_ != VK_NULL_HANDLE)
             {
@@ -420,22 +435,16 @@ public:
                 vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
             }
 
-            if (vp_particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_particle_pipeline_, nullptr); }
             if (particle_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, particle_pipeline_, nullptr); }
             if (particle_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, particle_pipeline_layout_, nullptr); }
-            if (vp_ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ribbon_pipeline_, nullptr); }
             if (ribbon_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, ribbon_pipeline_, nullptr); }
             if (ribbon_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, ribbon_pipeline_layout_, nullptr); }
-            if (vp_world_text_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_world_text_pipeline_, nullptr); }
             if (world_text_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, world_text_pipeline_, nullptr); }
             if (world_text_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, world_text_pipeline_layout_, nullptr); }
-            if (vp_decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_decal_pipeline_, nullptr); }
             if (decal_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, decal_pipeline_, nullptr); }
             if (decal_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, decal_pipeline_layout_, nullptr); }
-            if (vp_screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_screen_effect_pipeline_, nullptr); }
             if (screen_effect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, screen_effect_pipeline_, nullptr); }
             if (skybox_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, skybox_pipeline_, nullptr); skybox_pipeline_ = VK_NULL_HANDLE; }
-            if (vp_skybox_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_skybox_pipeline_, nullptr); vp_skybox_pipeline_ = VK_NULL_HANDLE; }
             if (skybox_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, skybox_pipeline_layout_, nullptr); skybox_pipeline_layout_ = VK_NULL_HANDLE; }
             if (screen_effect_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, screen_effect_pipeline_layout_, nullptr); }
             if (vp_ui_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ui_pipeline_, nullptr); }
@@ -1403,12 +1412,13 @@ public:
     void draw(MeshHandle mesh, mosaic::engine::render::TextureHandle texture,
               const mosaic::engine::render::DrawParams& params) override
     {
-        // A viewport pass (if open) already bound its own pipeline/viewport; otherwise
-        // the swapchain pass must be active before recording draws.
-        if (!viewport_pass_open_)
-        {
-            ensure_swapchain_pass();
-        }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
+        // The HDR pass bound the scene pipeline when it opened; this draw inherits it, the
+        // way it used to inherit the one ensure_swapchain_pass bound.
         if (frame_skipped_ || mesh == 0 || mesh > meshes_.size())
         {
             return;
@@ -1465,10 +1475,11 @@ public:
     void draw_particles(const std::vector<mosaic::engine::render::ParticleInstance>& instances,
                         const mosaic::engine::render::ParticleDrawParams& params) override
     {
-        if (!viewport_pass_open_)
-        {
-            ensure_swapchain_pass();
-        }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_ || instances.empty())
         {
             return;
@@ -1492,7 +1503,7 @@ public:
         vkUnmapMemory(device_, ib.mem);
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_particle_pipeline_ : particle_pipeline_);
+                          particle_pipeline_);
 
         ParticlePush pc{};
         std::memcpy(pc.view_proj, params.view_proj.m.data(), sizeof(pc.view_proj));
@@ -1513,7 +1524,11 @@ public:
     void draw_ribbons(const std::vector<mosaic::engine::render::RibbonVertex>& vertices,
                       const mosaic::engine::render::RibbonDrawParams& params) override
     {
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_ || vertices.empty()) { return; }
 
         const VkDeviceSize bytes = vertices.size() * sizeof(vertices[0]);
@@ -1533,7 +1548,7 @@ public:
         vkUnmapMemory(device_, vb.mem);
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_ribbon_pipeline_ : ribbon_pipeline_);
+                          ribbon_pipeline_);
 
         RibbonPush pc{};
         std::memcpy(pc.view_proj, params.view_proj.m.data(), sizeof(pc.view_proj));
@@ -1549,7 +1564,11 @@ public:
                          const mosaic::foundation::math::Mat4& view_proj,
                          mosaic::engine::render::TextureHandle atlas) override
     {
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_ || verts.empty() || textures_.empty()) { return; }
 
         const VkDeviceSize bytes = verts.size() * sizeof(verts[0]);
@@ -1570,7 +1589,7 @@ public:
 
         const std::uint32_t tex_index = (atlas == 0 || atlas > textures_.size()) ? 0u : atlas - 1u;
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_world_text_pipeline_ : world_text_pipeline_);
+                          world_text_pipeline_);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 world_text_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0, nullptr);
         WorldTextPush pc{};
@@ -1584,11 +1603,15 @@ public:
 
     void draw_decals(const std::vector<mosaic::engine::render::DecalInstance>& decals) override
     {
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_ || decals.empty() || textures_.empty()) { return; }
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_decal_pipeline_ : decal_pipeline_);
+                          decal_pipeline_);
 
         for (const auto& d : decals)
         {
@@ -1674,7 +1697,11 @@ public:
         // vkBeginCommandBuffer, so recording into the command buffer is illegal. And a
         // scene with an environment but no drawn meshes would reach here with no render
         // pass open at all. Found in review 2026-10-05.
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_) { return; }
         if (cubemap == 0 || cubemap > textures_.size()) { return; }
         const std::uint32_t index = cubemap - 1u;
@@ -1689,7 +1716,7 @@ public:
         }
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_skybox_pipeline_ : skybox_pipeline_);
+                          skybox_pipeline_);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 skybox_pipeline_layout_, 0, 1, &textures_[index].set, 0, nullptr);
 
@@ -1709,11 +1736,19 @@ public:
 
     void draw_screen_effect(const mosaic::engine::render::ScreenEffectParams& params) override
     {
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        // INSIDE the HDR pass, deliberately: the vignette attenuates light, which is what
+        // a real lens does before exposure. Outside the resolve it would be a post-hoc
+        // darkening of the already-mapped image -- defensible, and recorded in the spec as
+        // the alternative, but not the physically coherent place.
+        // World space records into the HDR scene pass and nowhere else. RenderSystem opens
+        // it before any of these; if it is not open there is no linear target to draw
+        // into, and recording here would land in the destination pass with the curve
+        // already applied to everything behind it.
+        if (!in_hdr_pass_) { return; }
         if (frame_skipped_) { return; }
 
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          viewport_pass_open_ ? vp_screen_effect_pipeline_ : screen_effect_pipeline_);
+                          screen_effect_pipeline_);
 
         ScreenEffectPush pc{};
         pc.tint[0] = params.tint.x; pc.tint[1] = params.tint.y; pc.tint[2] = params.tint.z;
@@ -1728,7 +1763,7 @@ public:
     void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
     {
         if (quads.empty()) { return; }
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        ensure_destination_pass();
         if (frame_skipped_) { return; }
 
         VkPipeline pipe = viewport_pass_open_ ? vp_ui_pipeline_ : ui_pipeline_;
@@ -1751,7 +1786,7 @@ public:
                        mosaic::engine::render::TextureHandle texture) override
     {
         if (quads.empty()) { return; }
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        ensure_destination_pass();
         if (frame_skipped_ || textures_.empty()) { return; }
 
         const std::uint32_t tex_index =
@@ -1777,7 +1812,7 @@ public:
                       mosaic::engine::render::TextureHandle atlas) override
     {
         if (quads.empty()) { return; }
-        if (!viewport_pass_open_) { ensure_swapchain_pass(); }
+        ensure_destination_pass();
         if (frame_skipped_ || textures_.empty()) { return; }
 
         const std::uint32_t tex_index =
@@ -1832,11 +1867,14 @@ public:
         // editor can record an offscreen viewport pass before it. Reset per-frame state.
         swapchain_pass_open_ = false;
         viewport_pass_open_  = false;
+        viewport_pass_requested_ = false;
+        in_hdr_pass_ = false;
     }
 
     // Begins the swapchain render pass once per frame (idempotent). Sets the
-    // negative-height (Y-flip) viewport/scissor and binds the scene pipeline. A
-    // skipped frame (swapchain out-of-date) never opens a pass.
+    // negative-height (Y-flip) viewport/scissor. A skipped frame (swapchain out-of-date)
+    // never opens a pass. Binds nothing: world space does not draw here any more, and
+    // every method that does binds its own pipeline.
     void ensure_swapchain_pass()
     {
         if (swapchain_pass_open_ || frame_skipped_)
@@ -1875,8 +1913,12 @@ public:
         rp.clearValueCount = static_cast<uint32_t>(clears.size());
         rp.pClearValues = clears.data();
         vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
-
-        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        // NO pipeline bound, the same change ensure_viewport_pass took. `pipeline_` is
+        // built against hdr_render_pass_ now, which is NOT render-pass-compatible with
+        // this one -- the attachment formats differ, R16G16B16A16_SFLOAT against
+        // B8G8R8A8_SRGB. Binding it here is inert only for as long as every draw in this
+        // pass binds its own first, which all four do today; the next one that inherits
+        // instead gets undefined rendering. Found in review 2026-10-16.
         swapchain_pass_open_ = true;
     }
 
@@ -2029,12 +2071,37 @@ public:
         create_offscreen_target(width, height);
     }
 
+    // REQUESTS the offscreen viewport pass; it is opened lazily, exactly as the swapchain
+    // pass has been since the editor path landed. It cannot be opened here any more: the
+    // editor wraps the WHOLE of RenderSystem::render between begin_viewport_pass and
+    // end_viewport_pass, and render() now opens the HDR scene pass inside that. A render
+    // pass cannot begin while another is recording, so an eager begin here would nest one
+    // inside the other -- a validation error on the first editor frame.
+    //
+    // Lazy instead of suspend/resume because the file already had the idiom:
+    // ensure_swapchain_pass() exists for the same reason, and one rule for both
+    // destinations is what keeps the window and editor paths on one code path.
     void begin_viewport_pass(const Color& clear) override
     {
         if (frame_skipped_ || vp_framebuffer_ == VK_NULL_HANDLE)
         {
             return;
         }
+        vp_clear_ = clear;
+        viewport_pass_requested_ = true;
+    }
+
+    // Opens the requested viewport pass once per frame (idempotent), the mirror of
+    // ensure_swapchain_pass. No scene pipeline is bound: nothing world-space draws here
+    // any more, only the resolve and the UI, and each binds its own.
+    void ensure_viewport_pass()
+    {
+        if (viewport_pass_open_ || !viewport_pass_requested_ || frame_skipped_ ||
+            vp_framebuffer_ == VK_NULL_HANDLE)
+        {
+            return;
+        }
+        const Color clear = vp_clear_;
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -2063,19 +2130,132 @@ public:
         rp.clearValueCount = static_cast<uint32_t>(clears.size());
         rp.pClearValues = clears.data();
         vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
-
-        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, vp_pipeline_);
         viewport_pass_open_ = true;
     }
 
     void end_viewport_pass() override
     {
+        // Open it if nothing did. An editor frame that drew nothing must still clear the
+        // panel target and leave it in SHADER_READ_ONLY_OPTIMAL for ImGui to composite;
+        // skipping the pass entirely would leave the previous frame's image, or an
+        // undefined one on the first frame. end_frame() does the same for the swapchain.
+        ensure_viewport_pass();
+        viewport_pass_requested_ = false;
         if (!viewport_pass_open_)
         {
             return;
         }
         vkCmdEndRenderPass(cmd_[frame_]);
         viewport_pass_open_ = false;
+    }
+
+    // Opens whichever pass this frame's destination draws land in: the editor's offscreen
+    // panel target when begin_viewport_pass asked for one, the swapchain otherwise. The
+    // resolve and the three UI draws call this; world-space draws do not, because they go
+    // into the HDR pass instead.
+    // Mirrors hdr_resolve.frag's push block byte for byte. vec2 first: it has the larger
+    // alignment, so putting the float ahead of it would cost four bytes of padding and,
+    // worse, make the two layouts disagree the moment someone reorders one side.
+    struct ResolvePush
+    {
+        float inv_dest[2];
+        float exposure;
+    };
+
+    void ensure_destination_pass()
+    {
+        if (viewport_pass_requested_) { ensure_viewport_pass(); }
+        else                          { ensure_swapchain_pass(); }
+    }
+
+    void begin_hdr_scene_pass(const Color& clear) override
+    {
+        if (frame_skipped_ || in_hdr_pass_ || hdr_framebuffer_ == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        // Negative height, matching the swapchain and viewport passes: the scene's
+        // projection math assumes the Y-flip. hdr_resolve.frag says what a screen-space
+        // shader must do about it, and why it takes its UV from gl_FragCoord.
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = static_cast<float>(hdr_extent_.height);
+        viewport.width = static_cast<float>(hdr_extent_.width);
+        viewport.height = -static_cast<float>(hdr_extent_.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd_[frame_], 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = hdr_extent_;
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+
+        std::array<VkClearValue, 2> clears{};
+        clears[0].color = {{clear.r, clear.g, clear.b, clear.a}};
+        clears[1].depthStencil = {1.0f, 0};
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass = hdr_render_pass_;
+        rp.framebuffer = hdr_framebuffer_;
+        rp.renderArea.offset = {0, 0};
+        rp.renderArea.extent = hdr_extent_;
+        rp.clearValueCount = static_cast<uint32_t>(clears.size());
+        rp.pClearValues = clears.data();
+        vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
+
+        // Binds the scene pipeline, as ensure_swapchain_pass used to: draw() is the one
+        // recording method that does NOT bind its own, so it inherits whatever the pass
+        // left bound. Every other world-space draw binds before it draws.
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        in_hdr_pass_ = true;
+    }
+
+    void end_hdr_scene_pass() override
+    {
+        // Guarded both ways: a double-begin or an end without a begin is a validation
+        // error rather than a visible bug, which is the kind that only appears on a real
+        // device and never in the suite.
+        if (!in_hdr_pass_) { return; }
+        vkCmdEndRenderPass(cmd_[frame_]);
+        in_hdr_pass_ = false;
+    }
+
+    void draw_hdr_resolve(float exposure) override
+    {
+        // Opens the DESTINATION pass -- the swapchain, or the editor's panel target. The
+        // resolve never begins a pass of its own: it is a fullscreen triangle into
+        // whatever is recording, which is what keeps the window and editor on one code
+        // path. Had it been a pass, it would have had to know its destination.
+        ensure_destination_pass();
+        if (frame_skipped_ || hdr_set_ == VK_NULL_HANDLE) { return; }
+
+        // The same selector the UI draws use, for the same reason: the destination pass
+        // differs between the two paths, and a pipeline must be compatible with the pass
+        // it draws in.
+        VkPipeline pipe = viewport_pass_open_ ? vp_resolve_pipeline_ : resolve_pipeline_;
+        if (pipe == VK_NULL_HANDLE) { return; }
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                resolve_pipeline_layout_, 0, 1, &hdr_set_, 0, nullptr);
+
+        // The DESTINATION's extent, not the HDR target's. They differ in the editor: the
+        // scene target is swapchain-sized and the panel is whatever the user dragged it
+        // to, and gl_FragCoord spans the destination. Normalising by the source instead
+        // crops the top-left of the render rather than scaling it, which `mosaic run
+        // --window` can never show because there the two are equal. Same selector as the
+        // pipeline above, deliberately: one question answered once.
+        const VkExtent2D dest = viewport_pass_open_ ? vp_extent_ : extent_;
+        if (dest.width == 0 || dest.height == 0) { return; }
+        ResolvePush pc{};
+        pc.inv_dest[0] = 1.0f / static_cast<float>(dest.width);
+        pc.inv_dest[1] = 1.0f / static_cast<float>(dest.height);
+        pc.exposure = exposure;
+        vkCmdPushConstants(cmd_[frame_], resolve_pipeline_layout_,
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        vkCmdDraw(cmd_[frame_], 3, 1, 0, 0); // fullscreen triangle
     }
 
     mosaic::engine::render::ViewportTextureId viewport_texture() const override
@@ -2734,6 +2914,150 @@ private:
                  "vkCreateSampler(offscreen)");
     }
 
+    // The HDR scene pass. A copy of create_offscreen_render_pass above with ONE changed
+    // line -- the colour format -- because that is genuinely the only difference: same depth
+    // attachment, same subpass, same two dependencies, and the second of those serves the
+    // same purpose here (making the colour image visible to the fragment shader that samples
+    // it, which is now the resolve rather than ImGui).
+    void create_hdr_render_pass()
+    {
+        VkAttachmentDescription color{};
+        // THE ONLY DIFFERENCE: a float format, so values above 1.0 survive the pass instead
+        // of clamping at the attachment. That headroom is the whole point -- without it a
+        // "bright" particle cannot be bright, and bloom has nothing to find.
+        color.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        color.samples = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference color_ref{};
+        color_ref.attachment = 0;
+        color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentDescription depth{};
+        depth.format = kDepthFormat;
+        depth.samples = VK_SAMPLE_COUNT_1_BIT;
+        depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depth.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depth.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depth.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkAttachmentReference depth_ref{};
+        depth_ref.attachment = 1;
+        depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &color_ref;
+        subpass.pDepthStencilAttachment = &depth_ref;
+
+        // Two dependencies: external -> subpass (start), subpass -> external (make the
+        // color image visible to the fragment shader sampling it in the resolve).
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        std::array<VkAttachmentDescription, 2> attachments{color, depth};
+
+        VkRenderPassCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        ci.attachmentCount = static_cast<uint32_t>(attachments.size());
+        ci.pAttachments = attachments.data();
+        ci.subpassCount = 1;
+        ci.pSubpasses = &subpass;
+        ci.dependencyCount = static_cast<uint32_t>(deps.size());
+        ci.pDependencies = deps.data();
+
+        vk_check(vkCreateRenderPass(device_, &ci, nullptr, &hdr_render_pass_),
+                 "vkCreateRenderPass(hdr)");
+
+        VkSamplerCreateInfo si{};
+        si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        si.magFilter = VK_FILTER_LINEAR;
+        si.minFilter = VK_FILTER_LINEAR;
+        si.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        si.maxLod = 1.0f;
+        vk_check(vkCreateSampler(device_, &si, nullptr, &hdr_sampler_),
+                 "vkCreateSampler(hdr)");
+    }
+
+    void destroy_hdr_target()
+    {
+        // No ImGui descriptor to remove -- that is the one thing destroy_offscreen_target
+        // does that this must not copy, since nothing composites the HDR target directly.
+        if (hdr_framebuffer_ != VK_NULL_HANDLE)
+        {
+            vkDestroyFramebuffer(device_, hdr_framebuffer_, nullptr);
+            hdr_framebuffer_ = VK_NULL_HANDLE;
+        }
+        if (hdr_color_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdr_color_view_, nullptr); hdr_color_view_ = VK_NULL_HANDLE; }
+        if (hdr_color_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, hdr_color_, nullptr); hdr_color_ = VK_NULL_HANDLE; }
+        if (hdr_color_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, hdr_color_mem_, nullptr); hdr_color_mem_ = VK_NULL_HANDLE; }
+        if (hdr_depth_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdr_depth_view_, nullptr); hdr_depth_view_ = VK_NULL_HANDLE; }
+        if (hdr_depth_ != VK_NULL_HANDLE)      { vkDestroyImage(device_, hdr_depth_, nullptr); hdr_depth_ = VK_NULL_HANDLE; }
+        if (hdr_depth_mem_ != VK_NULL_HANDLE)  { vkFreeMemory(device_, hdr_depth_mem_, nullptr); hdr_depth_mem_ = VK_NULL_HANDLE; }
+        hdr_extent_ = {0, 0};
+    }
+
+    void create_hdr_target(uint32_t width, uint32_t height)
+    {
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.extent = {width, height, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &ci, nullptr, &hdr_color_), "vkCreateImage(hdr color)");
+        bind_image_memory(hdr_color_, hdr_color_mem_, "hdr color");
+        hdr_color_view_ =
+            make_image_view(hdr_color_, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT);
+
+        VkImageCreateInfo di = ci;
+        di.format = kDepthFormat;
+        di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        vk_check(vkCreateImage(device_, &di, nullptr, &hdr_depth_), "vkCreateImage(hdr depth)");
+        bind_image_memory(hdr_depth_, hdr_depth_mem_, "hdr depth");
+        hdr_depth_view_ = make_image_view(hdr_depth_, kDepthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
+
+        std::array<VkImageView, 2> attachments{hdr_color_view_, hdr_depth_view_};
+        VkFramebufferCreateInfo fb{};
+        fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        fb.renderPass = hdr_render_pass_;
+        fb.attachmentCount = static_cast<uint32_t>(attachments.size());
+        fb.pAttachments = attachments.data();
+        fb.width = width;
+        fb.height = height;
+        fb.layers = 1;
+        vk_check(vkCreateFramebuffer(device_, &fb, nullptr, &hdr_framebuffer_),
+                 "vkCreateFramebuffer(hdr)");
+        hdr_extent_ = {width, height};
+    }
+
     void destroy_offscreen_target()
     {
         if (vp_imgui_tex_ != VK_NULL_HANDLE)
@@ -3285,18 +3609,15 @@ private:
         pi.pColorBlendState = &cb;
         pi.pDynamicState = &dyn;
         pi.layout = pipeline_layout_;
-        pi.renderPass = render_pass_;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_;
         pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &pipeline_),
                  "vkCreateGraphicsPipelines");
-
-        // A second pipeline for the offscreen viewport pass. It is identical except for
-        // the render pass: a pipeline must be render-pass-compatible with the pass it
-        // draws in, and vp_render_pass_ differs from render_pass_ in its subpass
-        // dependencies (2 vs 1), so the swapchain pipeline cannot be reused there.
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_pipeline_),
-                 "vkCreateGraphicsPipelines(offscreen)");
 
         // Modules are baked into the pipelines; safe to release immediately.
         vkDestroyShaderModule(device_, frag, nullptr);
@@ -3403,13 +3724,14 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = particle_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &particle_pipeline_),
                  "vkCreateGraphicsPipelines(particle)");
-
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_particle_pipeline_),
-                 "vkCreateGraphicsPipelines(particle offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
@@ -3513,13 +3835,14 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = ribbon_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &ribbon_pipeline_),
                  "vkCreateGraphicsPipelines(ribbon)");
-
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_ribbon_pipeline_),
-                 "vkCreateGraphicsPipelines(ribbon offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
@@ -3625,13 +3948,14 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = world_text_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &world_text_pipeline_),
                  "vkCreateGraphicsPipelines(world text)");
-
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_world_text_pipeline_),
-                 "vkCreateGraphicsPipelines(world text offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
@@ -3718,13 +4042,14 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = decal_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &decal_pipeline_),
                  "vkCreateGraphicsPipelines(decal)");
-
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_decal_pipeline_),
-                 "vkCreateGraphicsPipelines(decal offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
@@ -3850,18 +4175,158 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &sky_depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = skybox_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &skybox_pipeline_),
                  "vkCreateGraphicsPipelines(skybox)");
 
-        // The offscreen variant, so the Studio viewport shows the sky too -- every
-        // other pipeline here is created in both forms for the same reason.
+        vkDestroyShaderModule(device_, frag, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
+    // The fullscreen tone-map resolve: samples the HDR scene target and writes display
+    // colour into the destination. A PAIR, unlike the scene pipelines, because the
+    // destination pass differs between `mosaic run --window` and the editor -- the same
+    // reason the three UI pipelines keep theirs.
+    void create_resolve_pipeline()
+    {
+        // Its own pool and its own set, one descriptor, allocated once. Not drawn from
+        // descriptor_pool_, whose maxSets is budgeted exactly for textures, materials and
+        // IBL -- borrowing a set there would starve the last texture at some scene size
+        // rather than fail here.
+        VkDescriptorPoolSize pool_size{};
+        pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        pool_size.descriptorCount = 1;
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        pool.maxSets = 1;
+        vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &hdr_descriptor_pool_),
+                 "vkCreateDescriptorPool(hdr)");
+
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = hdr_descriptor_pool_;
+        alloc.descriptorSetCount = 1;
+        alloc.pSetLayouts = &texture_set_layout_; // one combined image+sampler at binding 0
+        vk_check(vkAllocateDescriptorSets(device_, &alloc, &hdr_set_),
+                 "vkAllocateDescriptorSets(hdr)");
+        write_hdr_descriptor();
+
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.vert.spv");
+        std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule frag = create_shader_module(frag_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.module = frag; fs.pName = "main";
+        VkPipelineShaderStageCreateInfo stages[] = {vs, fs};
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO; // no inputs
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_FALSE;  // it IS the background
+        depth.depthWriteEnable = VK_FALSE;
+        depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+        VkPipelineColorBlendAttachmentState blend{};
+        // NO BLENDING, and alpha IS written as 1.0. The resolve replaces the destination
+        // rather than compositing onto it -- it is the first thing drawn there. Writing
+        // opaque alpha matters for the editor: the panel target's alpha is respected when
+        // ImGui::Image composites it, and screen_effect.frag's comment records what an
+        // unwritten alpha looked like there (an apparent inverted vignette).
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendStateCreateInfo cb{};
+        cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb.attachmentCount = 1; cb.pAttachments = &blend;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        push.offset = 0; push.size = sizeof(ResolvePush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1; layout.pSetLayouts = &texture_set_layout_;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &resolve_pipeline_layout_),
+                 "vkCreatePipelineLayout(resolve)");
+
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
+        pi.layout = resolve_pipeline_layout_;
+        pi.renderPass = render_pass_; pi.subpass = 0;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &resolve_pipeline_),
+                 "vkCreateGraphicsPipelines(resolve)");
+
         pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_skybox_pipeline_),
-                 "vkCreateGraphicsPipelines(skybox offscreen)");
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_resolve_pipeline_),
+                 "vkCreateGraphicsPipelines(resolve offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
+    // Points the resolve's one descriptor at the current HDR colour view. Called at
+    // creation and again after every recreate_swapchain, which rebuilds the target and so
+    // invalidates the view the set was written with. A no-op before the set exists: the
+    // target is created before the descriptor infrastructure that this set's layout comes
+    // from, so the first write is the one create_resolve_pipeline does itself.
+    void write_hdr_descriptor()
+    {
+        if (hdr_set_ == VK_NULL_HANDLE || hdr_color_view_ == VK_NULL_HANDLE) { return; }
+        VkDescriptorImageInfo info{};
+        info.sampler = hdr_sampler_;
+        info.imageView = hdr_color_view_;
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkWriteDescriptorSet w{};
+        w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        w.dstSet = hdr_set_;
+        w.dstBinding = 0;
+        w.descriptorCount = 1;
+        w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        w.pImageInfo = &info;
+        vkUpdateDescriptorSets(device_, 1, &w, 0, nullptr);
     }
 
     void create_screen_effect_pipeline()
@@ -3951,13 +4416,14 @@ private:
         pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
         pi.pColorBlendState = &cb; pi.pDynamicState = &dyn;
         pi.layout = screen_effect_pipeline_layout_;
-        pi.renderPass = render_pass_; pi.subpass = 0;
+        // ONE pipeline, not a pair. The scene renders into the HDR pass whatever its final
+        // destination is -- the swapchain in `mosaic run --window`, the editor's viewport
+        // target after the resolve -- so the variant that existed only to be compatible
+        // with vp_render_pass_ has nothing left to be compatible with. Only the resolve
+        // and the UI, which draw into the destination, still need a pair.
+        pi.renderPass = hdr_render_pass_; pi.subpass = 0;
         vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &screen_effect_pipeline_),
                  "vkCreateGraphicsPipelines(screen_effect)");
-
-        pi.renderPass = vp_render_pass_;
-        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr, &vp_screen_effect_pipeline_),
-                 "vkCreateGraphicsPipelines(screen_effect offscreen)");
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
@@ -4445,6 +4911,15 @@ private:
         create_image_views();
         create_depth_resources();
         create_framebuffers();
+        // The HDR target is swapchain-sized, so it is stale the moment the swapchain is.
+        // A stale one is sampled at the wrong resolution and shows as a smeared or cropped
+        // frame on every resize.
+        destroy_hdr_target();
+        create_hdr_target(extent_.width, extent_.height);
+        // The new target is a new image view, so the resolve's descriptor still points at
+        // the freed one. Rewriting it here is the whole fix; forgetting it is a
+        // use-after-free the validation layers report and nothing else would.
+        write_hdr_descriptor();
         // The swapchain image count can change on recreation; rebuild the per-image
         // present semaphores to match (device is idle from vkDeviceWaitIdle above).
         create_render_finished_semaphores();
@@ -4535,7 +5010,6 @@ private:
     mosaic::engine::render::TextureHandle ibl_default_lut_ = 0;
     bool ibl_enabled_ = false;
     VkPipeline skybox_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline vp_skybox_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout skybox_pipeline_layout_ = VK_NULL_HANDLE;
     // One set per (base_color_index, metallic_roughness_index) pair, keyed by the two
     // packed into a u64. Created on first use, kept for the device's lifetime, and
@@ -4600,22 +5074,16 @@ private:
     // Offscreen viewport target (37d). Sampled by ImGui into the editor Viewport panel.
     VkExtent2D      vp_extent_ = {0, 0};
     VkRenderPass    vp_render_pass_ = VK_NULL_HANDLE; // format-stable; color = swapchain_format_
-    VkPipeline      vp_pipeline_ = VK_NULL_HANDLE;    // scene pipeline built against vp_render_pass_
 
     VkPipeline       particle_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline       vp_particle_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout particle_pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline       ribbon_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline       vp_ribbon_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout ribbon_pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline       world_text_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline       vp_world_text_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout world_text_pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline       decal_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline       vp_decal_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout decal_pipeline_layout_ = VK_NULL_HANDLE;
     VkPipeline       screen_effect_pipeline_ = VK_NULL_HANDLE;
-    VkPipeline       vp_screen_effect_pipeline_ = VK_NULL_HANDLE;
     VkPipelineLayout screen_effect_pipeline_layout_ = VK_NULL_HANDLE;
 
     VkPipeline       ui_pipeline_ = VK_NULL_HANDLE;
@@ -4642,6 +5110,40 @@ private:
     VkFramebuffer   vp_framebuffer_ = VK_NULL_HANDLE;
     VkSampler       vp_sampler_ = VK_NULL_HANDLE;       // persistent across resizes
     VkDescriptorSet vp_imgui_tex_ = VK_NULL_HANDLE;     // from ImGui_ImplVulkan_AddTexture
+
+    // --- the linear HDR scene target -------------------------------------------------
+    // Same lifecycle as the offscreen viewport target above: created with the swapchain,
+    // destroyed with it, recreated on resize, and the same finalLayout trick
+    // (SHADER_READ_ONLY_OPTIMAL) so the resolve samples it with no manual barrier.
+    //
+    // Its OWN depth, because a framebuffer binds specific image views and this is a different
+    // render pass from the viewport's -- sharing would mean one pass writing depth the other
+    // declared LOAD_OP_CLEAR on.
+    //
+    // SWAPCHAIN-SIZED, not panel-sized: the scene is rendered once at full resolution and the
+    // editor samples the RESOLVED result into whatever panel size it has. Sizing this to the
+    // panel would re-render the scene at panel resolution and fork the two paths again.
+    VkRenderPass    hdr_render_pass_ = VK_NULL_HANDLE;
+    VkImage         hdr_color_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_color_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_color_view_ = VK_NULL_HANDLE;
+    VkImage         hdr_depth_ = VK_NULL_HANDLE;
+    VkDeviceMemory  hdr_depth_mem_ = VK_NULL_HANDLE;
+    VkImageView     hdr_depth_view_ = VK_NULL_HANDLE;
+    VkFramebuffer   hdr_framebuffer_ = VK_NULL_HANDLE;
+    VkSampler       hdr_sampler_ = VK_NULL_HANDLE;      // persistent across resizes
+    VkExtent2D      hdr_extent_ = {0, 0};
+    VkDescriptorPool hdr_descriptor_pool_ = VK_NULL_HANDLE;
+    VkDescriptorSet  hdr_set_ = VK_NULL_HANDLE;   // the resolve's view of the scene target
+    VkPipelineLayout resolve_pipeline_layout_ = VK_NULL_HANDLE;
+    VkPipeline       resolve_pipeline_ = VK_NULL_HANDLE;    // into the swapchain pass
+    VkPipeline       vp_resolve_pipeline_ = VK_NULL_HANDLE; // into the editor's panel pass
+    bool            in_hdr_pass_ = false;
+    // The viewport pass is REQUESTED by begin_viewport_pass and opened lazily by
+    // ensure_viewport_pass, so the HDR scene pass can open and close first without
+    // nesting inside it. vp_clear_ carries the clear colour across that gap.
+    bool            viewport_pass_requested_ = false;
+    Color           vp_clear_{0.0f, 0.0f, 0.0f, 1.0f};
 };
 
 } // namespace
