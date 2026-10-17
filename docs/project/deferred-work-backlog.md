@@ -1364,11 +1364,28 @@ them as this list does.
   chain's pass count varies with resolution, which is the first
   genuinely dynamic need this renderer will have had.
 
-- **Retune the demo's particle, ribbon, decal and world-text colours** —
-  only if a human at the window says they need it. Those four were never
-  tone-mapped before the HDR resolve; they are now, and the spec accepted
-  that appearance shift as a correction rather than a regression. Depends
-  on the human verification pass for this slice.
+- ~~**Retune the demo's particle, ribbon, decal and world-text colours**~~
+  — **DONE 2026-10-17**, after the human verification pass said yes. The
+  curve desaturates: the puffer's cyan went from 0.70 saturation to 0.46,
+  and the decal's warm tint from 0.40 to **0.16** — nearly grey, and
+  invisible against the white ground, which is why it could not be found
+  in the pass's own screenshots. The fountain's orange was worse than a
+  desaturation: ACES RAISES the green channel (0.5 -> 0.62) while lowering
+  red (1.0 -> 0.80), so it read yellow. Retuned by authoring ABOVE 1.0 and
+  letting the roll-off do the work — which is the headroom this slice
+  bought, used for the first time. Ribbons and world text have no entity
+  in the demo scene, so they were not retuned and remain unjudged.
+
+- **The particle fade curves hide the colour journey** — raised by the
+  2026-10-17 verification pass: "the fading colour particles are staying
+  the same colour and just fading out". `color_at` lerps correctly every
+  frame; the cause is elsewhere. `end_size` is `0.03` against a `size` of
+  `0.15` (a 5x shrink) and `end_alpha` is 0 on an `EaseOut` curve, so the
+  end colour lands on a particle a fifth the size and nearly transparent,
+  alpha-blended over a bright white ground. Deliberately NOT changed with
+  the colours: it is the effect's motion design rather than its palette,
+  and the verification pass only authorised the palette. Depends on
+  nothing; it is a judgement about how a particle should die.
 
 ## Project templates
 
