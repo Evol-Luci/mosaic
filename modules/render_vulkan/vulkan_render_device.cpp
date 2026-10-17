@@ -1872,8 +1872,9 @@ public:
     }
 
     // Begins the swapchain render pass once per frame (idempotent). Sets the
-    // negative-height (Y-flip) viewport/scissor and binds the scene pipeline. A
-    // skipped frame (swapchain out-of-date) never opens a pass.
+    // negative-height (Y-flip) viewport/scissor. A skipped frame (swapchain out-of-date)
+    // never opens a pass. Binds nothing: world space does not draw here any more, and
+    // every method that does binds its own pipeline.
     void ensure_swapchain_pass()
     {
         if (swapchain_pass_open_ || frame_skipped_)
@@ -1912,8 +1913,12 @@ public:
         rp.clearValueCount = static_cast<uint32_t>(clears.size());
         rp.pClearValues = clears.data();
         vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
-
-        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        // NO pipeline bound, the same change ensure_viewport_pass took. `pipeline_` is
+        // built against hdr_render_pass_ now, which is NOT render-pass-compatible with
+        // this one -- the attachment formats differ, R16G16B16A16_SFLOAT against
+        // B8G8R8A8_SRGB. Binding it here is inert only for as long as every draw in this
+        // pass binds its own first, which all four do today; the next one that inherits
+        // instead gets undefined rendering. Found in review 2026-10-16.
         swapchain_pass_open_ = true;
     }
 
@@ -2148,6 +2153,15 @@ public:
     // panel target when begin_viewport_pass asked for one, the swapchain otherwise. The
     // resolve and the three UI draws call this; world-space draws do not, because they go
     // into the HDR pass instead.
+    // Mirrors hdr_resolve.frag's push block byte for byte. vec2 first: it has the larger
+    // alignment, so putting the float ahead of it would cost four bytes of padding and,
+    // worse, make the two layouts disagree the moment someone reorders one side.
+    struct ResolvePush
+    {
+        float inv_dest[2];
+        float exposure;
+    };
+
     void ensure_destination_pass()
     {
         if (viewport_pass_requested_) { ensure_viewport_pass(); }
@@ -2226,8 +2240,21 @@ public:
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 resolve_pipeline_layout_, 0, 1, &hdr_set_, 0, nullptr);
+
+        // The DESTINATION's extent, not the HDR target's. They differ in the editor: the
+        // scene target is swapchain-sized and the panel is whatever the user dragged it
+        // to, and gl_FragCoord spans the destination. Normalising by the source instead
+        // crops the top-left of the render rather than scaling it, which `mosaic run
+        // --window` can never show because there the two are equal. Same selector as the
+        // pipeline above, deliberately: one question answered once.
+        const VkExtent2D dest = viewport_pass_open_ ? vp_extent_ : extent_;
+        if (dest.width == 0 || dest.height == 0) { return; }
+        ResolvePush pc{};
+        pc.inv_dest[0] = 1.0f / static_cast<float>(dest.width);
+        pc.inv_dest[1] = 1.0f / static_cast<float>(dest.height);
+        pc.exposure = exposure;
         vkCmdPushConstants(cmd_[frame_], resolve_pipeline_layout_,
-                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(float), &exposure);
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(cmd_[frame_], 3, 1, 0, 0); // fullscreen triangle
     }
 
@@ -4251,7 +4278,7 @@ private:
 
         VkPushConstantRange push{};
         push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        push.offset = 0; push.size = sizeof(float); // exposure
+        push.offset = 0; push.size = sizeof(ResolvePush);
 
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

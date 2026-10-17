@@ -226,8 +226,50 @@ TEST_CASE("the resolve samples the scene in framebuffer space", "[render]")
         mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.vert")));
     INFO("The resolve must derive its UV from gl_FragCoord, not from an interpolated clip "
          "position -- the viewport is Y-flipped and an interpolated UV inherits that.");
-    REQUIRE(frag.find("gl_FragCoord.xy / vec2(textureSize(hdrScene, 0))") != std::string::npos);
+    REQUIRE(frag.find("gl_FragCoord.xy") != std::string::npos);
     // ...and the vertex shader must not offer one, so the fragment shader cannot drift
     // back to it. No `out` at all is the enforceable form of that.
     REQUIRE(vert.find("out vec2") == std::string::npos);
+}
+
+TEST_CASE("the resolve normalises by the DESTINATION size and not the source", "[render]")
+{
+    // Found in the branch review, 2026-10-16, and invisible to every other check here.
+    //
+    // gl_FragCoord spans the DESTINATION pass's viewport. The HDR target is deliberately
+    // SWAPCHAIN-sized and never resized with the editor panel, so in the editor the two
+    // differ: a 1200x700 Viewport panel against a 1920x1080 scene target. Dividing
+    // gl_FragCoord by textureSize(hdrScene, 0) -- the SOURCE -- makes uv reach only
+    // (0.625, 0.648), so fragment (x,y) samples texel (x,y): a literal 1:1 crop of the
+    // top-left of the render, with the zoom factor changing every time the panel is
+    // dragged. `mosaic run --window` is unaffected, because there the two extents are
+    // equal and uv spans [0,1] -- which is exactly why zero validation errors on both
+    // entry points did not catch it, and why the headless suite could not.
+    //
+    // So: normalise by an extent the CALLER passes, and pin that it is not the source.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
+    INFO("The resolve must scale the whole HDR target into the destination viewport. "
+         "Dividing by textureSize() is dividing by the source, which crops instead.");
+    REQUIRE(frag.find("textureSize") == std::string::npos);
+    REQUIRE(frag.find("vec2 inv_dest;") != std::string::npos);
+    REQUIRE(frag.find("vec2 uv = gl_FragCoord.xy * pc.inv_dest;") != std::string::npos);
+}
+
+TEST_CASE("draw_hdr_resolve passes the extent of the pass it is drawing into", "[render]")
+{
+    // The C++ half of the case above, and the half that actually distinguishes the two
+    // paths. The shader cannot know its destination; the backend does, and it is the same
+    // `viewport_pass_open_` selector that already picks the pipeline. Pinning only the
+    // shader would leave `inv_dest` free to be fed the source extent, which reproduces
+    // the identical crop with every shader assertion green.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(mosaic::tests::read_backend()));
+    const std::size_t at = src.find("void draw_hdr_resolve(");
+    REQUIRE(at != std::string::npos);
+    const std::string body = src.substr(at, 1200);
+    INFO("draw_hdr_resolve must take its destination extent from viewport_pass_open_, the "
+         "same selector that picks the pipeline -- not from hdr_extent_.");
+    REQUIRE(body.find("viewport_pass_open_ ? vp_extent_ : extent_") != std::string::npos);
+    REQUIRE(body.find("hdr_extent_") == std::string::npos);
 }

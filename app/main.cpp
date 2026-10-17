@@ -415,7 +415,15 @@ int main(int argc, char** argv)
             {
                 render_system->set_aspect(static_cast<float>(fbw) / static_cast<float>(fbh));
             }
+            // The SCENE's background, which is what a reader means by this colour. It must
+            // reach RenderSystem: device->clear() sets the DESTINATION pass's clear, and
+            // the resolve overwrites every pixel of that, so a scene with no environment
+            // (hence no skybox to cover it) would render pure black. Found in review
+            // 2026-10-16.
+            render_system->set_clear_color(render::Color{0.1F, 0.1F, 0.12F, 1.0F});
             device->begin_frame();
+            // Still set, and still cheap: it is what the destination shows for the one
+            // frame a swapchain recreation skips the resolve.
             device->clear(render::Color{0.1F, 0.1F, 0.12F, 1.0F});
             render_system->render_shadows(world, *device, asset_registry);
             render_system->render(world, *device, asset_registry);

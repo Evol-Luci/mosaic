@@ -2,6 +2,21 @@
 
 layout(set = 0, binding = 0) uniform sampler2D hdrScene;
 layout(push_constant) uniform Push {
+    // 1 / the DESTINATION viewport's size in pixels, which is NOT the size of hdrScene.
+    //
+    // The HDR target is swapchain-sized and never resized with the editor's Viewport
+    // panel, so in the editor the two differ -- a 1200x700 panel against a 1920x1080
+    // scene target. gl_FragCoord spans the DESTINATION, so dividing it by
+    // textureSize(hdrScene, 0) makes uv reach only (0.625, 0.648): fragment (x,y) samples
+    // texel (x,y), a 1:1 crop of the top-left of the render whose zoom changes every time
+    // the panel is dragged. Found in review 2026-10-16, after a run with zero validation
+    // errors on both entry points -- `mosaic run --window` cannot show it, because there
+    // the two extents are equal.
+    //
+    // Only the backend knows the destination, so it passes it, from the same
+    // viewport_pass_open_ selector that picks the pipeline. Reciprocal rather than the
+    // extent itself: this is per-fragment, and the division is not.
+    vec2 inv_dest;
     // The active camera's exposure, passed to draw_hdr_resolve as a parameter rather than
     // read back out of the per-frame lighting UBO. It is a property of the resolve now,
     // and a parameter is testable where a UBO field read inside the backend is not.
@@ -51,7 +66,12 @@ void main()
     // and nobody noticed, because a vignette is radially symmetric. gl_FragCoord is
     // framebuffer space, so this is correct by construction rather than by reasoning that
     // no headless test can check.
-    vec2 uv = gl_FragCoord.xy / vec2(textureSize(hdrScene, 0));
+    // Scales the WHOLE HDR target into the destination viewport. The sampler is LINEAR
+    // and clamps to edge, so a destination smaller than the source is a filtered
+    // downscale rather than a crop, and the aspect works out: the scene was rendered with
+    // the destination's aspect ratio, so mapping its full NDC range back onto the
+    // destination is the identity the editor needs.
+    vec2 uv = gl_FragCoord.xy * pc.inv_dest;
     vec3 hdr = texture(hdrScene, uv).rgb;
     // Exposure scales the value ENTERING the curve, as it did in cube.frag. Applied after,
     // it would scale an already-clamped [0,1] value -- it could darken but never brighten,

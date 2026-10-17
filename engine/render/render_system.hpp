@@ -88,6 +88,21 @@ public:
 
     void set_aspect(float aspect) { aspect_ = aspect; }
 
+    // The colour the scene is composited over, and the one a caller means by "background".
+    //
+    // It lives here rather than being read back off the device because the pass order
+    // lives here: the HDR pass is the scene's background now, and the clear is part of
+    // what that pass is. RenderDevice::clear() still sets the DESTINATION pass's clear,
+    // which the resolve overwrites in full -- so a caller that sets only that one gets
+    // black, which is the bug this replaced (found in review 2026-10-16: a scene with no
+    // environment draws no skybox, so the background IS the clear, and every such scene
+    // went pure black).
+    //
+    // Alpha is forced opaque at the call site rather than here, so what a caller set is
+    // what it reads back.
+    void set_clear_color(const Color& c) { clear_color_ = c; }
+    const Color& clear_color() const { return clear_color_; }
+
     // Records the shadow depth pass. MUST be called before the caller opens its own
     // main render pass (the swapchain pass or, in the editor, the offscreen viewport
     // pass via render_scene_to_viewport) -- a render pass cannot begin while another
@@ -180,9 +195,13 @@ public:
         // per object in cube.frag and skybox.frag, so the other four were never tone mapped
         // at all -- they blended against a buffer already through the curve.
         //
-        // The clear is the colour the swapchain pass used to take. Nothing downstream reads
-        // it, since the resolve writes every pixel.
-        device.begin_hdr_scene_pass(Color{0.0f, 0.0f, 0.0f, 1.0f});
+        // The clear is the scene's background: with no environment there is no skybox to
+        // cover it, so this IS what the window shows. Alpha is forced opaque whatever was
+        // asked for -- the editor composites the resolved panel target with ImGui::Image,
+        // which respects alpha, and a translucent scene background would let the panel
+        // behind it show through.
+        device.begin_hdr_scene_pass(
+            Color{clear_color_.r, clear_color_.g, clear_color_.b, 1.0f});
 
         world.for_each<MeshRenderer>(
             [&](mosaic::foundation::EntityID e, MeshRenderer& mr)
@@ -722,6 +741,8 @@ private:
     }
 
     float aspect_ = 16.0f / 9.0f;
+
+    Color clear_color_{0.0f, 0.0f, 0.0f, 1.0f};
     mutable MeshCache     mesh_cache_;
     mutable TextureCache  texture_cache_;
     mutable FontTextureCache font_textures_;
