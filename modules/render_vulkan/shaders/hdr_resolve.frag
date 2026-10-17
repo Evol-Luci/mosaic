@@ -1,0 +1,67 @@
+#version 450
+
+layout(set = 0, binding = 0) uniform sampler2D hdrScene;
+layout(push_constant) uniform Push {
+    // The active camera's exposure, passed to draw_hdr_resolve as a parameter rather than
+    // read back out of the per-frame lighting UBO. It is a property of the resolve now,
+    // and a parameter is testable where a UBO field read inside the backend is not.
+    float exposure;
+} pc;
+layout(location = 0) out vec4 outColor;
+
+// ACES filmic approximation (Narkowicz), and THE ONLY COPY IN THE TREE. It used to live in
+// cube.frag and skybox.frag, which meant it ran per object and left decals, particles,
+// ribbons and world text untouched by the curve -- they alpha-blended against a buffer
+// whose contents had already been through it. Running it once over the whole scene is what
+// makes a value above 1.0 meaningful, and therefore what makes bloom possible at all.
+//
+// This must NOT also gamma-correct: the destination is B8G8R8A8_SRGB, so the hardware
+// encodes linear -> sRGB on write. A pow(c, 1.0/2.2) here would double-correct.
+vec3 tonemap_aces(vec3 x)
+{
+    // The curve floors its own input, which is not a duplicate of the exposure floor
+    // below -- it guards a DIFFERENT input. `x` can arrive negative from an unclamped
+    // light colour: DirectionalLight::color is a reflected Vec3 with no clamp anywhere,
+    // and the Studio inspector renders it as three unbounded DragFloats, so a colour of
+    // (-1,-1,-1) is one drag away. A negative input makes this function return WHITE: its
+    // numerator 2.51x^2 + 0.03x turns positive below x = -0.012 while its denominator is
+    // strictly positive for every real x (discriminant -1.0127), so the ratio clamps to
+    // 1.0 and the response is non-monotonic across zero.
+    //
+    // Flooring HERE makes that unreachable for every caller, present and future, instead
+    // of requiring each call site to remember. The call site still floors exposure
+    // separately, because that catches a negative knob even when the colour is ALSO
+    // negative -- flooring only the product would multiply two negatives into a positive
+    // and brighten.
+    x = max(x, vec3(0.0));
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
+void main()
+{
+    // UV FROM gl_FragCoord, NOT from an interpolated clip position, and this is
+    // load-bearing. Every render pass in this backend uses a negative-height viewport (the
+    // Y-flip ui.vert compensates for), so a fullscreen triangle that derives its UV from
+    // clip space samples the scene upside down. screen_effect.vert has exactly that bug
+    // and nobody noticed, because a vignette is radially symmetric. gl_FragCoord is
+    // framebuffer space, so this is correct by construction rather than by reasoning that
+    // no headless test can check.
+    vec2 uv = gl_FragCoord.xy / vec2(textureSize(hdrScene, 0));
+    vec3 hdr = texture(hdrScene, uv).rgb;
+    // Exposure scales the value ENTERING the curve, as it did in cube.frag. Applied after,
+    // it would scale an already-clamped [0,1] value -- it could darken but never brighten,
+    // which is most of what exposure is for.
+    //
+    // Floored at 0, and NOT because a negative exposure is merely meaningless: by the
+    // arithmetic above it renders WHITE, not black, and non-monotonically. One character
+    // in a scene file -- `-2` where `2` was meant -- would otherwise produce a confident,
+    // plausible-looking, completely wrong image. The top end is deliberately NOT bounded;
+    // a huge exposure overflows to NaN near 1.2e19, the same garbage-in posture roughness
+    // already documents, and capping it would invent a maximum nobody asked for.
+    outColor = vec4(tonemap_aces(hdr * max(pc.exposure, 0.0)), 1.0);
+}

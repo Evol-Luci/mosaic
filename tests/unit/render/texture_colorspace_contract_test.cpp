@@ -207,26 +207,66 @@ TEST_CASE("the skybox draws behind the scene and does not write depth", "[render
     REQUIRE(vert.find("gl_Position = vec4(pos, 1.0, 1.0);") != std::string::npos);
 }
 
-TEST_CASE("draw_skybox guards the render pass and the skipped frame", "[render]")
+TEST_CASE("every world-space recording method guards the pass and the skipped frame",
+          "[render]")
 {
-    // The slice-4b review's Critical finding. Every other recording method in the
-    // backend opens with these two lines; draw_skybox had neither.
+    // Began as the slice-4b review's Critical finding about draw_skybox alone, which had
+    // neither guard while every other recording method had both.
     //
-    // Without them: resize or minimise the window, begin_frame takes the
-    // VK_ERROR_OUT_OF_DATE_KHR path, sets frame_skipped_ and returns BEFORE
-    // vkBeginCommandBuffer -- and draw_skybox then records four commands into a command
-    // buffer that is not in the recording state. That is undefined behaviour, not a
-    // visual artefact, and it diverges by driver. A scene with an environment and no
-    // drawn meshes reaches the same place by a different route, because nothing else
-    // would have opened the pass.
+    // Without the frame_skipped_ guard: resize or minimise the window, begin_frame takes
+    // the VK_ERROR_OUT_OF_DATE_KHR path, sets frame_skipped_ and returns BEFORE
+    // vkBeginCommandBuffer -- and the method then records commands into a command buffer
+    // that is not in the recording state. That is undefined behaviour, not a visual
+    // artefact, and it diverges by driver.
+    //
+    // The pass guard changed shape on 2026-10-16 and got STRICTER with it. It used to be
+    // `if (!viewport_pass_open_) { ensure_swapchain_pass(); }` -- open the destination if
+    // nothing has. World space no longer draws into the destination at all: it draws into
+    // the HDR scene pass, which RenderSystem opens, and `if (!in_hdr_pass_) { return; }`
+    // is a refusal rather than a fallback. A world-space draw that reached the
+    // destination pass would be composited over an image the resolve had already
+    // tone-mapped, which is the incoherence this slice removed.
+    //
+    // Widened from draw_skybox to all seven, because the guard is now a shared invariant
+    // rather than one method's missing prologue -- and because collapsing the pipeline
+    // pairs touched every one of them.
     const std::string src =
         mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
-    const std::size_t at = src.find("void draw_skybox(");
-    REQUIRE(at != std::string::npos);
-    const std::string prologue = src.substr(at, 400);
-    REQUIRE(prologue.find("if (!viewport_pass_open_) { ensure_swapchain_pass(); }")
-            != std::string::npos);
-    REQUIRE(prologue.find("frame_skipped_") != std::string::npos);
+    for (const char* method : {"void draw(", "void draw_particles(", "void draw_ribbons(",
+                               "void draw_world_text(", "void draw_decals(",
+                               "void draw_skybox(", "void draw_screen_effect("})
+    {
+        INFO(std::string("method: ") + method);
+        const std::size_t at = src.find(method);
+        REQUIRE(at != std::string::npos);
+        const std::string prologue = src.substr(at, 700);
+        REQUIRE(prologue.find("if (!in_hdr_pass_) { return; }") != std::string::npos);
+        REQUIRE(prologue.find("frame_skipped_") != std::string::npos);
+    }
+}
+
+TEST_CASE("the three UI draws record into the destination pass, not the HDR one",
+          "[render]")
+{
+    // The other half of the boundary, and the half a "consistency" edit would break:
+    // having just read that world space guards on in_hdr_pass_, the obvious next move is
+    // to make the UI do the same. That would put the HUD inside the tone map.
+    //
+    // A UiPanel's colour is AUTHORED, not captured -- {0.1, 0.6, 0.9} is a value someone
+    // typed and expects to see. Through ACES, what appears on screen becomes a function
+    // of how bright the scene behind it is, so the HUD would dim whenever the world got
+    // bright. ensure_destination_pass() is what keeps them out of it.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+    for (const char* method : {"void draw_ui(", "void draw_ui_image(", "void draw_ui_text("})
+    {
+        INFO(std::string("method: ") + method);
+        const std::size_t at = src.find(method);
+        REQUIRE(at != std::string::npos);
+        const std::string prologue = src.substr(at, 400);
+        REQUIRE(prologue.find("ensure_destination_pass();") != std::string::npos);
+        REQUIRE(prologue.find("in_hdr_pass_") == std::string::npos);
+    }
 }
 
 TEST_CASE("the skybox depth TEST is enabled, not merely its write disabled", "[render]")

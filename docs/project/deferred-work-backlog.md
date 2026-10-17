@@ -1305,6 +1305,41 @@ them as this list does.
     not deliver it. Spot lights inherit the same one-light-per-type
     limitation directional/point already had.
 
+- **Remove the dead `exposure` fields from `cube.frag` and
+  `skybox.frag`** — the HDR resolve slice (2026-10-16) moved exposure
+  into `hdr_resolve.frag`, which takes it as a push-constant parameter.
+  The old declarations are now unread: `fl.exposure` (a trailing `vec4`
+  in cube.frag's per-frame UBO) and `pc.exposure` (a `float` in
+  skybox.frag's push block). Deferred rather than done in that slice
+  because each block's layout is shared byte-for-byte with a C++ struct
+  — `FrameLighting` and `SkyboxPush` — so dropping the GLSL member alone
+  is silent corruption rather than a compile error, and the matching C++
+  change is a separate edit with its own size assertion to update.
+  Depends on nothing; it is a two-sided deletion, not a design question.
+
+- **Give the viewport pass its own lazy-open flag independent of the
+  HDR pass** — the same slice made `begin_viewport_pass` lazy
+  (`viewport_pass_requested_` + `ensure_viewport_pass`) so the HDR scene
+  pass could open without nesting inside it. The pass-state bookkeeping
+  in the Vulkan backend is now three booleans (`swapchain_pass_open_`,
+  `viewport_pass_open_`/`_requested_`, `in_hdr_pass_`) read by a dozen
+  draw entry points. A single `enum class PassState` would make the
+  invariant "exactly one pass is recording" checkable instead of
+  conventional. Deferred: low priority today, and worth doing at the
+  moment bloom adds its mip-chain passes rather than immediately before.
+
+- **The RenderGraph** — deferred again. Its re-stated trigger is a
+  *dynamic* pass need, and the HDR resolve added one more fixed pass,
+  so it does not meet the bar. Bloom is the likely real trigger: a mip
+  chain's pass count varies with resolution, which is the first
+  genuinely dynamic need this renderer will have had.
+
+- **Retune the demo's particle, ribbon, decal and world-text colours** —
+  only if a human at the window says they need it. Those four were never
+  tone-mapped before the HDR resolve; they are now, and the spec accepted
+  that appearance shift as a correction rather than a regression. Depends
+  on the human verification pass for this slice.
+
 ## Project templates
 
 - **3rd-person adventure template content** — needs a new `Health`

@@ -1,10 +1,17 @@
-// Pins the four tone-mapping decisions a later reader is most likely to undo.
+// Pins the tone-mapping decisions a later reader is most likely to undo.
 //
-// There is no GPU in CI, so these are textual contracts against the shader source --
-// the same idiom as shader_specular_contract_test.cpp. They pin the WIRING. They
-// cannot show that the curve looks right; that is a human check against
-// `mosaic run --window`, and the spec says so rather than letting a green suite
-// imply more.
+// REWRITTEN 2026-10-16, when tone mapping moved out of the object shaders and into a
+// fullscreen resolve. Before that it ran per OBJECT -- cube.frag and skybox.frag each
+// carried their own copy of the ACES curve, and decals, particles, ribbons and world text
+// carried none, so they alpha-blended against a buffer already through it. These cases
+// used to hold the two copies byte-identical. There is one copy now, and the contract
+// that matters is the opposite one: that it exists in exactly one place and that nothing
+// in world space maps anything.
+//
+// There is no GPU in CI, so these are textual contracts against the shader source -- the
+// same idiom as shader_specular_contract_test.cpp. They pin the WIRING. They cannot show
+// that the curve looks right; that is a human check against `mosaic run --window`, and
+// the spec says so rather than letting a green suite imply more.
 
 #include <string>
 
@@ -16,13 +23,13 @@ using mosaic::tests::code_only;
 using mosaic::tests::count_assignments;
 using mosaic::tests::read_shader;
 
-TEST_CASE("cube.frag tone maps its output with the ACES approximation", "[render]")
+TEST_CASE("hdr_resolve.frag tone maps with the ACES approximation", "[render]")
 {
-    const std::string frag = code_only(read_shader("cube.frag"));
+    const std::string frag = code_only(read_shader("hdr_resolve.frag"));
     REQUIRE(frag.find("tonemap_aces") != std::string::npos);
 
-    // Review Focus 4: Reinhard (x / (1 + x)) is a plausible-looking "simplification"
-    // that compiles, runs, and desaturates highlights.
+    // Reinhard (x / (1 + x)) is a plausible-looking "simplification" that compiles, runs,
+    // and desaturates highlights.
     //
     // Pin each constant to its OWN named binding, and pin the expression that uses them.
     // Asserting the four values merely appear somewhere was not enough: swapping c's and
@@ -37,60 +44,80 @@ TEST_CASE("cube.frag tone maps its output with the ACES approximation", "[render
             != std::string::npos);
 }
 
-TEST_CASE("cube.frag writes only the tone-mapped colour to its attachment", "[render]")
+TEST_CASE("the resolve writes only the tone-mapped colour to its attachment", "[render]")
 {
-    // Review Focus 1: the sharp edge of this slice. A second outColor write added
-    // below the tone map bypasses it entirely -- tonemap_aces would still be present
-    // and still be called, so a mere "is it applied?" check stays green while the
-    // attachment receives unmapped values. Assert there is exactly ONE write, and
-    // that it is the mapped one.
-    const std::string frag = code_only(read_shader("cube.frag"));
+    // The sharp edge of the resolve. A second outColor write added below the tone map
+    // bypasses it entirely -- tonemap_aces would still be present and still be called, so
+    // a mere "is it applied?" check stays green while the attachment receives unmapped
+    // values. Assert there is exactly ONE write, and that it is the mapped one.
+    const std::string frag = code_only(read_shader("hdr_resolve.frag"));
 
     // Count every ASSIGNMENT to outColor, however spelled. Matching the literal
-    // "outColor =" was evadable by exactly the edit this test guards against: a
-    // component write such as `outColor.rgb = vec3(fragNormal);` left the count at 1 and
-    // left the mapped write present, so the suite stayed green while the attachment
-    // received unmapped values for those fragments. Verified in review 2026-10-04 -- the
-    // probe passed. Mutation B had only shown that a bypass spelled like the original is
-    // caught, which is a weaker claim than the plan made.
-    //
-    // So: find each `outColor`, skip whitespace and any `.rgb`/`.xyz`/`.r` swizzle, and
-    // count it if what follows is a single `=` (not `==`).
+    // "outColor =" was evadable by exactly the edit this guards against: a component write
+    // such as `outColor.rgb = vec3(hdr);` left the count at 1 and left the mapped write
+    // present, so the suite stayed green while the attachment received unmapped values for
+    // those fragments. Verified by probe in review 2026-10-04.
     const std::size_t writes = count_assignments(frag, "outColor");
-    INFO("cube.frag must assign outColor exactly once, and from tonemap_aces(). If you "
-         "added a second write -- a debug visualisation, an early-out, or a component "
+    INFO("hdr_resolve.frag must assign outColor exactly once, and from tonemap_aces(). If "
+         "you added a second write -- a debug visualisation, an early-out, or a component "
          "write like outColor.rgb = ... -- the tone map is being bypassed for those "
          "fragments.");
     REQUIRE(writes == 1);
     REQUIRE(frag.find("outColor = vec4(tonemap_aces(") != std::string::npos);
 }
 
-TEST_CASE("the unlit scene shaders are deliberately not tone mapped", "[render]")
+TEST_CASE("exactly one shader in the tree maps anything", "[render]")
 {
-    // Review Focus 2: decision 1 of the spec, and a judgement a later reader will
-    // question. These four shaders output authored colour times alpha and cannot
-    // exceed 1.0, so tone mapping them would DARKEN them -- the ACES curve maps 1.0
-    // to about 0.8. A "consistency" edit here is a regression, so make it loud.
-    for (const char* name : {"particle.frag", "ribbon.frag", "decal.frag", "world_text.frag"})
+    // THE CONTRACT THIS SLICE EXISTS FOR, and the inverse of what these cases pinned
+    // before it. Tone mapping belongs to the frame, not to an object: every world-space
+    // shader writes LINEAR HDR into the R16G16B16A16_SFLOAT scene target and
+    // hdr_resolve.frag maps the whole image once.
+    //
+    // A "consistency" edit that reintroduces the curve in cube.frag or skybox.frag --
+    // which is what they both looked like until 2026-10-16, so it will look like a
+    // restoration rather than a regression -- double-maps those pixels: mapped once at the
+    // object, then again at the resolve. It is also precisely what makes bloom impossible,
+    // because a value clamped to 1.0 at the attachment has no headroom left for a bright
+    // pass to find.
+    for (const char* name : {"cube.frag", "skybox.frag", "particle.frag", "ribbon.frag",
+                             "decal.frag", "world_text.frag", "screen_effect.frag",
+                             "ui.frag", "ui_image.frag", "ui_text.frag"})
     {
         const std::string frag = code_only(read_shader(name));
-        INFO(std::string("shader: ") + name);
+        INFO(std::string("shader: ") + name
+             + " -- tone mapping lives in hdr_resolve.frag alone. Mapping here as well "
+               "double-maps these pixels and clamps away the headroom bloom needs.");
         REQUIRE(frag.find("tonemap") == std::string::npos);
     }
 }
 
-TEST_CASE("no fragment shader gamma-corrects on top of the sRGB swapchain", "[render]")
+TEST_CASE("the lit pass and the skybox write their colour exactly once", "[render]")
 {
-    // Review Focus 3: the likeliest wrong "improvement" here, because tone mapping and
-    // gamma are routinely conflated. The pipeline is ALREADY linear -- the swapchain is
-    // B8G8R8A8_SRGB and textures are R8G8B8A8_SRGB, so the hardware converts at both
-    // ends. A manual pow(c, 1.0/2.2) would double-correct and wash the image out.
-    // All nine colour-producing fragment shaders. The three ui*.frag were missing from
-    // this list until review 2026-10-04 pointed out they are the MOST likely place a
-    // future reader adds gamma, being the ones the spec describes as display-space.
-    for (const char* name : {"cube.frag", "particle.frag", "ribbon.frag", "decal.frag",
-                             "world_text.frag", "screen_effect.frag", "ui.frag",
-                             "ui_image.frag", "ui_text.frag"})
+    // Kept from the per-object era, with its reason intact. These two compute a colour
+    // through a long function; a debug or early-out write added below the real one, e.g.
+    // `if (dir.y < 0.0) { outColor.rgb = vec3(0.1); }`, silently replaces the shading for
+    // those fragments while every other assertion stays green. What changed is only what
+    // the single write now contains: linear HDR rather than mapped colour.
+    for (const char* name : {"cube.frag", "skybox.frag"})
+    {
+        const std::string frag = code_only(read_shader(name));
+        INFO(std::string("shader: ") + name + " must assign outColor exactly once.");
+        REQUIRE(count_assignments(frag, "outColor") == 1);
+    }
+}
+
+TEST_CASE("no fragment shader gamma-corrects on top of the sRGB destination", "[render]")
+{
+    // The likeliest wrong "improvement" here, because tone mapping and gamma are routinely
+    // conflated. The pipeline is ALREADY linear -- the swapchain is B8G8R8A8_SRGB and
+    // textures are R8G8B8A8_SRGB, so the hardware converts at both ends. A manual
+    // pow(c, 1.0/2.2) would double-correct and wash the image out.
+    //
+    // hdr_resolve.frag joined this list the moment it became the one shader writing
+    // display colour, which makes it the most likely place for exactly this edit.
+    for (const char* name : {"cube.frag", "skybox.frag", "particle.frag", "ribbon.frag",
+                             "decal.frag", "world_text.frag", "screen_effect.frag",
+                             "hdr_resolve.frag", "ui.frag", "ui_image.frag", "ui_text.frag"})
     {
         const std::string frag = code_only(read_shader(name));
         INFO(std::string("shader: ") + name);
@@ -99,75 +126,21 @@ TEST_CASE("no fragment shader gamma-corrects on top of the sRGB swapchain", "[re
     }
 }
 
-TEST_CASE("the skybox tone maps with the same curve as the lit pass", "[render]")
-{
-    // Slice 1 justified tone-mapping cube.frag ALONE on the grounds that every other
-    // colour-producing shader is unlit, cannot exceed 1.0, and would merely be darkened
-    // by a curve that maps 1.0 to about 0.8. A skybox sampling HDR radiance CAN exceed
-    // 1.0 -- it is the first shader for which that reasoning does not hold, and "bright
-    // regions roll off rather than clip" is a success criterion of this slice.
-    //
-    // The two copies must stay identical. A shared GLSL include would be better, but the
-    // shader build has no include step, so this test is what holds them together.
-    const std::string lit = code_only(read_shader("cube.frag"));
-    const std::string sky = code_only(read_shader("skybox.frag"));
-    auto body = [](const std::string& s) {
-        const std::size_t b = s.find("vec3 tonemap_aces(vec3 x)");
-        REQUIRE(b != std::string::npos);
-        const std::size_t e = s.find('}', b);
-        REQUIRE(e != std::string::npos);
-        return mosaic::tests::normalize_ws(s.substr(b, e - b));
-    };
-    REQUIRE(body(lit) == body(sky));
-    // ...and that the skybox actually CALLS it, not merely defines it.
-    REQUIRE(sky.find("tonemap_aces(") != std::string::npos);
-}
-
-// No comma in this name. Catch2 treats a comma in a name filter as a test-spec SEPARATOR,
-// so running this case by name would match nothing and exit non-zero -- indistinguishable
-// from a failure. Cost a round of mutation probes on the multi-scatter slice; cost two
-// false reds here before the pattern was recognised a second time.
-TEST_CASE("skybox.frag writes only the tone-mapped colour to its attachment", "[render]")
-{
-    // The counterpart cube.frag has had since slice 1, which skybox.frag never got --
-    // found by the exposure slice's branch review. Latent since the skybox shipped, and in
-    // scope now because this slice makes skybox.frag an exposure consumer: the write it
-    // guards is the one that applies BOTH the curve and the exposure scale.
-    //
-    // Concrete failure it catches: add a debug or early-out write below the real one,
-    // e.g. `if (dir.y < 0.0) { outColor.rgb = vec3(0.1); }`. Every other skybox assertion
-    // stays green -- tonemap_aces is still defined, still byte-identical to cube.frag's,
-    // still called, and `pc.exposure` is still in the pinned expression -- while every
-    // lower-hemisphere sky pixel silently ignores the tone map AND the exposure knob.
-    //
-    // count_assignments, not a literal search, for the reason the cube.frag case records:
-    // `outColor.rgb = ...` and `outColor[0] = ...` both evade a literal "outColor =".
-    const std::string sky = code_only(read_shader("skybox.frag"));
-    const std::size_t writes = count_assignments(sky, "outColor");
-    INFO("skybox.frag must assign outColor exactly once, from tonemap_aces(). A second "
-         "write bypasses both the curve and the exposure scale for those fragments.");
-    REQUIRE(writes == 1);
-    REQUIRE(sky.find("outColor = vec4(tonemap_aces(") != std::string::npos);
-}
-
-TEST_CASE("exposure scales the colour entering the tone map in both shaders", "[render]")
+TEST_CASE("exposure scales the colour entering the tone map", "[render]")
 {
     // The whole point of exposure, and the naive version of this test is worthless.
     //
     // Asserting that `exposure` merely APPEARS is satisfied by
-    // `tonemap_aces(color) * fl.exposure.x`, which scales a value the curve has already
+    // `tonemap_aces(hdr) * pc.exposure`, which scales a value the curve has already
     // clamped to [0,1]. That form can darken but can NEVER brighten -- the exact thing a
-    // user reaches for exposure to do -- and every token search for "exposure" stays
-    // green while it ships. Hence the full expression, whitespace-normalised, in each
-    // shader.
-    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
-    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
+    // user reaches for exposure to do -- and every token search for "exposure" stays green
+    // while it ships. Hence the full expression, whitespace-normalised.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
 
     INFO("If this fails, check whether exposure moved OUTSIDE tonemap_aces(...) before "
          "assuming the test is stale. Outside the curve it can only darken.");
-    REQUIRE(lit.find("outColor = vec4(tonemap_aces(color * max(fl.exposure.x, 0.0)), 1.0);")
-            != std::string::npos);
-    REQUIRE(sky.find("outColor = vec4(tonemap_aces(radiance * max(pc.exposure, 0.0)), 1.0);")
+    REQUIRE(frag.find("outColor = vec4(tonemap_aces(hdr * max(pc.exposure, 0.0)), 1.0);")
             != std::string::npos);
 }
 
@@ -190,55 +163,71 @@ TEST_CASE("a negative exposure cannot brighten the image", "[render]")
     // NaN roughness, which the project deliberately lets through as "a garbage pixel, not
     // an error", this one looks like a deliberate choice.
     //
-    // So it is clamped at the SHADING site, which is this project's established place for
-    // it: Material does not clamp roughness either -- cube.frag does, with
-    // clamp(roughness, 0.045, 1.0) -- precisely so an authored value round-trips
-    // byte-for-byte while the shader stays well-defined. Camera keeps whatever was
-    // authored; the shader refuses to brighten with it.
-    //
     // NOT clamped at the top end, deliberately: a huge exposure overflows to NaN around
     // x = 1.2e19, which is the same garbage-in posture roughness already documents, and
     // bounding it would mean inventing a maximum nobody has asked for.
-    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
-    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
-    INFO("Both shaders must floor exposure at 0. Without it a negative exposure renders "
+    //
+    // One shader floors it now rather than two. That is a strictly smaller surface for the
+    // bug, and it is also why the second guard below still earns its place.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
+    INFO("The resolve must floor exposure at 0. Without it a negative exposure renders "
          "WHITE, not black, and non-monotonically.");
-    REQUIRE(lit.find("max(fl.exposure.x, 0.0)") != std::string::npos);
-    REQUIRE(sky.find("max(pc.exposure, 0.0)") != std::string::npos);
+    REQUIRE(frag.find("max(pc.exposure, 0.0)") != std::string::npos);
 
     // AND the curve floors its own input, which is a second guard on a different input
-    // rather than a duplicate of the first. The branch review's observation: `color`
+    // rather than a duplicate of the first. The branch review's observation: the colour
     // itself can go negative, because DirectionalLight::color is a reflected Vec3 with no
     // clamp anywhere and the inspector renders it as three unbounded DragFloats. A light
     // colour of (-1,-1,-1) reproduces the identical white-screen pathology with exposure
-    // sitting at a perfectly sane 1.0, and the call-site floor cannot see it.
+    // sitting at a perfectly sane 1.0, and the call-site floor cannot see it. That path is
+    // if anything wider now: the resolve receives the SUM of every world-space pass, so a
+    // negative contribution from any of them arrives here.
     //
-    // Flooring exposure at the call site still earns its place: it catches a negative
-    // knob even when the colour is ALSO negative, where flooring only the product would
+    // Flooring exposure at the call site still earns its place: it catches a negative knob
+    // even when the colour is ALSO negative, where flooring only the product would
     // multiply two negatives into a positive and brighten.
-    REQUIRE(lit.find("x = max(x, vec3(0.0));") != std::string::npos);
-    REQUIRE(sky.find("x = max(x, vec3(0.0));") != std::string::npos);
+    REQUIRE(frag.find("x = max(x, vec3(0.0));") != std::string::npos);
 }
 
-// Renamed 2026-10-07: the old name was "neither tone-mapping shader hard-codes an exposure
-// value", which oversold it -- a shader with `tonemap_aces(color * 2.0)` and the member
-// still declared would have passed. What it actually checks is that each shader declares
-// an exposure input from its own binding; the guard against a hard-coded value is the
-// full-expression pin in the case above.
-TEST_CASE("both tone-mapping shaders declare an exposure input from their own binding",
-          "[render]")
+TEST_CASE("the resolve takes exposure from its own push constant", "[render]")
 {
-    // The two shaders must scale by the SAME number, which they do by both reading it
-    // from the camera rather than by agreeing on a literal. A constant substituted into
-    // either one makes the sky and the lit geometry drift apart in brightness -- which
-    // reads as "the sky doesn't match the scene", an authoring complaint rather than a
-    // bug report, and no test that checks each shader in isolation would catch it.
+    // Pinned as the plumbing rather than as the absence of a literal: the guard against a
+    // hard-coded `tonemap_aces(hdr * 2.0)` is the full-expression pin above. What this
+    // adds is that the value is an INPUT at all.
     //
-    // Pinned as the plumbing rather than the absence of a literal: `exposure` must come
-    // from the per-frame block in the lit pass and from the push constant in the skybox,
-    // because the skybox does not bind the UBO at all (set 0 is its cubemap).
-    const std::string lit = mosaic::tests::normalize_ws(code_only(read_shader("cube.frag")));
-    const std::string sky = mosaic::tests::normalize_ws(code_only(read_shader("skybox.frag")));
-    REQUIRE(lit.find("vec4 exposure;") != std::string::npos);  // trailing UBO member
-    REQUIRE(sky.find("float exposure;") != std::string::npos); // skybox push member
+    // It is a push constant rather than a read of the per-frame lighting UBO deliberately:
+    // exposure is a property of the resolve now, and a parameter to draw_hdr_resolve is
+    // testable -- render_system_test asserts the active camera's exposure reaches it --
+    // where a UBO field read inside the backend is not.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
+    REQUIRE(frag.find("layout(push_constant)") != std::string::npos);
+    REQUIRE(frag.find("float exposure;") != std::string::npos);
+}
+
+TEST_CASE("the resolve samples the scene in framebuffer space", "[render]")
+{
+    // The Y-flip trap, and the reason hdr_resolve.vert exists instead of a reuse of
+    // screen_effect.vert.
+    //
+    // Every render pass in the Vulkan backend sets a NEGATIVE-HEIGHT viewport, so a
+    // fullscreen triangle that derives its UV from the clip position inherits that flip
+    // and samples the scene UPSIDE DOWN. screen_effect.vert does exactly that, and nobody
+    // noticed for two slices, because a vignette is radially symmetric. A photograph of
+    // the scene is not.
+    //
+    // gl_FragCoord is framebuffer space, so taking the UV from it is correct by
+    // construction. No headless test can see an upside-down image; this pins the
+    // construction that makes it impossible instead.
+    const std::string frag =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
+    const std::string vert =
+        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.vert")));
+    INFO("The resolve must derive its UV from gl_FragCoord, not from an interpolated clip "
+         "position -- the viewport is Y-flipped and an interpolated UV inherits that.");
+    REQUIRE(frag.find("gl_FragCoord.xy / vec2(textureSize(hdrScene, 0))") != std::string::npos);
+    // ...and the vertex shader must not offer one, so the fragment shader cannot drift
+    // back to it. No `out` at all is the enforceable form of that.
+    REQUIRE(vert.find("out vec2") == std::string::npos);
 }
