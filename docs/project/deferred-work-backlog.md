@@ -1287,6 +1287,17 @@ them as this list does.
     a reason, and nothing has asked. The derivation is one function, so
     making it authorable later is cheap. Depends on nothing.
 
+  - **Every swapchain-derived target is rebuilt on each resize, including
+    mid-drag.** `recreate_swapchain` already destroys and recreates the HDR
+    colour and depth images; the bloom plan (2026-10-17) adds up to six image
+    views, six framebuffers and one more allocation to that, and a window drag
+    emits a continuous stream of resize events. Deferred 2026-10-17 from the
+    bloom plan: it is a stutter while dragging, not a correctness problem, and
+    the fix -- allocate for the largest extent seen and render to a sub-rect --
+    is a design question about *every* swapchain-derived target at once rather
+    than about bloom. Depends on nothing; it gets easier once there is more than
+    one target with the problem, which is now.
+
   - **Retune the demo's bloom threshold** — *conditional*, pending the next
     human verification pass. The demo lights itself with a real outdoor HDR
     sky whose radiance genuinely exceeds 1.0, so at the design's default
