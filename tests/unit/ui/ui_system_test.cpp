@@ -801,3 +801,66 @@ TEST_CASE("a destroyed captured button releases the capture", "[ui][input]")
     REQUIRE(h.world.has_component<UiHovered>(other));
     REQUIRE_FALSE(h.press_consumed_for_test());
 }
+
+TEST_CASE("resetting the press state abandons a gesture silently", "[ui][input]")
+{
+    // THE STALE-GESTURE BUG, and it is reachable in the shipped editor. While the editor is
+    // stopped, World::tick never runs, so UiSystem freezes mid-press with was_down_ true.
+    // Press the HUD button, drag past the threshold, hit Stop, then later Play or Step: the
+    // first tick takes the RELEASE edge and emits drag_cancel -- or drag_end plus click if
+    // the cursor happens to be back over the button -- for a gesture that ended seconds ago.
+    //
+    // The fix belongs in the editor, which knows about the play-state transition; UiSystem
+    // only has to offer a way to abandon the gesture. SILENTLY, deliberately: the drag did
+    // not end, it stopped existing, and emitting drag_cancel at reset time would fire a
+    // handler into a world that is being stopped or started.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true};  h.tick(); // press, captures the button
+    h.ptr = {0.15f, 0.05f, true};  h.tick(); // past the threshold -> drag_start
+    REQUIRE(h.names_with_action("drag_start").size() == 1);
+
+    auto* ui = h.world.get_system<UiSystem>();
+    REQUIRE(ui != nullptr);
+    ui->reset_press_state();
+    h.events.clear();
+
+    // The release the frozen system would otherwise have taken on its next tick.
+    h.ptr = {0.15f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("drag_cancel").empty());
+    REQUIRE(h.names_with_action("drag_end").empty());
+    REQUIRE(h.names_with_action("click").empty());
+}
+
+TEST_CASE("resetting the press state releases the click claim", "[ui][input]")
+{
+    // press_consumed() is how ClickNudgeSystem declines a press the UI already took. If the
+    // reset left captured_ set, the world would keep refusing world-space clicks after a
+    // gesture that no longer exists -- the same stale state, in the other consumer.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, true}; h.tick();
+    auto* ui = h.world.get_system<UiSystem>();
+    REQUIRE(ui != nullptr);
+    REQUIRE(ui->press_consumed());
+
+    ui->reset_press_state();
+    REQUIRE_FALSE(ui->press_consumed());
+}
+
+TEST_CASE("resetting the press state does not disturb hover", "[ui][input]")
+{
+    // Hover is not part of the gesture. Clearing it would emit a spurious hover_enter on the
+    // next tick for a cursor that never moved -- and if the cursor HAS moved away, the
+    // ordinary hover path already emits hover_exit, which is correct rather than stale.
+    Harness h;
+    h.ptr = {0.05f, 0.05f, false}; h.tick(); // hover, no press
+    REQUIRE(h.names_with_action("hover_enter").size() == 1);
+    h.events.clear();
+
+    auto* ui = h.world.get_system<UiSystem>();
+    ui->reset_press_state();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("hover_enter").empty());
+    REQUIRE(h.names_with_action("hover_exit").empty());
+}

@@ -207,6 +207,34 @@ public:
     // field behind it -- ClickNudgeSystem does not care that the press is also a capture.
     bool press_consumed() const { return captured_ != mosaic::foundation::EntityID{}; }
 
+    // Abandon any in-progress press or drag, emitting NOTHING.
+    //
+    // For a caller that knows the gesture has stopped being meaningful -- the editor, across
+    // a play-state transition. While the editor is stopped, World::tick never runs, so this
+    // system freezes mid-press with was_down_ true; press the HUD button, drag past the
+    // threshold, hit Stop, then Play or Step, and the first tick takes the RELEASE edge and
+    // emits drag_cancel (or drag_end plus click, if the cursor happens to be back over the
+    // button) for a gesture that ended seconds earlier.
+    //
+    // SILENT, deliberately. The drag did not end, it stopped existing, and emitting
+    // drag_cancel here would fire a handler into a world that is in the middle of being
+    // stopped or started -- which is a worse version of the problem, not a fix for it.
+    //
+    // Hover is NOT cleared: it is not part of the gesture. Clearing it would emit a spurious
+    // hover_enter next tick for a cursor that never moved, and if the cursor HAS moved away
+    // the ordinary hover path emits hover_exit, which is correct rather than stale.
+    //
+    // was_down_ is set FALSE rather than left alone so the next update sees no release edge.
+    // If the button is genuinely still held, that update's `p.down && !was_down_` sees a
+    // fresh press instead -- which is the honest reading: as far as this system is
+    // concerned, a new gesture started.
+    void reset_press_state()
+    {
+        was_down_  = false;
+        captured_  = mosaic::foundation::EntityID{};
+        dragging_  = false;
+    }
+
 private:
     // Emit `action` on the button's own event channel. One helper for click and hover
     // both: two copies of this would be two chances for the payload shapes to diverge,
