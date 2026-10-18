@@ -202,6 +202,28 @@ view that was actually used to pick what to build next as of this writing.
   offset from the slot. Spec
   `docs/superpowers/specs/2026-10-17-ui-layout-containers-design.md`.
 
+- **`stack_children` scans the whole world once per laid-out element, per frame.**
+  Introduced by U8a 2026-10-17 and recorded by its author rather than found in
+  review. `resolve_parent_frame` is called per UI element per frame — by the draw
+  path AND the hit-test path — and now calls `slot_for_child`, which calls
+  `stack_children`, which is a full `for_each<UiParent>` over the world plus a
+  sort. So the cost is roughly **O(E × d × P)** per frame: E elements drawn, d
+  the depth of each one's parent chain, P the number of entities carrying
+  `UiParent`. That is quadratic in the size of a parented UI.
+
+  **Not a problem at today's scale and deliberately not optimised:** the demo has
+  four parented elements, so this is a handful of comparisons a frame, and the
+  obvious fixes (build a parent→children index once per frame, or memoise per
+  resolution pass) both add a cache whose invalidation is a new correctness
+  surface — in a function whose *whole value* is being pure and lazy, which is
+  what makes the draw and hit-test paths agree by construction. Paying that
+  complexity before anything is slow would be trading a guarantee for a guess.
+
+  **The trigger to fix it** is a scene with a UI large enough to measure, which
+  nothing here has yet. When it comes, measure first: the index is cheap, but
+  confirming the cost is real matters more than the shape of the fix. Depends on
+  nothing.
+
 - **`UiGrid` and `UiFlow`** — deferred 2026-10-17 from the U8a layout design,
   which builds `UiStack` only. The three share all their machinery (enumerating a
   parent's children, ordering them deterministically, narrowing the frame to a
