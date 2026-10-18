@@ -64,7 +64,8 @@ TEST_CASE("hdr scene hooks default to no-op", "[render][hdr]")
     // other implementation in this tree records calls and draws nothing.
     MinimalDevice device;
     device.begin_hdr_scene_pass(Color{0.0f, 0.0f, 0.0f, 1.0f});
-    device.draw_hdr_resolve(1.0f);
+    device.draw_hdr_resolve(1.0f, 0.0f);
+    device.build_bloom(mosaic::engine::render::BloomParams{});
     device.end_hdr_scene_pass();
     SUCCEED("the default hooks are callable and do nothing");
 }

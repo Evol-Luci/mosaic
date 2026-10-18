@@ -2223,7 +2223,10 @@ public:
         in_hdr_pass_ = false;
     }
 
-    void draw_hdr_resolve(float exposure) override
+    // bloom_intensity is accepted and not yet used: the bloom chain it scales does not
+    // exist until the backend grows one. It reaches the push constant in the slice that
+    // adds the chain.
+    void draw_hdr_resolve(float exposure, float /*bloom_intensity*/) override
     {
         // Opens the DESTINATION pass -- the swapchain, or the editor's panel target. The
         // resolve never begins a pass of its own: it is a fullscreen triangle into

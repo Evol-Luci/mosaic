@@ -176,6 +176,16 @@ struct ScreenEffectParams
     float                          vignette      = 0.0f;
 };
 
+// What the backend needs to build the bloom chain. The threshold and knee travel; the
+// INTENSITY does not -- it goes to draw_hdr_resolve instead, so that a frame which skips
+// building the chain still contributes exactly zero rather than the previous frame's
+// glow. Safety by arithmetic rather than by a staleness flag that has to be right.
+struct BloomParams
+{
+    float threshold = 1.0f; // display white
+    float knee      = 0.5f; // the soft ramp below it
+};
+
 // One HUD quad in normalized screen space (top-left origin), alpha-blended.
 struct UiQuad
 {
@@ -334,7 +344,18 @@ public:
     // implementation in this tree records calls and draws nothing.
     virtual void begin_hdr_scene_pass(const Color& /*clear*/) {}
     virtual void end_hdr_scene_pass() {}
-    virtual void draw_hdr_resolve(float /*exposure*/) {}
+    // ONE HOOK, NOT N. The engine says "bloom, with these parameters" and the backend
+    // decides how many passes that takes -- a mip chain's length is a backend fact about
+    // a backend resource, and driving the loop from RenderSystem would have carried it
+    // upward through foundation -> engine -> modules for nothing.
+    //
+    // Called between end_hdr_scene_pass and draw_hdr_resolve, and ONLY when the active
+    // camera's Bloom::intensity is above zero. Default no-op, like the hooks around it.
+    virtual void build_bloom(const BloomParams& /*params*/) {}
+    // `bloom_intensity` is passed ALWAYS, including on frames where build_bloom was
+    // skipped: at 0 the chain contributes 0 whatever it contains, so a stale chain cannot
+    // show through and no "is it stale?" flag has to be right.
+    virtual void draw_hdr_resolve(float /*exposure*/, float /*bloom_intensity*/) {}
 
     // Shadow pass: render depth-only geometry from the directional light's point of
     // view into a dedicated shadow map. Default no-op (a backend that doesn't

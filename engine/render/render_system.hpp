@@ -443,7 +443,7 @@ public:
         // A DRAW, not a pass, into whatever colour target is currently bound: the swapchain
         // in `mosaic run --window`, the offscreen viewport target in the editor. That is what
         // keeps both paths on one code path.
-        device.draw_hdr_resolve(exposure);
+        device.draw_hdr_resolve(exposure, 0.0f);
 
         // HUD pass: screen-space alpha-blended panels, drawn last (topmost, over the
         // screen-effect overlay). order-sorted so higher `order` draws on top.

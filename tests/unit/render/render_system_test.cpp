@@ -227,10 +227,19 @@ public:
         hdr_clears.push_back(c);
     }
     void end_hdr_scene_pass() override { ordered_calls.push_back("hdr_end"); }
-    void draw_hdr_resolve(float exposure) override
+    std::vector<mosaic::engine::render::BloomParams> bloom_builds;
+    std::vector<float>                               bloom_intensities;
+
+    void build_bloom(const mosaic::engine::render::BloomParams& p) override
+    {
+        ordered_calls.push_back("bloom_build");
+        bloom_builds.push_back(p);
+    }
+    void draw_hdr_resolve(float exposure, float bloom_intensity) override
     {
         ordered_calls.push_back("hdr_resolve");
         hdr_exposures.push_back(exposure);
+        bloom_intensities.push_back(bloom_intensity);
     }
 
     // Index of the first occurrence, or -1. Comparing indices is how the tests say "before"
