@@ -1311,9 +1311,38 @@ them as this list does.
     a reason, and nothing has asked. The derivation is one function, so
     making it authorable later is cheap. Depends on nothing.
 
-  - **Synchronization validation is never enabled, so the project's strongest
+  - **A depth-attachment `loadOp CLEAR` is not ordered against its own layout
+    transition, in a pass that is not bloom's.** Reported ten times per run by
+    synchronization validation the first time it was ever enabled (2026-10-17),
+    all one class: `WRITE_AFTER_WRITE hazard detected: attachment loadOp access
+    is not synchronized with the attachment layout transition ... clears the
+    depth aspect of attachment 1 ... of VkRenderPass 0x100000000010 (loadOp
+    VK_ATTACHMENT_LOAD_OP_CLEAR)`. **Pre-existing** — it predates bloom, and
+    bloom's own instance of this class (the colour aspect, `loadOp LOAD`, six a
+    frame) was fixed in the same slice that made it visible.
+
+    Diagnosed shape, same as bloom's: `vkCmdBeginRenderPass` transitions the
+    layout (a write) and then honours the `loadOp` (another write, for CLEAR),
+    and the external dependency's DESTINATION scope has to name the depth stage
+    and access — `VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT` and
+    `VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | ..._WRITE_BIT` — for the two
+    to be ordered. Probably a one-line fix per affected pass, but **which**
+    passes is the work: three in this backend have a depth attachment
+    (`render_pass_`, `vp_render_pass_`, `hdr_render_pass_`) and the log gives a
+    handle rather than a name. Deferred 2026-10-17 rather than fixed in the
+    slice that found it: it is a different pass, pre-existing, and each one
+    needs its own before/after run under `MOSAIC_VK_SYNC_VALIDATION=1` to
+    confirm. Depends on nothing; reproduce with
+    `MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic run --window`.
+
+  - ~~**Synchronization validation is never enabled, so the project's strongest
     automated check cannot tell "correctly synchronised" from "accidentally
-    works".** `vulkan_render_device.cpp` enables `VK_LAYER_KHRONOS_validation`
+    works".**~~ — **SHIPPED 2026-10-17**, and it found a real hazard in bloom on
+    its first run. Opt-in via `MOSAIC_VK_SYNC_VALIDATION=1`, because the feature
+    is genuinely expensive; the point was that it was previously unreachable at
+    any price. The run logs `synchronization validation ENABLED` at startup, so
+    a clean log now proves WHAT was checked — the failure this guards against is
+    not a missing check but a false claim about one. Original entry: `vulkan_render_device.cpp` enables `VK_LAYER_KHRONOS_validation`
     with no `VkValidationFeaturesEXT`, so the sync-validation layer is off on
     every run — including the two-entry-point grep this project treats as its
     real gate. Raised by the bloom branch review 2026-10-17, and bloom is why

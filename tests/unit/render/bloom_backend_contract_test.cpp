@@ -324,3 +324,34 @@ TEST_CASE("the bloom descriptors are indexed explicitly, not positionally",
     REQUIRE(body.find("w.dstSet = bloom_sets_[i];") == std::string::npos);
     REQUIRE(body.find("infos.push_back(") == std::string::npos);
 }
+
+TEST_CASE("the bloom pass orders its loadOp READ against the layout transition",
+          "[render][bloom]")
+{
+    // FOUND BY SYNCHRONIZATION VALIDATION, the first time it was ever enabled on this
+    // renderer (2026-10-17) -- and it is a hazard in the bloom pass that two careful
+    // readings had already missed, including the whole-branch review's.
+    //
+    // vkCmdBeginRenderPass does two things to the attachment, in order: it performs the
+    // initialLayout -> COLOR_ATTACHMENT_OPTIMAL transition, which is a WRITE, and then it
+    // honours `loadOp = LOAD`, which is a READ. Ordering those requires
+    // COLOR_ATTACHMENT_READ in the external dependency's DESTINATION access scope. With
+    // only COLOR_ATTACHMENT_WRITE there, the layer reports:
+    //
+    //   READ_AFTER_WRITE hazard detected: attachment loadOp access is not synchronized
+    //   with the attachment layout transition ... (loadOp VK_ATTACHMENT_LOAD_OP_LOAD),
+    //   which was previously written during an image layout transition initiated by the
+    //   same command.
+    //
+    // Six times per frame, once per mip. The earlier widening of this dependency fixed the
+    // SOURCE scope (the downsample's colour write before the upsample's load); this is the
+    // DESTINATION scope, a different gap in the same dependency. Only LOAD passes have it,
+    // which is why no other pass in this backend shows it.
+    const std::string body = method_body(read_backend(), "void create_bloom_render_pass()");
+    INFO("deps[0].dstAccessMask must include VK_ACCESS_COLOR_ATTACHMENT_READ_BIT -- "
+         "loadOp LOAD is a read, and it has to be ordered after the layout transition's "
+         "write. Re-check with MOSAIC_VK_SYNC_VALIDATION=1 if you change this.");
+    REQUIRE(body.find("deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |\n"
+                      "                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;")
+            != std::string::npos);
+}
