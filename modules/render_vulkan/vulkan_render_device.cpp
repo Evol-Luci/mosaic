@@ -4221,7 +4221,7 @@ private:
                  "vkAllocateDescriptorSets(hdr)");
         write_hdr_descriptor();
 
-        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.vert.spv");
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/fullscreen_triangle.vert.spv");
         std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.frag.spv");
         VkShaderModule vert = create_shader_module(vert_code);
         VkShaderModule frag = create_shader_module(frag_code);

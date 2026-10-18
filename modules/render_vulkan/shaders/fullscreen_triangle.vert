@@ -9,6 +9,9 @@ void main()
     // so anything sampling with it reads upside down. A radially symmetric vignette never
     // revealed that. A photograph of the scene would. hdr_resolve.frag takes its UV from
     // gl_FragCoord instead, which is framebuffer space and so correct by construction.
+    // FOUR pipelines share this: the HDR resolve and bloom's prefilter, downsample and
+    // upsample. One copy, so the discipline cannot be learned in one and forgotten in
+    // another.
     vec2 pos = vec2((gl_VertexIndex == 1) ? 3.0 : -1.0, (gl_VertexIndex == 2) ? 3.0 : -1.0);
     gl_Position = vec4(pos, 0.0, 1.0);
 }
