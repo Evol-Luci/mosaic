@@ -4,6 +4,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Manual re-run from the Actions tab or `gh workflow run ci.yml --ref <branch>`.
+  #
+  # Added 2026-10-18 after an outage in which every run failed in ~2 seconds having
+  # executed ZERO steps, with no runner ever assigned -- and there was no way to retry on
+  # demand. `gh run rerun` only re-runs an EXISTING run, which is not the same thing when
+  # you are trying to establish whether the platform has recovered, and it cannot be
+  # pointed at a branch that has no run yet.
+  workflow_dispatch:
 
 jobs:
   build-and-test:
