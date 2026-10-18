@@ -284,6 +284,12 @@ Every built-in engine component, with its fields and their default values. Field
 
 - `parent`: 0 (entity)
 
+## UiStack
+
+- `axis`: 0
+- `spacing`: 0.000000
+- `padding`: 0.000000
+
 ## UiText
 
 - `font`: 00000000-0000-0000-0000-000000000000

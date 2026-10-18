@@ -27,6 +27,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/ui_stack.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/net/net_replicated.hpp"
 #include "engine/world/name.hpp"
@@ -71,6 +72,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::ui::UiImage>(registry, "UiImage");
     types.register_component<mosaic::engine::ui::UiButton>(registry, "UiButton");
     types.register_component<mosaic::engine::ui::UiParent>(registry, "UiParent");
+    types.register_component<mosaic::engine::ui::UiStack>(registry, "UiStack");
     types.register_component<mosaic::engine::ui::WorldLabel>(registry, "WorldLabel");
     types.register_component<mosaic::engine::ui::UiText>(registry, "UiText");
     types.register_component<mosaic::engine::net::NetReplicated>(registry, "NetReplicated");
