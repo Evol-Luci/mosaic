@@ -25,6 +25,8 @@
 #include "engine/render/material.hpp"
 #include "engine/render/spot_light.hpp"
 #include "engine/vfx/bloom.hpp"
+#include "engine/ui/ui_parent.hpp"
+#include "engine/ui/ui_stack.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
@@ -527,4 +529,48 @@ TEST_CASE("the demo's bloom threshold is display white", "[app][bloom]")
     REQUIRE(found);
     REQUIRE(threshold == Catch::Approx(1.0f));
     REQUIRE(knee > 0.0f); // a zero knee is a NaN chain
+}
+
+TEST_CASE("the demo scene authors a stack with children", "[app][layout]")
+{
+    // A stack with no children lays nothing out, and a child with no stack parent is not a
+    // layout -- so the reachable feature is the PAIR, and that is what this asserts.
+    using mosaic::engine::ui::UiParent;
+    using mosaic::engine::ui::UiStack;
+    World world;
+    build_default_scene(world);
+
+    int             stacks = 0;
+    World::EntityID stack_entity{};
+    world.for_each<UiStack>(
+        [&](mosaic::foundation::EntityID e, UiStack&)
+        {
+            ++stacks;
+            stack_entity = e;
+        });
+    REQUIRE(stacks == 1);
+
+    int children = 0;
+    world.for_each<UiParent>(
+        [&](mosaic::foundation::EntityID, UiParent& up)
+        {
+            if (up.parent == stack_entity) { ++children; }
+        });
+    REQUIRE(children == 3);
+}
+
+TEST_CASE("the demo's stack container is not the camera", "[app][layout]")
+{
+    // The camera already parents the "HP" label (U5a hierarchy), so a UiStack on the camera
+    // would reflow that label into a slot and change existing, authored, verified
+    // behaviour. The container is deliberately its own entity.
+    using mosaic::engine::ui::UiStack;
+    World world;
+    build_default_scene(world);
+
+    world.for_each<UiStack>(
+        [&](mosaic::foundation::EntityID e, UiStack&)
+        {
+            REQUIRE_FALSE(world.has_component<mosaic::engine::render::Camera>(e));
+        });
 }

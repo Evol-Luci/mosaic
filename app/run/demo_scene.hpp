@@ -34,6 +34,7 @@
 #include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/ui_stack.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "app/asset/font_cook.hpp"
@@ -742,6 +743,55 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 3});
     world.add_component<mosaic::engine::ui::UiParent>(hud_label,
         mosaic::engine::ui::UiParent{camera});
+
+    // A vertical UiStack of three panels, top-right. ITS OWN ENTITY and deliberately NOT
+    // the camera: the camera already parents the "HP" label above, so a stack there would
+    // reflow that label into a slot and change authored, verified behaviour.
+    //
+    // Authored with CHECKABLE geometry rather than pleasing geometry, so the verification
+    // pass has numbers instead of an impression: `spacing` and `padding` are both 0 and
+    // each child's size is {1,1}, which means the three children must EXACTLY tile the
+    // container -- no seam, no overlap, at any window size. A seam means the slot division
+    // leaves a gap; an overlap means it double-counts spacing.
+    //
+    // Designated initialisers, for the reason the UiButton above states: a future field
+    // cannot silently re-bind these the way adding fields to UiImage re-bound `tint`
+    // during U7. UiStack's three fields are int/float/float, so positional braces would be
+    // exactly the case the compiler cannot catch.
+    const auto hud_stack = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(hud_stack,
+        mosaic::engine::ui::UiPanel{
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopRight),
+            .pos    = mosaic::foundation::math::Vec2{0.02f, 0.02f},
+            .size   = mosaic::foundation::math::Vec2{0.22f, 0.45f},
+            .color  = Vec3{0.05f, 0.05f, 0.08f},
+            .alpha  = 0.55f,
+            .order  = 10});
+    world.add_component<mosaic::engine::ui::UiStack>(hud_stack,
+        mosaic::engine::ui::UiStack{.axis = 0, .spacing = 0.0f, .padding = 0.0f});
+
+    // Three children filling their slots, each a distinct colour so a REORDERING is
+    // visible rather than merely wrong -- red, green, blue top to bottom follows the
+    // authored `order`, which is what stack_children sorts by.
+    //
+    // Their alpha is 1.0 and the container's is 0.55, so what reaches the screen is the
+    // product: these also demonstrate inherited alpha without a second authored feature.
+    const Vec3 slot_colors[3] = {Vec3{0.9f, 0.3f, 0.3f}, Vec3{0.3f, 0.9f, 0.4f},
+                                 Vec3{0.3f, 0.5f, 0.95f}};
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto slot = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(slot,
+            mosaic::engine::ui::UiPanel{
+                .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos    = mosaic::foundation::math::Vec2{0.0f, 0.0f},
+                .size   = mosaic::foundation::math::Vec2{1.0f, 1.0f},
+                .color  = slot_colors[i],
+                .alpha  = 1.0f,
+                .order  = 11 + i});
+        world.add_component<mosaic::engine::ui::UiParent>(slot,
+            mosaic::engine::ui::UiParent{hud_stack});
+    }
 
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/

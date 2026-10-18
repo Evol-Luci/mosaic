@@ -188,6 +188,20 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
+- ~~**U8a — inherited alpha and stack layout**~~ — **SHIPPED 2026-10-17.**
+  `UiStack{axis, spacing, padding}` on a parent narrows each child's frame to
+  an evenly divided slot, inside `resolve_parent_frame` — the one function
+  panels, images, button hit-tests and text all funnel through. A container's
+  alpha multiplies down the `UiParent` chain at render time, writing nothing
+  back. Two of U8's own claims were wrong and are corrected in the spec: layout
+  cannot be a mutating pre-pass (resolution is lazy and `pos` is reflected, so
+  the overwrite would serialise), and the hook belongs in
+  `resolve_parent_frame` rather than `resolve_ui_rect` (the text pass calls the
+  former directly). The decision U8 reserved for the human turned out not to
+  need one: narrowing the frame means `resolve_in` already treats `pos` as an
+  offset from the slot. Spec
+  `docs/superpowers/specs/2026-10-17-ui-layout-containers-design.md`.
+
 - **`UiGrid` and `UiFlow`** — deferred 2026-10-17 from the U8a layout design,
   which builds `UiStack` only. The three share all their machinery (enumerating a
   parent's children, ordering them deterministically, narrowing the frame to a
