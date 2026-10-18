@@ -118,3 +118,150 @@ TEST_CASE("destroy_bloom_chain releases every per-mip handle", "[render][bloom]"
     REQUIRE(body.find("bloom_fbs_.clear()") != std::string::npos);
     REQUIRE(body.find("bloom_levels_ = 0") != std::string::npos);
 }
+
+TEST_CASE("the bloom descriptors are rewritten on resize", "[render][bloom]")
+{
+    // The trap, and it is exactly the defect PR #256 shipped: recreate_swapchain rebuilt
+    // the HDR target and left the resolve's descriptor pointing at the freed view. The fix
+    // there -- write_hdr_descriptor, called from recreate_swapchain -- is the pattern, and
+    // bloom has N+1 sets rather than one, so there are N+1 chances to forget.
+    const std::string rec = method_body(read_backend(), "void recreate_swapchain()");
+    INFO("recreate_swapchain must call write_bloom_descriptors() after rebuilding the "
+         "chain -- every set points at a view destroy_bloom_chain just freed.");
+    REQUIRE(rec.find("write_bloom_descriptors()") != std::string::npos);
+    // And after, not before: the views it writes do not exist until create_bloom_chain ran.
+    REQUIRE(rec.find("create_bloom_chain(") < rec.find("write_bloom_descriptors()"));
+}
+
+TEST_CASE("there is one bloom descriptor set per distinct source", "[render][bloom]")
+{
+    // N + 1 sets: the HDR view, plus EVERY mip 0..N-1. Not N -- the downsample reads mips
+    // 0..N-2 and the upsample reads mips 1..N-1, so between them every level is a source at
+    // some point, including the smallest, which nothing downsamples FROM.
+    //
+    // Allocated for the MAXIMUM chain, so a resize that grows the level count never has to
+    // reallocate the pool.
+    const std::string body = method_body(read_backend(), "void create_bloom_pipelines()");
+    INFO("The bloom descriptor pool must be sized for kBloomMaxLevels + 1 sets.");
+    REQUIRE(body.find("kBloomMaxLevels + 1") != std::string::npos);
+    // Its OWN pool, not descriptor_pool_, whose maxSets is budgeted exactly for textures,
+    // materials and IBL -- borrowing there would starve the last texture at some scene size
+    // rather than failing here.
+    REQUIRE(body.find("bloom_descriptor_pool_") != std::string::npos);
+}
+
+TEST_CASE("the bloom upsample pipeline blends additively", "[render][bloom]")
+{
+    // The one difference between the downsample and the upsample, since they share a
+    // shader. Without (ONE, ONE) the upsample REPLACES the level it targets instead of
+    // adding to it, and the finished glow is only the smallest mip scaled up -- a soft,
+    // uniform wash with none of the chain's detail. It looks deliberate, which is what
+    // makes it hard to spot.
+    const std::string body = method_body(read_backend(), "void create_bloom_pipelines()");
+    REQUIRE(body.find("VK_BLEND_FACTOR_ONE") != std::string::npos);
+    REQUIRE(body.find("bloom_up_pipeline_") != std::string::npos);
+    REQUIRE(body.find("bloom_down_pipeline_") != std::string::npos);
+    REQUIRE(body.find("bloom_prefilter_pipeline_") != std::string::npos);
+}
+
+TEST_CASE("build_bloom runs outside every render pass", "[render][bloom]")
+{
+    // It opens bloom_levels_ render passes of its own, and vkCmdBeginRenderPass inside a
+    // pass is a validation error. RenderSystem calls it between end_hdr_scene_pass and
+    // draw_hdr_resolve, a window where nothing is recording -- but the viewport pass is
+    // LAZILY opened, so "nothing is recording" is a property of today's call order rather
+    // than of the API, and cheap to guarantee here.
+    const std::string body = method_body(read_backend(), "void build_bloom(");
+    INFO("build_bloom must bail out if any pass is already recording.");
+    REQUIRE(body.find("in_hdr_pass_") != std::string::npos);
+    REQUIRE(body.find("swapchain_pass_open_") != std::string::npos);
+    REQUIRE(body.find("viewport_pass_open_") != std::string::npos);
+    REQUIRE(body.find("frame_skipped_") != std::string::npos);
+}
+
+TEST_CASE("build_bloom's loops are written so a one-level chain is a no-op",
+          "[render][bloom]")
+{
+    // At N = 1 the chain is prefilter only and both loops run N-1 = 0 times. bloom_levels_
+    // is UNSIGNED, so `for (i = bloom_levels_ - 2; i >= 0; --i)` would not terminate -- it
+    // would wrap to 4294967294 and index past every vector in the class. Written with
+    // `i + 1 < bloom_levels_` ascending and `i-- > 0` descending, both correct at 1 without
+    // a special case.
+    const std::string body = normalize_ws(method_body(read_backend(), "void build_bloom("));
+    INFO("Neither loop may compute `bloom_levels_ - 2` as an unsigned loop bound.");
+    REQUIRE(body.find("bloom_levels_ - 2") == std::string::npos);
+    REQUIRE(body.find("i + 1 < bloom_levels_") != std::string::npos);
+    REQUIRE(body.find("i-- > 0") != std::string::npos);
+}
+
+TEST_CASE("the resolve binds a set to slot 1 even with no bloom chain", "[render][bloom]")
+{
+    // A minimised window gives bloom_levels_ == 0 and no chain at all, but hdr_resolve.frag
+    // still declares set 1 and samples it -- an unbound set is a validation error, and on
+    // some drivers a crash. The HDR set is bound there as a stand-in; the intensity is 0 on
+    // that path anyway, so what it reads is multiplied away.
+    const std::string body = method_body(read_backend(), "void draw_hdr_resolve(");
+    INFO("draw_hdr_resolve must bind two descriptor sets, falling back to hdr_set_ for "
+         "slot 1 when the chain does not exist.");
+    REQUIRE(body.find("bloom_sets_.empty()") != std::string::npos);
+    REQUIRE(body.find("0, 2, sets") != std::string::npos);
+}
+
+TEST_CASE("the resolve's push block matches hdr_resolve.frag", "[render][bloom]")
+{
+    // The two layouts are shared byte for byte, and a mismatch is silent: the shader reads
+    // whatever bytes land at its offsets, so a wrong order shows up as an exposure that
+    // behaves like an intensity. vec2 first because it has the larger alignment.
+    const std::string src = read_backend();
+    const std::size_t at  = src.find("struct ResolvePush");
+    REQUIRE(at != std::string::npos);
+    const std::string decl = normalize_ws(src.substr(at, 220));
+    REQUIRE(decl.find("float inv_dest[2]; float exposure; float bloom_intensity;")
+            != std::string::npos);
+}
+
+TEST_CASE("the bloom chain is created after the command pool", "[render][bloom]")
+{
+    // FOUND BY A REAL-DEVICE RUN, not by this suite: create_bloom_chain clears the image
+    // through begin_single_time_commands, which needs the command pool. Built before the
+    // pool exists it segfaults with "commandPool must be a valid VkCommandPool handle" --
+    // and the constructor ALREADY carries that exact lesson for
+    // create_default_ibl_resources, which is the comment this ordering now sits beside.
+    //
+    // Nothing headless can see it: no test creates a VkDevice, so the constructor never
+    // runs here. Pinned as text instead, because the next person to add a swapchain-sized
+    // resource will reach for the create_hdr_target line as the template and that line is
+    // ABOVE the pool.
+    const std::string src  = read_backend();
+    const std::size_t pool = src.find("create_command_pool_and_buffers();");
+    const std::size_t make = src.find("create_bloom_chain(extent_.width, extent_.height);");
+    REQUIRE(pool != std::string::npos);
+    REQUIRE(make != std::string::npos);
+    INFO("create_bloom_chain must appear AFTER create_command_pool_and_buffers in the "
+         "constructor -- it submits a one-time command buffer to clear the chain.");
+    REQUIRE(make > pool);
+}
+
+TEST_CASE("the bloom descriptors are written after the chain exists", "[render][bloom]")
+{
+    // The consequence of the ordering above. create_bloom_pipelines allocates the N+1 sets
+    // and writes whatever views exist AT THAT MOMENT -- which, with the chain built later,
+    // is only the HDR view. Without a second write the per-mip sets stay empty and every
+    // bloom pass samples an unwritten descriptor.
+    //
+    // Same shape as write_hdr_descriptor: harmless before the resource exists, called again
+    // once it does.
+    // Scoped to the CONSTRUCTOR, between the chain's creation and the constructor's last
+    // statement. An unscoped search finds the call in recreate_swapchain and passes while
+    // the startup path is still broken -- which is exactly what it did when first written.
+    const std::string src  = read_backend();
+    const std::size_t make = src.find("create_bloom_chain(extent_.width, extent_.height);");
+    REQUIRE(make != std::string::npos);
+    const std::size_t ctor_end = src.find("glfwSetWindowUserPointer(window_, this);", make);
+    REQUIRE(ctor_end != std::string::npos);
+    const std::size_t write = src.find("write_bloom_descriptors();", make);
+    INFO("A write_bloom_descriptors() call must follow create_bloom_chain inside the "
+         "constructor, or the per-mip sets are never pointed at the mip views.");
+    REQUIRE(write != std::string::npos);
+    REQUIRE(write < ctor_end);
+}
