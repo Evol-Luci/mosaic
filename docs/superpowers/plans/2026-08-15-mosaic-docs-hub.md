@@ -38,7 +38,7 @@ Every document must be consistent with these — copied verbatim from the spec:
 - [ ] **Step 1: Create the directory tree and a .gitignore**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 mkdir -p docs/vision docs/architecture docs/design docs/project docs/rfcs
 printf '%s\n' \
   '# OS / editor cruft' '.DS_Store' '*.swp' \
@@ -51,7 +51,7 @@ printf '%s\n' \
 Fetch the canonical AGPL-3.0 text and save it, then add the Mosaic notice header.
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 curl -fsSL https://www.gnu.org/licenses/agpl-3.0.txt -o LICENSE
 ```
 
@@ -80,7 +80,7 @@ AGPLv3 (i.e. you do not want to open-source your derivative work). Hobbyists,
 students, and open-source projects never need it.
 
 To obtain one, contact the copyright holder. See
-[docs/project/licensing.md](docs/project/licensing.md) for the full rationale.
+[docs/project/licensing.md](../../project/licensing.md) for the full rationale.
 
 > This is a summary, not the contract. Final commercial terms are provided in
 > the executed agreement.
@@ -89,7 +89,7 @@ To obtain one, contact the copyright holder. See
 - [ ] **Step 4: Verify tree and files exist**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 test -d docs/vision && test -d docs/architecture && test -d docs/design && test -d docs/project && test -d docs/rfcs && echo "TREE OK"
 test -s LICENSE && test -s LICENSE.commercial.md && echo "LICENSES OK"
 ```
@@ -98,7 +98,7 @@ Expected: `TREE OK` and `LICENSES OK`.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add .gitignore LICENSE LICENSE.commercial.md
 git commit -m "Add repo scaffolding, AGPLv3 license, and commercial license summary"
 ```
@@ -138,7 +138,7 @@ Content:
 - [ ] **Step 3: Verify no placeholders**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 ! grep -rnE 'TBD|TODO|FIXME' README.md docs/vision/manifesto.md && echo "CLEAN"
 ```
 Expected: `CLEAN`.
@@ -146,7 +146,7 @@ Expected: `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add README.md docs/vision/manifesto.md
 git commit -m "Add README and vision manifesto"
 ```
@@ -192,7 +192,7 @@ Add a one-line rationale: this document is the guardrail against architectural r
 - [ ] **Step 4: Verify mermaid fences balance and no placeholders**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 f=docs/architecture/ARCHITECTURE.md
 [ $(grep -c '```mermaid' $f) -ge 1 ] && [ $(grep -c '```' $f) -eq $(( $(grep -c '^```' $f) )) ] && echo "FENCES OK"
 awk '/```/{c++} END{ if (c%2==0) print "BALANCED"; else print "UNBALANCED" }' $f
@@ -203,7 +203,7 @@ Expected: `FENCES OK`, `BALANCED`, `CLEAN`.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/architecture/ARCHITECTURE.md
 git commit -m "Add ARCHITECTURE.md with tiers, dependency rules, and Never-Do contract"
 ```
@@ -232,7 +232,7 @@ Include the `World → Entity → {Transform, MeshRenderer, PhysicsBody, AudioSo
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 f=docs/architecture/data-model.md
 awk '/```/{c++} END{print (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 ! grep -nE 'TBD|TODO|FIXME' $f && echo "CLEAN"
@@ -242,7 +242,7 @@ Expected: `BALANCED`, `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/architecture/data-model.md
 git commit -m "Add data-model architecture doc"
 ```
@@ -271,7 +271,7 @@ A short subsection: the zero-copy transform buffers, ctypes viewport modal sync,
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 f=docs/architecture/boundaries.md
 awk '/```/{c++} END{print (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 ! grep -nE 'TBD|TODO|FIXME' $f && echo "CLEAN"
@@ -281,7 +281,7 @@ Expected: `BALANCED`, `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/architecture/boundaries.md
 git commit -m "Add boundaries doc (Blender, physics, render abstractions)"
 ```
@@ -313,7 +313,7 @@ git commit -m "Add boundaries doc (Blender, physics, render abstractions)"
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 for f in docs/design/reflection.md docs/design/command-event-system.md; do
   awk '/```/{c++} END{print FILENAME, (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 done
@@ -324,7 +324,7 @@ Expected: both `BALANCED`, `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/design/reflection.md docs/design/command-event-system.md
 git commit -m "Add reflection and command/event system design docs"
 ```
@@ -354,7 +354,7 @@ git commit -m "Add reflection and command/event system design docs"
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 for f in docs/design/asset-pipeline.md docs/design/physics.md; do
   awk '/```/{c++} END{print FILENAME, (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 done
@@ -365,7 +365,7 @@ Expected: both `BALANCED`, `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/design/asset-pipeline.md docs/design/physics.md
 git commit -m "Add asset-pipeline and physics design docs"
 ```
@@ -401,7 +401,7 @@ git commit -m "Add asset-pipeline and physics design docs"
 - [ ] **Step 4: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 for f in docs/design/automation-and-agents.md docs/design/rendering.md docs/design/scripting.md; do
   awk '/```/{c++} END{print FILENAME, (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 done
@@ -412,7 +412,7 @@ Expected: all `BALANCED`, `CLEAN`.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/design/automation-and-agents.md docs/design/rendering.md docs/design/scripting.md
 git commit -m "Add automation/agents, rendering, and scripting design docs"
 ```
@@ -444,7 +444,7 @@ Port spec §2.3 in full, in plain language: copyleft explained; AGPL vs GPL vs L
 - [ ] **Step 4: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 for f in docs/project/licensing.md docs/project/roadmap.md docs/project/repo-layout.md; do
   awk '/```/{c++} END{print FILENAME, (c%2==0)?"BALANCED":"UNBALANCED"}' $f
 done
@@ -455,7 +455,7 @@ Expected: all `BALANCED`, `CLEAN`.
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/project/licensing.md docs/project/roadmap.md docs/project/repo-layout.md
 git commit -m "Add licensing, roadmap, and repo-layout project docs"
 ```
@@ -485,7 +485,7 @@ Adopt a short Contributor-Covenant-style code of conduct (paraphrase; standard s
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 ! grep -rnE 'TBD|TODO|FIXME' CONTRIBUTING.md CODE_OF_CONDUCT.md && echo "CLEAN"
 grep -q 'CLA' CONTRIBUTING.md && echo "CLA PRESENT"
 ```
@@ -494,7 +494,7 @@ Expected: `CLEAN`, `CLA PRESENT`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add CONTRIBUTING.md CODE_OF_CONDUCT.md
 git commit -m "Add CONTRIBUTING (with CLA) and CODE_OF_CONDUCT"
 ```
@@ -521,7 +521,7 @@ Instantiate the template for the core data model: formalize `Entity/Component/Sy
 - [ ] **Step 3: Verify**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 test -s docs/rfcs/0000-template.md && test -s docs/rfcs/0001-core-data-model.md && echo "RFCS OK"
 ! grep -rnE 'TBD|TODO|FIXME' docs/rfcs/*.md && echo "CLEAN"
 ```
@@ -530,7 +530,7 @@ Expected: `RFCS OK`, `CLEAN`.
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/rfcs/0000-template.md docs/rfcs/0001-core-data-model.md
 git commit -m "Add RFC template and seed core-data-model RFC"
 ```
@@ -585,14 +585,14 @@ The stock template only renders mermaid when a whole file is loaded as a dedicat
 Write `view_docs.sh` from the skill's `resources/view_docs.sh` (python3 http.server on :8000, opens `docs/index.html`), then:
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 chmod +x view_docs.sh
 ```
 
 - [ ] **Step 4: Verify the hub serves and renders**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 python3 -m http.server 8123 >/tmp/mosaic_http.log 2>&1 &
 SRV=$!; sleep 1
 curl -fsS http://localhost:8123/docs/index.html | grep -q 'Mosaic' && echo "HUB SERVES"
@@ -604,7 +604,7 @@ Expected: `HUB SERVES`, `DOC FETCHABLE`. (For a full visual check, run `./view_d
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add docs/index.html view_docs.sh
 git commit -m "Build docs hub with inline-mermaid rendering and local view helper"
 ```
@@ -624,7 +624,7 @@ git commit -m "Build docs hub with inline-mermaid rendering and local view helpe
 - [ ] **Step 1: Full placeholder + fence sweep across everything**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 echo "== placeholders (expect none) =="
 grep -rnE 'TBD|TODO|FIXME' README.md CONTRIBUTING.md CODE_OF_CONDUCT.md docs/vision docs/architecture docs/design docs/project || echo "NONE"
 echo "== mermaid fence balance =="
@@ -637,7 +637,7 @@ Expected: `NONE` for placeholders (RFCs excluded — they use angle-bracket fiel
 Confirm these appear consistently (no contradictions): dual-license wording, `PhysicsBackend`/no `b3*` in public API claims, dependency-rule direction, right-handed/Y-up/meters/radians, Vulkan-first. Spot-check:
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 grep -rl 'AGPL' docs README.md | sort
 grep -rn 'LGPL' docs/project/licensing.md   # must explain why NOT LGPL
 grep -rn 'Y-up' docs/architecture            # convention stated where math is introduced
@@ -647,7 +647,7 @@ Fix any contradiction inline (edit the offending doc), then re-run Step 1's swee
 - [ ] **Step 3: Verify the hub still lists every doc**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 for p in vision/manifesto architecture/ARCHITECTURE architecture/data-model architecture/boundaries \
   design/reflection design/command-event-system design/asset-pipeline design/physics \
   design/automation-and-agents design/rendering design/scripting \
@@ -660,7 +660,7 @@ Expected: no `MISSING FROM HUB` lines.
 - [ ] **Step 4: Commit any fixes**
 
 ```bash
-cd /home/lucievol/Projects/mosaic
+cd ~/Projects/mosaic
 git add -A && git commit -m "Consistency sweep across Mosaic docs" || echo "no fixes needed"
 ```
 
