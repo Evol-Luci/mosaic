@@ -26,6 +26,7 @@
 #include "engine/ui/ui_system.hpp"
 #include "engine/render/render_system.hpp"
 #include "engine/vfx/bloom.hpp"
+#include "engine/ui/ui_parent.hpp"
 #include "engine/render/shadow.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
@@ -2724,4 +2725,40 @@ TEST_CASE("a world with no camera still resolves with zero bloom", "[render][blo
     REQUIRE(device.index_of("bloom_build") == -1);
     REQUIRE(device.bloom_intensities.size() == 1);
     REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a faded container fades its children", "[render][ui]")
+{
+    // The end-to-end half: the quad the device receives carries the PRODUCT. Asserted
+    // against the fake device rather than against inherited_alpha, because the thing that
+    // can be forgotten is the multiply at the call site, not the helper.
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto container = world.create_entity();
+    UiPanel    outer;
+    outer.alpha = 0.5f;
+    outer.order = 0;
+    world.add_component<UiPanel>(container, outer);
+
+    const auto child = world.create_entity();
+    UiPanel    inner;
+    inner.alpha = 0.5f;
+    inner.order = 1;
+    world.add_component<UiPanel>(child, inner);
+    world.add_component<UiParent>(child, UiParent{container});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws[0];
+    REQUIRE(quads.size() == 2);
+    // order 0 then 1: the container first, then the child at 0.5 * 0.5.
+    REQUIRE(quads[0].alpha == Catch::Approx(0.5f));
+    REQUIRE(quads[1].alpha == Catch::Approx(0.25f));
 }

@@ -353,3 +353,74 @@ TEST_CASE("stacks nest", "[ui][layout]")
     REQUIRE(frame.y == Approx(0.75f));
     REQUIRE(frame.h == Approx(0.25f));
 }
+
+TEST_CASE("inherited_alpha multiplies down the ancestor chain", "[ui][layout]")
+{
+    // Fading a container fades everything in it. Three deep, 0.5 * 0.5 = 0.25 for the
+    // grandchild -- the ANCESTORS' product, not including the element's own alpha, which
+    // the render pass multiplies in separately.
+    World world;
+    const auto a = world.create_entity();
+    UiPanel pa; pa.alpha = 0.5f;
+    world.add_component<UiPanel>(a, pa);
+
+    const auto b = world.create_entity();
+    UiPanel pb; pb.alpha = 0.5f;
+    world.add_component<UiPanel>(b, pb);
+    world.add_component<UiParent>(b, UiParent{a});
+
+    const auto c = world.create_entity();
+    UiPanel pc; pc.alpha = 1.0f;
+    world.add_component<UiPanel>(c, pc);
+    world.add_component<UiParent>(c, UiParent{b});
+
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, a) == Approx(1.0f));
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, b) == Approx(0.5f));
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, c) == Approx(0.25f));
+}
+
+TEST_CASE("inherited_alpha is 1 with no parent", "[ui][layout]")
+{
+    // The state of every element in every scene authored before this feature -- so this is
+    // the regression guard for inherited alpha, and 1.0 is the only value that leaves them
+    // unchanged.
+    World world;
+    const auto e = world.create_entity();
+    UiPanel p; p.alpha = 0.3f;
+    world.add_component<UiPanel>(e, p);
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, e) == Approx(1.0f));
+}
+
+TEST_CASE("inherited_alpha skips a parent with no UiPanel", "[ui][layout]")
+{
+    // UiParent may name any entity. An ancestor without a UiPanel has no alpha to
+    // contribute, and resolve_parent_frame already treats that case as "no frame" -- so
+    // treating it as alpha 0 would hide children for a reason nobody authored.
+    World world;
+    const auto plain = world.create_entity(); // no UiPanel
+    const auto child = world.create_entity();
+    UiPanel p; p.alpha = 1.0f;
+    world.add_component<UiPanel>(child, p);
+    world.add_component<UiParent>(child, UiParent{plain});
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, child) == Approx(1.0f));
+}
+
+TEST_CASE("inherited_alpha does not write to the authored alphas", "[ui][layout]")
+{
+    // The discipline resolve_appearance states: "nothing writes to p.color, so the
+    // authored value survives and a scene saved while hovering carries no hover tint." A
+    // scene saved while a container is mid-fade must carry the authored alphas, not the
+    // product.
+    World world;
+    const auto a = world.create_entity();
+    UiPanel pa; pa.alpha = 0.5f;
+    world.add_component<UiPanel>(a, pa);
+    const auto b = world.create_entity();
+    UiPanel pb; pb.alpha = 0.5f;
+    world.add_component<UiPanel>(b, pb);
+    world.add_component<UiParent>(b, UiParent{a});
+
+    (void)mosaic::engine::ui::inherited_alpha(world, b);
+    REQUIRE(world.get_component<UiPanel>(a)->alpha == Approx(0.5f));
+    REQUIRE(world.get_component<UiPanel>(b)->alpha == Approx(0.5f));
+}

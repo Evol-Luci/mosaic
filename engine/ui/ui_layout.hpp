@@ -107,4 +107,36 @@ inline std::optional<Rect> slot_for_child(mosaic::engine::World& world,
     return std::nullopt;
 }
 
+// The product of every ANCESTOR panel's alpha, so that fading a container fades everything
+// inside it. The element's own alpha is NOT included -- the render pass multiplies that in
+// separately, which keeps the authored early-out (`alpha <= 0` means hidden) reading the
+// authored value.
+//
+// A RENDER-TIME OVERRIDE THAT NEVER WRITES BACK, the discipline resolve_appearance states
+// in render_system.hpp: "nothing writes to p.color, so the authored value survives and a
+// scene saved while hovering carries no hover tint." A scene saved mid-fade must carry the
+// authored alphas, not the product.
+//
+// An ancestor with no UiPanel contributes nothing rather than zero: UiParent may name any
+// entity, resolve_parent_frame already treats that case as "no frame", and treating it as
+// alpha 0 would hide children for a reason nobody authored. Same kMaxDepth as
+// resolve_parent_frame, for the same reason -- a cycle in UiParent must terminate.
+inline float inherited_alpha(mosaic::engine::World& world, mosaic::foundation::EntityID e)
+{
+    constexpr int                kMaxDepth = 16;
+    float                        product   = 1.0f;
+    mosaic::foundation::EntityID cur       = e;
+    for (int depth = 0; depth < kMaxDepth; ++depth)
+    {
+        const UiParent* up = world.get_component<UiParent>(cur);
+        if (up == nullptr || !world.is_valid(up->parent)) { break; }
+        if (const UiPanel* pp = world.get_component<UiPanel>(up->parent))
+        {
+            product *= pp->alpha;
+        }
+        cur = up->parent;
+    }
+    return product;
+}
+
 } // namespace mosaic::engine::ui

@@ -480,7 +480,14 @@ public:
                     // alpha -- 0 means hidden, and a style must not reveal it.
                     const auto app = mosaic::engine::ui::resolve_appearance(
                         mosaic::engine::ui::active_hover_style(world, e), p.color, p.alpha);
-                    pending.push_back({p.order, UiQuad{rect, app.color, app.alpha}});
+                    // Inherited alpha multiplies the RESOLVED alpha, AFTER the authored
+                    // early-out above. Both directions matter: an element authored at 0
+                    // stays hidden whatever its ancestors say, and a container at 0 hides
+                    // a child whose own alpha is 1.
+                    pending.push_back(
+                        {p.order,
+                         UiQuad{rect, app.color,
+                                app.alpha * mosaic::engine::ui::inherited_alpha(world, e)}});
                 });
             std::stable_sort(pending.begin(), pending.end(),
                              [](const auto& l, const auto& r) { return l.first < r.first; });
@@ -522,7 +529,9 @@ public:
                         mosaic::engine::ui::active_hover_style(world, e), im.tint, im.alpha);
                     pending.push_back(
                         {im.order,
-                         {UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color, app.alpha},
+                         {UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color,
+                                      app.alpha
+                                          * mosaic::engine::ui::inherited_alpha(world, e)},
                           info.handle}});
                 });
             // stable_sort ASCENDING, matching the panel pass: higher `order` is drawn last
@@ -562,7 +571,11 @@ public:
                     const std::vector<mosaic::engine::ui::TextQuad> tq =
                         mosaic::engine::ui::layout_text(*font, t.text, mosaic::engine::ui::to_anchor(t.anchor),
                                                         t.pos, t.height, aspect_,
-                                                        app.color, app.alpha, frame);
+                                                        app.color,
+                                                        app.alpha
+                                                            * mosaic::engine::ui::inherited_alpha(
+                                                                world, e),
+                                                        frame);
                     if (tq.empty()) { return; }
                     std::vector<UiGlyphQuad> quads;
                     quads.reserve(tq.size());
