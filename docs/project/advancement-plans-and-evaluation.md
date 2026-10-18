@@ -252,7 +252,7 @@ sequenceDiagram
 ## 6. Traceability & Filing Notice
 
 This evaluation is permanently filed in the Mosaic repository documentation hub:
-- **File Location:** [`docs/project/advancement-plans-and-evaluation.md`](file:///home/lucievol/Projects/mosaic/docs/project/advancement-plans-and-evaluation.md)
-- **Documentation Hub Link:** Registered in [`docs/index.html`](file:///home/lucievol/Projects/mosaic/docs/index.html) under *General* and *Project & Legal*.
+- **File Location:** [`docs/project/advancement-plans-and-evaluation.md`](advancement-plans-and-evaluation.md)
+- **Documentation Hub Link:** Registered in [`docs/index.html`](../index.html) under *General* and *Project & Legal*.
 - **Related Tracking Issues:** GitHub Issues [#33](https://github.com/Evol-Luci/mosaic/issues/33), [#34](https://github.com/Evol-Luci/mosaic/issues/34), [#35](https://github.com/Evol-Luci/mosaic/issues/35), [#36](https://github.com/Evol-Luci/mosaic/issues/36), [#42](https://github.com/Evol-Luci/mosaic/issues/42), [#43](https://github.com/Evol-Luci/mosaic/issues/43), [#44](https://github.com/Evol-Luci/mosaic/issues/44), [#45](https://github.com/Evol-Luci/mosaic/issues/45), [#46](https://github.com/Evol-Luci/mosaic/issues/46), [#37](https://github.com/Evol-Luci/mosaic/issues/37), [#25](https://github.com/Evol-Luci/mosaic/issues/25).
 - **Rule of Re-Evaluation:** *If no further architectural or implementation changes have been made to the repository since the timestamp on this document, no new evaluation is required.*
