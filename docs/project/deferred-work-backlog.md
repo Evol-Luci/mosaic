@@ -188,6 +188,80 @@ view that was actually used to pick what to build next as of this writing.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
+- ~~**U8a — inherited alpha and stack layout**~~ — **SHIPPED 2026-10-17.**
+  `UiStack{axis, spacing, padding}` on a parent narrows each child's frame to
+  an evenly divided slot, inside `resolve_parent_frame` — the one function
+  panels, images, button hit-tests and text all funnel through. A container's
+  alpha multiplies down the `UiParent` chain at render time, writing nothing
+  back. Two of U8's own claims were wrong and are corrected in the spec: layout
+  cannot be a mutating pre-pass (resolution is lazy and `pos` is reflected, so
+  the overwrite would serialise), and the hook belongs in
+  `resolve_parent_frame` rather than `resolve_ui_rect` (the text pass calls the
+  former directly). The decision U8 reserved for the human turned out not to
+  need one: narrowing the frame means `resolve_in` already treats `pos` as an
+  offset from the slot. Spec
+  `docs/superpowers/specs/2026-10-17-ui-layout-containers-design.md`.
+
+- **`stack_children` scans the whole world once per laid-out element, per frame.**
+  Introduced by U8a 2026-10-17 and recorded by its author rather than found in
+  review. `resolve_parent_frame` is called per UI element per frame — by the draw
+  path AND the hit-test path — and now calls `slot_for_child`, which calls
+  `stack_children`, which is a full `for_each<UiParent>` over the world plus a
+  sort. So the cost is roughly **O(E × d × P)** per frame: E elements drawn, d
+  the depth of each one's parent chain, P the number of entities carrying
+  `UiParent`. That is quadratic in the size of a parented UI.
+
+  **Not a problem at today's scale and deliberately not optimised:** the demo has
+  four parented elements, so this is a handful of comparisons a frame, and the
+  obvious fixes (build a parent→children index once per frame, or memoise per
+  resolution pass) both add a cache whose invalidation is a new correctness
+  surface — in a function whose *whole value* is being pure and lazy, which is
+  what makes the draw and hit-test paths agree by construction. Paying that
+  complexity before anything is slow would be trading a guarantee for a guess.
+
+  **Sharpened by the whole-branch review**, which put real numbers on it: the
+  resolve happens in the panel pass, the image pass, the text pass AND
+  `button_hit_candidates`, so 4-5 times a frame, and each `resolve_parent_frame`
+  also allocates `2D` vectors. A 30-child stack in a world of 100 `UiParent`
+  entities is roughly 12,000 visits, 120 sorts and 240 heap allocations per
+  frame; a 200-child stack with 500 parents is ~400,000 visits and ~4,000
+  allocations per frame, which would dominate the UI's cost. Non-stack scenes
+  pay nothing -- the `UiStack` lookup short-circuits before the scan.
+
+  **The trigger to fix it** is a UI of a few hundred elements, which nothing here
+  has yet; the review's phrase for it is "a real scaling cliff that is invisible
+  until someone builds an inventory grid". The named mitigation is a per-frame
+  memoised `parent -> children` map built once per render rather than per
+  element. Measure first: the index is cheap, but confirming the cost is real
+  matters more than the shape of the fix. Depends on nothing.
+
+- **`UiGrid` and `UiFlow`** — deferred 2026-10-17 from the U8a layout design,
+  which builds `UiStack` only. The three share all their machinery (enumerating a
+  parent's children, ordering them deterministically, narrowing the frame to a
+  slot) and differ only in slot arithmetic, so they are genuinely additive once a
+  stack exists. Deferred to keep the surface of the slice's one reserved decision
+  (what an authored `pos` means under a layout) as small as possible before
+  anyone has seen it work. Depends on U8a shipping.
+- **Content-sized layout slots** — U8a divides a parent's padded rect **evenly**
+  along the axis. Content-sized slots need content measurement, and `UiText` has
+  no measured height until its font atlas is resolved, so layout would come to
+  depend on asset loading — a dependency worth refusing deliberately rather than
+  acquiring by accident. Deferred 2026-10-17. Depends on a decision about whether
+  layout may block on assets at all.
+- **A real `visible` bool on the UI components** — U8 asked for "inherited
+  visibility/alpha", and U8a delivers alpha only. **These are not the same
+  feature:** `alpha = 0` hides an element but it still HIT-TESTS, so an invisible
+  panel still eats clicks. Deferred 2026-10-17 for two reasons: the hit-test
+  question belongs to U6, and adding a field to `UiPanel` re-binds the positional
+  brace initialisers in `app/run/demo_scene.hpp` where the compiler would not
+  necessarily catch it. Depends on deciding whether invisible means
+  non-interactive.
+- **A layout-slot gizmo in the editor** — authoring a `UiStack` works through
+  reflection with no editor work, but nothing *visualises* a slot, so an author
+  tuning `padding` or `spacing` is reading numbers rather than seeing boxes.
+  Deferred 2026-10-17: drawing a computed rect in the viewport is editor work
+  with its own design, and the numbers are checkable meanwhile. Depends on
+  nothing.
 - **Tiling / repeat for `UiImage`** — deferred 2026-10-10 during the image-presentation
   design. Not a flag: with a sub-rect in play, repeating means either a separate atlas
   page (so the sampler's address mode can wrap the whole texture) or shader-side wrapping

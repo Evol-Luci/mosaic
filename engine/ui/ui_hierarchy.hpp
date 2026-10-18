@@ -1,5 +1,6 @@
 #pragma once
 
+#include "engine/ui/ui_layout.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
@@ -21,7 +22,24 @@ inline Rect resolve_parent_frame(mosaic::engine::World& world,
     UiPanel* pp = world.get_component<UiPanel>(up->parent);
     if (pp == nullptr) { return kScreen; }
     const Rect parent_frame = resolve_parent_frame(world, up->parent, depth + 1);
-    return resolve_in(parent_frame, to_anchor(pp->anchor), pp->pos, pp->size);
+    const Rect parent_rect =
+        resolve_in(parent_frame, to_anchor(pp->anchor), pp->pos, pp->size);
+    // LAYOUT NARROWS THE FRAME. If the parent carries a UiStack, this child's frame is its
+    // slot rather than the parent's whole rect -- and everything downstream runs unchanged,
+    // which is the point. resolve_in already treats `pos` as an offset within the frame and
+    // `size` as a fraction of it, so a child under a stack keeps its anchor, offsets from
+    // its slot, and sizes relative to it with no new rule anywhere.
+    //
+    // THE HOOK IS HERE AND NOT IN resolve_ui_rect, deliberately. Two call paths reach the
+    // hierarchy: panels, images and button hit-tests go through resolve_ui_rect, but TEXT
+    // calls this function directly (the HUD text pass in render_system.hpp) and hands the
+    // frame to layout_text. Hooking the wrapper would have laid out panels and images and
+    // silently left every label where it was, with no existing test failing.
+    if (const std::optional<Rect> slot = slot_for_child(world, e, parent_rect))
+    {
+        return *slot;
+    }
+    return parent_rect;
 }
 
 // This element's screen rect, resolved within its parent frame.
