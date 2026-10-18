@@ -24,6 +24,7 @@
 #include "engine/render/builtin_meshes.hpp"
 #include "engine/render/material.hpp"
 #include "engine/render/spot_light.hpp"
+#include "engine/vfx/bloom.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
@@ -466,4 +467,64 @@ TEST_CASE("setup_runtime registers the environment cubemap and points the render
     // milliseconds.
     REQUIRE(registry.metadata(mosaic::app::kEnvironmentCubemapId) != nullptr);
     REQUIRE(registry.metadata(mosaic::app::kEnvironmentCubemapId)->type == "environment");
+}
+
+TEST_CASE("the demo scene authors a visible bloom on its camera", "[app][bloom]")
+{
+    // Bloom::intensity defaults to 0, so a demo without this renders byte-identically to
+    // one built before the feature existed -- the feature would ship unreachable, and the
+    // human verification pass would have nothing to look at.
+    //
+    // On the CAMERA, because that is where RenderSystem reads it; a Bloom anywhere else in
+    // the scene is deliberately ignored.
+    using mosaic::engine::vfx::Bloom;
+    World world;
+    build_default_scene(world);
+
+    int   with_bloom = 0;
+    float intensity  = 0.0f;
+    world.for_each<mosaic::engine::render::Camera>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::render::Camera&)
+        {
+            if (const auto* b = world.get_component<Bloom>(e))
+            {
+                ++with_bloom;
+                intensity = b->intensity;
+            }
+        });
+    REQUIRE(with_bloom == 1);
+    REQUIRE(intensity > 0.0f);
+}
+
+TEST_CASE("the demo's bloom threshold is display white", "[app][bloom]")
+{
+    // The load-bearing constant for the next human verification pass. The retuned particle
+    // and decal colours peak at 2.85, 1.75 and 2.85 in their brightest channel; the ground
+    // is lit but never AUTHORED above 1. A threshold of exactly 1.0 is therefore what makes
+    // "the fountain glows, the ground does not" a checkable claim rather than an
+    // impression -- and if the verification pass says the sky veils, THIS is the number
+    // that changes, not the pipeline.
+    using mosaic::engine::vfx::Bloom;
+    World world;
+    build_default_scene(world);
+
+    // Read OUT of the lambda rather than asserted inside it: assertions inside an `if`
+    // that never fires are a test that passes by doing nothing, which is what this one did
+    // when first written.
+    bool  found     = false;
+    float threshold = -1.0f;
+    float knee      = -1.0f;
+    world.for_each<mosaic::engine::render::Camera>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::render::Camera&)
+        {
+            if (const auto* b = world.get_component<Bloom>(e))
+            {
+                found     = true;
+                threshold = b->threshold;
+                knee      = b->knee;
+            }
+        });
+    REQUIRE(found);
+    REQUIRE(threshold == Catch::Approx(1.0f));
+    REQUIRE(knee > 0.0f); // a zero knee is a NaN chain
 }
