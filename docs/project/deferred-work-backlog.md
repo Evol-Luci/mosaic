@@ -1336,12 +1336,43 @@ them as this list does.
     the end of subpass 0 (vkCmdEndRenderPass) by the attachment storeOp (from
     VkCommandBuffer B)` — two *different* command buffers on the same queue, so
     this is about synchronisation **between submissions**, not within a render
-    pass. That makes it a bigger question than the one above: it involves the
-    semaphores and fences in `end_frame`/`begin_frame` and the editor's
-    multi-submit structure, not a subpass dependency. Deferred for that reason
-    rather than time. Reproduce with `MOSAIC_VK_SYNC_VALIDATION=1
-    ./build/debug/app/mosaic editor`; the window path does not show it, which
-    suggests the editor's extra submission is implicated. Depends on nothing.
+    pass.
+
+    **ROOT-CAUSED 2026-10-18** (diagnosed, not fixed). The two command buffers
+    are not two passes in one frame -- they are **two FRAMES**. The mechanism:
+
+    - `kFramesInFlight = 2`, so `cmd_[0]` and `cmd_[1]` alternate.
+    - `depth_image_`, `hdr_color_`, `hdr_depth_`, `vp_color_` and `vp_depth_` are
+      **single instances shared by both frames**. Only the swapchain images and
+      the command buffers are per-frame.
+    - `begin_frame` waits on `in_flight_[frame_]`, which is the fence of the
+      submission that used *that same index* -- i.e. two submissions ago. So
+      frame N and frame N+1 genuinely overlap on the GPU.
+    - The only inter-frame semaphore is `image_available_[frame_]`, waited at
+      `COLOR_ATTACHMENT_OUTPUT`. It orders swapchain image ACQUISITION and says
+      nothing about the shared depth/HDR/viewport targets.
+
+    So frame N+1's `vkCmdBeginRenderPass` can begin writing a shared attachment
+    (the layout transition, then `loadOp`) while frame N's `storeOp` on the same
+    image is still executing. That is exactly what the layer reports.
+
+    **Three fixes, with their costs.** (1) *Per-frame duplicates of every shared
+    attachment* -- the standard answer and the right long-term one, but it
+    doubles the memory for five images and makes every create/destroy,
+    framebuffer, descriptor write and resize path per-frame, **including the HDR
+    descriptor and the whole bloom chain**. That is the "its own decomposition"
+    part. (2) *`kFramesInFlight = 1`* -- correct and nearly free to implement,
+    costs GPU/CPU overlap and therefore throughput. (3) *Explicit barriers
+    ordering frame N+1's first use of each shared target against frame N's last*
+    -- re-implements (1)'s guarantee with synchronisation instead of memory, and
+    is the easiest of the three to get subtly wrong.
+
+    Deferred because the choice between those is a real design decision about
+    memory against latency, not something to settle while shipping a different
+    fix. **Not attempted and not verified** -- the entry above was verified by
+    watching its message class go to zero; nothing here has been. Reproduce with
+    `MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor`. Depends on
+    nothing.
   - ~~**Synchronization validation is never enabled, so the project's strongest
     automated check cannot tell "correctly synchronised" from "accidentally
     works".**~~ — **SHIPPED 2026-10-17**, and it found a real hazard in bloom on
