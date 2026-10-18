@@ -88,3 +88,52 @@ TEST_CASE("a run says in its own log whether sync validation was on",
          "proving a clean run also proves WHAT was being checked.");
     REQUIRE(body.find("synchronization validation") != std::string::npos);
 }
+
+namespace
+{
+// A named method's body, from its signature to the next method at the same indentation.
+std::string pass_body(const std::string& src, const std::string& signature)
+{
+    const std::size_t at = src.find(signature);
+    REQUIRE(at != std::string::npos);
+    const std::size_t end = src.find("\n    void ", at + signature.size());
+    return src.substr(at, (end == std::string::npos ? src.size() : end) - at);
+}
+} // namespace
+
+TEST_CASE("every pass that clears depth orders the clear against its layout transition",
+          "[render][validation]")
+{
+    // FOUND BY SYNCHRONIZATION VALIDATION, ten times per run, the first time it was ever
+    // enabled on this renderer (2026-10-18):
+    //
+    //   WRITE_AFTER_WRITE hazard detected: attachment loadOp access is not synchronized
+    //   with the attachment layout transition ... clears the depth aspect of attachment 1
+    //   ... (loadOp VK_ATTACHMENT_LOAD_OP_CLEAR), which was previously written during an
+    //   image layout transition initiated by the same command.
+    //
+    // vkCmdBeginRenderPass does two things to the depth attachment in order: the
+    // UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL transition, which WRITES, and then the
+    // loadOp CLEAR, which also writes. Ordering them requires the external dependency's
+    // destination scope to name the DEPTH stage and access -- EARLY_FRAGMENT_TESTS and
+    // DEPTH_STENCIL_ATTACHMENT_WRITE. A dependency naming only COLOR_ATTACHMENT_OUTPUT
+    // covers the colour attachment and says nothing about depth.
+    //
+    // `create_render_pass` (the swapchain) already had this right and is the template the
+    // other two now follow; it is asserted here too so the three cannot drift apart.
+    const std::string src = read_backend();
+    for (const char* sig : {"void create_render_pass()",
+                            "void create_offscreen_render_pass()",
+                            "void create_hdr_render_pass()"})
+    {
+        const std::string body = pass_body(src, sig);
+        INFO(std::string(sig) + " clears a depth attachment, so its external dependency "
+             "must name EARLY_FRAGMENT_TESTS and DEPTH_STENCIL_ATTACHMENT_WRITE in its "
+             "DESTINATION scope. Re-check with MOSAIC_VK_SYNC_VALIDATION=1 if you change "
+             "this.");
+        // Only assert for passes that actually clear depth -- the premise of the case.
+        REQUIRE(body.find("depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR") != std::string::npos);
+        REQUIRE(body.find("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT") != std::string::npos);
+        REQUIRE(body.find("VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT") != std::string::npos);
+    }
+}
