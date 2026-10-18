@@ -1322,57 +1322,40 @@ them as this list does.
     now holds all three together. Verified by the layer: that message class went
     from 10 occurrences to 0.
 
-  - **Cross-submit `WRITE_AFTER_WRITE`: one command buffer's `storeOp` against
-    the next submission's `vkCmdBeginRenderPass`.** Found 2026-10-18 and **it
-    was MASKED until the fix above landed** — the validation layer's
-    `duplicate_message_limit` is 10, the depth-clear class was consuming the
-    entire reporting budget, and this class appeared the moment that one
-    stopped. Worth remembering as a general lesson about this gate: a hazard
-    count that does not drop after a real fix may be a *different* problem
-    becoming visible, not the same one persisting.
+  - ~~**Cross-submit `WRITE_AFTER_WRITE`: one command buffer's `storeOp` against
+    the next submission's `vkCmdBeginRenderPass`.**~~ — **FIXED 2026-10-18, and
+    my own analysis of it was wrong in the direction that matters.**
 
-    `vkQueueSubmit(): WRITE_AFTER_WRITE hazard detected. vkCmdBeginRenderPass
-    (from VkCommandBuffer A) writes to resource, which was previously written at
-    the end of subpass 0 (vkCmdEndRenderPass) by the attachment storeOp (from
-    VkCommandBuffer B)` — two *different* command buffers on the same queue, so
-    this is about synchronisation **between submissions**, not within a render
-    pass.
+    The diagnosis was right: `kFramesInFlight` is 2 while `depth_image_`,
+    `hdr_color_`, `hdr_depth_`, `vp_color_` and `vp_depth_` are single images
+    shared by both frames, and `begin_frame` waits on the fence from two
+    submissions ago — so frames N and N+1 overlap and race on the shared depth
+    attachment.
 
-    **ROOT-CAUSED 2026-10-18** (diagnosed, not fixed). The two command buffers
-    are not two passes in one frame -- they are **two FRAMES**. The mechanism:
+    **The prescribed fixes were all wrong.** This entry previously listed three
+    options — per-frame duplicates of five images (which would have made the
+    whole bloom chain per-frame), reducing to one frame in flight, or explicit
+    cross-frame barriers — and called the choice between them a real design
+    decision about memory against latency. **None of that was necessary.**
+    `VK_SUBPASS_EXTERNAL` already covers prior submissions on the same queue, so
+    the entire fix was naming the previous frame's writes in each pass's
+    **source scope**: `LATE_FRAGMENT_TESTS` and
+    `VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT`. Three render passes, no
+    duplicated memory, no lost frame overlap.
 
-    - `kFramesInFlight = 2`, so `cmd_[0]` and `cmd_[1]` alternate.
-    - `depth_image_`, `hdr_color_`, `hdr_depth_`, `vp_color_` and `vp_depth_` are
-      **single instances shared by both frames**. Only the swapchain images and
-      the command buffers are per-frame.
-    - `begin_frame` waits on `in_flight_[frame_]`, which is the fence of the
-      submission that used *that same index* -- i.e. two submissions ago. So
-      frame N and frame N+1 genuinely overlap on the GPU.
-    - The only inter-frame semaphore is `image_available_[frame_]`, waited at
-      `COLOR_ATTACHMENT_OUTPUT`. It orders swapchain image ACQUISITION and says
-      nothing about the shared depth/HDR/viewport targets.
+    **Two bits cost a measurement each to find, and both are worth remembering.**
+    `LATE_FRAGMENT_TESTS` rather than only `EARLY` — depth writes occur in both
+    stages and the layer attributes the end-of-pass `storeOp` to LATE. And the
+    **swapchain** pass, whose dependency had `srcAccessMask = 0` and therefore
+    named no prior access at all; fixing only the offscreen and HDR passes left
+    the hazard count unchanged at 10 and looked like total failure.
 
-    So frame N+1's `vkCmdBeginRenderPass` can begin writing a shared attachment
-    (the layout transition, then `loadOp`) while frame N's `storeOp` on the same
-    image is still executing. That is exactly what the layer reports.
-
-    **Three fixes, with their costs.** (1) *Per-frame duplicates of every shared
-    attachment* -- the standard answer and the right long-term one, but it
-    doubles the memory for five images and makes every create/destroy,
-    framebuffer, descriptor write and resize path per-frame, **including the HDR
-    descriptor and the whole bloom chain**. That is the "its own decomposition"
-    part. (2) *`kFramesInFlight = 1`* -- correct and nearly free to implement,
-    costs GPU/CPU overlap and therefore throughput. (3) *Explicit barriers
-    ordering frame N+1's first use of each shared target against frame N's last*
-    -- re-implements (1)'s guarantee with synchronisation instead of memory, and
-    is the easiest of the three to get subtly wrong.
-
-    Deferred because the choice between those is a real design decision about
-    memory against latency, not something to settle while shipping a different
-    fix. **Not attempted and not verified** -- the entry above was verified by
-    watching its message class go to zero; nothing here has been. Reproduce with
-    `MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor`. Depends on
-    nothing.
+    **How it was actually found:** by reading the layer's full message instead of
+    its count. The one-line summary says only "writes to resource, which was
+    previously written ... by the attachment storeOp"; the sentence *after* it
+    names the access and the stage, which is the entire answer. Verified: both
+    entry points now report **zero** hazards of any kind under
+    `MOSAIC_VK_SYNC_VALIDATION=1`, and a contract test pins all three passes.
   - ~~**Synchronization validation is never enabled, so the project's strongest
     automated check cannot tell "correctly synchronised" from "accidentally
     works".**~~ — **SHIPPED 2026-10-17**, and it found a real hazard in bloom on
