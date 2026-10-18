@@ -257,13 +257,42 @@ int run_editor(const Options& options,
         return g_editor_stop.load() || studio.exit_requested() || studio.reopen_requested()
                || glfwWindowShouldClose(window) == GLFW_TRUE;
     };
+    // Edge detection for the play-state transition below. Seeded from the editor's actual
+    // starting state (stopped) so opening the editor is not itself treated as a transition.
+    bool ui_was_playing = studio.play_state().is_playing();
+
     deps.on_frame = [window, &device, &studio, &world, &reflection, render_system, &asset_registry,
                      &loop, &transform_system, &order_warnings, &conflict_warnings,
-                     &sub_rect_warnings] {
+                     &sub_rect_warnings, &ui_was_playing] {
         glfwPollEvents();
 
         // Toolbar-driven simulation control: pause = stop, resume = start, step = one tick.
         mosaic::studio::PlayState& play = studio.play_state();
+
+        // ABANDON ANY IN-PROGRESS PRESS ACROSS A PLAY-STATE TRANSITION.
+        //
+        // While stopped, `loop.stop()` below means World::tick never runs, so UiSystem
+        // freezes mid-press with its was_down_ still true. Press the HUD button, drag past
+        // the threshold, hit Stop, then later Play or Step: the first tick takes the
+        // RELEASE edge and emits drag_cancel -- or drag_end plus click, if the cursor
+        // happens to be back over the button -- for a gesture that ended seconds ago.
+        //
+        // The fix is HERE rather than in UiSystem because only the editor knows a
+        // transition happened; UiSystem sees one frozen frame followed by another and has
+        // no way to tell seconds of wall-clock from a dropped frame.
+        //
+        // Edge-triggered, not level: the two calls above are idempotent per frame, but
+        // resetting the press state every frame would destroy a legitimate drag in
+        // progress while playing.
+        if (play.is_playing() != ui_was_playing)
+        {
+            ui_was_playing = play.is_playing();
+            if (auto* ui = world.get_system<mosaic::engine::ui::UiSystem>())
+            {
+                ui->reset_press_state();
+            }
+        }
+
         if (play.is_playing()) { loop.start(); } else { loop.stop(); }
         if (play.consume_step_request()) { loop.step(world); }
 

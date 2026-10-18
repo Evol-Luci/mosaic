@@ -609,6 +609,14 @@ them as this list does.
   `drag` at clamped coordinates forever and never reach `drag_cancel`. One `&& p.inside` makes
   the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
   effect; worth folding into whichever slice adds a third provider.
+- ~~**A press surviving a play-mode change emits a stale drag action**~~ — **FIXED
+  2026-10-18**, where this entry said it belonged: in the editor, which is the only
+  party that knows a transition happened. `UiSystem` gained
+  `reset_press_state()` (silent, and deliberately leaving hover alone), and
+  `editor.cpp` calls it edge-triggered on `is_playing()` changing. Three tests
+  cover it: the abandoned gesture emits nothing, `press_consumed()` stops
+  claiming the click, and hover is undisturbed. Original entry:
+
 - **A press surviving a play-mode change emits a stale drag action** — found by review
   2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
   U6 ("its failure modes are the subtlest: the pointer leaving the window mid-drag, a press
