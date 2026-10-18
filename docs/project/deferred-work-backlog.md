@@ -1243,19 +1243,43 @@ them as this list does.
     Deferred 2026-10-16 because nothing has asked for a second curve;
     cheapness is not a reason to add a knob. Depends on nothing.
 
-  - **Bloom.** **Unblocked 2026-10-16, specced 2026-10-17** — the HDR
-    target above now exists, so values above 1.0 survive to a point where
-    something can detect them, which is the whole thing bloom needs and
-    could not have. The next rendering slice; the design is
-    `docs/superpowers/specs/2026-10-17-render-bloom-design.md`. The claim
-    this entry used to carry — that bloom is the RenderGraph's trigger —
-    **is wrong**, and the design says why; the graph's trigger has been
-    restated in its own entry below. Deferred 2026-10-04, blocked until
-    2026-10-16.
+  - ~~**Bloom.**~~ — **SHIPPED 2026-10-17.** A `Bloom` component on the
+    camera entity (`intensity` 0, `threshold` 1.0, `knee` 0.5), one device
+    hook `build_bloom(BloomParams)` between `end_hdr_scene_pass` and
+    `draw_hdr_resolve`, and in the Vulkan backend one half-resolution
+    `R16G16B16A16_SFLOAT` image with N mips (N clamped to 6), one render
+    pass with `loadOp = LOAD`, three pipelines and `N+1` descriptor sets
+    driven by a single loop. Bloom is added INSIDE the tone curve, and
+    exposure scales it too, because bloom is light. Spec
+    `docs/superpowers/specs/2026-10-17-render-bloom-design.md`, plan
+    `docs/superpowers/plans/2026-10-17-render-bloom.md`.
 
-    Its design deferred five things, each its own entry below: lens dirt
-    and anamorphic bloom, per-object bloom masks, temporal stability,
-    a bloom quality setting, and retuning the demo's threshold.
+    **The claim this entry used to carry — that bloom is the RenderGraph's
+    trigger — was wrong**, and building it is what proved so; the graph's
+    trigger is restated in its own entry below. **Two things the plan
+    decided that the spec left open:** `bloom_level_count` lives in its
+    own module file, because nothing in the suite creates a `VkDevice` and
+    sizing logic inside `vulkan_render_device.cpp` has no possible test;
+    and the downsample and upsample share ONE shader, since offsetting the
+    taps by a *source* texel is what makes one a box downsample and the
+    other a tent upsample, so they differ only in blend state.
+
+    **Both real defects came from the one step that runs real Vulkan, not
+    from 1404 tests.** `create_bloom_chain` clears the chain through
+    `begin_single_time_commands`, so placed beside `create_hdr_target` —
+    the obvious template for a swapchain-sized resource, and above the
+    command pool — it segfaulted; the constructor already carried that
+    exact lesson for the IBL stand-ins. And the plan's validation step
+    named `mosaic edit`, which is not a subcommand: it exits 106 with zero
+    VUIDs, which looks like a pass, and would have reported the editor
+    path verified without ever running it. Both are now pinned by contract
+    tests in `tests/unit/render/bloom_backend_contract_test.cpp`.
+
+    Its design and plan deferred six things, each its own entry below:
+    lens dirt and anamorphic bloom, per-object bloom masks, temporal
+    stability, a bloom quality setting, retuning the demo's threshold, and
+    the per-resize rebuild of every swapchain-derived target. Originally
+    deferred 2026-10-04, blocked until 2026-10-16.
 
   - **Lens dirt, anamorphic and streak bloom** — the three effects most
     often bundled with bloom in a shipping renderer. Deferred from the
@@ -2596,13 +2620,22 @@ recent-projects list (PR #197).
 |---|---|
 | ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — **SHIPPED 2026-10-16.** The engine-side boundary landed 2026-10-13 (#255); the Vulkan backend half followed in this branch: the `R16G16B16A16_SFLOAT` target, the resolve pipeline pair, and `tonemap_aces` moved out of `cube.frag`/`skybox.frag` into `hdr_resolve.frag`, its only copy in the tree. **Bloom is unblocked.** Two things the estimate missed, in opposite directions: every pipeline was built TWICE (once per destination pass), so the scene's seven pairs collapsed to seven singles and the backend got smaller, not bigger; and the editor opens its viewport pass around the whole of `render()`, so that pass had to become lazy before the HDR pass could open without nesting inside it. The gate was what the entry predicted — 1358/1358 says nothing about the image, and a validation-layer grep plus a human at the window are the real checks. Original entry: || New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
 
-**Re-derived 2026-10-16, corrected 2026-10-17.** That item shipped, and
-**bloom** takes its place in this tier: a prefilter with a soft knee, a mip
-chain whose length is a function of resolution, an additive upsample, and a
-composite inside the tone curve. It is **not** where the RenderGraph gets its
-trigger — the bloom design showed the chain is a loop, not a graph, and the
-graph's trigger has been restated in the Rendering section above. See
-`docs/superpowers/specs/2026-10-17-render-bloom-design.md`.
+**Re-derived 2026-10-16, corrected and then SHIPPED 2026-10-17.** That item
+shipped, and **bloom** — which took its place in this tier — shipped the same
+day: a prefilter with a soft knee, a mip chain whose length is a function of
+resolution, an additive upsample, and a composite inside the tone curve. It was
+**not** where the RenderGraph got its trigger; the chain is a loop, not a graph,
+and the graph's trigger is restated in the Rendering section above. The estimate
+held, with one surprise in each direction: the downsample and upsample turned
+out to need only ONE shader, and the chain's one-time clear forced a constructor
+reordering that no headless test could have found. See
+`docs/superpowers/specs/2026-10-17-render-bloom-design.md` and
+`docs/superpowers/plans/2026-10-17-render-bloom.md`.
+
+**The 🟡 tier has no obvious next pick.** The Rendering section's open items are
+now the five bloom follow-ups (all deliberately deferred, none asked for) plus
+the resize-churn entry. The next slice probably comes from another subsystem or
+from the 🔴 Large tier below.
 
 Otherwise the next pick comes from the 🔴 Large
 tier below — each of those items needs its own decomposition before
