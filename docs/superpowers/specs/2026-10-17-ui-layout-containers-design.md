@@ -295,5 +295,11 @@ gizmo is deferred and in the backlog.
 - **A slot gizmo in the editor.** Authoring works through reflection today;
   visualising a computed rect is editor work with its own design.
 - **Nested stack interaction with `anchor` beyond "the child anchors within its
-  slot".** That rule is stated above and tested; anything cleverer needs a
-  reason.
+  slot".** Anything cleverer needs a reason.
+
+  *(Corrected after the whole-branch review: this sentence originally claimed the
+  rule was "stated above and tested". It was stated and NOT tested — every
+  layout case used a `TopLeft` child, so the Center, Right and Bottom bands were
+  asserted nowhere. The review verified all nine bands numerically and found the
+  behaviour correct; a parameterised case over `a = 0..8` now holds it. The claim
+  was the defect, not the code.)*

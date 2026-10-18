@@ -219,10 +219,21 @@ view that was actually used to pick what to build next as of this writing.
   what makes the draw and hit-test paths agree by construction. Paying that
   complexity before anything is slow would be trading a guarantee for a guess.
 
-  **The trigger to fix it** is a scene with a UI large enough to measure, which
-  nothing here has yet. When it comes, measure first: the index is cheap, but
-  confirming the cost is real matters more than the shape of the fix. Depends on
-  nothing.
+  **Sharpened by the whole-branch review**, which put real numbers on it: the
+  resolve happens in the panel pass, the image pass, the text pass AND
+  `button_hit_candidates`, so 4-5 times a frame, and each `resolve_parent_frame`
+  also allocates `2D` vectors. A 30-child stack in a world of 100 `UiParent`
+  entities is roughly 12,000 visits, 120 sorts and 240 heap allocations per
+  frame; a 200-child stack with 500 parents is ~400,000 visits and ~4,000
+  allocations per frame, which would dominate the UI's cost. Non-stack scenes
+  pay nothing -- the `UiStack` lookup short-circuits before the scan.
+
+  **The trigger to fix it** is a UI of a few hundred elements, which nothing here
+  has yet; the review's phrase for it is "a real scaling cliff that is invisible
+  until someone builds an inventory grid". The named mitigation is a per-frame
+  memoised `parent -> children` map built once per render rather than per
+  element. Measure first: the index is cheap, but confirming the cost is real
+  matters more than the shape of the fix. Depends on nothing.
 
 - **`UiGrid` and `UiFlow`** — deferred 2026-10-17 from the U8a layout design,
   which builds `UiStack` only. The three share all their machinery (enumerating a

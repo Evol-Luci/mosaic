@@ -19,6 +19,18 @@ namespace mosaic::engine::ui
 // `spacing` and `padding` are fractions of the parent's frame, like `pos` and `size`, not
 // absolute screen units -- so a stack nests correctly and the arithmetic never refers to
 // the screen.
+//
+// A STACK NEEDS A UiPanel ON THE SAME ENTITY, and that has a trap worth knowing before
+// you meet it. resolve_parent_frame returns the whole SCREEN when a parent has no UiPanel,
+// so a UiStack alone lays nothing out. The obvious way to author a layout-only container
+// with no visible chrome is then UiPanel{alpha = 0} -- and that hides the whole subtree,
+// because a container's alpha multiplies down to its children.
+//
+// Today's workarounds are a fully transparent `color`, or an alpha low enough to be
+// invisible but above zero. Neither is discoverable, which is why this is written here
+// rather than left to be rediscovered. The real fix is the deferred `visible` bool (which
+// is NOT the same feature as alpha 0, because alpha 0 still hit-tests) or an opt-out on
+// alpha propagation; both are in the backlog.
 struct UiStack
 {
     // 0 = vertical (children stack downward), 1 = horizontal. An int rather than an enum,

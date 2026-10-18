@@ -732,7 +732,16 @@ inline void build_default_scene(mosaic::engine::World& world)
             .event  = "hud_click"});
 
     // A nested child label parented to the camera's HUD-bar UiPanel: its pos/height are
-    // relative to the bar (U5a hierarchy), so it tracks the bar. No Transform -> the
+    // relative to the bar (U5a hierarchy), so it tracks the bar.
+    //
+    // ITS ALPHA CHANGED ON 2026-10-17, deliberately and visibly: inherited alpha means this
+    // label now renders at the BAR's 0.6 rather than at its own authored 1.0. That is the
+    // intended semantics -- fading a container fades what is inside it -- but it is a
+    // change to already-shipped, already-verified content, so it is written down here
+    // rather than left for someone to find and file as a regression. Found by the U8a
+    // whole-branch review, which also noticed that the stack below was kept off the camera
+    // to protect this label's behaviour, and that the alpha half then changed it anyway
+    // through a different door. No Transform -> the
     // default-scene Transform-count tests are unaffected.
     const auto hud_label = world.create_entity();
     world.add_component<mosaic::engine::ui::UiText>(hud_label,

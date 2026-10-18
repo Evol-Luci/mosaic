@@ -136,7 +136,18 @@ inline float inherited_alpha(mosaic::engine::World& world, mosaic::foundation::E
         }
         cur = up->parent;
     }
-    return product;
+    // FLOORED, matching the discipline ui_stack.hpp states one file over. UiPanel::alpha is
+    // an unbounded reflected float on an inspector DragFloat with no clamp anywhere in the
+    // UI or the device path, so a negative container alpha is one drag away. The container
+    // itself is hidden by the authored `alpha <= 0` early-out -- but without this floor it
+    // would multiply each child to a NEGATIVE alpha, which reaches the blend equation as
+    // 2*dst - src: an over-bright halo rather than a hidden child. Brighter than not fading
+    // at all, from a value that asked for less.
+    //
+    // Only the negative side is floored. Alpha above 1 is the project's existing posture --
+    // UiHoverStyle::alpha_scale 1.4 on an opaque panel already produces 1.4 today -- and
+    // capping it here would invent a maximum nobody asked for.
+    return product > 0.0f ? product : 0.0f;
 }
 
 } // namespace mosaic::engine::ui

@@ -424,3 +424,75 @@ TEST_CASE("inherited_alpha does not write to the authored alphas", "[ui][layout]
     REQUIRE(world.get_component<UiPanel>(a)->alpha == Approx(0.5f));
     REQUIRE(world.get_component<UiPanel>(b)->alpha == Approx(0.5f));
 }
+
+TEST_CASE("a negative container alpha cannot make a child's alpha negative", "[ui][layout]")
+{
+    // UiPanel::alpha is an unbounded reflected float on an inspector DragFloat with no
+    // clamp anywhere in the UI or the device path, so a negative is one drag away. The
+    // container itself is hidden by the authored `alpha <= 0` early-out -- but it would
+    // multiply each child to a NEGATIVE alpha, which reaches the blend equation as
+    // 2*dst - src: an over-bright halo rather than a hidden child. Brighter than not
+    // fading at all, from a value that asked for less.
+    //
+    // ui_stack.hpp states the matching discipline one file over ("NEVER returns a negative
+    // extent ... rather than into nothing at all"); this is the alpha half of it.
+    World world;
+    const auto container = world.create_entity();
+    UiPanel bad;
+    bad.alpha = -0.5f;
+    world.add_component<UiPanel>(container, bad);
+
+    const auto child = world.create_entity();
+    UiPanel c;
+    c.alpha = 1.0f;
+    world.add_component<UiPanel>(child, c);
+    world.add_component<UiParent>(child, UiParent{container});
+
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, child) >= 0.0f);
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, child) == Approx(0.0f));
+}
+
+TEST_CASE("a child anchors within its slot for every anchor band", "[ui][layout]")
+{
+    // THE SPEC CLAIMED THIS WAS TESTED AND IT WAS NOT -- every other layout case here uses
+    // a TopLeft child, so Center, Right and Bottom bands were asserted nowhere. The
+    // behaviour is correct (resolve_in is an affine map of the unit square onto whatever
+    // frame it is handed, and resolve_axis never refers to the screen), but this is
+    // exactly the per-band arithmetic the project has had triplicated and divergent
+    // before, so the gate should hold it.
+    //
+    // The property: for every band, resolving inside a slot equals resolving inside the
+    // same rect passed directly as a frame. That is what "layout narrows the frame" MEANS,
+    // and it is band-independent by construction.
+    World world;
+    const auto p = world.create_entity();
+    UiPanel parent_panel;
+    parent_panel.size = {1.0f, 1.0f};
+    world.add_component<UiPanel>(p, parent_panel);
+    world.add_component<UiStack>(p, UiStack{0, 0.0f, 0.0f});
+
+    make_child(world, p, 10);
+    const auto second = make_child(world, p, 20);
+
+    const auto slot = mosaic::engine::ui::resolve_parent_frame(world, second);
+    const mosaic::foundation::math::Vec2 pos{0.1f, 0.1f};
+    const mosaic::foundation::math::Vec2 size{0.2f, 0.3f};
+
+    for (int a = 0; a <= static_cast<int>(mosaic::engine::ui::Anchor::BottomRight); ++a)
+    {
+        const auto anchor = mosaic::engine::ui::to_anchor(a);
+        const auto via_layout = mosaic::engine::ui::resolve_ui_rect(world, second, anchor,
+                                                                    pos, size);
+        const auto direct = mosaic::engine::ui::resolve_in(slot, anchor, pos, size);
+        INFO("anchor band " << a);
+        REQUIRE(via_layout.x == Approx(direct.x));
+        REQUIRE(via_layout.y == Approx(direct.y));
+        REQUIRE(via_layout.w == Approx(direct.w));
+        REQUIRE(via_layout.h == Approx(direct.h));
+        // And it stays inside its slot, which is the containment claim.
+        REQUIRE(via_layout.x >= Approx(slot.x));
+        REQUIRE(via_layout.y >= Approx(slot.y));
+        REQUIRE(via_layout.x + via_layout.w <= Approx(slot.x + slot.w));
+        REQUIRE(via_layout.y + via_layout.h <= Approx(slot.y + slot.h));
+    }
+}
