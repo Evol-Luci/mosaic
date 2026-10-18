@@ -91,6 +91,9 @@ add_executable(mosaic_unit_tests
   unit/app/git_test.cpp
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
+  unit/render/bloom_levels_test.cpp
+  unit/render/bloom_shader_contract_test.cpp
+  unit/render/bloom_backend_contract_test.cpp
   unit/render/render_system_test.cpp
   unit/render/texture_cache_test.cpp
   unit/render/mesh_cache_test.cpp
@@ -205,6 +208,7 @@ add_executable(mosaic_unit_tests
   unit/vfx/ribbon_test.cpp
   unit/vfx/decal_test.cpp
   unit/vfx/screen_effect_test.cpp
+  unit/vfx/bloom_test.cpp
 )
 target_link_libraries(mosaic_unit_tests PRIVATE
   mosaic_app

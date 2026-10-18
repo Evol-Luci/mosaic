@@ -2977,3 +2977,44 @@ anchored on an authored constant rather than on an impression:
 **Note for item 1:** the editor opens **stopped**, so no tick runs and the
 particles never spawn. Run `mosaic run --window`, or press Play in the editor
 first.
+
+---
+
+## Corrections, written after execution (2026-10-17)
+
+The plan above is left as it was written, because a plan that is quietly edited
+to match what happened stops being a record of what was predicted. These are the
+four places it was **wrong**, so that nobody follows them:
+
+1. **Task 1's test code used an API that does not exist.** The real one is
+   `mosaic::foundation::reflection::TypeRegistry registry` plus
+   `mosaic::engine::reflection::ComponentReflection types`, with **registry
+   first**, and the round-trip goes through
+   `mosaic::foundation::serialization::to_value` / `from_value` on the struct.
+   `tests/unit/vfx/screen_effect_test.cpp` is the sibling to copy.
+2. **Task 3 had to widen the Vulkan backend's `draw_hdr_resolve` signature too.**
+   The plan deferred that to Task 8, which leaves the tree not compiling —
+   `error: marked 'override', but does not override` — and so makes every later
+   task's "run the suite" step a lie.
+3. **Task 8/9's validation command was `mosaic edit`, which is not a
+   subcommand.** It is **`mosaic editor`**. The wrong one exits 106 with **zero**
+   validation errors, which is indistinguishable from a clean run. For a GUI run
+   under `timeout 20`, the PASS condition is **exit 124** — `timeout` killing a
+   window that cannot close itself.
+4. **Task 7 put `create_bloom_chain` beside `create_hdr_target`, which
+   segfaults.** The chain's one-time clear goes through
+   `begin_single_time_commands`, so it must be created **after**
+   `create_command_pool_and_buffers()`, beside `create_default_ibl_resources()`
+   — and because that is after the pipelines, it needs a
+   `write_bloom_descriptors()` call following it. `create_hdr_target` sits above
+   the pool only because it submits nothing.
+
+And two things the whole-branch review then found, both fixed in `b39ddbd`: the
+bloom pass's `deps[0]` named only a shader-read source scope when the upsample
+loads what the downsample *wrote*, and `write_bloom_descriptors` paired sets to a
+packed vector by position. Neither was visible to any test; see
+`tests/unit/render/bloom_backend_contract_test.cpp`.
+
+**The pattern worth carrying forward:** every one of these six was found by
+reading or by a real-device run, and **none** by the 1406-test suite. Three of
+them (3, 4, and the `deps[0]` scope) are invisible to it by construction.

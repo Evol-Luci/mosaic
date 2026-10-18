@@ -18,6 +18,7 @@
 #include "engine/script/script_component.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/vfx/decal.hpp"
+#include "engine/vfx/bloom.hpp"
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/ui/ui_hover_style.hpp"
@@ -62,6 +63,7 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::vfx::TrailRenderer>(registry, "TrailRenderer");
     types.register_component<mosaic::engine::vfx::Decal>(registry, "Decal");
     types.register_component<mosaic::engine::vfx::ScreenEffect>(registry, "ScreenEffect");
+    types.register_component<mosaic::engine::vfx::Bloom>(registry, "Bloom");
     types.register_component<mosaic::engine::ui::UiPanel>(registry, "UiPanel");
     // UiHoverStyle is authored. UiHovered is deliberately NOT registered -- see its comment
     // in engine/ui/ui_hover_style.hpp, and the test that asserts the absence.

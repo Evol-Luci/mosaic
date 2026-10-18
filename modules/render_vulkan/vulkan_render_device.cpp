@@ -9,6 +9,7 @@
 #include "engine/render/mip_levels.hpp"
 #include "engine/render/render_device.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
+#include "modules/render_vulkan/vulkan_bloom_levels.hpp"
 #include "modules/render_vulkan/vulkan_swapchain_support.hpp"
 #include "foundation/logging/log.hpp"
 
@@ -293,6 +294,7 @@ public:
         create_render_pass();
         create_offscreen_render_pass();
         create_hdr_render_pass();
+        create_bloom_render_pass();
         create_framebuffers();
         // SWAPCHAIN-SIZED: the scene renders once at full resolution and the editor samples
         // the resolved result into whatever panel size it has.
@@ -310,6 +312,7 @@ public:
         create_skybox_pipeline();
         create_screen_effect_pipeline();
         create_resolve_pipeline();
+        create_bloom_pipelines();
         create_ui_pipeline();
         create_ui_image_pipeline();
         create_ui_text_pipeline();
@@ -318,6 +321,18 @@ public:
         // begin_single_time_commands, which needs it. Placing this earlier segfaulted
         // with "commandPool must be a valid VkCommandPool handle".
         create_default_ibl_resources();
+        // AFTER the command pool for THE SAME REASON, and it cost the same segfault to
+        // learn twice: the chain is cleared and transitioned once at creation, through
+        // begin_single_time_commands. It sat beside create_hdr_target at first -- that line
+        // is the obvious template for a swapchain-sized resource, and it is ABOVE the pool,
+        // because the HDR target submits nothing.
+        //
+        // create_bloom_pipelines ran earlier and allocated the N+1 descriptor sets, but
+        // could only write the HDR view: the mip views did not exist yet. Hence the second
+        // write here, the same shape write_hdr_descriptor uses -- harmless before the
+        // resource exists, called again once it does.
+        create_bloom_chain(extent_.width, extent_.height);
+        write_bloom_descriptors();
         create_sync_objects();
 
         glfwSetWindowUserPointer(window_, this);
@@ -337,9 +352,20 @@ public:
             // up (destroy_offscreen_target calls ImGui_ImplVulkan_RemoveTexture).
             destroy_offscreen_target();
             destroy_hdr_target();
+            destroy_bloom_chain();
+            if (bloom_render_pass_ != VK_NULL_HANDLE)
+            {
+                vkDestroyRenderPass(device_, bloom_render_pass_, nullptr);
+            }
             if (resolve_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, resolve_pipeline_, nullptr); }
             if (vp_resolve_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_resolve_pipeline_, nullptr); }
             if (resolve_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, resolve_pipeline_layout_, nullptr); }
+            if (bloom_prefilter_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, bloom_prefilter_pipeline_, nullptr); }
+            if (bloom_down_pipeline_ != VK_NULL_HANDLE)      { vkDestroyPipeline(device_, bloom_down_pipeline_, nullptr); }
+            if (bloom_up_pipeline_ != VK_NULL_HANDLE)        { vkDestroyPipeline(device_, bloom_up_pipeline_, nullptr); }
+            if (bloom_pipeline_layout_ != VK_NULL_HANDLE)    { vkDestroyPipelineLayout(device_, bloom_pipeline_layout_, nullptr); }
+            // Frees every bloom set with it -- the pool owns them.
+            if (bloom_descriptor_pool_ != VK_NULL_HANDLE)    { vkDestroyDescriptorPool(device_, bloom_descriptor_pool_, nullptr); }
             // Frees hdr_set_ with it -- the pool owns the set, and nothing else allocates here.
             if (hdr_descriptor_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, hdr_descriptor_pool_, nullptr); }
             if (hdr_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdr_sampler_, nullptr); }
@@ -2160,6 +2186,19 @@ public:
     {
         float inv_dest[2];
         float exposure;
+        float bloom_intensity;
+    };
+
+    // Mirrors bloom_prefilter.frag and bloom_blur.frag byte for byte -- ONE block for all
+    // three bloom pipelines, so they share one pipeline layout. The two vec2s come first
+    // for the alignment reason ResolvePush gives; threshold and knee are read only by the
+    // prefilter, and declared by the blur so the layouts cannot disagree.
+    struct BloomPush
+    {
+        float inv_dest[2];
+        float inv_src[2];
+        float threshold;
+        float knee;
     };
 
     void ensure_destination_pass()
@@ -2223,7 +2262,109 @@ public:
         in_hdr_pass_ = false;
     }
 
-    void draw_hdr_resolve(float exposure) override
+    void build_bloom(const mosaic::engine::render::BloomParams& params) override
+    {
+        // Opens bloom_levels_ render passes of its own, and vkCmdBeginRenderPass inside a
+        // pass is a validation error. RenderSystem calls this between end_hdr_scene_pass
+        // and draw_hdr_resolve, a window where nothing is recording -- but the viewport
+        // pass is LAZILY opened, so that is a property of today's call order rather than of
+        // the API, and cheap to guarantee here.
+        if (frame_skipped_ || in_hdr_pass_ || swapchain_pass_open_ || viewport_pass_open_)
+        {
+            return;
+        }
+        if (bloom_levels_ == 0 || bloom_prefilter_pipeline_ == VK_NULL_HANDLE)
+        {
+            return;
+        }
+
+        // Prefilter: the HDR scene -> mip 0, with the threshold and knee applied on the
+        // way. It IS the first downsample; a full-resolution bright-pass would cost a
+        // 1920x1080 target for a result that is immediately halved.
+        record_bloom_pass(bloom_prefilter_pipeline_, /*dest=*/0, /*source_set=*/0,
+                          /*src_extent=*/hdr_extent_, params);
+
+        // Downsample: mip i -> mip i+1. Written `i + 1 < bloom_levels_` rather than
+        // `i < bloom_levels_ - 1` because bloom_levels_ is UNSIGNED and can be 1, where the
+        // subtraction wraps.
+        for (uint32_t i = 0; i + 1 < bloom_levels_; ++i)
+        {
+            record_bloom_pass(bloom_down_pipeline_, /*dest=*/i + 1, /*source_set=*/i + 1,
+                              bloom_extents_[i], params);
+        }
+
+        // Upsample, smallest first: mip i+1 -> mip i, ADDING into what the downsample left
+        // there. Descending with `i-- > 0` so the unsigned counter never has to hold -1.
+        for (uint32_t i = bloom_levels_ - 1; i-- > 0;)
+        {
+            record_bloom_pass(bloom_up_pipeline_, /*dest=*/i, /*source_set=*/i + 2,
+                              bloom_extents_[i + 1], params);
+        }
+        // Mip 0 is now the finished glow, and the resolve's set 1 points at it.
+    }
+
+    // One step of the chain: open the pass on `dest`'s framebuffer, bind the pipeline and
+    // the source set, push the two reciprocal extents, draw the triangle, close.
+    //
+    // `source_set` indexes bloom_sets_, where 0 is the HDR view and i+1 is mip i.
+    void record_bloom_pass(VkPipeline pipe, uint32_t dest, uint32_t source_set,
+                           VkExtent2D src_extent,
+                           const mosaic::engine::render::BloomParams& params)
+    {
+        const VkExtent2D dst_extent = bloom_extents_[dest];
+
+        // POSITIVE height, unlike every other pass in this backend. Nothing here uses a
+        // projection matrix, and every bloom shader takes its uv from gl_FragCoord -- which
+        // is framebuffer space and unaffected by the viewport's sign. The Y-flip would
+        // therefore change nothing, and a negative height that changes nothing is a line
+        // the next reader has to prove harmless.
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(dst_extent.width);
+        viewport.height = static_cast<float>(dst_extent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd_[frame_], 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = dst_extent;
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+
+        VkRenderPassBeginInfo rp{};
+        rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        rp.renderPass = bloom_render_pass_;
+        rp.framebuffer = bloom_fbs_[dest];
+        rp.renderArea.offset = {0, 0};
+        rp.renderArea.extent = dst_extent;
+        // No clear values: the pass is LOAD_OP_LOAD, because the upsample adds into what is
+        // already there.
+        vkCmdBeginRenderPass(cmd_[frame_], &rp, VK_SUBPASS_CONTENTS_INLINE);
+
+        vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                bloom_pipeline_layout_, 0, 1, &bloom_sets_[source_set],
+                                0, nullptr);
+
+        BloomPush pc{};
+        // inv_dest turns gl_FragCoord into uv; inv_src sizes the kernel's tap offsets.
+        // Reciprocals rather than the extents, because both are used per fragment and the
+        // division is not.
+        pc.inv_dest[0] = 1.0f / static_cast<float>(dst_extent.width);
+        pc.inv_dest[1] = 1.0f / static_cast<float>(dst_extent.height);
+        pc.inv_src[0] = 1.0f / static_cast<float>(src_extent.width);
+        pc.inv_src[1] = 1.0f / static_cast<float>(src_extent.height);
+        pc.threshold = params.threshold;
+        pc.knee = params.knee;
+        vkCmdPushConstants(cmd_[frame_], bloom_pipeline_layout_,
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+        vkCmdDraw(cmd_[frame_], 3, 1, 0, 0);
+        vkCmdEndRenderPass(cmd_[frame_]);
+    }
+
+    void draw_hdr_resolve(float exposure, float bloom_intensity) override
     {
         // Opens the DESTINATION pass -- the swapchain, or the editor's panel target. The
         // resolve never begins a pass of its own: it is a fullscreen triangle into
@@ -2238,8 +2379,16 @@ public:
         VkPipeline pipe = viewport_pass_open_ ? vp_resolve_pipeline_ : resolve_pipeline_;
         if (pipe == VK_NULL_HANDLE) { return; }
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        // TWO sets: the scene at 0, the bloom chain's mip 0 at 1. hdr_resolve.frag samples
+        // both unconditionally, so slot 1 must be bound even when there is no chain -- a
+        // minimised window gives bloom_levels_ == 0, and an unbound set is a validation
+        // error and on some drivers a crash. The HDR set stands in there; the intensity is
+        // 0 on that path anyway, so what it reads is multiplied away.
+        const VkDescriptorSet bloom_src =
+            (bloom_sets_.empty() || bloom_levels_ == 0) ? hdr_set_ : bloom_sets_[1];
+        const VkDescriptorSet sets[2] = {hdr_set_, bloom_src};
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                resolve_pipeline_layout_, 0, 1, &hdr_set_, 0, nullptr);
+                                resolve_pipeline_layout_, 0, 2, sets, 0, nullptr);
 
         // The DESTINATION's extent, not the HDR target's. They differ in the editor: the
         // scene target is swapchain-sized and the panel is whatever the user dragged it
@@ -2253,6 +2402,7 @@ public:
         pc.inv_dest[0] = 1.0f / static_cast<float>(dest.width);
         pc.inv_dest[1] = 1.0f / static_cast<float>(dest.height);
         pc.exposure = exposure;
+        pc.bloom_intensity = bloom_intensity;
         vkCmdPushConstants(cmd_[frame_], resolve_pipeline_layout_,
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
         vkCmdDraw(cmd_[frame_], 3, 1, 0, 0); // fullscreen triangle
@@ -2998,6 +3148,234 @@ private:
         si.maxLod = 1.0f;
         vk_check(vkCreateSampler(device_, &si, nullptr, &hdr_sampler_),
                  "vkCreateSampler(hdr)");
+    }
+
+    // The chain's one render pass, shared by all three bloom pipelines.
+    //
+    // LOAD, not CLEAR, because the upsample ADDS INTO the level it targets: clearing would
+    // discard the downsampled content it is adding to, and the result would be only the
+    // smallest mip smeared over the image. SHADER_READ_ONLY_OPTIMAL at both ends because
+    // the next step samples what this one wrote -- and because the resolve samples mip 0
+    // once the whole chain is done, with no barrier of its own.
+    void create_bloom_render_pass()
+    {
+        VkAttachmentDescription color{};
+        color.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        color.samples = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        color.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkAttachmentReference color_ref{};
+        color_ref.attachment = 0;
+        color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass{};
+        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments = &color_ref;
+        // NO depth attachment: every pass here is a fullscreen triangle with depth testing
+        // off, and a depth buffer per mip would be six allocations for nothing.
+
+        // Two dependencies, and deps[0]'s source scope names BOTH hazards this pass has
+        // -- which is wider than the HDR pass's, deliberately.
+        //
+        // The HDR pass only ever follows a shader read of its target (the previous frame's
+        // resolve), so FRAGMENT_SHADER/SHADER_READ is the whole story there. A bloom pass
+        // is not in that position. The upsample targeting mip k LOADS and adds into what
+        // the DOWNSAMPLE targeting mip k wrote, which is a COLOR_ATTACHMENT_WRITE: a
+        // write-after-write and a load-after-write, not a write-after-read. Naming only
+        // the shader-read scope would leave those covered solely by CHAINING through an
+        // intermediate shader read that never happens for that subresource -- a valid but
+        // extremely subtle reading of the spec, for a frame shape that occurs on every
+        // frame once bloom_levels_ >= 2.
+        //
+        // Found by the whole-branch review, and the standard gate CANNOT see it: this
+        // backend enables VK_LAYER_KHRONOS_validation with no VkValidationFeaturesEXT, so
+        // synchronization validation is off and a clean run is silent here. Naming both
+        // scopes costs nothing.
+        std::array<VkSubpassDependency, 2> deps{};
+        deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+        deps[0].dstSubpass = 0;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                        VK_ACCESS_SHADER_READ_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].srcSubpass = 0;
+        deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+        deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        deps[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        VkRenderPassCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        ci.attachmentCount = 1;
+        ci.pAttachments = &color;
+        ci.subpassCount = 1;
+        ci.pSubpasses = &subpass;
+        ci.dependencyCount = static_cast<uint32_t>(deps.size());
+        ci.pDependencies = deps.data();
+        vk_check(vkCreateRenderPass(device_, &ci, nullptr, &bloom_render_pass_),
+                 "vkCreateRenderPass(bloom)");
+    }
+
+    void destroy_bloom_chain()
+    {
+        // ONE framebuffer and ONE view per mip. Destroying only the image would leak up to
+        // six of each on every resize -- and a resize is something a user does by dragging
+        // a window edge, so "every resize" means continuously.
+        for (VkFramebuffer fb : bloom_fbs_)
+        {
+            if (fb != VK_NULL_HANDLE) { vkDestroyFramebuffer(device_, fb, nullptr); }
+        }
+        bloom_fbs_.clear();
+        for (VkImageView v : bloom_views_)
+        {
+            if (v != VK_NULL_HANDLE) { vkDestroyImageView(device_, v, nullptr); }
+        }
+        bloom_views_.clear();
+        bloom_extents_.clear();
+        if (bloom_image_ != VK_NULL_HANDLE)
+        {
+            vkDestroyImage(device_, bloom_image_, nullptr);
+            bloom_image_ = VK_NULL_HANDLE;
+        }
+        if (bloom_mem_ != VK_NULL_HANDLE)
+        {
+            vkFreeMemory(device_, bloom_mem_, nullptr);
+            bloom_mem_ = VK_NULL_HANDLE;
+        }
+        bloom_levels_ = 0;
+    }
+
+    // `width` and `height` are the SWAPCHAIN's, not the chain's: one place owns the
+    // halving, so two call sites cannot disagree about whether they already halved.
+    void create_bloom_chain(uint32_t width, uint32_t height)
+    {
+        bloom_levels_ = mosaic::render::vk::bloom_level_count(width, height);
+        if (bloom_levels_ == 0)
+        {
+            return; // a minimised window; the same thing create_hdr_target does
+        }
+
+        uint32_t w = width / 2 > 0 ? width / 2 : 1;
+        uint32_t h = height / 2 > 0 ? height / 2 : 1;
+
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.extent = {w, h, 1};
+        ci.mipLevels = bloom_levels_;
+        ci.arrayLayers = 1;
+        ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        // TRANSFER_DST is for the one-time clear below, and is not optional: without it
+        // vkCmdClearColorImage is a validation error at startup, on a real device, and
+        // never in CI.
+        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                   VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        vk_check(vkCreateImage(device_, &ci, nullptr, &bloom_image_),
+                 "vkCreateImage(bloom)");
+        bind_image_memory(bloom_image_, bloom_mem_, "bloom");
+
+        for (uint32_t i = 0; i < bloom_levels_; ++i)
+        {
+            VkImageViewCreateInfo vi{};
+            vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            vi.image = bloom_image_;
+            vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+            vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            vi.subresourceRange.baseMipLevel = i;
+            // ONE level per view, deliberately. A view spanning the whole chain would let
+            // the sampler pick a mip by its own lod calculation, and every tap here must
+            // read the exact level the loop meant.
+            vi.subresourceRange.levelCount = 1;
+            vi.subresourceRange.baseArrayLayer = 0;
+            vi.subresourceRange.layerCount = 1;
+            VkImageView view = VK_NULL_HANDLE;
+            vk_check(vkCreateImageView(device_, &vi, nullptr, &view),
+                     "vkCreateImageView(bloom mip)");
+            bloom_views_.push_back(view);
+
+            VkFramebufferCreateInfo fb{};
+            fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            fb.renderPass = bloom_render_pass_;
+            fb.attachmentCount = 1;
+            fb.pAttachments = &view;
+            fb.width = w;
+            fb.height = h;
+            fb.layers = 1;
+            VkFramebuffer framebuffer = VK_NULL_HANDLE;
+            vk_check(vkCreateFramebuffer(device_, &fb, nullptr, &framebuffer),
+                     "vkCreateFramebuffer(bloom mip)");
+            bloom_fbs_.push_back(framebuffer);
+            bloom_extents_.push_back(VkExtent2D{w, h});
+
+            w = w / 2 > 0 ? w / 2 : 1;
+            h = h / 2 > 0 ? h / 2 : 1;
+        }
+
+        // THE LAYOUT HAZARD, and it is invisible to the build and to the whole headless
+        // suite: hdr_resolve.frag samples this image UNCONDITIONALLY, so on frame 1 -- and
+        // on any frame after a skipped build -- it would otherwise read an image in
+        // UNDEFINED layout. That is a validation error on a real device and nothing here.
+        //
+        // CLEARED as well as transitioned, which is not belt-and-braces. Freshly allocated
+        // device memory can read as NaN, and NaN * 0.0 is NaN -- so the whole "intensity 0
+        // contributes 0" argument needs this memory to genuinely be zero, not merely
+        // readable.
+        VkCommandBuffer cmd = begin_single_time_commands();
+
+        VkImageSubresourceRange all{};
+        all.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        all.baseMipLevel = 0;
+        all.levelCount = bloom_levels_;
+        all.baseArrayLayer = 0;
+        all.layerCount = 1;
+
+        VkImageMemoryBarrier to_dst{};
+        to_dst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        to_dst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        to_dst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        to_dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        to_dst.image = bloom_image_;
+        to_dst.subresourceRange = all;
+        to_dst.srcAccessMask = 0;
+        to_dst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr,
+                             1, &to_dst);
+
+        VkClearColorValue black{};
+        black.float32[0] = 0.0f; black.float32[1] = 0.0f;
+        black.float32[2] = 0.0f; black.float32[3] = 1.0f;
+        vkCmdClearColorImage(cmd, bloom_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             &black, 1, &all);
+
+        VkImageMemoryBarrier to_read = to_dst;
+        to_read.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        // EVERY mip, not just mip 0: the bloom render pass declares
+        // SHADER_READ_ONLY_OPTIMAL as its initialLayout, so a mip that arrives in any
+        // other layout is a validation error the first time the loop targets it.
+        to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &to_read);
+
+        end_single_time_commands(cmd);
     }
 
     void destroy_hdr_target()
@@ -4218,7 +4596,7 @@ private:
                  "vkAllocateDescriptorSets(hdr)");
         write_hdr_descriptor();
 
-        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.vert.spv");
+        std::vector<char> vert_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/fullscreen_triangle.vert.spv");
         std::vector<char> frag_code = read_file(std::string(MOSAIC_SHADER_DIR) + "/hdr_resolve.frag.spv");
         VkShaderModule vert = create_shader_module(vert_code);
         VkShaderModule frag = create_shader_module(frag_code);
@@ -4282,7 +4660,12 @@ private:
 
         VkPipelineLayoutCreateInfo layout{};
         layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        layout.setLayoutCount = 1; layout.pSetLayouts = &texture_set_layout_;
+        // TWO sets, both the one-combined-image-sampler layout: the scene at 0, the bloom
+        // chain at 1. A second BINDING in set 0 would have needed a second set layout, and
+        // texture_set_layout_ is shared with every texture in the engine.
+        const VkDescriptorSetLayout resolve_layouts[2] = {texture_set_layout_,
+                                                          texture_set_layout_};
+        layout.setLayoutCount = 2; layout.pSetLayouts = resolve_layouts;
         layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
         vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &resolve_pipeline_layout_),
                  "vkCreatePipelineLayout(resolve)");
@@ -4305,6 +4688,212 @@ private:
 
         vkDestroyShaderModule(device_, frag, nullptr);
         vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
+    void create_bloom_pipelines()
+    {
+        // ITS OWN POOL, sized for the MAXIMUM chain plus the HDR view, so a resize that
+        // grows the level count never has to reallocate it. Not descriptor_pool_, whose
+        // maxSets is budgeted exactly for textures, materials and IBL -- borrowing a set
+        // there would starve the last texture at some scene size rather than fail here.
+        VkDescriptorPoolSize pool_size{};
+        pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        pool_size.descriptorCount = mosaic::render::vk::kBloomMaxLevels + 1;
+        VkDescriptorPoolCreateInfo pool{};
+        pool.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool.poolSizeCount = 1;
+        pool.pPoolSizes = &pool_size;
+        pool.maxSets = mosaic::render::vk::kBloomMaxLevels + 1;
+        vk_check(vkCreateDescriptorPool(device_, &pool, nullptr, &bloom_descriptor_pool_),
+                 "vkCreateDescriptorPool(bloom)");
+
+        std::vector<VkDescriptorSetLayout> layouts(
+            mosaic::render::vk::kBloomMaxLevels + 1, texture_set_layout_);
+        bloom_sets_.resize(layouts.size());
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = bloom_descriptor_pool_;
+        alloc.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+        alloc.pSetLayouts = layouts.data();
+        vk_check(vkAllocateDescriptorSets(device_, &alloc, bloom_sets_.data()),
+                 "vkAllocateDescriptorSets(bloom)");
+        write_bloom_descriptors();
+
+        std::vector<char> vert_code =
+            read_file(std::string(MOSAIC_SHADER_DIR) + "/fullscreen_triangle.vert.spv");
+        std::vector<char> pre_code =
+            read_file(std::string(MOSAIC_SHADER_DIR) + "/bloom_prefilter.frag.spv");
+        std::vector<char> blur_code =
+            read_file(std::string(MOSAIC_SHADER_DIR) + "/bloom_blur.frag.spv");
+        VkShaderModule vert = create_shader_module(vert_code);
+        VkShaderModule pre  = create_shader_module(pre_code);
+        VkShaderModule blur = create_shader_module(blur_code);
+
+        VkPipelineShaderStageCreateInfo vs{};
+        vs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vs.stage = VK_SHADER_STAGE_VERTEX_BIT; vs.module = vert; vs.pName = "main";
+        VkPipelineShaderStageCreateInfo fs{};
+        fs.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        fs.stage = VK_SHADER_STAGE_FRAGMENT_BIT; fs.pName = "main";
+
+        VkPipelineVertexInputStateCreateInfo vin{};
+        vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+        VkPipelineInputAssemblyStateCreateInfo ia{};
+        ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkPipelineViewportStateCreateInfo vp{};
+        vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        vp.viewportCount = 1; vp.scissorCount = 1;
+
+        VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        VkPipelineDynamicStateCreateInfo dyn{};
+        dyn.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dyn.dynamicStateCount = 2; dyn.pDynamicStates = dyn_states;
+
+        VkPipelineRasterizationStateCreateInfo rast{};
+        rast.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rast.polygonMode = VK_POLYGON_MODE_FILL; rast.lineWidth = 1.0f;
+        rast.cullMode = VK_CULL_MODE_NONE;
+
+        VkPipelineMultisampleStateCreateInfo ms{};
+        ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineDepthStencilStateCreateInfo depth{};
+        depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth.depthTestEnable = VK_FALSE;
+        depth.depthWriteEnable = VK_FALSE;
+        depth.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+        VkPipelineColorBlendAttachmentState opaque{};
+        opaque.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        opaque.blendEnable = VK_FALSE;
+        VkPipelineColorBlendStateCreateInfo cb_opaque{};
+        cb_opaque.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb_opaque.attachmentCount = 1; cb_opaque.pAttachments = &opaque;
+
+        // THE ONE DIFFERENCE between the downsample and the upsample, which share a shader.
+        // Without (ONE, ONE) the upsample REPLACES the level it targets instead of adding
+        // to it, and the finished glow is only the smallest mip scaled up -- a soft,
+        // uniform wash with none of the chain's detail, which looks deliberate.
+        VkPipelineColorBlendAttachmentState additive = opaque;
+        additive.blendEnable = VK_TRUE;
+        additive.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        additive.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        additive.colorBlendOp = VK_BLEND_OP_ADD;
+        // Alpha is never read from this image; kept at (ONE, ZERO) so it stays 1.0 rather
+        // than accumulating to a number nothing means.
+        additive.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        additive.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        additive.alphaBlendOp = VK_BLEND_OP_ADD;
+        VkPipelineColorBlendStateCreateInfo cb_additive{};
+        cb_additive.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        cb_additive.attachmentCount = 1; cb_additive.pAttachments = &additive;
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        push.offset = 0; push.size = sizeof(BloomPush);
+
+        VkPipelineLayoutCreateInfo layout{};
+        layout.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        layout.setLayoutCount = 1; layout.pSetLayouts = &texture_set_layout_;
+        layout.pushConstantRangeCount = 1; layout.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &layout, nullptr, &bloom_pipeline_layout_),
+                 "vkCreatePipelineLayout(bloom)");
+
+        VkPipelineShaderStageCreateInfo stages[2] = {vs, fs};
+        VkGraphicsPipelineCreateInfo pi{};
+        pi.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pi.stageCount = 2; pi.pStages = stages;
+        pi.pVertexInputState = &vin; pi.pInputAssemblyState = &ia;
+        pi.pViewportState = &vp; pi.pRasterizationState = &rast;
+        pi.pMultisampleState = &ms; pi.pDepthStencilState = &depth;
+        pi.pDynamicState = &dyn;
+        pi.layout = bloom_pipeline_layout_;
+        // ONE render pass for all three, which is what lets a single loop drive the chain.
+        pi.renderPass = bloom_render_pass_; pi.subpass = 0;
+
+        stages[1].module = pre;
+        pi.pColorBlendState = &cb_opaque;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr,
+                                           &bloom_prefilter_pipeline_),
+                 "vkCreateGraphicsPipelines(bloom prefilter)");
+
+        stages[1].module = blur;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr,
+                                           &bloom_down_pipeline_),
+                 "vkCreateGraphicsPipelines(bloom down)");
+
+        pi.pColorBlendState = &cb_additive;
+        vk_check(vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pi, nullptr,
+                                           &bloom_up_pipeline_),
+                 "vkCreateGraphicsPipelines(bloom up)");
+
+        vkDestroyShaderModule(device_, blur, nullptr);
+        vkDestroyShaderModule(device_, pre, nullptr);
+        vkDestroyShaderModule(device_, vert, nullptr);
+    }
+
+    // Points every bloom set at the view it samples. Called at creation and again after
+    // every recreate_swapchain -- which rebuilds the chain, freeing every view these sets
+    // were written with. That is EXACTLY the defect #256 shipped (a freed image view still
+    // bound, found by a reading review after a run with zero validation errors), and here
+    // there are N+1 chances to forget rather than one.
+    void write_bloom_descriptors()
+    {
+        if (bloom_sets_.empty()) { return; }
+
+        // EACH SET IS WRITTEN BY ITS OWN INDEX, never by position in a packed vector.
+        //
+        // This used to push the HDR entry CONDITIONALLY into `infos` and then pair
+        // bloom_sets_[i] with infos[i] positionally. Skipping that push with
+        // bloom_levels_ > 0 would have shifted the whole mapping -- set 0 gets mip 0, set 1
+        // gets mip 1, every source_set in build_bloom reads one mip too deep, and the
+        // resolve's "mip 0" becomes mip 1. The result is a glow that looks slightly wrong,
+        // which is a failure mode neither a test nor a validation layer can see.
+        //
+        // It was unreachable on both call paths, and that is exactly why it is worth
+        // removing rather than documenting: the coupling was one reorder away from being
+        // live. Found by the whole-branch review.
+        std::vector<VkDescriptorImageInfo> infos(bloom_sets_.size());
+        std::vector<VkWriteDescriptorSet>  writes;
+        writes.reserve(bloom_sets_.size());
+
+        // pImageInfo is a POINTER into `infos`, which is sized ONCE above and never grown,
+        // so no write can be left dangling by a reallocation.
+        auto point_set_at = [&](std::size_t set_index, VkImageView view)
+        {
+            if (view == VK_NULL_HANDLE) { return; }
+            VkDescriptorImageInfo& info = infos[set_index];
+            info.sampler = hdr_sampler_; // LINEAR, CLAMP_TO_EDGE -- the chain wants both
+            info.imageView = view;
+            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkWriteDescriptorSet w{};
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstSet = bloom_sets_[set_index];
+            w.dstBinding = 0;
+            w.descriptorCount = 1;
+            w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            w.pImageInfo = &info;
+            writes.push_back(w);
+        };
+
+        // Set 0 is the HDR scene, which the prefilter samples.
+        point_set_at(0, hdr_color_view_);
+        // Set i + 1 is mip i. A set left unwritten here keeps whatever it held; sets above
+        // bloom_levels_ are never bound, because no source_set in build_bloom exceeds
+        // bloom_levels_.
+        for (uint32_t i = 0; i < bloom_levels_; ++i)
+        {
+            point_set_at(static_cast<std::size_t>(i) + 1, bloom_views_[i]);
+        }
+        if (writes.empty()) { return; }
+        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
     }
 
     // Points the resolve's one descriptor at the current HDR colour view. Called at
@@ -4915,7 +5504,10 @@ private:
         // A stale one is sampled at the wrong resolution and shows as a smeared or cropped
         // frame on every resize.
         destroy_hdr_target();
+        destroy_bloom_chain();
         create_hdr_target(extent_.width, extent_.height);
+        create_bloom_chain(extent_.width, extent_.height);
+        write_bloom_descriptors();
         // The new target is a new image view, so the resolve's descriptor still points at
         // the freed one. Rewriting it here is the whole fix; forgetting it is a
         // use-after-free the validation layers report and nothing else would.
@@ -5139,6 +5731,28 @@ private:
     VkPipeline       resolve_pipeline_ = VK_NULL_HANDLE;    // into the swapchain pass
     VkPipeline       vp_resolve_pipeline_ = VK_NULL_HANDLE; // into the editor's panel pass
     bool            in_hdr_pass_ = false;
+
+    // --- bloom chain ---------------------------------------------------------------
+    // ONE image with bloom_levels_ mips at HALF the swapchain's resolution, plus one view
+    // and one framebuffer per mip -- a framebuffer binds a specific view, so the per-mip
+    // vectors are not an optimisation, they are the API.
+    VkRenderPass               bloom_render_pass_ = VK_NULL_HANDLE;
+    VkImage                    bloom_image_ = VK_NULL_HANDLE;
+    VkDeviceMemory             bloom_mem_ = VK_NULL_HANDLE;
+    std::vector<VkImageView>   bloom_views_;
+    std::vector<VkFramebuffer> bloom_fbs_;
+    std::vector<VkExtent2D>    bloom_extents_;
+    std::uint32_t              bloom_levels_ = 0;
+    VkDescriptorPool             bloom_descriptor_pool_ = VK_NULL_HANDLE;
+    // bloom_sets_[0] is the HDR scene view; bloom_sets_[i + 1] is mip i. One per distinct
+    // SOURCE: the downsample reads mips 0..N-2 and the upsample reads 1..N-1, so between
+    // them every level is sampled -- including the smallest, which nothing downsamples
+    // from.
+    std::vector<VkDescriptorSet> bloom_sets_;
+    VkPipelineLayout             bloom_pipeline_layout_ = VK_NULL_HANDLE;
+    VkPipeline                   bloom_prefilter_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline                   bloom_down_pipeline_ = VK_NULL_HANDLE;
+    VkPipeline                   bloom_up_pipeline_ = VK_NULL_HANDLE;
     // The viewport pass is REQUESTED by begin_viewport_pass and opened lazily by
     // ensure_viewport_pass, so the HDR scene pass can open and close first without
     // nesting inside it. vp_clear_ carries the clear colour across that gap.

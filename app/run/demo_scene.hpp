@@ -20,6 +20,7 @@
 #include "engine/particles/particle_system.hpp"
 #include "engine/particles/particle_emitter.hpp"
 #include "engine/sequencer/sequence_system.hpp"
+#include "engine/vfx/bloom.hpp"
 #include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
@@ -674,6 +675,26 @@ inline void build_default_scene(mosaic::engine::World& world)
 
     world.add_component<mosaic::engine::vfx::ScreenEffect>(camera,
         mosaic::engine::vfx::ScreenEffect{Vec3{0, 0, 0}, 0.0f, 0.4f}); // subtle vignette
+
+    // Threshold at display white, so the demo blooms exactly what exceeds what the screen
+    // can show -- which, since the 2026-10-17 retune, is the fountain's orange, the
+    // trail's green, the puffer's cyan and the decal's warm tint. They are the first
+    // authored values in this project above 1.0, and so the first things to glow.
+    //
+    // Intensity well below 1: the chain is ADDED to the scene before the tone curve, so
+    // 1.0 would roughly double the brightness of every bright thing. 0.35 reads as a glow
+    // rather than as a second exposure.
+    //
+    // THE SKY IS THE RISK HERE. The demo lights itself with a real outdoor HDR environment
+    // whose radiance genuinely exceeds 1.0, so the sky and horizon will glow too.
+    // Physically that is correct; whether it veils the image is a question only a human at
+    // the window can answer, and if it does the fix is THIS number, not the pipeline.
+    //
+    // Brace-initialised positionally, like every component in this file. All three fields
+    // are float, so adding a member to Bloom would silently re-bind these values and the
+    // compiler would NOT catch it -- re-read this call site if Bloom ever grows one.
+    world.add_component<mosaic::engine::vfx::Bloom>(camera,
+        mosaic::engine::vfx::Bloom{0.35f, 1.0f, 0.5f});
 
     // Demo HUD: a translucent bar anchored top-left, over everything.
     world.add_component<mosaic::engine::ui::UiPanel>(camera,

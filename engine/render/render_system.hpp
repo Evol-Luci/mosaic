@@ -25,6 +25,7 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/vfx/trail_renderer.hpp"
 #include "engine/vfx/trail_system.hpp"
+#include "engine/vfx/bloom.hpp"
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/render/font_texture_cache.hpp"
 #include "engine/ui/text_layout.hpp"
@@ -143,7 +144,12 @@ public:
         // false without touching it, and an uninitialised exposure would ship whatever was
         // on the stack -- a black frame at 0, a white one at a large value.
         float exposure = 1.0f;
-        if (!find_active_camera(world, view, projection, exposure))
+        // The bloom knobs are initialised here for the same reason, and have the sharper
+        // failure: a large intensity left on the stack is a white screen, and a zero knee
+        // is a NaN chain.
+        mosaic::engine::render::BloomParams bloom{};
+        float bloom_intensity = 0.0f;
+        if (!find_active_camera(world, view, projection, exposure, bloom, bloom_intensity))
         {
             view = fallback_view();
             projection = Mat4::perspective(kFallbackFovY, aspect_, kFallbackNear, kFallbackFar);
@@ -440,10 +446,23 @@ public:
         // what appears on screen depend on how bright the scene behind it is -- the HUD would
         // dim whenever the world got bright.
         device.end_hdr_scene_pass();
+
+        // Build the glow from the finished HDR target, BEFORE the resolve reads it. Only
+        // when there is something to multiply it by: at zero intensity the chain would cost
+        // eleven render passes a frame to produce a value the resolve then multiplies by 0.
+        // That is also what every scene authored before this feature does.
+        if (bloom_intensity > 0.0f)
+        {
+            device.build_bloom(bloom);
+        }
         // A DRAW, not a pass, into whatever colour target is currently bound: the swapchain
         // in `mosaic run --window`, the offscreen viewport target in the editor. That is what
         // keeps both paths on one code path.
-        device.draw_hdr_resolve(exposure);
+        // The intensity is passed UNCONDITIONALLY, including on the frames above that
+        // skipped the build. That is the whole reason it is a resolve parameter rather than
+        // a build one: at 0 the chain contributes 0 whatever it contains, so a stale chain
+        // cannot show through and no "is it stale?" flag has to be right.
+        device.draw_hdr_resolve(exposure, bloom_intensity);
 
         // HUD pass: screen-space alpha-blended panels, drawn last (topmost, over the
         // screen-effect overlay). order-sorted so higher `order` draws on top.
@@ -711,12 +730,17 @@ private:
         return light;
     }
 
-    // `exposure` rides along rather than getting its own traversal: the active camera is
-    // whichever Camera is found first, so a second search could in principle disagree with
-    // this one about which camera that is.
+    // `exposure` and the bloom knobs ride along rather than getting their own traversal:
+    // the active camera is whichever Camera is found first, so a second search could in
+    // principle disagree with this one about which camera that is.
+    //
+    // All four out-parameters are left UNTOUCHED when this returns false, which is why
+    // every caller must initialise them first.
     bool find_active_camera(World& world, mosaic::foundation::math::Mat4& view,
                             mosaic::foundation::math::Mat4& projection,
-                            float& exposure) const
+                            float& exposure,
+                            mosaic::engine::render::BloomParams& bloom,
+                            float& bloom_intensity) const
     {
         using mosaic::foundation::math::Mat4;
         bool found = false;
@@ -735,6 +759,19 @@ private:
                 view = Mat4::inverse_affine(wt->matrix);
                 projection = Mat4::perspective(cam.fov_y_radians, aspect_, cam.near_z, cam.far_z);
                 exposure = cam.exposure;
+                // Read from the CAMERA ENTITY, the way ScreenEffect's knobs are authored
+                // on it. A world.for_each<Bloom> would have found one anywhere in the
+                // scene and bloomed a frame whose camera never asked for it.
+                if (const auto* b = world.get_component<mosaic::engine::vfx::Bloom>(e))
+                {
+                    bloom.threshold = b->threshold;
+                    bloom.knee = b->knee;
+                    // Floored at 0 HERE, where the fake device can see it -- the shader's
+                    // own floor is unreachable from any headless test. A negative intensity
+                    // subtracts light before a curve that floors its input, which is a hard
+                    // black clip around every bright object rather than a gradient.
+                    bloom_intensity = b->intensity > 0.0f ? b->intensity : 0.0f;
+                }
                 found = true;
             });
         return found;

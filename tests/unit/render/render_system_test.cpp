@@ -25,6 +25,7 @@
 #include "engine/ui/ui_order_check.hpp"
 #include "engine/ui/ui_system.hpp"
 #include "engine/render/render_system.hpp"
+#include "engine/vfx/bloom.hpp"
 #include "engine/render/shadow.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/world/world.hpp"
@@ -227,10 +228,19 @@ public:
         hdr_clears.push_back(c);
     }
     void end_hdr_scene_pass() override { ordered_calls.push_back("hdr_end"); }
-    void draw_hdr_resolve(float exposure) override
+    std::vector<mosaic::engine::render::BloomParams> bloom_builds;
+    std::vector<float>                               bloom_intensities;
+
+    void build_bloom(const mosaic::engine::render::BloomParams& p) override
+    {
+        ordered_calls.push_back("bloom_build");
+        bloom_builds.push_back(p);
+    }
+    void draw_hdr_resolve(float exposure, float bloom_intensity) override
     {
         ordered_calls.push_back("hdr_resolve");
         hdr_exposures.push_back(exposure);
+        bloom_intensities.push_back(bloom_intensity);
     }
 
     // Index of the first occurrence, or -1. Comparing indices is how the tests say "before"
@@ -2527,4 +2537,191 @@ TEST_CASE("the scene clear colour defaults to opaque black", "[render]")
     REQUIRE(device.hdr_clears[0].g == Catch::Approx(0.0f));
     REQUIRE(device.hdr_clears[0].b == Catch::Approx(0.0f));
     REQUIRE(device.hdr_clears[0].a == Catch::Approx(1.0f));
+}
+
+// --- bloom boundary ---------------------------------------------------------------
+//
+// FakeRenderDevice records calls in order, so the part of bloom that matters here is
+// testable headlessly: THE BOUNDARY. Whether the chain looks like a glow needs a GPU and
+// a human; whether it is built once, from the right camera's knobs, between the right two
+// calls, is pinned below.
+
+TEST_CASE("build_bloom runs between the hdr pass and the resolve", "[render][bloom]")
+{
+    // The boundary the spec fixes: the chain is built from a FINISHED HDR target, and read
+    // by the resolve. Before end_hdr_scene_pass the target is still being written; after
+    // draw_hdr_resolve it is too late to be composited.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    cam = add_camera(world, Vec3{0, 0, 5});
+    world.add_component<Bloom>(cam, Bloom{1.0f, 1.0f, 0.5f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    const int end     = device.index_of("hdr_end");
+    const int build   = device.index_of("bloom_build");
+    const int resolve = device.index_of("hdr_resolve");
+    REQUIRE(end >= 0);
+    REQUIRE(build > end);
+    REQUIRE(resolve > build);
+    REQUIRE(device.bloom_builds.size() == 1); // once per frame, not once per camera
+}
+
+TEST_CASE("build_bloom is skipped at zero intensity", "[render][bloom]")
+{
+    // Bloom::intensity defaults to 0, so this is also what EVERY existing scene does.
+    // Building a chain nobody reads would cost eleven render passes a frame to produce a
+    // value that is then multiplied by zero.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    cam = add_camera(world, Vec3{0, 0, 5});
+    world.add_component<Bloom>(cam, Bloom{});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("bloom_build") == -1);
+    // The resolve still runs, and still receives an intensity. It is the unconditional
+    // half of the boundary: one code path, with the zero doing the work.
+    REQUIRE(device.bloom_intensities.size() == 1);
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a camera with no Bloom component resolves at zero intensity", "[render][bloom]")
+{
+    // Every scene authored before this feature existed. Not merely "does not crash": the
+    // resolve must receive 0, because it samples the chain unconditionally.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("bloom_build") == -1);
+    REQUIRE(device.bloom_intensities.size() == 1);
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("the threshold and knee reaching build_bloom are the active camera's",
+          "[render][bloom]")
+{
+    // Two cameras, each with a DIFFERENT Bloom. The active camera is whichever Camera is
+    // found first, and the bloom parameters must come from that same entity -- a second
+    // traversal could in principle disagree about which camera that is, which is why
+    // find_active_camera carries them rather than a helper of its own.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    first  = add_camera(world, Vec3{0, 0, 5});
+    const auto    second = add_camera(world, Vec3{0, 0, 9});
+    world.add_component<Bloom>(first, Bloom{1.0f, 2.25f, 0.125f});
+    world.add_component<Bloom>(second, Bloom{3.0f, 9.0f, 0.75f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.bloom_builds.size() == 1);
+    REQUIRE(device.bloom_builds[0].threshold == Catch::Approx(2.25f));
+    REQUIRE(device.bloom_builds[0].knee == Catch::Approx(0.125f));
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(1.0f));
+}
+
+TEST_CASE("a Bloom on a non-camera entity is ignored", "[render][bloom]")
+{
+    // Bloom is a per-CAMERA knob; it is read from the camera entity and nowhere else. A
+    // world.for_each<Bloom> would have picked this one up and bloomed a scene whose camera
+    // never asked.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+    const auto stray = world.create_entity();
+    world.add_component<Bloom>(stray, Bloom{5.0f, 0.1f, 0.9f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("bloom_build") == -1);
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a camera with no WorldTransform falls back to the Bloom defaults",
+          "[render][bloom]")
+{
+    // find_active_camera returns FALSE without touching its out-parameters when the camera
+    // has no WorldTransform -- the exact trap its existing comment names about exposure.
+    // Uninitialised bloom parameters would ship whatever was on the stack, and a large
+    // intensity there is a white screen.
+    //
+    // A camera with no WorldTransform is the normal state of a freshly spawned entity: the
+    // TransformSystem gives every Transform a WorldTransform on its first TICK, and the
+    // editor opens stopped.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    cam = world.create_entity();
+    world.add_component<Camera>(cam, Camera{});
+    world.add_component<Bloom>(cam, Bloom{4.0f, 0.2f, 0.3f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // No active camera, so NONE of its knobs are read -- not the exposure, not the bloom.
+    REQUIRE(device.index_of("bloom_build") == -1);
+    REQUIRE(device.bloom_intensities.size() == 1);
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+    REQUIRE(device.hdr_exposures[0] == Catch::Approx(1.0f));
+}
+
+TEST_CASE("a negative bloom intensity is floored at zero", "[render][bloom]")
+{
+    // intensity multiplies the chain BEFORE the tone curve, so a negative value subtracts
+    // light; tonemap_aces floors its own input, so the result is a hard black clip around
+    // every bright object rather than a gradient -- a confident, plausible, completely
+    // wrong image from one typed minus sign.
+    //
+    // Floored HERE and not only in the shader, so the fake device sees it: the shader floor
+    // is unreachable from any headless test.
+    using mosaic::engine::vfx::Bloom;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    const auto    cam = add_camera(world, Vec3{0, 0, 5});
+    world.add_component<Bloom>(cam, Bloom{-2.0f, 1.0f, 0.5f});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
+    // And a non-positive intensity means there is nothing to build.
+    REQUIRE(device.index_of("bloom_build") == -1);
+}
+
+TEST_CASE("a world with no camera still resolves with zero bloom", "[render][bloom]")
+{
+    // The state every freshly created World is in. render() has no early return for a
+    // missing camera, so the sequence is unconditional -- and the resolve samples the chain
+    // unconditionally too, which is why the intensity must be a real 0 and not whatever was
+    // on the stack.
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.index_of("hdr_resolve") >= 0);
+    REQUIRE(device.index_of("bloom_build") == -1);
+    REQUIRE(device.bloom_intensities.size() == 1);
+    REQUIRE(device.bloom_intensities[0] == Catch::Approx(0.0f));
 }

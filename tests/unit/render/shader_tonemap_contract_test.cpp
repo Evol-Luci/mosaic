@@ -117,7 +117,8 @@ TEST_CASE("no fragment shader gamma-corrects on top of the sRGB destination", "[
     // display colour, which makes it the most likely place for exactly this edit.
     for (const char* name : {"cube.frag", "skybox.frag", "particle.frag", "ribbon.frag",
                              "decal.frag", "world_text.frag", "screen_effect.frag",
-                             "hdr_resolve.frag", "ui.frag", "ui_image.frag", "ui_text.frag"})
+                             "hdr_resolve.frag", "ui.frag", "ui_image.frag", "ui_text.frag",
+                             "bloom_prefilter.frag", "bloom_blur.frag"})
     {
         const std::string frag = code_only(read_shader(name));
         INFO(std::string("shader: ") + name);
@@ -140,7 +141,8 @@ TEST_CASE("exposure scales the colour entering the tone map", "[render]")
 
     INFO("If this fails, check whether exposure moved OUTSIDE tonemap_aces(...) before "
          "assuming the test is stale. Outside the curve it can only darken.");
-    REQUIRE(frag.find("outColor = vec4(tonemap_aces(hdr * max(pc.exposure, 0.0)), 1.0);")
+    REQUIRE(frag.find("outColor = vec4(tonemap_aces((hdr + bloom * pc.bloom_intensity) * "
+                      "max(pc.exposure, 0.0)), 1.0);")
             != std::string::npos);
 }
 
@@ -208,8 +210,8 @@ TEST_CASE("the resolve takes exposure from its own push constant", "[render]")
 
 TEST_CASE("the resolve samples the scene in framebuffer space", "[render]")
 {
-    // The Y-flip trap, and the reason hdr_resolve.vert exists instead of a reuse of
-    // screen_effect.vert.
+    // The Y-flip trap, and the reason fullscreen_triangle.vert exists instead of a reuse
+    // of screen_effect.vert.
     //
     // Every render pass in the Vulkan backend sets a NEGATIVE-HEIGHT viewport, so a
     // fullscreen triangle that derives its UV from the clip position inherits that flip
@@ -223,13 +225,28 @@ TEST_CASE("the resolve samples the scene in framebuffer space", "[render]")
     const std::string frag =
         mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.frag")));
     const std::string vert =
-        mosaic::tests::normalize_ws(code_only(read_shader("hdr_resolve.vert")));
+        mosaic::tests::normalize_ws(code_only(read_shader("fullscreen_triangle.vert")));
     INFO("The resolve must derive its UV from gl_FragCoord, not from an interpolated clip "
          "position -- the viewport is Y-flipped and an interpolated UV inherits that.");
     REQUIRE(frag.find("gl_FragCoord.xy") != std::string::npos);
     // ...and the vertex shader must not offer one, so the fragment shader cannot drift
     // back to it. No `out` at all is the enforceable form of that.
     REQUIRE(vert.find("out vec2") == std::string::npos);
+}
+
+TEST_CASE("the tree has exactly one fullscreen triangle vertex shader", "[render]")
+{
+    // The three bloom pipelines and the resolve all want the same three vertices with no
+    // UV output. A second copy is a place for one of them to grow an interpolated UV and
+    // start sampling upside down under the negative-height viewport -- which is the bug
+    // screen_effect.vert has and nobody noticed, because a vignette is radially symmetric.
+    const std::string backend = mosaic::tests::read_backend();
+    INFO("Every pipeline that draws a fullscreen triangle must load "
+         "fullscreen_triangle.vert.spv. hdr_resolve.vert was renamed to it when bloom "
+         "gained three more users; a reference to the old name is a stale path that fails "
+         "at runtime, not at build time.");
+    REQUIRE(backend.find("hdr_resolve.vert.spv") == std::string::npos);
+    REQUIRE(backend.find("fullscreen_triangle.vert.spv") != std::string::npos);
 }
 
 TEST_CASE("the resolve normalises by the DESTINATION size and not the source", "[render]")
