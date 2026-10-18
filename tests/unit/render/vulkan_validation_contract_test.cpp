@@ -16,6 +16,7 @@
 
 #include "shader_source.hpp"
 
+using mosaic::tests::code_only;
 using mosaic::tests::read_backend;
 
 namespace
@@ -87,4 +88,102 @@ TEST_CASE("a run says in its own log whether sync validation was on",
     INFO("create_instance must log when synchronization validation is enabled, so a log "
          "proving a clean run also proves WHAT was being checked.");
     REQUIRE(body.find("synchronization validation") != std::string::npos);
+}
+
+namespace
+{
+// A named method's body, from its signature to the next method at the same indentation.
+std::string pass_body(const std::string& src, const std::string& signature)
+{
+    const std::size_t at = src.find(signature);
+    REQUIRE(at != std::string::npos);
+    const std::size_t end = src.find("\n    void ", at + signature.size());
+    return src.substr(at, (end == std::string::npos ? src.size() : end) - at);
+}
+} // namespace
+
+TEST_CASE("every pass that clears depth orders the clear against its layout transition",
+          "[render][validation]")
+{
+    // FOUND BY SYNCHRONIZATION VALIDATION, ten times per run, the first time it was ever
+    // enabled on this renderer (2026-10-18):
+    //
+    //   WRITE_AFTER_WRITE hazard detected: attachment loadOp access is not synchronized
+    //   with the attachment layout transition ... clears the depth aspect of attachment 1
+    //   ... (loadOp VK_ATTACHMENT_LOAD_OP_CLEAR), which was previously written during an
+    //   image layout transition initiated by the same command.
+    //
+    // vkCmdBeginRenderPass does two things to the depth attachment in order: the
+    // UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL transition, which WRITES, and then the
+    // loadOp CLEAR, which also writes. Ordering them requires the external dependency's
+    // destination scope to name the DEPTH stage and access -- EARLY_FRAGMENT_TESTS and
+    // DEPTH_STENCIL_ATTACHMENT_WRITE. A dependency naming only COLOR_ATTACHMENT_OUTPUT
+    // covers the colour attachment and says nothing about depth.
+    //
+    // `create_render_pass` (the swapchain) already had this right and is the template the
+    // other two now follow; it is asserted here too so the three cannot drift apart.
+    const std::string src = read_backend();
+    for (const char* sig : {"void create_render_pass()",
+                            "void create_offscreen_render_pass()",
+                            "void create_hdr_render_pass()"})
+    {
+        const std::string body = pass_body(src, sig);
+        INFO(std::string(sig) + " clears a depth attachment, so its external dependency "
+             "must name EARLY_FRAGMENT_TESTS and DEPTH_STENCIL_ATTACHMENT_WRITE in its "
+             "DESTINATION scope. Re-check with MOSAIC_VK_SYNC_VALIDATION=1 if you change "
+             "this.");
+        // Only assert for passes that actually clear depth -- the premise of the case.
+        REQUIRE(body.find("depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR") != std::string::npos);
+        REQUIRE(body.find("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT") != std::string::npos);
+        REQUIRE(body.find("VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT") != std::string::npos);
+    }
+}
+
+TEST_CASE("every pass sharing an attachment across frames names the previous frame's writes",
+          "[render][validation]")
+{
+    // THE CROSS-FRAME HAZARD, and the reason it is subtle enough to deserve a test.
+    //
+    // kFramesInFlight is 2, but `depth_image_`, `hdr_color_`, `hdr_depth_`, `vp_color_`
+    // and `vp_depth_` are SINGLE images shared by both frames -- only the swapchain images
+    // and the command buffers are per-frame. begin_frame waits on in_flight_[frame_],
+    // which is the fence from two submissions ago, so frames N and N+1 genuinely overlap.
+    //
+    // So frame N+1's attachment layout transition races frame N's storeOp on the same
+    // image. VK_SUBPASS_EXTERNAL DOES cover prior submissions on the same queue, so the
+    // whole fix is naming the stage and access in the SOURCE scope -- no per-frame
+    // duplicate of any image, and no reduction in frames in flight. (Both of those were
+    // in the backlog as the presumed fixes. They were not needed; the entry was wrong and
+    // is corrected.)
+    //
+    // TWO BITS ARE EASY TO MISS, and each cost a measurement to find:
+    //   - LATE_FRAGMENT_TESTS, not just EARLY. Depth writes occur in both, and the layer
+    //     attributes the end-of-pass storeOp to LATE.
+    //   - the SWAPCHAIN pass, whose dependency had srcAccessMask = 0 and so named no
+    //     prior write at all. Fixing only the offscreen and HDR passes left the count
+    //     unchanged at 10.
+    // COMMENTS STRIPPED FIRST. Searching the raw file matched the prose in
+    // create_render_pass's own comment ("srcAccessMask = 0 did not"), so the window below
+    // started at an explanation rather than at code and the test failed against correct
+    // source. That is the hazard code_only exists for, and it caught me writing a test
+    // that documents a decision and then trips over the documentation.
+    const std::string src = code_only(read_backend());
+    for (const char* sig : {"void create_render_pass()",
+                            "void create_offscreen_render_pass()",
+                            "void create_hdr_render_pass()"})
+    {
+        const std::string body = pass_body(src, sig);
+        INFO(std::string(sig) + " shares its depth attachment across frames in flight, so "
+             "its external dependency's SOURCE scope must name LATE_FRAGMENT_TESTS and "
+             "DEPTH_STENCIL_ATTACHMENT_WRITE. Verify with MOSAIC_VK_SYNC_VALIDATION=1 on "
+             "BOTH entry points -- the editor shows this and the window may not.");
+        REQUIRE(body.find("VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT") != std::string::npos);
+        // The source scope, specifically: a prior write must be IN it. An srcAccessMask of
+        // 0 names no prior access and is what the swapchain pass had.
+        const std::size_t src_access = body.find("srcAccessMask");
+        REQUIRE(src_access != std::string::npos);
+        const std::string src_scope = body.substr(src_access, 200);
+        REQUIRE(src_scope.find("VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT")
+                != std::string::npos);
+    }
 }

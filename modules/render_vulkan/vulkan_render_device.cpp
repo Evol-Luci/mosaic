@@ -2970,9 +2970,18 @@ private:
         VkSubpassDependency dep{};
         dep.srcSubpass = VK_SUBPASS_EXTERNAL;
         dep.dstSubpass = 0;
+        // THE SOURCE SCOPE MUST NAME THE PREVIOUS FRAME'S ATTACHMENT WRITES, and
+        // srcAccessMask = 0 did not. kFramesInFlight is 2 while `depth_image_` is a single
+        // image shared by both, so frame N+1's depth layout transition here races frame
+        // N's depth storeOp -- which the layer attributes to LATE_FRAGMENT_TESTS, not
+        // EARLY. VK_SUBPASS_EXTERNAL does cover prior submissions on the same queue, so
+        // naming the stage and access is the whole fix; no per-frame duplicate of the
+        // depth image is needed.
         dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dep.srcAccessMask = 0;
+                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        dep.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
         dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
@@ -3067,13 +3076,32 @@ private:
 
         // Two dependencies: external -> subpass (start), subpass -> external (make the
         // color image visible to the fragment shader sampling it in the ImGui pass).
+        //
+        // deps[0]'s DESTINATION scope names the DEPTH stage and access as well as the
+        // colour ones, and synchronization validation is what caught the difference.
+        // vkCmdBeginRenderPass does two things to the depth attachment in order: the
+        // UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL transition, which WRITES, and then
+        // `loadOp = CLEAR`, which writes again. Naming only COLOR_ATTACHMENT_OUTPUT covers
+        // the colour attachment and says nothing about depth, leaving those two unordered:
+        // "WRITE_AFTER_WRITE hazard detected: attachment loadOp access is not synchronized
+        // with the attachment layout transition", ten times a run.
+        //
+        // create_render_pass (the swapchain) already had this right; this follows it, and
+        // a contract test now holds all three together.
         std::array<VkSubpassDependency, 2> deps{};
         deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
         deps[0].dstSubpass = 0;
-        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                               VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         deps[1].srcSubpass = 0;
         deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
         deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -3153,13 +3181,32 @@ private:
 
         // Two dependencies: external -> subpass (start), subpass -> external (make the
         // color image visible to the fragment shader sampling it in the resolve).
+        //
+        // deps[0]'s DESTINATION scope names the DEPTH stage and access as well as the
+        // colour ones, and synchronization validation is what caught the difference.
+        // vkCmdBeginRenderPass does two things to the depth attachment in order: the
+        // UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL transition, which WRITES, and then
+        // `loadOp = CLEAR`, which writes again. Naming only COLOR_ATTACHMENT_OUTPUT covers
+        // the colour attachment and says nothing about depth, leaving those two unordered:
+        // "WRITE_AFTER_WRITE hazard detected: attachment loadOp access is not synchronized
+        // with the attachment layout transition", ten times a run.
+        //
+        // create_render_pass (the swapchain) already had this right; this follows it, and
+        // a contract test now holds all three together.
         std::array<VkSubpassDependency, 2> deps{};
         deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
         deps[0].dstSubpass = 0;
-        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+                               VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                               VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                               VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         deps[1].srcSubpass = 0;
         deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
         deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

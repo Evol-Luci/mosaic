@@ -1311,30 +1311,51 @@ them as this list does.
     a reason, and nothing has asked. The derivation is one function, so
     making it authorable later is cheap. Depends on nothing.
 
-  - **A depth-attachment `loadOp CLEAR` is not ordered against its own layout
-    transition, in a pass that is not bloom's.** Reported ten times per run by
-    synchronization validation the first time it was ever enabled (2026-10-17),
-    all one class: `WRITE_AFTER_WRITE hazard detected: attachment loadOp access
-    is not synchronized with the attachment layout transition ... clears the
-    depth aspect of attachment 1 ... of VkRenderPass 0x100000000010 (loadOp
-    VK_ATTACHMENT_LOAD_OP_CLEAR)`. **Pre-existing** — it predates bloom, and
-    bloom's own instance of this class (the colour aspect, `loadOp LOAD`, six a
-    frame) was fixed in the same slice that made it visible.
+  - ~~**A depth-attachment `loadOp CLEAR` is not ordered against its own layout
+    transition.**~~ — **FIXED 2026-10-18.** It was in TWO passes, not one:
+    `create_offscreen_render_pass` (the editor's viewport target) and
+    `create_hdr_render_pass`. Both cleared a depth attachment while naming only
+    `COLOR_ATTACHMENT_OUTPUT` in their external dependency's destination scope,
+    so the `UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL` transition (a write)
+    and the `loadOp CLEAR` (another write) were unordered. `create_render_pass`
+    (the swapchain) already had it right and was the template; a contract test
+    now holds all three together. Verified by the layer: that message class went
+    from 10 occurrences to 0.
 
-    Diagnosed shape, same as bloom's: `vkCmdBeginRenderPass` transitions the
-    layout (a write) and then honours the `loadOp` (another write, for CLEAR),
-    and the external dependency's DESTINATION scope has to name the depth stage
-    and access — `VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT` and
-    `VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | ..._WRITE_BIT` — for the two
-    to be ordered. Probably a one-line fix per affected pass, but **which**
-    passes is the work: three in this backend have a depth attachment
-    (`render_pass_`, `vp_render_pass_`, `hdr_render_pass_`) and the log gives a
-    handle rather than a name. Deferred 2026-10-17 rather than fixed in the
-    slice that found it: it is a different pass, pre-existing, and each one
-    needs its own before/after run under `MOSAIC_VK_SYNC_VALIDATION=1` to
-    confirm. Depends on nothing; reproduce with
-    `MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic run --window`.
+  - ~~**Cross-submit `WRITE_AFTER_WRITE`: one command buffer's `storeOp` against
+    the next submission's `vkCmdBeginRenderPass`.**~~ — **FIXED 2026-10-18, and
+    my own analysis of it was wrong in the direction that matters.**
 
+    The diagnosis was right: `kFramesInFlight` is 2 while `depth_image_`,
+    `hdr_color_`, `hdr_depth_`, `vp_color_` and `vp_depth_` are single images
+    shared by both frames, and `begin_frame` waits on the fence from two
+    submissions ago — so frames N and N+1 overlap and race on the shared depth
+    attachment.
+
+    **The prescribed fixes were all wrong.** This entry previously listed three
+    options — per-frame duplicates of five images (which would have made the
+    whole bloom chain per-frame), reducing to one frame in flight, or explicit
+    cross-frame barriers — and called the choice between them a real design
+    decision about memory against latency. **None of that was necessary.**
+    `VK_SUBPASS_EXTERNAL` already covers prior submissions on the same queue, so
+    the entire fix was naming the previous frame's writes in each pass's
+    **source scope**: `LATE_FRAGMENT_TESTS` and
+    `VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT`. Three render passes, no
+    duplicated memory, no lost frame overlap.
+
+    **Two bits cost a measurement each to find, and both are worth remembering.**
+    `LATE_FRAGMENT_TESTS` rather than only `EARLY` — depth writes occur in both
+    stages and the layer attributes the end-of-pass `storeOp` to LATE. And the
+    **swapchain** pass, whose dependency had `srcAccessMask = 0` and therefore
+    named no prior access at all; fixing only the offscreen and HDR passes left
+    the hazard count unchanged at 10 and looked like total failure.
+
+    **How it was actually found:** by reading the layer's full message instead of
+    its count. The one-line summary says only "writes to resource, which was
+    previously written ... by the attachment storeOp"; the sentence *after* it
+    names the access and the stage, which is the entire answer. Verified: both
+    entry points now report **zero** hazards of any kind under
+    `MOSAIC_VK_SYNC_VALIDATION=1`, and a contract test pins all three passes.
   - ~~**Synchronization validation is never enabled, so the project's strongest
     automated check cannot tell "correctly synchronised" from "accidentally
     works".**~~ — **SHIPPED 2026-10-17**, and it found a real hazard in bloom on
