@@ -3180,14 +3180,30 @@ private:
         // NO depth attachment: every pass here is a fullscreen triangle with depth testing
         // off, and a depth buffer per mip would be six allocations for nothing.
 
-        // The same two dependencies the HDR pass uses, and for the same reason: each step
-        // in the chain samples what the previous one wrote, so the colour write must be
-        // visible to the next fragment shader read.
+        // Two dependencies, and deps[0]'s source scope names BOTH hazards this pass has
+        // -- which is wider than the HDR pass's, deliberately.
+        //
+        // The HDR pass only ever follows a shader read of its target (the previous frame's
+        // resolve), so FRAGMENT_SHADER/SHADER_READ is the whole story there. A bloom pass
+        // is not in that position. The upsample targeting mip k LOADS and adds into what
+        // the DOWNSAMPLE targeting mip k wrote, which is a COLOR_ATTACHMENT_WRITE: a
+        // write-after-write and a load-after-write, not a write-after-read. Naming only
+        // the shader-read scope would leave those covered solely by CHAINING through an
+        // intermediate shader read that never happens for that subresource -- a valid but
+        // extremely subtle reading of the spec, for a frame shape that occurs on every
+        // frame once bloom_levels_ >= 2.
+        //
+        // Found by the whole-branch review, and the standard gate CANNOT see it: this
+        // backend enables VK_LAYER_KHRONOS_validation with no VkValidationFeaturesEXT, so
+        // synchronization validation is off and a clean run is silent here. Naming both
+        // scopes costs nothing.
         std::array<VkSubpassDependency, 2> deps{};
         deps[0].srcSubpass = VK_SUBPASS_EXTERNAL;
         deps[0].dstSubpass = 0;
-        deps[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-        deps[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        deps[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                        VK_ACCESS_SHADER_READ_BIT;
         deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
         deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         deps[1].srcSubpass = 0;
@@ -4830,43 +4846,50 @@ private:
     {
         if (bloom_sets_.empty()) { return; }
 
-        std::vector<VkDescriptorImageInfo> infos;
+        // EACH SET IS WRITTEN BY ITS OWN INDEX, never by position in a packed vector.
+        //
+        // This used to push the HDR entry CONDITIONALLY into `infos` and then pair
+        // bloom_sets_[i] with infos[i] positionally. Skipping that push with
+        // bloom_levels_ > 0 would have shifted the whole mapping -- set 0 gets mip 0, set 1
+        // gets mip 1, every source_set in build_bloom reads one mip too deep, and the
+        // resolve's "mip 0" becomes mip 1. The result is a glow that looks slightly wrong,
+        // which is a failure mode neither a test nor a validation layer can see.
+        //
+        // It was unreachable on both call paths, and that is exactly why it is worth
+        // removing rather than documenting: the coupling was one reorder away from being
+        // live. Found by the whole-branch review.
+        std::vector<VkDescriptorImageInfo> infos(bloom_sets_.size());
         std::vector<VkWriteDescriptorSet>  writes;
-        infos.reserve(bloom_sets_.size());
         writes.reserve(bloom_sets_.size());
 
-        // Set 0 is the HDR scene, which the prefilter samples.
-        if (hdr_color_view_ != VK_NULL_HANDLE)
+        // pImageInfo is a POINTER into `infos`, which is sized ONCE above and never grown,
+        // so no write can be left dangling by a reallocation.
+        auto point_set_at = [&](std::size_t set_index, VkImageView view)
         {
-            VkDescriptorImageInfo info{};
-            info.sampler = hdr_sampler_;
-            info.imageView = hdr_color_view_;
-            info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            infos.push_back(info);
-        }
-        // Then one per mip, 0..N-1.
-        for (uint32_t i = 0; i < bloom_levels_; ++i)
-        {
-            VkDescriptorImageInfo info{};
+            if (view == VK_NULL_HANDLE) { return; }
+            VkDescriptorImageInfo& info = infos[set_index];
             info.sampler = hdr_sampler_; // LINEAR, CLAMP_TO_EDGE -- the chain wants both
-            info.imageView = bloom_views_[i];
+            info.imageView = view;
             info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            infos.push_back(info);
-        }
 
-        // pImageInfo is a POINTER, so `infos` must be fully grown before any write records
-        // one -- a push_back that reallocated would leave earlier writes dangling. Hence
-        // the two loops and the reserve above.
-        for (std::size_t i = 0; i < infos.size(); ++i)
-        {
             VkWriteDescriptorSet w{};
             w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w.dstSet = bloom_sets_[i];
+            w.dstSet = bloom_sets_[set_index];
             w.dstBinding = 0;
             w.descriptorCount = 1;
             w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            w.pImageInfo = &infos[i];
+            w.pImageInfo = &info;
             writes.push_back(w);
+        };
+
+        // Set 0 is the HDR scene, which the prefilter samples.
+        point_set_at(0, hdr_color_view_);
+        // Set i + 1 is mip i. A set left unwritten here keeps whatever it held; sets above
+        // bloom_levels_ are never bound, because no source_set in build_bloom exceeds
+        // bloom_levels_.
+        for (uint32_t i = 0; i < bloom_levels_; ++i)
+        {
+            point_set_at(static_cast<std::size_t>(i) + 1, bloom_views_[i]);
         }
         if (writes.empty()) { return; }
         vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),

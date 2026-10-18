@@ -1311,6 +1311,26 @@ them as this list does.
     a reason, and nothing has asked. The derivation is one function, so
     making it authorable later is cheap. Depends on nothing.
 
+  - **Synchronization validation is never enabled, so the project's strongest
+    automated check cannot tell "correctly synchronised" from "accidentally
+    works".** `vulkan_render_device.cpp` enables `VK_LAYER_KHRONOS_validation`
+    with no `VkValidationFeaturesEXT`, so the sync-validation layer is off on
+    every run — including the two-entry-point grep this project treats as its
+    real gate. Raised by the bloom branch review 2026-10-17, and bloom is why
+    it now matters: it is the first feature in this renderer with a
+    **multi-pass intra-frame dependency on one image** (eleven passes, each
+    sampling the mip the last one wrote), and sync validation is the only
+    automated thing that can see a wrong barrier there. The branch's own
+    subpass dependency was widened on exactly this reasoning, with no way to
+    confirm it automatically. Deferred: it is a flag or env var plus a decision
+    about whether it runs always or on demand (it is not free), which is its
+    own small slice rather than part of bloom. Depends on nothing; it would
+    retroactively strengthen every render slice already shipped.
+
+    Its own entry rather than a line in the resize item below, because the two
+    are unrelated: this one is about what the gate can SEE, not about what the
+    renderer does.
+
   - **Every swapchain-derived target is rebuilt on each resize, including
     mid-drag.** `recreate_swapchain` already destroys and recreates the HDR
     colour and depth images; the bloom plan (2026-10-17) adds up to six image

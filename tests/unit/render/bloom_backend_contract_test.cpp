@@ -265,3 +265,62 @@ TEST_CASE("the bloom descriptors are written after the chain exists", "[render][
     REQUIRE(write != std::string::npos);
     REQUIRE(write < ctor_end);
 }
+
+TEST_CASE("the bloom pass declares the write-after-write hazard it actually has",
+          "[render][bloom]")
+{
+    // FOUND BY THE WHOLE-BRANCH REVIEW, and the gate could not have caught it: the backend
+    // enables VK_LAYER_KHRONOS_validation with no VkValidationFeaturesEXT, so
+    // SYNCHRONIZATION validation is OFF. "Zero validation errors" on a real device says
+    // nothing about this line.
+    //
+    // Within one frame the upsample targeting mip k loads and adds into what the DOWNSAMPLE
+    // pass targeting mip k wrote -- a COLOR_ATTACHMENT_WRITE, not a shader read. A deps[0]
+    // whose source scope is only FRAGMENT_SHADER/SHADER_READ expresses a write-after-READ
+    // hazard, so the write-after-write and load-after-write are covered only by chaining
+    // through an intermediate shader read that never happens for that subresource. That is
+    // the subtlest valid reading of the spec to depend on, for a frame shape that occurs
+    // every frame at bloom_levels_ >= 2.
+    //
+    // Naming both scopes costs nothing and makes the dependency say what it means.
+    const std::string body = method_body(read_backend(), "void create_bloom_render_pass()");
+    INFO("deps[0] must name COLOR_ATTACHMENT_OUTPUT/COLOR_ATTACHMENT_WRITE in its source "
+         "scope, not just FRAGMENT_SHADER/SHADER_READ -- the previous writer of the mip an "
+         "upsample pass loads was a colour attachment write.");
+    REQUIRE(body.find("deps[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |\n"
+                      "                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;")
+            != std::string::npos);
+    REQUIRE(body.find("deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |\n"
+                      "                        VK_ACCESS_SHADER_READ_BIT;")
+            != std::string::npos);
+}
+
+TEST_CASE("the bloom descriptors are indexed explicitly, not positionally",
+          "[render][bloom]")
+{
+    // FOUND BY THE WHOLE-BRANCH REVIEW as a latent trap. The HDR entry used to be pushed
+    // into `infos` CONDITIONALLY while the write loop paired bloom_sets_[i] with infos[i]
+    // by POSITION. Skip that push with bloom_levels_ > 0 and the whole mapping shifts: set
+    // 0 gets mip 0, set 1 gets mip 1, every source_set in build_bloom reads one mip too
+    // deep, and the resolve's "mip 0" becomes mip 1.
+    //
+    // It was unreachable on both call paths -- the HDR target is always created first, and
+    // a zero extent nulls the HDR view AND forces bloom_levels_ == 0 -- but the failure
+    // mode is "the blur looks slightly wrong", which no test and no validation layer can
+    // see, and it was one reorder away. Writing each set by its own index removes the
+    // coupling rather than documenting it.
+    const std::string body = method_body(read_backend(), "void write_bloom_descriptors()");
+    INFO("write_bloom_descriptors must write set 0 from the HDR view and set i+1 from "
+         "bloom_views_[i], each guarded on its own handle -- never pair sets to a packed "
+         "vector by position.");
+    // The set index is an explicit PARAMETER, so the view and the set it lands in travel
+    // together and cannot be separated by a skipped push.
+    REQUIRE(body.find("w.dstSet = bloom_sets_[set_index];") != std::string::npos);
+    // Set 0 <- the HDR view, and set i+1 <- mip i, each named at its call site.
+    REQUIRE(body.find("point_set_at(0, hdr_color_view_);") != std::string::npos);
+    REQUIRE(body.find("point_set_at(static_cast<std::size_t>(i) + 1, bloom_views_[i]);")
+            != std::string::npos);
+    // And the positional pairing is gone.
+    REQUIRE(body.find("w.dstSet = bloom_sets_[i];") == std::string::npos);
+    REQUIRE(body.find("infos.push_back(") == std::string::npos);
+}
