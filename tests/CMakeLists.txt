@@ -92,6 +92,7 @@ add_executable(mosaic_unit_tests
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/bloom_levels_test.cpp
+  unit/render/bloom_shader_contract_test.cpp
   unit/render/render_system_test.cpp
   unit/render/texture_cache_test.cpp
   unit/render/mesh_cache_test.cpp

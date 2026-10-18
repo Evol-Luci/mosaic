@@ -1,6 +1,17 @@
 #version 450
 
 layout(set = 0, binding = 0) uniform sampler2D hdrScene;
+
+// The bloom chain's mip 0, in its OWN descriptor set rather than a second binding in
+// set 0. Both sets use the backend's one single-combined-image-sampler layout, which is
+// shared with every texture in the engine; a second binding there would need a second
+// layout for one caller.
+//
+// Sampled UNCONDITIONALLY, with no branch on bloom_intensity. That is what makes the skip
+// case safe by arithmetic rather than by bookkeeping -- but it also means this image must
+// be in a readable layout on EVERY frame, including frame 1 and any frame after a skipped
+// build. The backend clears and transitions the chain once at creation for exactly that.
+layout(set = 1, binding = 0) uniform sampler2D bloomChain;
 layout(push_constant) uniform Push {
     // 1 / the DESTINATION viewport's size in pixels, which is NOT the size of hdrScene.
     //
@@ -21,6 +32,11 @@ layout(push_constant) uniform Push {
     // read back out of the per-frame lighting UBO. It is a property of the resolve now,
     // and a parameter is testable where a UBO field read inside the backend is not.
     float exposure;
+    // The active camera's Bloom::intensity, already floored at 0 by RenderSystem. At 0 the
+    // chain contributes exactly 0 whatever it contains, which is why a frame that skipped
+    // build_bloom cannot show the previous frame's glow and no staleness flag has to be
+    // right.
+    float bloom_intensity;
 } pc;
 layout(location = 0) out vec4 outColor;
 
@@ -73,6 +89,10 @@ void main()
     // destination is the identity the editor needs.
     vec2 uv = gl_FragCoord.xy * pc.inv_dest;
     vec3 hdr = texture(hdrScene, uv).rgb;
+    // The chain is sampled with the SAME uv as the scene: it is a half-resolution image of
+    // the same framing, so normalised coordinates line the two up with no extra scaling,
+    // and the LINEAR sampler does the upscale.
+    vec3 bloom = texture(bloomChain, uv).rgb;
     // Exposure scales the value ENTERING the curve, as it did in cube.frag. Applied after,
     // it would scale an already-clamped [0,1] value -- it could darken but never brighten,
     // which is most of what exposure is for.
@@ -83,5 +103,10 @@ void main()
     // plausible-looking, completely wrong image. The top end is deliberately NOT bounded;
     // a huge exposure overflows to NaN near 1.2e19, the same garbage-in posture roughness
     // already documents, and capping it would invent a maximum nobody asked for.
-    outColor = vec4(tonemap_aces(hdr * max(pc.exposure, 0.0)), 1.0);
+    // BLOOM IS ADDED INSIDE THE CURVE, and exposure scales it too, because bloom is LIGHT.
+    // Added after the curve it would be untonemapped glow pasted onto a tone-mapped scene:
+    // it clips immediately and reads as a white smear rather than as something glowing.
+    // Left outside the exposure multiply, an exposure change would move the scene but not
+    // its glow, which looks like a compositing error.
+    outColor = vec4(tonemap_aces((hdr + bloom * pc.bloom_intensity) * max(pc.exposure, 0.0)), 1.0);
 }

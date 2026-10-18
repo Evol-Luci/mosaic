@@ -117,7 +117,8 @@ TEST_CASE("no fragment shader gamma-corrects on top of the sRGB destination", "[
     // display colour, which makes it the most likely place for exactly this edit.
     for (const char* name : {"cube.frag", "skybox.frag", "particle.frag", "ribbon.frag",
                              "decal.frag", "world_text.frag", "screen_effect.frag",
-                             "hdr_resolve.frag", "ui.frag", "ui_image.frag", "ui_text.frag"})
+                             "hdr_resolve.frag", "ui.frag", "ui_image.frag", "ui_text.frag",
+                             "bloom_prefilter.frag", "bloom_blur.frag"})
     {
         const std::string frag = code_only(read_shader(name));
         INFO(std::string("shader: ") + name);
@@ -140,7 +141,8 @@ TEST_CASE("exposure scales the colour entering the tone map", "[render]")
 
     INFO("If this fails, check whether exposure moved OUTSIDE tonemap_aces(...) before "
          "assuming the test is stale. Outside the curve it can only darken.");
-    REQUIRE(frag.find("outColor = vec4(tonemap_aces(hdr * max(pc.exposure, 0.0)), 1.0);")
+    REQUIRE(frag.find("outColor = vec4(tonemap_aces((hdr + bloom * pc.bloom_intensity) * "
+                      "max(pc.exposure, 0.0)), 1.0);")
             != std::string::npos);
 }
 
