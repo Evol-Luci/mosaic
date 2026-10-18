@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <stdexcept>
@@ -2466,13 +2467,55 @@ private:
 
         const char* validation_layer = "VK_LAYER_KHRONOS_validation";
         VkDebugUtilsMessengerCreateInfoEXT dbg{};
+        // SYNCHRONIZATION VALIDATION IS A SEPARATE OPT-IN, and it is off unless asked for.
+        //
+        // Enabling VK_LAYER_KHRONOS_validation gets API-legality checking and nothing
+        // about barriers. For four render slices this project's gate was "ctest plus a
+        // validation-layer grep on both entry points", and that grep could not have
+        // reported a wrong barrier, a missing subpass dependency, or an intra-frame
+        // read-after-write on one image -- it was silent, not clean. Found by the bloom
+        // branch review on 2026-10-17, after bloom's own subpass dependency had to be
+        // widened on reasoning alone because nothing automated could confirm it.
+        //
+        // Opt-in rather than always-on because it is genuinely expensive, not a free flag.
+        // The point is that it is now REACHABLE, which it previously was not at any price.
+        const char* sync_env = std::getenv("MOSAIC_VK_SYNC_VALIDATION");
+        const bool  want_sync =
+            sync_env != nullptr && sync_env[0] != '\0' && std::strcmp(sync_env, "0") != 0;
+
+        const VkValidationFeatureEnableEXT sync_feature =
+            VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+        VkValidationFeaturesEXT features{};
+        features.sType = VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT;
+        features.enabledValidationFeatureCount = 1;
+        features.pEnabledValidationFeatures = &sync_feature;
+
         if (validation_layer_available(validation_layer))
         {
             ci.enabledLayerCount = 1;
             ci.ppEnabledLayerNames = &validation_layer;
             // Chaining the messenger info covers instance create/destroy too.
             populate_debug_info(dbg);
-            ci.pNext = &dbg;
+            if (want_sync)
+            {
+                // A CHAIN, not a replacement: overwriting ci.pNext would drop the
+                // messenger and silently lose every message it covers during instance
+                // creation -- a net reduction in what the gate sees, while appearing to
+                // add to it.
+                features.pNext = &dbg;
+                ci.pNext = &features;
+                // Logged so that a clean run PROVES WHAT WAS CHECKED. The failure this
+                // guards against is not a missing check but a false claim about one:
+                // "zero validation errors" was reported as evidence about synchronisation
+                // while the feature was off. Now the same log the grep reads says so.
+                mosaic::foundation::log::info(
+                    "vulkan", "synchronization validation ENABLED "
+                              "(MOSAIC_VK_SYNC_VALIDATION); expect it to be slower");
+            }
+            else
+            {
+                ci.pNext = &dbg;
+            }
         }
         else
         {
@@ -3205,7 +3248,20 @@ private:
         deps[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
                         VK_ACCESS_SHADER_READ_BIT;
         deps[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        // READ as well as WRITE, and synchronization validation is what caught the
+        // difference. vkCmdBeginRenderPass does two things here in order: the
+        // initialLayout -> COLOR_ATTACHMENT_OPTIMAL transition, which WRITES, and then
+        // `loadOp = LOAD`, which READS. Naming only the write leaves those two
+        // unordered -- "READ_AFTER_WRITE hazard detected: attachment loadOp access is not
+        // synchronized with the attachment layout transition", six times a frame, once per
+        // mip.
+        //
+        // Only LOAD passes have this hazard, which is why no other pass in this backend
+        // reports it. The source scope above was widened for a DIFFERENT gap in the same
+        // dependency (the downsample's write before the upsample's load); two careful
+        // readings missed this one, and the layer found it the first time it was asked.
+        deps[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
         deps[1].srcSubpass = 0;
         deps[1].dstSubpass = VK_SUBPASS_EXTERNAL;
         deps[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
