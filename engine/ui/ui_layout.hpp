@@ -3,12 +3,15 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <utility>
 #include <vector>
 
 #include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_stack.hpp"
 #include "engine/ui/ui_text.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
@@ -71,6 +74,37 @@ inline std::vector<mosaic::foundation::EntityID> stack_children(
     out.reserve(keyed.size());
     for (const auto& k : keyed) { out.push_back(k.second); }
     return out;
+}
+
+// This child's slot within `parent_rect`, or nothing if its parent carries no UiStack.
+//
+// TAKES THE PARENT'S RECT rather than resolving it, for two reasons. It breaks what would
+// otherwise be a circular include -- ui_hierarchy.hpp includes this header, so this header
+// must not include that one. And it keeps the recursion in ONE place, inside
+// resolve_parent_frame's existing kMaxDepth guard, rather than opening a second unbounded
+// path up the parent chain.
+inline std::optional<Rect> slot_for_child(mosaic::engine::World& world,
+                                          mosaic::foundation::EntityID child,
+                                          const Rect& parent_rect)
+{
+    const UiParent* up = world.get_component<UiParent>(child);
+    if (up == nullptr || !world.is_valid(up->parent)) { return std::nullopt; }
+    const UiStack* st = world.get_component<UiStack>(up->parent);
+    if (st == nullptr) { return std::nullopt; }
+
+    const std::vector<mosaic::foundation::EntityID> kids = stack_children(world, up->parent);
+    for (std::size_t i = 0; i < kids.size(); ++i)
+    {
+        if (kids[i] == child)
+        {
+            return layout_slot(parent_rect, st->axis, st->spacing, st->padding, i,
+                               kids.size());
+        }
+    }
+    // Unreachable in practice -- `child` carries the UiParent that stack_children matched
+    // on -- but returning nothing rather than asserting means a future caller passing an
+    // unrelated entity gets today's behaviour instead of a crash.
+    return std::nullopt;
 }
 
 } // namespace mosaic::engine::ui

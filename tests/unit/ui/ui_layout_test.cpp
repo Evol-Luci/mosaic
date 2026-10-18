@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine/ui/ui_image.hpp"
+#include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_layout.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
@@ -199,4 +200,156 @@ TEST_CASE("a stale parent handle captures nobody", "[ui][layout]")
     const auto recycled = make_stack_parent(world);
     INFO("recycled index " << recycled.index() << " vs doomed index " << doomed.index());
     REQUIRE(stack_children(world, recycled).empty());
+}
+
+TEST_CASE("a child of a stack resolves within its slot", "[ui][layout]")
+{
+    // The hook, end to end. A full-screen parent with a vertical stack of two children:
+    // the second child's frame is the bottom half.
+    World world;
+    const auto p = world.create_entity();
+    UiPanel parent_panel;
+    parent_panel.anchor = 0;            // TopLeft
+    parent_panel.pos    = {0.0f, 0.0f};
+    parent_panel.size   = {1.0f, 1.0f}; // the whole screen
+    world.add_component<UiPanel>(p, parent_panel);
+    world.add_component<UiStack>(p, UiStack{0, 0.0f, 0.0f});
+
+    make_child(world, p, 10);
+    const auto second = make_child(world, p, 20);
+
+    const auto frame = mosaic::engine::ui::resolve_parent_frame(world, second);
+    REQUIRE(frame.x == Approx(0.0f));
+    REQUIRE(frame.y == Approx(0.5f));
+    REQUIRE(frame.w == Approx(1.0f));
+    REQUIRE(frame.h == Approx(0.5f));
+}
+
+TEST_CASE("a parent without a UiStack resolves exactly as before", "[ui][layout]")
+{
+    // THE REGRESSION GUARD every existing scene depends on. With no stack the frame must
+    // be the parent's whole rect, identical to the pre-layout behaviour.
+    World world;
+    const auto p = world.create_entity();
+    UiPanel parent_panel;
+    parent_panel.pos  = {0.1f, 0.2f};
+    parent_panel.size = {0.5f, 0.4f};
+    world.add_component<UiPanel>(p, parent_panel);
+    // deliberately NO UiStack
+    const auto child = make_child(world, p, 0);
+
+    const auto frame  = mosaic::engine::ui::resolve_parent_frame(world, child);
+    const auto expect = mosaic::engine::ui::resolve_in(
+        mosaic::engine::ui::Rect{0.0f, 0.0f, 1.0f, 1.0f},
+        mosaic::engine::ui::to_anchor(parent_panel.anchor), parent_panel.pos,
+        parent_panel.size);
+    REQUIRE(frame.x == Approx(expect.x));
+    REQUIRE(frame.y == Approx(expect.y));
+    REQUIRE(frame.w == Approx(expect.w));
+    REQUIRE(frame.h == Approx(expect.h));
+}
+
+TEST_CASE("a UiStack on an entity with no UiPanel lays nothing out", "[ui][layout]")
+{
+    // resolve_parent_frame already returns the whole SCREEN when the parent has no
+    // UiPanel -- there is no rect to divide. Dividing the screen instead would silently
+    // promote a child into a screen-wide layout, which looks like the parent was ignored
+    // and is worse than doing nothing.
+    World world;
+    const auto p = world.create_entity();
+    world.add_component<UiStack>(p, UiStack{0, 0.0f, 0.0f}); // no UiPanel
+    const auto child = make_child(world, p, 0);
+
+    const auto frame = mosaic::engine::ui::resolve_parent_frame(world, child);
+    REQUIRE(frame.x == Approx(0.0f));
+    REQUIRE(frame.y == Approx(0.0f));
+    REQUIRE(frame.w == Approx(1.0f));
+    REQUIRE(frame.h == Approx(1.0f));
+}
+
+TEST_CASE("the authored pos offsets a child from its slot", "[ui][layout]")
+{
+    // The decision the UI decomposition reserved for the human, and it needs no new rule:
+    // narrowing the FRAME means resolve_in already treats pos as an offset within it.
+    World world;
+    const auto p = world.create_entity();
+    UiPanel parent_panel;
+    parent_panel.size = {1.0f, 1.0f};
+    world.add_component<UiPanel>(p, parent_panel);
+    world.add_component<UiStack>(p, UiStack{0, 0.0f, 0.0f});
+
+    const auto on_slot = make_child(world, p, 10);
+    const auto nudged  = make_child(world, p, 20);
+    UiPanel*   np      = world.get_component<UiPanel>(nudged);
+    np->pos  = {0.25f, 0.0f};
+    np->size = {0.5f, 1.0f};
+
+    const auto a = mosaic::engine::ui::resolve_ui_rect(
+        world, on_slot, mosaic::engine::ui::to_anchor(0),
+        mosaic::foundation::math::Vec2{0.0f, 0.0f},
+        mosaic::foundation::math::Vec2{1.0f, 1.0f});
+    REQUIRE(a.y == Approx(0.0f));
+    REQUIRE(a.h == Approx(0.5f));
+
+    const auto b = mosaic::engine::ui::resolve_ui_rect(
+        world, nudged, mosaic::engine::ui::to_anchor(np->anchor), np->pos, np->size);
+    // Slot is the bottom half; pos.x of 0.25 of the slot's width shifts it right.
+    REQUIRE(b.x == Approx(0.25f));
+    REQUIRE(b.y == Approx(0.5f));
+    REQUIRE(b.w == Approx(0.5f));
+}
+
+TEST_CASE("text is laid out by the same hook", "[ui][layout]")
+{
+    // The case an implementer who hooked resolve_ui_rect would have shipped broken, with
+    // no existing test failing: render_system.hpp calls resolve_parent_frame DIRECTLY for
+    // UiText and hands the frame to layout_text. Panels would move and labels would not.
+    World world;
+    const auto p = world.create_entity();
+    UiPanel parent_panel;
+    parent_panel.size = {1.0f, 1.0f};
+    world.add_component<UiPanel>(p, parent_panel);
+    world.add_component<UiStack>(p, UiStack{0, 0.0f, 0.0f});
+
+    make_child(world, p, 10);
+    const auto label = world.create_entity();
+    mosaic::engine::ui::UiText t;
+    t.order = 20;
+    world.add_component<mosaic::engine::ui::UiText>(label, t);
+    world.add_component<UiParent>(label, UiParent{p});
+
+    // Exactly the call the text pass makes.
+    const auto frame = mosaic::engine::ui::resolve_parent_frame(world, label);
+    REQUIRE(frame.y == Approx(0.5f));
+    REQUIRE(frame.h == Approx(0.5f));
+}
+
+TEST_CASE("stacks nest", "[ui][layout]")
+{
+    // The slot computation sits INSIDE resolve_parent_frame's existing recursion, so the
+    // kMaxDepth guard covers it; a slot computed alongside the recursion would re-enter
+    // unbounded.
+    //
+    // Outer vertical stack of two, inner stack filling the second slot (bottom half) with
+    // two children: the inner second child is the bottom quarter of the screen.
+    World world;
+    const auto outer = world.create_entity();
+    UiPanel op;
+    op.size = {1.0f, 1.0f};
+    world.add_component<UiPanel>(outer, op);
+    world.add_component<UiStack>(outer, UiStack{0, 0.0f, 0.0f});
+
+    make_child(world, outer, 10);
+    const auto inner = make_child(world, outer, 20);
+    UiPanel*   ip    = world.get_component<UiPanel>(inner);
+    ip->pos  = {0.0f, 0.0f};
+    ip->size = {1.0f, 1.0f}; // fills its slot
+    world.add_component<UiStack>(inner, UiStack{0, 0.0f, 0.0f});
+
+    make_child(world, inner, 10);
+    const auto deep = make_child(world, inner, 20);
+
+    const auto frame = mosaic::engine::ui::resolve_parent_frame(world, deep);
+    REQUIRE(frame.y == Approx(0.75f));
+    REQUIRE(frame.h == Approx(0.25f));
 }
