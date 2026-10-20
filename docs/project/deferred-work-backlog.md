@@ -1628,6 +1628,30 @@ them as this list does.
   and the verification pass only authorised the palette. Depends on
   nothing; it is a judgement about how a particle should die.
 
+- **No demo entity exercises bloom on ribbons or world text** — carried
+  forward from the 2026-10-20 human verification pass, which could not ask
+  about them. The demo has one `TrailRenderer` (covered by the particle
+  item) but no standalone ribbon authored above the 1.0 threshold, and no
+  `WorldLabel` above it either, so "ribbons and world text glow" has never
+  been judged by anyone. Deliberately NOT fixed inside a verification pass:
+  extending the fixture is building, not verifying, and a prop authored
+  just to make a checklist answerable is its own slice with its own tests.
+  Depends on nothing. Pick it up the next time the demo scene is edited for
+  another reason, and the next pass can then include it.
+
+- **Demo props are placed against the world origin, not against the
+  surface they sit on** — generalised from the decal bug the 2026-10-20
+  pass found (fixed in #265). The ground is a unit cube scaled `{10,1,10}`,
+  so its top FACE is at `y = 0.5` while its origin is at `y = 0`; the decal
+  was authored at `y = 0.02` and spent six weeks buried inside the ground,
+  depth-rejected every frame, with no test and no reader noticing. #265
+  pins the decal specifically. What is NOT pinned is the class: any future
+  prop meant to rest on the ground can repeat it, and the suite will not
+  say so. The real fix is either a scene helper that places a prop on a
+  surface, or a general "nothing authored flat on the ground is below its
+  top face" test. Deferred because one data point does not show which, and
+  the cheap half is already done.
+
 ## Project templates
 
 - **3rd-person adventure template content** — needs a new `Health`
@@ -2753,6 +2777,16 @@ the editor frame loop now has three diagnostic blocks, but only **two** of them 
 blocks, and it is two, not three. A helper over two sites would absorb about five lines and
 add an abstraction to a long frame loop, so it was weighed and declined. Fire this at the
 *third generic* block, not the third diagnostic.
+
+**Re-derived 2026-10-20** after the bloom and UI-layout arcs landed (#258, #260, #261,
+#263) and the first human verification pass ran. The condition the 2026-09-20 note set is
+met: this takes its material from that pass's one failure and its one fixture gap, not from
+re-reading the same source docs. Both items are in the Rendering section above.
+
+| Item | Why it is a quick win |
+|---|---|
+| **Author a ribbon and a world label above the bloom threshold in the demo** | The demo has one `TrailRenderer` and no standalone ribbon or `WorldLabel` authored above 1.0, so "ribbons and world text glow" has never been judged by anyone — the 2026-10-20 pass could not ask about it, and said so on the page rather than guessing. Two entities and the existing retune arithmetic; the work is picking colours that survive ACES, which #260 already did four times. Deliberately kept out of the verification pass itself: extending a fixture is building, not verifying. |
+| **A test that nothing authored flat on the ground sits below its top face** | #265 pins the decal; the *class* is unpinned. The ground is a unit cube scaled `{10,1,10}`, so its top face is at `y = 0.5` while its origin is at `y = 0`, and the decal spent six weeks buried inside it with a green suite. One loop over the scene's props against the ground's top face. The judgement call — a general test versus a `place_on_surface` scene helper — is the only reason this is not already done, and one data point does not settle it. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
