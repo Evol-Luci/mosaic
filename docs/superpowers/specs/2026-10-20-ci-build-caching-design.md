@@ -19,7 +19,10 @@ phantom bug, which is worse than no cache.
 
 Everything here was measured on 2026-10-20; none of it is carried over from `next-steps.md`.
 Local numbers come from a 20-core machine with gcc 16.2.1; CI is a 4-vCPU runner with noble's
-gcc, so local wall-clock is **indicative of shape, not of CI magnitude** (CI's build step ran
+gcc, so local wall-clock is **indicative of shape, not of CI magnitude**. Local builds used a
+fixed `-j4` to approximate a 4-vCPU runner, but CI actually runs `-j"$(nproc)"`; that the two
+agree is an **assumption the CI log must confirm** (`nproc` is printed, below), not something
+asserted here (CI's build step ran
 1.4-1.8x slower than the same cold build locally: 358-477 s vs 263-285 s).
 
 ### Where a CI run's time goes
@@ -184,13 +187,19 @@ source), and it would reset the bucket on every dependency bump or workflow edit
 | `compiler_check` | `content` | The default is `mtime` of the compiler binary, which on a fresh runner is not a stable identity. Hashing the binary costs a read per run, not per object. |
 | `max_size` | `500M` | Measured full tree: 245 MB compressed. 500M holds one full tree plus churn (a p90 change is ~77 objects, roughly 40 MB). ccache evicts least-recently-used and refreshes an entry on every hit, so stale versions of changed objects go first. The cap also bounds `actions/cache` save and restore time, which would otherwise grow until it ate the win. **To be re-checked against measured restore time on Actions; if restore+save exceeds ~40 s, lower it.** |
 | compression | ccache default (zstd) left on | Measured 4.8x. `actions/cache` re-compresses the tarball, which wastes a little CPU on incompressible data; it cannot be disabled and the cost is small next to the transfer saving. |
+| `CCACHE_DIR` | `${{ runner.temp }}/ccache`, set explicitly | The store's location is **named, not assumed**. The same expression is the `path:` of both `actions/cache/restore` and `/save`, and a guard step fails the job if `ccache --show-config` reports a different `cache_dir`. Without this, the failure is a cache that saves 0 bytes and a hit rate that never moves, which reads as "ccache didn't help" when the truth is "we cached the wrong directory". The size of the directory is printed after restore and before save, and an empty store at save time is a warning. |
 | `hash_dir`, `base_dir` | defaults | The checkout path is constant on the runner (`/home/runner/work/mosaic/mosaic`), so debug-info paths match across runs. Sharing with another path is a non-goal. |
 | sloppiness | none (strict default) | `__DATE__`/`__TIME__` do not appear in first-party code (grep over app, engine, foundation, modules, studio, tests, tools), so there is no reason to relax anything. |
 | `ccache --version` | printed in the log | CI will use noble's apt ccache, not the 4.14 measured locally. |
 
 **Write policy.** Pull-request runs (including from forks) use `actions/cache/restore` only.
-Only a push to `main` saves, and only on a green job (the save step is skipped when the job
-fails).
+Only a push to `main` saves, and only after a green job. **That is a condition we must write,
+not a default we inherit:** saving needs the split `actions/cache/save` action (the combined
+`actions/cache` cannot be restricted to `main`), and the split action has no post-step
+success guard. The save step therefore carries an explicit
+`if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'`. A test of
+the plan is that a deliberately failed run on a branch where saving is otherwise permitted saves
+nothing.
 
 *The rationale is quota, not security.* GitHub scopes a cache written by a PR run to that PR's
 own ref, and `main` cannot restore from a PR's scope. So a PR, fork or not, cannot poison what
@@ -280,6 +289,22 @@ below because a correct, fast cache that evicts itself between runs does not exi
 
 ## Evidence (the gate cannot see any of this)
 
+**Instrument every run, because the runner image can change under the campaign.** The
+`ubuntu-latest` to Ubuntu 26 migration was scheduled to start 2026-10-19 and had not reached
+this repo as of 2026-10-20 (the most recent run reported `ubuntu-24.04`, release
+`ubuntu24/20261012.334`). If it arrives mid-measurement, vCPU count, compiler and base timings
+all move, and the cache key correctly starts a fresh bucket, so a "warm" scenario measured after
+the flip is silently a cold one. Every run prints `ImageOS`, `ImageVersion`, `gcc --version`,
+`ccache --version` and `nproc`, and those are recorded **beside** every timing. A change in any
+of them **invalidates cross-run comparison**: such runs are reported separately and never
+averaged in.
+
+**A failure at "Install Vulkan SDK components" during the campaign is not this change.** The
+LunarG apt list is pinned to `noble` explicitly and `ci.yml`'s own comment predicts that step
+breaks when the image moves. It is a pre-existing time bomb: do not debug it as a caching bug,
+do not fix it inside this slice, report it at once. The tell for a *platform* failure is zero
+steps and ~2 s; a LunarG failure has many steps and a real log.
+
 No unit test can prove a cache works. The 1455-case suite stays green and says nothing here.
 
 **Effective** — Actions runs, per-step timing via the `gh run view` command above:
@@ -316,7 +341,10 @@ empirically**.
 cannot restore it, and (b) after merge, shows a PR restores `main`'s. Only (a) can run before
 merge; (b) is the first PR after the merge, and that first merged run is necessarily cold.
 During measurement the workflow temporarily allows the experiment branch to save; that condition
-is removed before merge.
+is removed before merge. **The probe workflow is `workflow_dispatch:` only** (no `push:` or
+`pull_request:` trigger, so it cannot race `ci.yml`), is named so it is obviously disposable, and
+**must never reach `main`**: it is deleted, together with the temporary save condition, in one
+commit before the PR is marked ready, and the final diff is checked for both.
 
 ## Non-goals
 
@@ -347,5 +375,6 @@ Each has a matching entry in the "CI and build" section of `docs/project/deferre
 ## Open items for review
 
 - The 7m00s / 9m00s / +30 s floor and the Slice A 20 s floor, restated per-scenario above.
-- Whether the first merge should land Slice A alone before Slice B.
+- **Decided:** Slice A lands as its own PR first, as soon as its CI configure number exists,
+  before the Slice B campaign.
 - `max_size = 500M` is a starting value to be revised from measured restore time.
