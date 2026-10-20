@@ -144,7 +144,12 @@ Catch2, tomlplusplus, nlohmann_json, CLI11, glfw, miniaudio, enet, imgui, pybind
 - Applied per declaration, not globally, for the same reason.
 - No cache, no key, no staleness: it changes how much *history* is fetched, not what is checked
   out. It is also the only item here that speeds up a developer's **local** first build.
-- Expected saving: roughly 35-40 s on a cold clone (measured locally above; CI to be measured).
+- Expected saving: **about 23 s of configure locally**, measured as three alternating fresh
+  configures of each variant (full: 39.3, 43.5, 46.2 s, mean 43.0; shallow: 21.9, 20.2, 17.1 s,
+  mean 19.7). The raw clone microbenchmark (45.3 s vs 4.9 s) overstated it: the rest of configure
+  (compiler checks, one sub-build per dependency) does not shrink. `_deps` goes from 998 MB to
+  291 MB. CI is to be measured, against the 20 s floor below. The `~35 s` in the clone table above
+  is the microbenchmark, not the expected configure saving.
 - Ships first, alone, if it lands about a minute, so its win is not held behind Slice B.
 
 ### Slice B — ccache, restored on every run, saved only by `main`
