@@ -517,16 +517,19 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<physics::RigidBody>(ground, physics::RigidBody{false, 1.0f});
     world.add_component<physics::Collider>(ground, physics::Collider{Vec3{5.0f, 0.5f, 5.0f}});
 
-    // A decal lying flat on the ground (rotated so the local XY quad faces up).
+    // A decal lying flat on the ground (rotated so the local XY quad faces up). The ground
+    // is a unit cube (+/-0.5) scaled to {10,1,10}, so its top FACE is at y=0.5 -- the 0.02
+    // clearance is measured from there, not from the ground's origin. Authored at y=0.02
+    // it sat inside the ground and the depth test (LESS) rejected it every frame.
     const auto decal = world.create_entity();
     world.add_component<transform::Transform>(decal,
-        transform::Transform{Vec3{0, 0.02f, 0},
+        transform::Transform{Vec3{0, 0.52f, 0},
                              mosaic::foundation::math::from_axis_angle(Vec3{1, 0, 0}, -1.5707963f),
                              Vec3{3, 3, 1}, {}});
     world.add_component<mosaic::engine::vfx::Decal>(decal,
     // The worst-hit of the four: {1.0, 0.9, 0.6} mapped to (0.80, 0.78, 0.67), dropping
-    // saturation from 0.40 to 0.16 -- a warm stripe that went nearly grey and vanished
-    // against the white ground. Shows as (0.95, 0.80, 0.44) now.
+    // saturation from 0.40 to 0.16 -- a warm stripe that went nearly grey against the
+    // white ground. Authored at (2.85, 1.0, 0.30) now, above the 1.0 bloom threshold.
         mosaic::engine::vfx::Decal{kStripesTextureId, Vec3{2.85f, 1.0f, 0.30f}, 0.85f});
 
     const auto box = world.create_entity();
@@ -741,7 +744,9 @@ inline void build_default_scene(mosaic::engine::World& world)
     // rather than left for someone to find and file as a regression. Found by the U8a
     // whole-branch review, which also noticed that the stack below was kept off the camera
     // to protect this label's behaviour, and that the alpha half then changed it anyway
-    // through a different door. No Transform -> the
+    // through a different door. A human verification pass on 2026-10-20 looked at it and
+    // answered KEEP: fading a container should fade what is inside it. An opt-out flag was
+    // considered there and declined, so do not add one without revisiting that. No Transform -> the
     // default-scene Transform-count tests are unaffected.
     const auto hud_label = world.create_entity();
     world.add_component<mosaic::engine::ui::UiText>(hud_label,

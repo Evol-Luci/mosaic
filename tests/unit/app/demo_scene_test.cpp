@@ -25,6 +25,7 @@
 #include "engine/render/material.hpp"
 #include "engine/render/spot_light.hpp"
 #include "engine/vfx/bloom.hpp"
+#include "engine/vfx/decal.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_stack.hpp"
 #include "engine/script/script_component.hpp"
@@ -506,6 +507,10 @@ TEST_CASE("the demo's bloom threshold is display white", "[app][bloom]")
     // "the fountain glows, the ground does not" a checkable claim rather than an
     // impression -- and if the verification pass says the sky veils, THIS is the number
     // that changes, not the pipeline.
+    //
+    // The pass ran on 2026-10-20 and answered KEEP: the glowing sky reads as a bright sky,
+    // not as a veil. Do not "fix" it by raising the threshold -- that was considered and
+    // deliberately declined.
     using mosaic::engine::vfx::Bloom;
     World world;
     build_default_scene(world);
@@ -529,6 +534,51 @@ TEST_CASE("the demo's bloom threshold is display white", "[app][bloom]")
     REQUIRE(found);
     REQUIRE(threshold == Catch::Approx(1.0f));
     REQUIRE(knee > 0.0f); // a zero knee is a NaN chain
+}
+
+TEST_CASE("the demo decal lies above the ground's top face", "[app][vfx]")
+{
+    // Found by a human verification pass: the decal was authored at y=0.02 while the
+    // ground is a unit cube (+/-0.5) scaled to {10,1,10} at the origin, so its top face is
+    // at y=0.5 -- the decal sat 0.48 BELOW the surface it was meant to lie on. The decal
+    // pipeline depth-tests (LESS), so it was rejected by the ground every frame and had
+    // never once been visible since it was added. Nothing in the suite looked at the two
+    // numbers together, and the demo's own comment described a colour no one had seen.
+    //
+    // The ground is identified by the scene's only static RigidBody, not by a hardcoded
+    // entity index, so this keeps holding if the scene is reordered.
+    using mosaic::engine::transform::Transform;
+    World world;
+    build_default_scene(world);
+
+    bool  found_ground = false;
+    float ground_top   = 0.0f;
+    world.for_each<mosaic::engine::physics::RigidBody>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::physics::RigidBody& rb)
+        {
+            if (rb.dynamic) { return; }
+            if (const auto* t = world.get_component<Transform>(e))
+            {
+                found_ground = true;
+                ground_top   = t->position.y + (0.5f * t->scale.y);
+            }
+        });
+
+    bool  found_decal = false;
+    float decal_y     = 0.0f;
+    world.for_each<mosaic::engine::vfx::Decal>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::vfx::Decal&)
+        {
+            if (const auto* t = world.get_component<Transform>(e))
+            {
+                found_decal = true;
+                decal_y     = t->position.y;
+            }
+        });
+
+    REQUIRE(found_ground);
+    REQUIRE(found_decal);
+    REQUIRE(decal_y > ground_top);
 }
 
 TEST_CASE("the demo scene authors a stack with children", "[app][layout]")
