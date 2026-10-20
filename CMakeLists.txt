@@ -12,6 +12,7 @@ FetchContent_Declare(
   Catch2
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
   GIT_TAG        v3.5.2
+  GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(Catch2)
 list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
@@ -20,16 +21,19 @@ FetchContent_Declare(
   tomlplusplus
   GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
   GIT_TAG        v3.4.0
+  GIT_SHALLOW    TRUE
 )
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   GIT_TAG        v3.11.3
+  GIT_SHALLOW    TRUE
 )
 FetchContent_Declare(
   CLI11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
   GIT_TAG        v2.4.2
+  GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(tomlplusplus nlohmann_json CLI11)
 
@@ -41,6 +45,7 @@ FetchContent_Declare(
   glfw
   GIT_REPOSITORY https://github.com/glfw/glfw.git
   GIT_TAG        3.4
+  GIT_SHALLOW    TRUE
 )
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -48,6 +53,10 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
 # --- Box3D (physics backend; alpha, pinned to a commit) -----------------------
+# NOTE: no GIT_SHALLOW here, deliberately. GIT_TAG below is a commit SHA, and CMake's
+# GIT_SHALLOW needs a branch or tag (a bare SHA is not shallow-fetchable in general: it
+# depends on the server advertising that object). Every other dependency is tag-pinned and
+# shallow. Do not "tidy" this into consistency; configure would break.
 FetchContent_Declare(
   box3d
   GIT_REPOSITORY https://github.com/erincatto/box3d.git
@@ -61,6 +70,7 @@ FetchContent_Declare(
   miniaudio
   GIT_REPOSITORY https://github.com/mackron/miniaudio.git
   GIT_TAG        0.11.21
+  GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(miniaudio)
 
@@ -69,6 +79,7 @@ FetchContent_Declare(
   enet
   GIT_REPOSITORY https://github.com/lsalzman/enet.git
   GIT_TAG        v1.3.18
+  GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(enet)
 
@@ -77,6 +88,7 @@ FetchContent_Declare(
   imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
   GIT_TAG        v1.91.5-docking
+  GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(imgui)
 
@@ -101,6 +113,7 @@ FetchContent_Declare(
   pybind11
   GIT_REPOSITORY https://github.com/pybind/pybind11.git
   GIT_TAG        v2.13.6
+  GIT_SHALLOW    TRUE
 )
 # Force pybind11 to reuse the Python3 already found above (avoids a second
 # Python detection via FindPythonLibsNew which can pick a different version).
