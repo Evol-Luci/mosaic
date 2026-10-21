@@ -1,7 +1,10 @@
 # CI build caching — Implementation Plan
 
-> **Execution status:** not started. Waiting for the plan to be approved. Slice A is the only part
-> that ships a repo change before the Slice B campaign; Slice B is gated on its own floor.
+> **Execution status (2026-10-21):** Slice A is PR #268. Slice B's campaign is done and its
+> results are in the spec. Deviations from this plan, each flagged when it happened: the key
+> dropped `ImageVersion` (measured to reset the bucket on image releases); the probe is gated
+> blocks in the experiment branch's `ci.yml`, not a separate workflow; the first outage probe and
+> the header-parity probes were invalid and redone (see the spec's Results).
 
 **Goal:** Shorten the wait for CI without ever serving a stale artifact: shallow dependency
 clones (Slice A), then a `main`-seeded ccache (Slice B), judged against the floor in the spec.
