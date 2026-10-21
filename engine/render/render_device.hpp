@@ -292,6 +292,9 @@ public:
 
     // Draw camera-facing world-space text glyphs (pre-expanded world verts), sampling the
     // font atlas. view_proj = projection * view. Default no-op (like draw_ribbons).
+    // RenderSystem batches every label sharing an atlas into one call (a call per label made
+    // each overwrite the last in the Vulkan backend). Backends must still treat each call as
+    // independent: the vertices are consumed at submit, not at call time.
     virtual void draw_world_text(const std::vector<WorldGlyphVertex>& /*verts*/,
                                  const mosaic::foundation::math::Mat4& /*view_proj*/,
                                  TextureHandle /*atlas*/) {}

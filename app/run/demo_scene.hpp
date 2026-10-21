@@ -1001,7 +1001,19 @@ inline void build_default_scene(mosaic::engine::World& world)
     // edge; before bloom's halo): {1.0, 2.85, 0.25} -> (0.80, 0.95, 0.37). Caveat the
     // prediction does not cover: lime against the light-grey lit ground is a low-contrast
     // pairing, so whether it READS is a human question; the number is only the colour.
-    // Authored 2026-10-21; NOT yet seen by anyone.
+    // Authored 2026-10-21.
+    //
+    // HUMAN DECISION, 2026-10-21 (verification pass), recorded so nobody re-litigates it:
+    // the colour is KEPT as authored. In the human's words: "The word GLOW is legible,
+    // though the contrast is pretty low. I count this passing for now. We can look at
+    // adjusting it later if it becomes a problem in the future." Do not "fix" the contrast
+    // unprompted. WorldLabel has no outline or shadow field, so if it ever does need
+    // changing the options are a different colour, a different position, or new engine
+    // work for an outline (deferred-work-backlog.md, Rendering).
+    //
+    // Seen on screen: the interior is the predicted (0.80, 0.95, 0.37). Note the label was
+    // drawn TWICE until the world-text batching fix (the "Orbiter" label's draw read the
+    // first four glyphs from this label's vertices), so it looked brighter than authored.
     const auto glow_label = world.create_entity();
     world.add_component<transform::Transform>(glow_label,
         transform::Transform{Vec3{0, 0.9f, 4.5f}, Quat::identity(), Vec3{1, 1, 1}, {}});

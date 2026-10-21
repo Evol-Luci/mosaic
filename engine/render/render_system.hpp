@@ -422,6 +422,26 @@ public:
                 Vec3{cam_world.m[0], cam_world.m[1], cam_world.m[2]});
             const Vec3 cam_up = mosaic::foundation::math::normalize(
                 Vec3{cam_world.m[4], cam_world.m[5], cam_world.m[6]});
+            // ONE draw_world_text per atlas, carrying every label that uses it. The backend
+            // keeps a single per-frame vertex buffer written at offset 0 while the draw is
+            // only recorded, so a call per label made each label overwrite the one before
+            // (the "Orbiter" label rendered as "ter" under a second label, "GLOW").
+            //
+            // Grouped by the resolved TextureHandle, not the font AssetID: the handle is
+            // what the draw binds, and FontTextureCache yields 0 for a failed upload.
+            //
+            // Order: groups in first-seen order, labels within a group in for_each order.
+            // That is the same order the per-label calls had for any single-font scene.
+            // Across fonts it can reorder interleaved labels (A,B,A -> A,A,B), which only
+            // matters where two labels overlap on screen; for_each order is dense order over
+            // a sparse set, so it is not stable across an unrelated entity's destruction and
+            // was never a guarantee anything could rely on.
+            struct WorldTextBatch
+            {
+                TextureHandle                                           atlas = 0;
+                std::vector<mosaic::engine::render::WorldGlyphVertex>   verts;
+            };
+            std::vector<WorldTextBatch> batches;
             world.for_each<mosaic::engine::ui::WorldLabel>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::WorldLabel& l)
                 {
@@ -437,8 +457,20 @@ public:
                     const Vec3 anchor{pos.x + l.offset.x, pos.y + l.offset.y, pos.z + l.offset.z};
                     const auto verts = mosaic::engine::ui::build_world_text(
                         *font, l.text, anchor, cam_right, cam_up, l.size, l.color, l.alpha);
-                    if (!verts.empty()) { device.draw_world_text(verts, projection * view, atlas); }
+                    if (verts.empty()) { return; }
+                    auto it = std::find_if(batches.begin(), batches.end(),
+                                           [&](const WorldTextBatch& b) { return b.atlas == atlas; });
+                    if (it == batches.end())
+                    {
+                        batches.push_back(WorldTextBatch{atlas, {}});
+                        it = std::prev(batches.end());
+                    }
+                    it->verts.insert(it->verts.end(), verts.begin(), verts.end());
                 });
+            for (const auto& batch : batches)
+            {
+                device.draw_world_text(batch.verts, projection * view, batch.atlas);
+            }
         }
 
         // END OF WORLD SPACE. The UI passes below draw onto the RESOLVED image, deliberately:

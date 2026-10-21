@@ -213,7 +213,26 @@ public:
     {
         world_text_draws.push_back({verts, view_proj, atlas});
         ordered_calls.push_back("world_text");
+
+        // Model the Vulkan backend's real storage: ONE per-frame vertex buffer, written
+        // immediately at offset 0 (a CPU memcpy), while the draw that reads it is only
+        // RECORDED and executes at submit. Without this the fake records each call's
+        // arguments intact, so a caller that issues two calls would look correct here
+        // even though the real device would draw the second call's vertices twice.
+        if (world_text_buffer.size() < verts.size()) { world_text_buffer.resize(verts.size()); }
+        std::copy(verts.begin(), verts.end(), world_text_buffer.begin());
+        world_text_recorded.push_back({verts.size(), atlas});
     }
+
+    // What each recorded world-text draw would actually read when the frame executes:
+    // the first `count` vertices of the shared buffer as they stand at submit time.
+    // Resolved at end_hdr_scene_pass, the last point world-space text can be recorded.
+    struct WorldTextRecorded { std::size_t count; mosaic::engine::render::TextureHandle atlas; };
+    struct WorldTextExecuted { std::vector<mosaic::engine::render::WorldGlyphVertex> verts;
+                               mosaic::engine::render::TextureHandle atlas; };
+    std::vector<mosaic::engine::render::WorldGlyphVertex> world_text_buffer;
+    std::vector<WorldTextRecorded>                        world_text_recorded;
+    std::vector<WorldTextExecuted>                        world_text_executed;
 
     // A single ordered log, because the thing under test is RELATIVE order: "the resolve
     // happens after the world draws and before the UI ones". Separate per-call vectors
@@ -228,7 +247,19 @@ public:
         ordered_calls.push_back("hdr_begin");
         hdr_clears.push_back(c);
     }
-    void end_hdr_scene_pass() override { ordered_calls.push_back("hdr_end"); }
+    void end_hdr_scene_pass() override
+    {
+        ordered_calls.push_back("hdr_end");
+        for (const auto& r : world_text_recorded)
+        {
+            world_text_executed.push_back(
+                {std::vector<mosaic::engine::render::WorldGlyphVertex>(
+                     world_text_buffer.begin(),
+                     world_text_buffer.begin() + static_cast<std::ptrdiff_t>(r.count)),
+                 r.atlas});
+        }
+        world_text_recorded.clear();
+    }
     std::vector<mosaic::engine::render::BloomParams> bloom_builds;
     std::vector<float>                               bloom_intensities;
 
@@ -1038,15 +1069,16 @@ mosaic::foundation::serialization::AssetID register_white_texture(AssetRegistry&
     registry.register_resource<Image>(AssetMetadata{tex_id, "texture"}, img);
     return tex_id;
 }
-mosaic::foundation::serialization::AssetID register_font(AssetRegistry& registry)
+mosaic::foundation::serialization::AssetID register_font(
+    AssetRegistry& registry,
+    const char*    uuid = "00000000-0000-0000-0000-0000000000fa")
 {
     const auto bytes = mosaic::app::load_scene_file(
         std::string(MOSAIC_TEST_DIR) + "/fixtures/LiberationSans-Regular.ttf");
     REQUIRE(bytes.has_value());
     auto font = mosaic::app::read_ttf(*bytes, 48.0f);
     REQUIRE(font.has_value());
-    const auto id = mosaic::foundation::serialization::AssetID::from_string(
-        "00000000-0000-0000-0000-0000000000fa");
+    const auto id = mosaic::foundation::serialization::AssetID::from_string(uuid);
     registry.register_resource<mosaic::engine::ui::FontAtlas>(
         mosaic::engine::assets::AssetMetadata{id, "font"},
         std::make_shared<mosaic::engine::ui::FontAtlas>(*font));
@@ -1398,6 +1430,112 @@ TEST_CASE("RenderSystem emits world-text verts for a WorldLabel with a WorldTran
     REQUIRE(device.world_text_draws.size() == 1);
     REQUIRE(device.world_text_draws[0].verts.size() == 12); // "Hi" = 2 glyphs * 6
     REQUIRE(device.world_text_draws[0].atlas != 0);
+}
+
+TEST_CASE("Two WorldLabels with different text both survive the frame intact", "[render][ui]")
+{
+    // The defect as observed: the orbiter's "Orbiter" label rendered as "ter" once a second
+    // label ("GLOW") existed. The backend keeps one shared per-frame vertex buffer, so what
+    // matters is what each recorded draw READS at submit, not what RenderSystem passed in.
+    // The two labels differ in vertex colour, which is how glyphs are told apart below.
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const Vec3 orbiter_color{0.1f, 0.2f, 0.3f};
+    const Vec3 glow_color{0.7f, 0.8f, 0.9f};
+    auto add_label = [&](const char* text, Vec3 color, Vec3 at)
+    {
+        auto e = world.create_entity();
+        world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(at)});
+        WorldLabel l; l.font = font_id; l.text = text; l.size = 1.0f; l.color = color;
+        world.add_component<WorldLabel>(e, l);
+    };
+    add_label("Orbiter", orbiter_color, Vec3{-2, 0, 0}); // 7 glyphs
+    add_label("GLOW", glow_color, Vec3{2, 0, 0});        // 4 glyphs
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    std::size_t orbiter_verts = 0;
+    std::size_t glow_verts = 0;
+    for (const auto& d : device.world_text_executed)
+    {
+        for (const auto& v : d.verts)
+        {
+            if (v.color.x == Approx(orbiter_color.x)) { ++orbiter_verts; }
+            if (v.color.x == Approx(glow_color.x)) { ++glow_verts; }
+        }
+    }
+    // Each glyph is 6 vertices. Each label must reach the screen exactly once, whole.
+    REQUIRE(orbiter_verts == 7 * 6);
+    REQUIRE(glow_verts == 4 * 6);
+}
+
+TEST_CASE("WorldLabels sharing a font are submitted as ONE world-text draw", "[render][ui]")
+{
+    // The backend contract: its vertex buffer is written at offset 0 on every call, so it
+    // supports one draw_world_text per atlas per frame. Batching lives here so a fake can
+    // see it; a second call for the same atlas would overwrite the first's vertices.
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto font_id = register_font(registry);
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+    for (const char* text : {"Orbiter", "GLOW", "Third"})
+    {
+        auto e = world.create_entity();
+        world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+        WorldLabel l; l.font = font_id; l.text = text; l.size = 1.0f;
+        world.add_component<WorldLabel>(e, l);
+    }
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.world_text_draws.size() == 1);
+    REQUIRE(device.world_text_draws[0].verts.size() == (7 + 4 + 5) * 6);
+}
+
+TEST_CASE("WorldLabels in different fonts get one draw per atlas, in first-seen order", "[render][ui]")
+{
+    // Grouping is by resolved TextureHandle -- what the draw actually binds. Two AssetIDs
+    // that resolve to different handles must never share a draw (the draw samples one
+    // atlas), and labels within a group keep their iteration order.
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto font_a = register_font(registry);
+    const auto font_b = register_font(registry, "00000000-0000-0000-0000-0000000000fb");
+    World world;
+    RenderSystem rs;
+    add_camera(world, Vec3{0, 0, 5});
+    auto add_label = [&](mosaic::foundation::serialization::AssetID f, const char* text, float r)
+    {
+        auto e = world.create_entity();
+        world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+        WorldLabel l; l.font = f; l.text = text; l.size = 1.0f; l.color = Vec3{r, 0, 0};
+        world.add_component<WorldLabel>(e, l);
+    };
+    add_label(font_a, "AA", 0.1f);
+    add_label(font_b, "BBB", 0.2f);
+    add_label(font_a, "CCCC", 0.3f); // interleaved: must join the first font's draw
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.world_text_draws.size() == 2);
+    REQUIRE(device.world_text_draws[0].atlas != device.world_text_draws[1].atlas);
+    // First-seen order: font A's draw first, carrying AA then CCCC; then font B's BBB.
+    const auto& first = device.world_text_draws[0].verts;
+    REQUIRE(first.size() == (2 + 4) * 6);
+    REQUIRE(first.front().color.x == Approx(0.1f));
+    REQUIRE(first.back().color.x == Approx(0.3f));
+    REQUIRE(device.world_text_draws[1].verts.size() == 3 * 6);
+    REQUIRE(device.world_text_draws[1].verts.front().color.x == Approx(0.2f));
 }
 
 TEST_CASE("RenderSystem skips a WorldLabel with no WorldTransform or empty text", "[render][ui]")
