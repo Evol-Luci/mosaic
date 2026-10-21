@@ -53,7 +53,7 @@ TEST_CASE("build_default_scene creates the demo entities with Transforms", "[app
         [&](World::EntityID, mosaic::engine::transform::Transform&) { ++transforms; });
     // ground, box, sphere, capsule, box2, point-light, spot-light, camera, orbiter carry a
     // Transform (9); the directional light has none.
-    REQUIRE(transforms == 12); // + the fountain particle emitter + the scripted puffer emitter
+    REQUIRE(transforms == 14); // + the fountain particle emitter + the scripted puffer emitter + the ribbon comet + the glow label
 }
 
 TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo objects", "[app]")
@@ -68,7 +68,7 @@ TEST_CASE("build_default_scene includes the scripted (ScriptComponent) demo obje
             ++scripted;
             REQUIRE(sc.source.find("on_update") != std::string::npos);
         });
-    REQUIRE(scripted == 3); // the orbiter cube + the scripted puffer emitter + the ball pusher
+    REQUIRE(scripted == 4); // the orbiter cube + the scripted puffer emitter + the ball pusher + the ribbon comet
 }
 
 namespace
@@ -133,6 +133,23 @@ TEST_CASE("the default scene's HUD underlay image draws beneath the checker", "[
         [] { return mosaic::script::python::create_python_script_engine(); });
     build_default_scene(world);
     mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
+
+    // Un-point the renderer from the environment. setup_runtime registers the sky as a lazy
+    // asset whose loader bakes the full-size IBL products (equirect -> 512 cubemap, irradiance,
+    // prefiltered chain, BRDF LUT) on the FIRST FRAME that has a device -- and this case is the
+    // only one in the suite that renders a frame. Left alone, that bake was 14.2 s of this
+    // case's 14.2 s locally (23-27 s on CI), 38% of the serial CI test step and the whole floor
+    // of the parallel one.
+    //
+    // This case's claim is UI image DRAW ORDER; the image pass reads no environment, and
+    // RenderSystem only touches the environment (and the LUT factory, which sits inside the
+    // same branch) while `environment_asset_` is set. So clearing the id through the existing
+    // public setter removes the bake and nothing else: no production change, no test-only
+    // flag, no smaller bake size to drift from the real one. The bake's own correctness is
+    // ibl_bake_test's job, at small sizes, in milliseconds; the wiring (registered, right
+    // type, renderer pointed at it) is owned by the setup_runtime environment case below.
+    // The draws and assertions below are untouched.
+    runtime.render_system->set_environment_asset({});
 
     UiImageRecordingDevice device;
     runtime.render_system->render(world, device, registry);
@@ -579,6 +596,71 @@ TEST_CASE("the demo decal lies above the ground's top face", "[app][vfx]")
     REQUIRE(found_ground);
     REQUIRE(found_decal);
     REQUIRE(decal_y > ground_top);
+}
+
+TEST_CASE("nothing authored in the demo sits below the ground's top face", "[app][vfx]")
+{
+    // The CLASS behind the decal case above. That bug (a prop placed against the ground's
+    // ORIGIN, y=0, rather than its top FACE, y=0.5) sat behind a green suite for six weeks,
+    // and the decal case pins only the decal: the next prop authored the same way would
+    // repeat it and nothing would say so.
+    //
+    // A GENERAL test rather than a `place_on_surface` scene helper -- ruled 2026-10-21. It
+    // pins the whole class with no new API; one data point (the decal) does not justify a
+    // helper, and one can follow if a second case ever wants to PLACE rather than check.
+    //
+    // "Props" = every non-ground entity that draws something in the world (a mesh, a decal,
+    // a ribbon trail, a world label or a particle emitter) and sits over the ground's
+    // footprint. Each must have its origin at or above the top face. Origins, not extents:
+    // every mesh here is centred, so a prop resting on the ground has origin >= top, and a
+    // prop whose origin is below it is partly or wholly buried. Lights, the camera and
+    // other non-drawing entities are excluded; they may legitimately be anywhere.
+    //
+    // The ground is the scene's only static RigidBody, not a hardcoded index, so this
+    // survives a reorder (the same rule as the decal case).
+    using mosaic::engine::transform::Transform;
+    World world;
+    build_default_scene(world);
+
+    bool         found_ground = false;
+    float        ground_top   = 0.0f;
+    float        half_x       = 0.0f;
+    float        half_z       = 0.0f;
+    mosaic::foundation::EntityID ground_id{};
+    world.for_each<mosaic::engine::physics::RigidBody>(
+        [&](mosaic::foundation::EntityID e, mosaic::engine::physics::RigidBody& rb)
+        {
+            if (rb.dynamic) { return; }
+            if (const auto* t = world.get_component<Transform>(e))
+            {
+                found_ground = true;
+                ground_id    = e;
+                ground_top   = t->position.y + (0.5f * t->scale.y);
+                half_x       = 0.5f * t->scale.x;
+                half_z       = 0.5f * t->scale.z;
+            }
+        });
+    REQUIRE(found_ground);
+
+    int checked = 0;
+    world.for_each<Transform>(
+        [&](mosaic::foundation::EntityID e, Transform& t)
+        {
+            if (e == ground_id) { return; }
+            const bool draws =
+                world.get_component<mosaic::engine::render::MeshRenderer>(e) != nullptr
+                || world.get_component<mosaic::engine::vfx::Decal>(e) != nullptr
+                || world.get_component<mosaic::engine::vfx::TrailRenderer>(e) != nullptr
+                || world.get_component<mosaic::engine::ui::WorldLabel>(e) != nullptr
+                || world.get_component<mosaic::engine::particles::ParticleEmitter>(e) != nullptr;
+            if (!draws) { return; }
+            if (std::abs(t.position.x) > half_x || std::abs(t.position.z) > half_z) { return; }
+            ++checked;
+            INFO("a drawing prop has origin y=" << t.position.y << " vs ground top " << ground_top);
+            CHECK(t.position.y >= ground_top);
+        });
+    // Guards the vacuous pass: a filter that matched nothing would make this green forever.
+    REQUIRE(checked >= 8);
 }
 
 TEST_CASE("the demo scene authors a stack with children", "[app][layout]")

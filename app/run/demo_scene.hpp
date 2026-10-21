@@ -491,6 +491,24 @@ def on_update(dt):
         set_component(entity, 'ParticleEmitter', c)
 )py";
 
+// The ribbon comet's path: a counter-orbit to kOrbitScript's, at a wider radius and lower
+// height so the two never meet (3 @ y=2 versus 4.2 @ y=1.4), and half a turn out of phase.
+// 4.2 stays inside the ground's +/-5 so the ribbon is always drawn over the ground, not off
+// its edge. A TrailRenderer only records a tail for something that MOVES, which is why this
+// is scripted rather than static.
+inline constexpr const char* kRibbonOrbitScript = R"py(
+import math
+_t = 0.0
+def on_update(dt):
+    global _t
+    _t += dt
+    tr = get_component(entity, 'Transform')
+    tr['position']['x'] = 4.2 * math.cos(math.pi - _t)
+    tr['position']['z'] = 4.2 * math.sin(math.pi - _t)
+    tr['position']['y'] = 1.4
+    set_component(entity, 'Transform', tr)
+)py";
+
 // Pure scene DATA: the demo entities/components. No device, no registry — this is what
 // save_to_json serializes and what a loaded scene replaces. WorldTransform is derived (added by
 // TransformSystem), so it is intentionally not set here.
@@ -953,6 +971,44 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<mosaic::engine::particles::ParticleEmitter>(puffer, puff);
     world.add_component<mosaic::engine::script::ScriptComponent>(puffer,
         mosaic::engine::script::ScriptComponent{kBurstScript});
+
+    // A RIBBON authored above the 1.0 bloom threshold: a bare moving point whose only
+    // visible part is its TrailRenderer tail (no MeshRenderer), so "ribbons glow" is judged
+    // on a ribbon and not on the sphere's pale-blue one. Magenta, to be told apart from the
+    // fountain's orange, the puffer's cyan and the orbiter's green.
+    //
+    // PREDICTED on-screen colour of the ribbon HEAD (alpha 1, the widest part; the tail
+    // tapers to nothing) through the ACES fit the resolve uses, before bloom's additive halo
+    // and ignoring blending over the ground: {2.4, 0.12, 1.9} -> (0.93, 0.16, 0.91), i.e. a
+    // vivid magenta at saturation 0.83. Same arithmetic as the fountain's {2.85, 0.30, 0.05}
+    // -> (0.95, 0.44, 0.04). Authored 2026-10-21; NOT yet seen by anyone.
+    const auto comet = world.create_entity();
+    world.add_component<transform::Transform>(comet,
+        transform::Transform{Vec3{-4.2f, 1.4f, 0}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    mosaic::engine::vfx::TrailRenderer comet_trail;
+    comet_trail.color           = Vec3{2.4f, 0.12f, 1.9f};
+    comet_trail.size            = 0.25f;
+    comet_trail.max_points      = 60;
+    comet_trail.sample_interval = 0.02f;
+    world.add_component<mosaic::engine::vfx::TrailRenderer>(comet, comet_trail);
+    world.add_component<mosaic::engine::script::ScriptComponent>(comet,
+        mosaic::engine::script::ScriptComponent{kRibbonOrbitScript});
+
+    // A WORLD LABEL authored above the bloom threshold: static, in front of the props at
+    // the camera's end of the ground. Lime, distinct from the ribbon's magenta.
+    //
+    // PREDICTED on-screen colour of the glyph interior (alpha 1, away from the antialiased
+    // edge; before bloom's halo): {1.0, 2.85, 0.25} -> (0.80, 0.95, 0.37). Caveat the
+    // prediction does not cover: lime against the light-grey lit ground is a low-contrast
+    // pairing, so whether it READS is a human question; the number is only the colour.
+    // Authored 2026-10-21; NOT yet seen by anyone.
+    const auto glow_label = world.create_entity();
+    world.add_component<transform::Transform>(glow_label,
+        transform::Transform{Vec3{0, 0.9f, 4.5f}, Quat::identity(), Vec3{1, 1, 1}, {}});
+    world.add_component<mosaic::engine::ui::WorldLabel>(glow_label,
+        mosaic::engine::ui::WorldLabel{
+            kBuiltinFontId, "GLOW", 0.5f,
+            Vec3{1.0f, 2.85f, 0.25f}, 1.0f, Vec3{0.0f, 0.0f, 0.0f}});
 }
 
 } // namespace mosaic::app
