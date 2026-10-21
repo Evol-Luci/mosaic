@@ -2751,6 +2751,11 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   are pinned by tag (box3d alone by SHA). A retagged upstream would change a build silently.
   Unrelated to caching but it changes the trust model of any dependency cache; GIT_SHALLOW needs
   a tag or branch, so pinning to SHAs would trade away shallow clones unless done per dependency.
+  **Sharpened by the shallow clones (Slice A):** if an upstream tag is ever moved, a developer with
+  an existing shallow `build/*/_deps` can hit a confusing fetch failure, because the shallow
+  history does not contain the new commit. CI is immune (it always clones fresh). Recovery is
+  `rm -rf build/*/_deps` and reconfigure; that is noted beside the declarations in `CMakeLists.txt`.
+  Documented rather than fixed in that slice. This strengthens the case for SHA pinning.
 - **Reduce header fan-out / precompiled headers / unity builds.** `foundation/core/entity_id.hpp`
   is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the

@@ -57,6 +57,8 @@ FetchContent_MakeAvailable(glfw)
 # GIT_SHALLOW needs a branch or tag (a bare SHA is not shallow-fetchable in general: it
 # depends on the server advertising that object). Every other dependency is tag-pinned and
 # shallow. Do not "tidy" this into consistency; configure would break.
+# If an upstream TAG is ever moved, an existing shallow build/*/_deps can fail to fetch it (the
+# history lacks the new commit): `rm -rf build/*/_deps` and reconfigure. CI always clones fresh.
 FetchContent_Declare(
   box3d
   GIT_REPOSITORY https://github.com/erincatto/box3d.git
