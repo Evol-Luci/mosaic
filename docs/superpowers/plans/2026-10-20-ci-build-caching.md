@@ -1,7 +1,10 @@
 # CI build caching — Implementation Plan
 
-> **Execution status:** not started. Waiting for the plan to be approved. Slice A is the only part
-> that ships a repo change before the Slice B campaign; Slice B is gated on its own floor.
+> **Execution status (2026-10-21):** Slice A is PR #268. Slice B's campaign is done and its
+> results are in the spec. Deviations from this plan, each flagged when it happened: the key
+> dropped `ImageVersion` (measured to reset the bucket on image releases); the probe is gated
+> blocks in the experiment branch's `ci.yml`, not a separate workflow; the first outage probe and
+> the header-parity probes were invalid and redone (see the spec's Results).
 
 **Goal:** Shorten the wait for CI without ever serving a stale artifact: shallow dependency
 clones (Slice A), then a `main`-seeded ccache (Slice B), judged against the floor in the spec.
@@ -105,7 +108,7 @@ All first-party. In `ci.yml`:
 - [ ] Guard step: fail if `ccache --show-config` `cache_dir` differs from the cached path; print
       the directory size after restore.
 - [ ] Configure with `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache`
-      added to the command line; `CCACHE_COMPILERCHECK=content`, `CCACHE_MAXSIZE=500M`.
+      added to the command line; `CCACHE_COMPILERCHECK=content`, `CCACHE_MAXSIZE=1G` (raised from 500M on measured fill, see the spec).
 - [ ] After build, `if: always()`: `ccache --show-stats`; print the directory size.
 - [ ] `actions/cache/save`, `if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'`.
       Warn if the directory is empty at save time.

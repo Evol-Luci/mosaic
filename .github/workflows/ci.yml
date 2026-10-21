@@ -63,17 +63,70 @@ jobs:
         run: |
           sudo apt-get install -y \
             ninja-build \
+            ccache \
             python3-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libwayland-dev libxkbcommon-dev \
             libgl-dev \
             pkg-config
 
+      # --- ccache (design: docs/superpowers/specs/2026-10-20-ci-build-caching-design.md) -------
+      # ccache's own content hash is what makes a hit valid (preprocessed source + compiler +
+      # flags). The actions/cache key below only chooses WHICH bucket of that store to restore,
+      # so a key that is too loose wastes quota or misses; it cannot put a wrong object in a build.
+      # Policy: first-party actions only; only a green push to main SAVES (see the save step).
+      - name: ccache settings and cache key
+        id: cc
+        run: |
+          # Fail LOUDLY if the runner stops providing this: a silent fallback would put every OS
+          # in one bucket and defeat the Ubuntu-26-migration protection. ImageVersion is
+          # deliberately NOT in the key: it changes with every runner-image release, which would
+          # reset the bucket weekly (measured: a rollout mid-campaign made every run cold). It is
+          # not needed for correctness: ccache hashes the compiler binary and the preprocessed
+          # source, including system headers.
+          : "${ImageOS:?ImageOS not set}"
+          {
+            echo "CCACHE_DIR=${RUNNER_TEMP}/ccache"
+            echo "CCACHE_COMPILERCHECK=content"
+            # 1G, not 500M: measured on CI, one 171-TU header change took a 500M store to 98.6%
+            # of the cap (106% after a flags change), at which point ccache evicts
+            # least-recently-used entries during ordinary work, and the eviction lands on the
+            # entries the NEXT build wants. A full tree is ~266 MB; restore costs 2-5 s at that
+            # size, so more headroom costs seconds against a multi-minute rebuild.
+            echo "CCACHE_MAXSIZE=1G"
+          } >> "$GITHUB_ENV"
+          echo "prefix=ccache-v1-${ImageOS}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.cc.outputs.prefix }}${{ github.sha }}
+          restore-keys: ${{ steps.cc.outputs.prefix }}
+
+      - name: ccache sanity (cache dir is the cached dir)
+        run: |
+          ccache --version | head -1
+          cfg="$(ccache --show-config | sed -n 's/^.*cache_dir = //p' | head -1)"
+          echo "ccache cache_dir=${cfg} cached path=${RUNNER_TEMP}/ccache"
+          test "${cfg}" = "${RUNNER_TEMP}/ccache" || { echo "::error::ccache would write somewhere other than the directory actions/cache saves"; exit 1; }
+          du -sh "${RUNNER_TEMP}/ccache" 2>/dev/null || echo "cache dir empty (cold)"
+          ccache --zero-stats
+
       - name: Configure (debug)
-        run: cmake --preset debug -G Ninja
+        run: >
+          cmake --preset debug -G Ninja
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build (debug)
         run: cmake --build --preset debug -j"$(nproc)"
+
+      - name: ccache stats
+        if: always()
+        run: |
+          ccache --show-stats
+          du -sh "${RUNNER_TEMP}/ccache" 2>/dev/null || true
 
       - name: Unit tests
         # No -E exclusions: the two embedded-Python threading tests excluded here since
@@ -93,3 +146,19 @@ jobs:
           PROJ="$(mktemp -d)/smoke_project"
           ./build/debug/app/mosaic create "$PROJ"
           ./build/debug/app/mosaic run "$PROJ" --ticks 120 --json
+
+      # The split cache actions have NO post-step success guard, so this condition is ours to
+      # write. Only a green push to main saves: a PR restores only (no PR write, including from
+      # forks), purely so PR pushes cannot churn the ~10 GB pool and evict main's entry. (It is not
+      # a poisoning defence: GitHub already scopes a PR's cache writes to that PR's ref.)
+      # Re-running a main commit whose cache already exists does NOT fail this step: the key is
+      # <prefix><sha>, so the save hits a duplicate key, which actions/cache raises as
+      # ReserveCacheError and logs at info level ("Failed to save: Unable to reserve cache...").
+      # Read from actions/cache v4 dist/save-only (2026-10-21). Expected; do not "fix" it, and do
+      # not add continue-on-error, which would also hide a genuine save failure.
+      - name: Save ccache
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.cc.outputs.prefix }}${{ github.sha }}

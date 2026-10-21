@@ -168,16 +168,17 @@ reason ccache is the right primitive.
 
 **`actions/cache` key.**
 ```
-primary:      ccache-v1-<ImageOS>-<ImageVersion>-gcc<gcc -dumpfullversion>-<github.sha>
-restore-keys: ccache-v1-<ImageOS>-<ImageVersion>-gcc<gcc -dumpfullversion>-
+primary:      ccache-v1-<ImageOS>-gcc<gcc -dumpfullversion>-<github.sha>
+restore-keys: ccache-v1-<ImageOS>-gcc<gcc -dumpfullversion>-
 ```
-Computed in a step (the runner's `ImageOS`/`ImageVersion` are environment variables, not
-workflow-expression contexts). Each part is there for a stated reason:
+Computed in a step (the runner's `ImageOS` is an environment variable, not a
+workflow-expression context). Each part is there for a stated reason:
 
 | Component | Why |
 |---|---|
 | `v1` | A manual epoch: the kill switch if a cache is ever suspected bad. Bumping it abandons every old bucket. We cannot delete caches from the workflow, so this is the only lever. |
-| `ImageOS`/`ImageVersion`, gcc version | Stop buckets for a different image or compiler accumulating dead entries and consuming quota. **Not** needed for correctness (ccache hashes the compiler). Image identity is the Ubuntu 26 migration mitigation. |
+| `ImageOS`, gcc version | Stop buckets for a different OS or compiler accumulating dead entries and consuming quota. **Not** needed for correctness (ccache hashes the compiler). `ImageOS` is the Ubuntu 26 migration mitigation. |
+| *(not in the key)* `ImageVersion` | **Was in the first version of this key and was measured to be wrong.** It changes with every runner-image release, and releases roll out across the runner pool over days. Between the seed run and the next three runs the pool moved from `20261012.334.1` to `20261018.339.1`; all three runs were silently cold (0 / 452 hits), which is "too tight, never hits" exactly. It is not needed for correctness: ccache hashes the compiler binary and the preprocessed source, system headers included. After removing it, runs on both image versions hit identically (452 / 452). |
 | `github.sha` | `actions/cache` never overwrites an existing key, so every save needs a unique one; the `restore-keys` prefix then picks the newest. |
 
 **Deliberately not in the key:** a hash of `CMakeLists.txt` / presets / `ci.yml`. It is the
@@ -190,7 +191,7 @@ source), and it would reset the bucket on every dependency bump or workflow edit
 | Setting | Value | Reason |
 |---|---|---|
 | `compiler_check` | `content` | The default is `mtime` of the compiler binary, which on a fresh runner is not a stable identity. Hashing the binary costs a read per run, not per object. |
-| `max_size` | `500M` | Measured full tree: 245 MB compressed. 500M holds one full tree plus churn (a p90 change is ~77 objects, roughly 40 MB). ccache evicts least-recently-used and refreshes an entry on every hit, so stale versions of changed objects go first. The cap also bounds `actions/cache` save and restore time, which would otherwise grow until it ate the win. **To be re-checked against measured restore time on Actions; if restore+save exceeds ~40 s, lower it.** |
+| `max_size` | `1G` (first written as `500M`, raised on the CI evidence in Results) | A full tree is 266 MB compressed. **500M was too tight:** one 171-TU header change filled it to 98.6% (106% after a flags change), after which ccache evicts least-recently-used entries during ordinary work, landing on entries the next build wants. 1G leaves headroom for a wide change on top of a full tree. ccache refreshes an entry on every hit, so stale versions of changed objects go first. The cap still bounds `actions/cache` save and restore time (2-5 s at 266 MB; an estimated 8-20 s at the cap, unmeasured). |
 | compression | ccache default (zstd) left on | Measured 4.8x. `actions/cache` re-compresses the tarball, which wastes a little CPU on incompressible data; it cannot be disabled and the cost is small next to the transfer saving. |
 | `CCACHE_DIR` | `${{ runner.temp }}/ccache`, set explicitly | The store's location is **named, not assumed**. The same expression is the `path:` of both `actions/cache/restore` and `/save`, and a guard step fails the job if `ccache --show-config` reports a different `cache_dir`. Without this, the failure is a cache that saves 0 bytes and a hit rate that never moves, which reads as "ccache didn't help" when the truth is "we cached the wrong directory". The size of the directory is printed after restore and before save, and an empty store at save time is a warning. |
 | `hash_dir`, `base_dir` | defaults | The checkout path is constant on the runner (`/home/runner/work/mosaic/mosaic`), so debug-info paths match across runs. Sharing with another path is a non-goal. |
@@ -351,6 +352,76 @@ is removed before merge. **The probe workflow is `workflow_dispatch:` only** (no
 **must never reach `main`**: it is deleted, together with the temporary save condition, in one
 commit before the PR is marked ready, and the final diff is checked for both.
 
+## Results (CI, 2026-10-21)
+
+All runs: `ubuntu-24.04`, `ImageOS=ubuntu24`, `nproc=4`, gcc 13.3.0, and the runner pool straddled **two image versions** (`20261012.334.1` and `20261018.339.1`) throughout. Every run records its own; where it matters the table says so. Raw per-run figures (job, per-step seconds, hits, link time, artifact digest) are in the PR description.
+
+### Effectiveness
+
+Cold baseline (no ccache, same shallow clones): 6 runs, mean **547 s (9m07s)**, range 463-612 s. Earlier, before Slice A: 8 runs, mean 560 s, range 436-643 s.
+
+| Scenario (cache = seed from a push, restored by prefix) | Runs | Job seconds | Median | ccache misses |
+|---|---|---|---|---|
+| fully warm, same sources | 3 | 93, 120, 121 | 120 s (2m00s) | 0 of 452 |
+| one `.cpp` edited | 5 | 104, 114, 125, 137, 143 | **125 s (2m05s)** | 1 (= 1 dependent) |
+| `image.hpp` edited (41 TUs) | 4 | 229, 229, 242, 259 | 236 s (3m56s) | 41 (= 41) |
+| `entity_id.hpp` edited (171 TUs) | 5 | 349, 367, 424, 440, 500 | 424 s (7m04s) | 171 (= 171) |
+
+- **Misses equal the dependent-TU count in every scenario**, as they did locally. Fewer would be a stale hit; more would be a key that is too tight.
+- Restore of the 266 MB cache took **2-5 s**; a save took **2 s**. The cache on disk is **266 MB** (`ccache --show-stats`: 53.6% of the then-500M cap).
+- **Link time is small and fixed**: `mosaic_unit_tests` links in 6.6-11.5 s, `mosaic` in 2.4-3.1 s. ccache does not cache links, so a warm job still pays about 10 s of them.
+
+### Against the floor
+
+1. Single-file change: median **125 s** against the 420 s ceiling; worst of 5 **143 s** against 540 s. Met, by a wide margin.
+2. Cold or evicted run vs cold baseline: runs with ccache and **zero** hits (n=8: 558, 508, 649, 426, 634, 499, 660, 417; mean 544 s) vs no-ccache cold (n=6, mean 547 s). The difference is about -3 s. **The noise (a 417-660 s spread) is far larger than the 30 s criterion, so this sample cannot resolve a 30 s effect either way**; it shows no overhead large enough to see, not that overhead is under 30 s.
+3. Correctness probes: all passed (below), with the limits stated there.
+
+### Achieved vs predicted, and the gaps
+
+| Scenario | Predicted | Achieved | Gap and cause |
+|---|---|---|---|
+| single `.cpp` or docs-only | 2m30s-3m30s | 1m44s-2m23s | **30-60 s faster than predicted at the low end.** The prediction budgeted ~30 s for cache restore and save; they cost **2-5 s**. |
+| 41-TU header | (not predicted) | 3m49s-4m19s | |
+| 77-TU change (p90) | 4m30s-6m | **interpolated, NOT measured:** linear between 41 TUs (236 s) and 171 TUs (424 s) gives ~288 s (4m48s), inside the predicted band; the honest bound is 3m56s-7m04s | the mechanism (misses equal dependent TUs) is established in every scenario, so another run would buy a number we can already bound; per-TU compile cost is not uniform, so linear is an estimate |
+| 171-TU header | 7m-9m | 5m49s-8m20s, median 7m04s | Lower edge of the band; the spread (151 s) is wider than any other scenario. |
+
+What a warm single-file job is made of (medians): apt ~25-30 s, Configure ~23 s (clone floor after Slice A), Build ~16 s (of which ~10 s is the unit-test link), **unit tests ~40 s (35-64 s)**. So **tests, configure and apt are ~80% of a warm job**, and none of them is helped by compiler caching. The largest remaining lever is the serial `ctest` step (backlog: `ctest -j` in CI), which is now the biggest single item in a warm run.
+
+### Variance (the named trade-off)
+
+The distribution is bimodal by which file changed: ~2 min for a source file, ~4 min for a mid header, ~7 min for the widest header, ~9 min for a cold cache. Within one scenario the spread was 40-150 s (runner noise dominates the unit-test and configure steps). Eviction and image changes send a run back to the cold end; the key was changed (above) so an image release no longer does.
+
+### Correctness evidence
+
+| Probe | Result |
+|---|---|
+| Cached vs cold, same commit, unedited sources | digest `ebbf68b3...` identical across 1 cold seed, 3 warm runs on each of two image versions, and the cold run on the new key: **471 files, identical** |
+| Cached vs cold, one `.cpp` edited (output-changing) | 5 cached runs `2d5c0985...` = 1 uncached run `2d5c0985...` |
+| Cached vs cold, **171-TU header edited with an output-changing `static int`** (171 misses + 281 stale-eligible hits) | 2 cached runs `d66d1028...` = 1 uncached run `d66d1028...`; differs from the unedited digest, as it must |
+| Same for the 41-TU header | cached `a2a9e326...` = uncached `a2a9e326...` |
+| Compiler change (`g++-14`) | 0 / 452 hits |
+| Flag change (`CXXFLAGS=-O1`) | 85 / 452 hits. **Expected, not a leak:** `CXXFLAGS` reaches only C++ objects, and 85 is exactly the C-object count (box3d 50 + glfw 26 + enet 9) |
+| Dependency tag bump (CLI11 v2.4.2 -> v2.4.1) | 451 / 452 hits: exactly the 1 TU that includes CLI11 (counted from `ninja -t deps`) |
+| Corrupted restored cache (half the files truncated or overwritten) | build passed; 219 / 452 hits; digest equal to the clean build's |
+| Empty cache (cold restore) | build passed; seeds and the "cold" runs |
+| Save guard: job forced to fail before the save step | `Save ccache` **skipped**; no cache with that key exists afterwards (`gh api .../actions/caches`) |
+| Scope: a sibling **branch** with an identical workflow | "Cache not found", 0 / 452 |
+| Scope: a cache saved from a **pull-request ref** (`refs/pull/N/merge`), restored from a branch ref with the same prefix | "Cache not found", 0 / 452 |
+| Cache service unavailable (hosts blackhole for the cache hosts) | job passed, built cold (338 s vs ~17 s warm), restore step reported success, save skipped. **Limits:** this is a DNS blackhole, not a real outage, and it also blocked the runner's own log upload, so that run has no log |
+
+**A hole in my own oracle, found and fixed.** The first header scenarios appended `inline constexpr int ...`, which emits no code, so those runs' digest equalled the unedited digest and proved nothing about invalidation. The `static int` re-runs above are the valid ones. The local parity check (all-hit vs uncached) was sound but did not exercise partial invalidation; the CI header runs do.
+
+**An invalid probe, redone.** The first outage simulation overrode the cache service variables in the step environment; the runner does not allow that, so the restore reached the real service (452 / 452 hits) and showed nothing. It is discarded. The hosts-file version above replaced it.
+
+### Not yet verified
+
+- **Main -> PR restore.** Branch-ref and PR-ref scoping behave as documented in this repo, but a cache written by a push to `main` being restored by a PR can only be proven after merge. The first merged run is necessarily cold; the next PR must restore it.
+- **Eviction over time.** The pool limits cannot be read through the API (HTTP 402). **The cap was raised from 500M to 1G on this evidence:** after a 171-TU change the store was at 98.6% of the 500M cap, and after the -O1 run 106%, at which point ccache evicts least-recently-used entries during ordinary work, and the eviction lands on the entries the next build wants. A full tree is 266 MB. The 1G cap was **not** itself measured on CI; restore time scales with stored size (2-5 s at 266 MB), so a store that grows to the cap is an estimated 8-20 s. The cost of the headroom is quota: each `main` save can now approach 1 GB against a ~10 GB pool, so older `main` caches are evicted sooner. Only the newest is ever restored, so that is acceptable. Eviction over time is still unmeasured and goes in the post-merge checks.
+- **77-TU change** was not run; its figure above is interpolated.
+- **Re-run of a green `main` commit.** Read from `actions/cache` v4 source (`ReserveCacheError` is caught and logged at info level), so the save step should not fail on a duplicate key. Not yet observed in this repo; checked after merge by re-running the seeding push.
+- ccache on noble is **4.9.1** (printed in the log); all local measurements used 4.14. The CI numbers above are the ones to trust.
+
 ## Non-goals
 
 Each has a matching entry in the "CI and build" section of `docs/project/deferred-work-backlog.md`.
@@ -382,4 +453,4 @@ Each has a matching entry in the "CI and build" section of `docs/project/deferre
 - The 7m00s / 9m00s / +30 s floor and the Slice A 20 s floor, restated per-scenario above.
 - **Decided:** Slice A lands as its own PR first, as soon as its CI configure number exists,
   before the Slice B campaign.
-- `max_size = 500M` is a starting value to be revised from measured restore time.
+- `max_size = 1G` (raised from 500M on the measured 98.6% / 106% fill), unmeasured at that size.
