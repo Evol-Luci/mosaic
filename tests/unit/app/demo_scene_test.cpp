@@ -134,6 +134,23 @@ TEST_CASE("the default scene's HUD underlay image draws beneath the checker", "[
     build_default_scene(world);
     mosaic::engine::transform::TransformSystem{}.update(world, 0.0f);
 
+    // Un-point the renderer from the environment. setup_runtime registers the sky as a lazy
+    // asset whose loader bakes the full-size IBL products (equirect -> 512 cubemap, irradiance,
+    // prefiltered chain, BRDF LUT) on the FIRST FRAME that has a device -- and this case is the
+    // only one in the suite that renders a frame. Left alone, that bake was 14.2 s of this
+    // case's 14.2 s locally (23-27 s on CI), 38% of the serial CI test step and the whole floor
+    // of the parallel one.
+    //
+    // This case's claim is UI image DRAW ORDER; the image pass reads no environment, and
+    // RenderSystem only touches the environment (and the LUT factory, which sits inside the
+    // same branch) while `environment_asset_` is set. So clearing the id through the existing
+    // public setter removes the bake and nothing else: no production change, no test-only
+    // flag, no smaller bake size to drift from the real one. The bake's own correctness is
+    // ibl_bake_test's job, at small sizes, in milliseconds; the wiring (registered, right
+    // type, renderer pointed at it) is owned by the setup_runtime environment case below.
+    // The draws and assertions below are untouched.
+    runtime.render_system->set_environment_asset({});
+
     UiImageRecordingDevice device;
     runtime.render_system->render(world, device, registry);
 
