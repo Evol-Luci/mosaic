@@ -207,7 +207,7 @@ jobs:
       # forks), purely so PR pushes cannot churn the ~10 GB pool and evict main's entry. (It is not
       # a poisoning defence: GitHub already scopes a PR's cache writes to that PR's ref.)
       - name: Save ccache
-        if: success() && env.EXP_NOSAVE != '1' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci/build-caching-experiment')
+        if: success() && github.event_name == 'pull_request'
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/ccache
