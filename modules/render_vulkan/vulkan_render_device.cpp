@@ -493,10 +493,13 @@ public:
                 if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
                 if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
             }
-            for (auto& vb : world_text_vertices_)
+            for (auto& chunks : world_text_vertices_)
             {
-                if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
-                if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
+                for (auto& vb : chunks)
+                {
+                    if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
+                    if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
+                }
             }
 
             for (VkSemaphore s : render_finished_)
@@ -1599,7 +1602,16 @@ public:
         if (frame_skipped_ || verts.empty() || textures_.empty()) { return; }
 
         const VkDeviceSize bytes = verts.size() * sizeof(verts[0]);
-        InstanceBuffer& vb = world_text_vertices_[frame_];
+        // One buffer PER CALL this frame. The vertices are copied now but the draw that reads
+        // them only executes at submit, so two calls sharing one buffer at offset 0 would
+        // both draw whatever was written last (the "Orbiter" label rendered as "ter").
+        // Chunk n is first touched this frame by call n, so growing it here never destroys
+        // a buffer an already-recorded command references: the previous use of this
+        // frame_ slot finished when begin_frame waited on its fence. A running offset into
+        // one buffer would need exactly that mid-frame destroy-while-referenced on growth.
+        auto& chunks = world_text_vertices_[frame_];
+        if (world_text_calls_[frame_] == chunks.size()) { chunks.emplace_back(); }
+        InstanceBuffer& vb = chunks[world_text_calls_[frame_]++];
         if (vb.capacity < bytes)
         {
             if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
@@ -1866,6 +1878,9 @@ public:
         frame_skipped_ = false;
 
         vkWaitForFences(device_, 1, &in_flight_[frame_], VK_TRUE, UINT64_MAX);
+        // Every command recorded from this slot's previous use has finished, so its
+        // world-text chunks are free to be reused (and, if too small, replaced).
+        world_text_calls_[frame_] = 0;
 
         VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
                                            image_available_[frame_], VK_NULL_HANDLE,
@@ -5795,7 +5810,9 @@ private:
     struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
     std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
     std::array<InstanceBuffer, kFramesInFlight> ribbon_vertices_{};
-    std::array<InstanceBuffer, kFramesInFlight> world_text_vertices_{};
+    // Per frame-in-flight, one vertex buffer per draw_world_text call (see that method).
+    std::array<std::vector<InstanceBuffer>, kFramesInFlight> world_text_vertices_{};
+    std::array<std::size_t, kFramesInFlight>                 world_text_calls_{};
     VkImage         vp_color_ = VK_NULL_HANDLE;
     VkDeviceMemory  vp_color_mem_ = VK_NULL_HANDLE;
     VkImageView     vp_color_view_ = VK_NULL_HANDLE;

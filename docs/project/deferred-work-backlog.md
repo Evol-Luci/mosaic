@@ -1665,6 +1665,28 @@ them as this list does.
   origin is above the face but whose extent dips below it is NOT caught;
   every mesh here is centred, so that is not a live gap.
 
+- **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem
+  (human decision 2026-10-21).** The verification pass's verdict, verbatim: "The word GLOW is
+  legible, though the contrast is pretty low. I count this passing for now. We can look at
+  adjusting it later if it becomes a problem in the future." Kept at `{1.0, 2.85, 0.25}` in
+  `app/run/demo_scene.hpp` (the decision is recorded beside it too). **`WorldLabel` has no
+  outline or shadow field** (font, text, size, colour, alpha, offset only), so the options
+  are: a different colour, a different position (against something darker than the light-grey
+  ground), or new engine work to add an outline/shadow. Deferred: passing as is; low priority.
+  Depends on nothing. Note the human judged it on a look that was double-blended (see the
+  batching entry in `next-steps.md`), so a re-check after that fix is owed.
+- **`draw_particles` and `draw_ribbons` share the world-text backend shape.** Each writes one
+  per-frame vertex/instance buffer at offset 0 on the CPU while the draw executes at submit,
+  and each is correct only because `RenderSystem` calls it at most once per frame (found by
+  the 2026-10-21 world-text audit; world text had the same assumption and broke it). Not a live
+  bug. The fix is the per-call chunk list `draw_world_text` now uses, or an assert. Deferred:
+  unreachable today and untestable without a `VkDevice`. Depends on nothing.
+- **World labels are not depth-sorted for blending.** The world-text batch preserves
+  `for_each` order, which is dense order over a sparse set and unstable across an unrelated
+  entity's destruction. Overlapping labels in different fonts, or the same font, may blend in
+  a different order after such a change. Back-to-front by camera distance would make it
+  deterministic. Deferred: no scene overlaps two labels; the existing behaviour was the same.
+
 ## Project templates
 
 - **3rd-person adventure template content** — needs a new `Health`
@@ -2928,6 +2950,8 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ | **DONE 2026-10-21.** Two entities as predicted, but the ribbon needed a mover (a trail follows motion), so also a new orbit script and a fourth count assertion. Predicted colours `(0.93, 0.16, 0.91)` and `(0.80, 0.95, 0.37)`, unseen. See the Rendering section. |
 | ~~**A test that nothing authored flat on the ground sits below its top face**~~ | **DONE 2026-10-21**, as the general test (ruled over a `place_on_surface` helper). One loop, as predicted; it needed a definition of "prop" and passes the emitters at exactly `y = 0.5` only because the check is `>=`. See the Rendering section. |
 | ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ | **DONE 2026-10-21.** Not a render-path mystery: the only case that renders a frame paid `setup_runtime`'s lazy full-size IBL bake. One-line test change, 14.2 s -> 0.17 s. The row's "not yet diagnosed, effort is a guess" and "7 ms siblings" were wrong. See the CI and build section. |
+| **Guard `draw_particles` / `draw_ribbons` against a second call per frame** | Hours: copy the per-call chunk list from `draw_world_text`, or add an assert. Rendering section above. |
+| **Revisit the lime "GLOW" label contrast** | Only if it becomes a problem (human decision 2026-10-21); needs no new code for a colour/position change. Rendering section above. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
