@@ -98,7 +98,8 @@ Per [`docs/architecture/ARCHITECTURE.md`](../architecture/ARCHITECTURE.md) and [
 
 ### 3.1 Implemented & Validated Subsystems (Foundation, Engine Core, App Shell, Rendering & Studio)
 
-The foundation tier, headless engine core, application shell, complete rendering subsystem, and Studio workbench are **100% complete and fully verified** by a **254-test suite** on `main` across debug and release builds:
+The foundation tier, headless engine core, application shell, complete rendering subsystem, and Studio workbench are **100% complete and fully verified** by a **1,459-test suite** on `main` (count as of 2026-10-21; CI runs
+it on the debug preset in parallel, guarded so a run that silently tested fewer cannot go green):
 
 | Component / Subsystem | Location | Architectural Role | Status / Test Coverage |
 |---|---|---|:---:|
