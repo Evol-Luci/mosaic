@@ -78,15 +78,19 @@ jobs:
       - name: ccache settings and cache key
         id: cc
         run: |
-          # Fail LOUDLY if the runner stops providing these: a silent fallback here would put
-          # every image in one bucket and defeat the image-migration protection.
-          : "${ImageOS:?ImageOS not set}" "${ImageVersion:?ImageVersion not set}"
+          # Fail LOUDLY if the runner stops providing this: a silent fallback would put every OS
+          # in one bucket and defeat the Ubuntu-26-migration protection. ImageVersion is
+          # deliberately NOT in the key: it changes with every runner-image release, which would
+          # reset the bucket weekly (measured: a rollout mid-campaign made every run cold). It is
+          # not needed for correctness: ccache hashes the compiler binary and the preprocessed
+          # source, including system headers.
+          : "${ImageOS:?ImageOS not set}"
           {
             echo "CCACHE_DIR=${RUNNER_TEMP}/ccache"
             echo "CCACHE_COMPILERCHECK=content"
             echo "CCACHE_MAXSIZE=500M"
           } >> "$GITHUB_ENV"
-          echo "prefix=ccache-v1-${ImageOS}-${ImageVersion}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
+          echo "prefix=ccache-v1-${ImageOS}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
