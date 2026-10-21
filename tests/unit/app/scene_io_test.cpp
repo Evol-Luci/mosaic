@@ -37,4 +37,3 @@ TEST_CASE("save_scene_file returns false for an unwritable path", "[app]")
 {
     REQUIRE_FALSE(save_scene_file("/no/such/dir/scene.json", "{}"));
 }
-static int ccprobe_cpp = 1;
