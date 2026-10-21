@@ -25,6 +25,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Runner environment (recorded beside every timing)
+        # Standing diagnostic. Image, compiler and core count all move build timings, and the
+        # ubuntu-latest -> Ubuntu 26 migration can flip them between two runs. Anything that
+        # compares timings across runs must first check these lines match.
+        run: |
+          echo "ImageOS=${ImageOS:-unset} ImageVersion=${ImageVersion:-unset} nproc=$(nproc)"
+          gcc --version | head -1
+          cmake --version | head -1
+
       - name: Dependency-rule lint's own unit tests
         run: python3 -m unittest tools/ci/test_check_dependency_rules.py
 

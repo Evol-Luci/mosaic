@@ -2708,6 +2708,59 @@ anything shipped; they are capabilities that were never built.
   init/teardown ordering across threads) as its own scoped piece of
   work, not something to guess at blind.
 
+## CI and build
+
+Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci-build-caching-design.md`
+(2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
+from that spec; `ctest` and wide-header figures are local or inferred where marked.
+
+- **`ctest -j` in CI.** The CI test step runs `ctest --preset debug` serially and takes
+  37-65 s, which once the build is cached becomes the largest fixed cost of a run (roughly 15-30%
+  of a warm job). Each Catch2 case runs as its own process, which suggests parallelism is
+  plausible, but the embedded-Python threaded tests have a recorded flaky SIGSEGV and a recorded
+  race on 2-core CI, so "parallel-safe" is a question to answer, not assume. **Unmeasured.**
+  Deferred because it is a separate risk surface from caching and could mask or provoke the flaky
+  tests. 🟡 candidate; depends on nothing.
+- **Release-preset build caching.** CI builds only the `debug` preset, so there is nothing to
+  cache. Deferred until a release job exists; the ccache bucket key would need the build type's
+  compiler flags to differ only via ccache's own hash (they do), so the design extends cleanly.
+- **Caching the apt layer.** Rejected on current evidence rather than merely deferred: the
+  installs are about 20-30 s of a run, and a cached layer risks pinning stale package lists
+  against the third-party LunarG apt repository. Recorded so it is not re-derived. Revisit only if
+  the apt steps become a large share after the build is cached.
+- **A source-only FetchContent cache.** Not needed if `GIT_SHALLOW TRUE` lands the clone saving
+  (9 tag-pinned deps: 45.3 s full vs 4.9 s shallow, local). Would also freeze whatever a mutable
+  tag pointed at. Revisit if shallow clones disappoint on CI.
+- **Test selection / caching test results.** Skipping tests for unchanged code is unsound without
+  a change-impact analysis the repo does not have. Distinct from `ctest -j`, which only runs the
+  same tests faster. 🔴 and low priority.
+- **Per-PR cache writes.** Decided restore-only so PR saves cannot churn the ~10 GB LRU pool and
+  evict `main`'s entry (a quota reason, not a security one: GitHub scopes PR caches to the PR).
+  Cost: a PR pushed N times pays N times for its own changed objects. Revisit with hit-rate data
+  from a few real PR iterations.
+- **A periodic cold-vs-cached parity check.** A scheduled workflow that builds cold and compares
+  sha256 of the artifacts with a cached build would turn a one-time correctness proof into a
+  standing guardrail against a cache key that drifts loose. Deferred: it spends a weekly cold
+  build and the ship-time invalidation probes cover the same risk. Depends on the cached build
+  being reproducible on CI, which the caching slice establishes.
+- **A shared/remote compiler cache for developer machines.** The shallow-clone change already
+  helps a local first build; a network cache is a different trust and operations problem.
+- **Cache housekeeping.** Deleting stale caches via the API from a scheduled job. Today the only
+  lever against a bad cache is bumping the `v1` epoch in the key. Depends on needing it.
+- **Pin mutable FetchContent tags to commit SHAs.** Found while designing: 9 of 10 dependencies
+  are pinned by tag (box3d alone by SHA). A retagged upstream would change a build silently.
+  Unrelated to caching but it changes the trust model of any dependency cache; GIT_SHALLOW needs
+  a tag or branch, so pinning to SHAs would trade away shallow clones unless done per dependency.
+  **Sharpened by the shallow clones (Slice A):** if an upstream tag is ever moved, a developer with
+  an existing shallow `build/*/_deps` can hit a confusing fetch failure, because the shallow
+  history does not contain the new commit. CI is immune (it always clones fresh). Recovery is
+  `rm -rf build/*/_deps` and reconfigure; that is noted beside the declarations in `CMakeLists.txt`.
+  Documented rather than fixed in that slice. This strengthens the case for SHA pinning.
+- **Reduce header fan-out / precompiled headers / unity builds.** `foundation/core/entity_id.hpp`
+  is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
+  even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
+  fan-out can, for cold and wide-header builds alike. Different kind of work.
+
 ## Effort vs. impact
 
 Cross-cutting prioritization pass, originally 2026-09-19, **re-derived
@@ -2793,6 +2846,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
+| **`ctest -j` in CI** | The CI test step is serial and 37-65 s; after build caching it is the largest fixed cost. Parallel-safety of the embedded-Python and port-binding tests is unproven. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
@@ -2831,6 +2885,7 @@ implementation starts.
 
 | Item | Impact |
 |---|---|
+| **Test selection / caching test results** | Needs change-impact analysis; low priority. See the CI and build section. |
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
 | ~~Rendering: full PBR material model~~ — **COMPLETE 2026-10-07.** Decomposed 2026-10-04; all of it shipped: 1 tone mapping, 2 metallic/roughness + GGX Cook-Torrance, 3 texture maps + real image import, 4a mipmaps, 4b cubemaps/HDR/skybox, 4c image-based lighting, then multi-scatter energy compensation closing the one correctness gap the arc had recorded against itself (furnace test 0.31 → 1.000000 at roughness 1). | ~~High~~ done |
