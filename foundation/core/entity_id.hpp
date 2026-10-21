@@ -58,4 +58,3 @@ struct std::hash<mosaic::foundation::EntityID>
         return std::hash<std::uint64_t>{}(id.value());
     }
 };
-static int ccprobe_eid = 1;
