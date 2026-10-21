@@ -19,6 +19,15 @@ using mosaic::net::enet::create_enet_server;
 
 namespace
 {
+// PORTS: 24101-24106, one per case, deliberately BELOW the Linux ephemeral range
+// (32768-60999, /proc/sys/net/ipv4/ip_local_port_range). These used to be 34001-34006, inside
+// it, so any process that bound an ephemeral UDP port (every ENet client does) could take a
+// port a server here was about to bind -- the same class of bug that failed a real CI run in
+// live_link_server_test.cpp when 34906 was not free. Under `ctest -j` these six adjacent cases
+// run together, which makes that likelier. Unprivileged (>1023) and absent from /etc/services.
+// The structural fix (bind 0 and report the kernel's choice, as LiveLinkServer::port() does)
+// would be an ENet transport API change and is a backlog item, not done here.
+//
 // Call pred() up to max_attempts times (sleeping sleep_ms between) until it returns true.
 // pred is responsible for its own polling/event-collection — this helper only paces the
 // retries. Real UDP has real scheduling latency, unlike the in-memory LoopbackTransport
@@ -37,7 +46,7 @@ void poll_until(Pred pred, int max_attempts = 200, int sleep_ms = 5)
 
 TEST_CASE("ENet transport completes a connect handshake over loopback", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34001;
+    constexpr std::uint16_t port = 24101;
     auto server = create_enet_server(port, 4);
     auto client = create_enet_client("127.0.0.1", port);
     REQUIRE(server != nullptr);
@@ -63,7 +72,7 @@ TEST_CASE("ENet transport completes a connect handshake over loopback", "[net][e
 
 TEST_CASE("ENet transport delivers a reliable message to the peer", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34002;
+    constexpr std::uint16_t port = 24102;
     auto server = create_enet_server(port, 4);
     auto client = create_enet_client("127.0.0.1", port);
 
@@ -103,7 +112,7 @@ TEST_CASE("ENet transport delivers a reliable message to the peer", "[net][enet]
 
 TEST_CASE("ENet transport preserves the unreliable channel tag", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34003;
+    constexpr std::uint16_t port = 24103;
     auto server = create_enet_server(port, 4);
     auto client = create_enet_client("127.0.0.1", port);
 
@@ -138,7 +147,7 @@ TEST_CASE("ENet transport preserves the unreliable channel tag", "[net][enet]")
 
 TEST_CASE("ENet transport surfaces a Disconnected event on the peer", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34004;
+    constexpr std::uint16_t port = 24104;
     auto server = create_enet_server(port, 4);
     auto client = create_enet_client("127.0.0.1", port);
 
@@ -170,7 +179,7 @@ TEST_CASE("ENet transport surfaces a Disconnected event on the peer", "[net][ene
 
 TEST_CASE("ENet transport drops a send to an unknown connection id", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34005;
+    constexpr std::uint16_t port = 24105;
     auto server = create_enet_server(port, 4);
     auto client = create_enet_client("127.0.0.1", port);
 
@@ -182,7 +191,7 @@ TEST_CASE("ENet transport drops a send to an unknown connection id", "[net][enet
 
 TEST_CASE("ENet server assigns distinct ids to multiple clients", "[net][enet]")
 {
-    constexpr std::uint16_t port = 34006;
+    constexpr std::uint16_t port = 24106;
     auto server = create_enet_server(port, 4);
     auto client_a = create_enet_client("127.0.0.1", port);
     auto client_b = create_enet_client("127.0.0.1", port);

@@ -2714,26 +2714,22 @@ Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci
 (2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
 from that spec; `ctest` and wide-header figures are local or inferred where marked.
 
-- **`ctest -j` in CI — the next lever after build caching, but NOT a quick win.** With a
-  restored ccache a warm job is ~93-143 s, and the **serial `ctest` step is 35-64 s of it**
-  (median ~40 s, roughly a third), which compiler caching can never touch (measured on CI,
-  spec Results). **The catch:** parallelising changes test ordering and timing, and this suite
-  has two known flakes that are *specifically* ordering- and timing-sensitive. `ctest -j4` on a
-  4-vCPU runner makes both more likely, and a CI that goes red at random is worse than one that is
-  40 s slower. **Prerequisite work, one per test:**
-  1. `PhysicsSystem::raycast is callable from another thread while update runs`
-     (`tests/unit/physics/physics_system_test.cpp:601`) asserts a *race outcome* (a reader thread
-     must be scheduled before the main thread finishes 200 ticks) and already fails on 2-core CI;
-     it needs a deterministic handshake instead of a timing bet.
-  2. `threaded ScriptSystem applies script writes one tick later`
-     (`tests/unit/script/script_system_test.cpp`, ~line 191) SIGSEGVs only under full-suite
-     ordering (embedded-Python GIL/teardown); it has to be understood before ordering is
-     perturbed further.
-  Also unknown: whether the remaining Catch2 cases (each its own process) are safe to run
-  concurrently (shared ports, temp paths, the embedded interpreter). **What the win is after
-  that:** at most the ~40 s tests step shrinks; the rest of a warm run is apt (~25-30 s) and
-  configure (~23 s), and **neither is test parallelism**. Tier: 🟡 Medium, gated on the two
-  prerequisites above, not "depends on nothing".
+- **`ctest -j` in CI — IN PROGRESS 2026-10-21** (spec
+  `docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md`). **The framing this entry used
+  to carry ("gated on two flaky tests") was stale and has been replaced.** Verified 2026-10-21:
+  (1) the threaded-raycast case was fixed in #230 (`e7927cf`, 2026-10-09: a bounded 5 s wait for
+  `hits > 0` before the concurrent phase); (2) the threaded-`ScriptSystem` SIGSEGV cannot occur on
+  the ctest path at all, because `catch_discover_tests` registers all 1455 cases as separate
+  processes, so the full-suite ordering that triggers it never happens under ctest at any `-j`
+  (it remains a hazard of running `mosaic_unit_tests` directly; see the Physics-pillar entry "The `[script]` SIGSEGV now has a deterministic, one-command reproduction").
+  The real gates are the concurrency hazards of 1455 independent processes and the per-test
+  `TIMEOUT 60` against one slow case; the spec audits both. With a restored ccache a warm job is
+  ~93-143 s and the serial `ctest` step is 35-64 s of it (CI log 2026-10-21: 60.8 s, image
+  `20261012.334.1`, nproc 4, gcc 13.3.0), which compiler caching can never touch. **What the win is:**
+  the step cannot drop below its longest single case (23.4 s on that CI run, see the HUD-underlay
+  entry below), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
+  then the long case runs 23.4 s), not 60/4; the rest of a warm run is apt
+  (~25-30 s) and configure (~23 s), and **neither is test parallelism**.
 - **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
   `actions/cache/restore@v4`, `actions/cache/save@v4` and `actions/checkout@v4` target Node.js 20
   and are being forced to Node.js 24 (seen in the post-merge runs, 2026-10-21). Nothing is broken,
@@ -2780,6 +2776,54 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
   fan-out can, for cold and wide-header builds alike. Different kind of work.
+- **The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**
+  `the default scene's HUD underlay image draws beneath the checker`
+  (`tests/unit/app/demo_scene_test.cpp:116`) is a single CPU-bound thread (user 16.4 s of 16.5 s
+  wall, locally) inside `render_system->render(...)`; every sibling that builds the same scene
+  without rendering takes under 0.25 s. It arrived in #241 and nobody noticed: the 2026-10-07
+  `TIMEOUT` sizing recorded the slowest case at 1.11 s. Today it is 38% of the 60.8 s serial CI
+  test step, ~39% of `TIMEOUT 60`'s ceiling (2.6x headroom on CI), and under `-j` it becomes the
+  floor of the step's wall time. Found 2026-10-21 while auditing `ctest -j`. **Not root-caused**
+  (ptrace is blocked in this sandbox, so no profile was taken). Deferred: separable from
+  parallelising, and the fix is test or render-path work, not CI work. Depends on nothing.
+  **The named next lever after `-j`:** removing it takes the parallel step from ~20-32 s (measured, bimodal by host) to roughly
+  10-20 s (sum of the remaining work over 4 workers: ~9 s on a fast host, ~17-20 s on a slow one), a larger
+  remaining win than parallelism itself, in one test. Cause is **unknown**, not guessed.
+- **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
+  The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
+  ephemeral range (34001-34006 -> 24101-24106) in the `ctest -j` slice**, because a hard-coded port
+  in that range has already failed a real CI run in this repo, serially (`live_link_server_test.cpp`
+  :185-189, "34906 was not free"), and `-j4` runs the six adjacent cases together. That is a
+  mitigation, not a fix: any fixed number can still be taken. The template is what `LiveLinkServer`
+  already did: `start(0)` and report the kernel's choice through `port()`. For ENet that is an API
+  change to `create_enet_server` / `Transport`, so it is not a CI slice. Depends on a decision to
+  change the transport interface.
+- **`LiveLinkServer::port reports an explicitly requested port verbatim` releases then rebinds.**
+  It learns a free port from `start(0)`, `stop()`s, then binds that number; a concurrent
+  `start(0)` or outgoing connection in that window could take it. **Accepted, not planned
+  (2026-10-21 ruling):** a microsecond window against a pool of ~28 000 ports (~1/28 000 per
+  overlapping bind), and the only alternative, holding the probe socket bound, makes it impossible
+  to bind that number. `SO_REUSEADDR` (already set) does **not** close it: it only permits binding
+  over TIME_WAIT. Revisit only if this case is ever seen red.
+- **Longest-first scheduling for `ctest -j`.** **Measured and declined (2026-10-21), not
+  overlooked.** CI has no `Testing/Temporary/CTestCostData.txt`, so ctest schedules in definition
+  order. From CI run 39534182320: serial work before the long case (#413) is 10.71 s, so under `-j4`
+  it is dispatched at ~2.7 s and the step ends at ~26.0 s; longest-first would end at 23.4 s, a gain
+  of **~2.6 s**. Worth a `COST` property only if a long case ever lands late in declaration order.
+- **A per-test duration budget.** `TIMEOUT 60` is a hang backstop and says nothing about a case
+  that quietly grows 40x (the HUD-underlay case did, unseen, for weeks). A CI step that reads
+  `ctest --output-junit` and fails or annotates any case above a stated fraction of the timeout
+  would catch the next one. Deferred: needs a threshold chosen from CI data, and a flaky budget is
+  worse than none. Depends on the HUD-underlay case being fixed first, or it trips on day one.
+- **`execution.jobs` in the `debug` test preset (local `ctest -j`).** The slice puts `-j` in the
+  workflow only. Putting it in `CMakePresets.json` would change every developer's default, on
+  machines with unknown memory and with the sandbox's slow cross-process loopback. Deferred:
+  CI-only was the goal, and a local default is a separate decision.
+- **A CI job that runs `mosaic_unit_tests` as one process.** The full-suite-order SIGSEGV in the
+  threaded `ScriptSystem` case (see the Physics-pillar `[script]` SIGSEGV entry on `catch_discover_tests` blindness) is
+  invisible to ctest by construction. A second job running the binary directly would cover it, at
+  the cost of another ~100 s job. Deferred: the mode has not reproduced since #208, and fixing it
+  is that entry's work. Depends on whether that mode is ever re-observed.
 
 ## Effort vs. impact
 
@@ -2860,13 +2904,15 @@ re-reading the same source docs. Both items are in the Rendering section above.
 |---|---|
 | **Author a ribbon and a world label above the bloom threshold in the demo** | The demo has one `TrailRenderer` and no standalone ribbon or `WorldLabel` authored above 1.0, so "ribbons and world text glow" has never been judged by anyone — the 2026-10-20 pass could not ask about it, and said so on the page rather than guessing. Two entities and the existing retune arithmetic; the work is picking colours that survive ACES, which #260 already did four times. Deliberately kept out of the verification pass itself: extending a fixture is building, not verifying. |
 | **A test that nothing authored flat on the ground sits below its top face** | #265 pins the decal; the *class* is unpinned. The ground is a unit cube scaled `{10,1,10}`, so its top face is at `y = 0.5` while its origin is at `y = 0`, and the decal spent six weeks buried inside it with a green suite. One loop over the scene's props against the ground's top face. The judgement call — a general test versus a `place_on_surface` scene helper — is the only reason this is not already done, and one data point does not settle it. |
+| **Root-cause the 16.5 s default-scene HUD-underlay test** | One CPU-bound case is 38% of the serial CI test step and the floor of any parallel run. Not yet diagnosed, so the effort is a guess: it is `render()` on the default scene in a debug build, and every sibling case that skips `render()` takes 7 ms. See the CI and build section. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
-| **`ctest -j` in CI** | The serial test step is ~40 s of a ~120 s warm job, the largest fixed cost once the build is cached. Gated on making the `PhysicsSystem::raycast` cross-thread case and the threaded `ScriptSystem` case order/timing-robust first; parallelising before that makes both flakes likelier. See the CI and build section. |
+| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
+| **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
