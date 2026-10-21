@@ -34,6 +34,10 @@ jobs:
           gcc --version | head -1
           cmake --version | head -1
 
+      - name: "EXPERIMENT: load knobs"
+        run: |
+          if [ -f .github/exp.env ]; then cat .github/exp.env | tee -a "$GITHUB_ENV"; else echo "no knobs"; fi
+
       - name: Dependency-rule lint's own unit tests
         run: python3 -m unittest tools/ci/test_check_dependency_rules.py
 
@@ -86,7 +90,7 @@ jobs:
             echo "CCACHE_COMPILERCHECK=content"
             echo "CCACHE_MAXSIZE=500M"
           } >> "$GITHUB_ENV"
-          echo "prefix=ccache-v1-${ImageOS}-${ImageVersion}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
+          echo "prefix=ccache-v1${EXP_EPOCH:-}-${ImageOS}-${ImageVersion}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
 
       - name: Restore ccache
         uses: actions/cache/restore@v4
@@ -112,6 +116,25 @@ jobs:
 
       - name: Build (debug)
         run: cmake --build --preset debug -j"$(nproc)"
+
+      - name: "EXPERIMENT: build breakdown + artifact hashes"
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import collections
+          d={}
+          for l in open("build/debug/.ninja_log"):
+              if l.startswith("#"): continue
+              a,b,_,o,_=l.rstrip("\n").split("\t"); d[o]=(int(b)-int(a))/1000
+          comp=sum(v for o,v in d.items() if o.endswith(".o"))
+          link=sum(v for o,v in d.items() if not o.endswith(".o"))
+          big={o:v for o,v in d.items() if o.endswith(("mosaic_unit_tests","/mosaic"))}
+          print(f"BREAKDOWN objects={sum(1 for o in d if o.endswith('.o'))} compile_cpu={comp:.0f}s link_and_other_cpu={link:.0f}s big_links={big}")
+          PY
+          echo "::group::artifact sha256 list"
+          find build/debug \( -name '*.o' -o -name '*.a' -o -name mosaic -o -name mosaic_unit_tests \) -type f | grep -v CompilerId | sort | xargs sha256sum | tee "${RUNNER_TEMP}/hashes.txt"
+          echo "::endgroup::"
+          echo "ARTIFACT_DIGEST $(sha256sum "${RUNNER_TEMP}/hashes.txt" | cut -c1-16) files=$(wc -l < "${RUNNER_TEMP}/hashes.txt")"
 
       - name: ccache stats
         if: always()
@@ -143,7 +166,7 @@ jobs:
       # forks), purely so PR pushes cannot churn the ~10 GB pool and evict main's entry. (It is not
       # a poisoning defence: GitHub already scopes a PR's cache writes to that PR's ref.)
       - name: Save ccache
-        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ci/build-caching-experiment')
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/ccache
