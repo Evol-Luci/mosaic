@@ -299,6 +299,89 @@ or **real finding**.
   and compares the two JUnit maps. That variant exists only on a throwaway branch.
 - LOCAL timings are labelled LOCAL and described as shape.
 
+## Results (2026-10-21)
+
+All CI figures: `ImageOS=ubuntu24`, `nproc=4`, gcc 13.3.0-6ubuntu2~24.04.1, cmake 3.31.6; the image
+is given per row. LOCAL rows are labelled and are shape only (20 cores, gcc 16.2.1, no ccache).
+
+### Correctness: the oracle
+
+| Check | Result |
+|---|---|
+| O1 count | **11 of 11** CI runs: `1455 of 1455 tests ran and passed`, N from `ctest -N` in-job |
+| O2 pass | 11 of 11: `ctest_rc=0 check_rc=0` |
+| O3 outcome map vs serial | **Same job, same machine** (probe run 39603153831, image 20261018.339.1): `only_here=0 only_baseline=0 status_differs=0`. LOCAL: 30 of 30 pinned `taskset -c 0-3 ctest -j4` runs identical to the serial map, and all passed. |
+| O5 floor (wall >= longest case, same run) | held in 11 of 11 |
+| O6 longest case <= 40 s | held: max **27.54 s** (CI), 27.25 s in the first run |
+| O4 efficiency >= 2.0 | held: 2.58-2.97 on CI (see the correction below) |
+| Negative control, filtered run (CI, run 39603153831) | `check_ctest_run: O1: JUnit has 6 testcases but 1455 tests were discovered` then `NEG1 guard_rc=1` (ctest itself exited 0: a green exit code hid it) |
+| Negative control, empty N (CI) | `check_ctest_run: N is not an integer: '' (discovery count missing; refusing to guess)` then `NEG2 guard_rc=1` |
+| Negative control, `ctest -N` pipeline failing (CI) | `CMake Error: No such test preset ... "nosuchpreset"`, `M=''`, same refusal, `NEG3 guard_rc=1` |
+
+**Red runs, classified.** None of the 11 real-workflow runs was red. One run was red:
+`39603062939`, a `push` on the throwaway probe branch, **zero jobs**: my probe's step name contained
+`: ` and made the workflow file invalid YAML. Self-inflicted, on a branch that is never merged;
+not data. (A platform no-runner failure shows a job with zero steps; this showed no job at all.)
+
+**"Can refute, cannot prove."** 11 clean CI runs bound the true failure rate only to about 3/11,
+roughly 27% at 95%, and 30 clean LOCAL runs to about 10%. These runs found nothing; they did not
+establish stability. The safety argument remains the audit above.
+
+### Speed: achieved beside predicted
+
+Predicted (calibrated on the slow-host serial run): step **~26.0 s**, efficiency 2.34.
+
+| Run | Image | Step wall (s) | Longest case (s) | Efficiency | #413 starts at |
+|---|---|---|---|---|---|
+| 39602335028 | 20261012.334.1 | 32.15 | 27.25 | 2.92 | +4.9 s |
+| 39602933580 | 20261012.334.1 | 30.24 | 25.25 | 2.77 | +5.0 s |
+| 39602941510 | 20261012.334.1 | 32.88 | 27.54 | 2.90 | +5.3 s |
+| 39602966595 | 20261012.334.1 | 26.62 | 22.51 | 2.63 | +4.1 s |
+| 39602983213 | 20261012.334.1 | 25.07 | 21.24 | 2.59 | +3.8 s |
+| 39602949927 | 20261018.339.1 | 30.88 | 25.77 | 2.84 | +5.0 s |
+| 39602958261 | 20261018.339.1 | 19.99 | 16.87 | 2.58 | +3.1 s |
+| 39602974528 | 20261018.339.1 | 20.23 | 16.95 | 2.59 | +3.3 s |
+| 39602992562 | 20261018.339.1 | 31.46 | 26.37 | 2.97 | +5.0 s |
+| 39603001828 | 20261018.339.1 | 31.31 | 26.21 | 2.92 | +5.1 s |
+| 39603009359 | 20261018.339.1 | 19.43 | 16.14 | 2.74 | +3.3 s |
+
+Wall: **19.4-32.9 s, median 30.2 s**. The runs are **bimodal**, and the mode follows the host, not the
+image: on both images, some jobs got a host where the HUD case takes 16-17 s and others one where
+it takes 25-27 s (serial, in the same job, the fast host measured 14.9 s: probe run 39603153831,
+serial 43.13 s, parallel 21.22 s, a **2.03x** speed-up there). **Never average the two modes.**
+Per-mode parallel wall: slow host 25.1-32.9 s (seven runs), fast host 19.4-20.2 s (three runs; and
+21.2 s in the probe). The earlier serial baselines (60.8 s, HUD 23.4 s) were slow-host.
+
+**Gap on the slow host, against the 26.0 s prediction (achieved 30.2-32.9, e.g. 32.15):**
+- case #413 is dispatched at **+4.9 s, not +2.7 s**: the 10.7 s of serial work before it ran at
+  about 2.2x, not 4x (contention, and ctest's dispatch overhead), worth about **+2.3 s**;
+- the HUD case itself is **1.17x slower** under `-j4` (27.25 s against 23.36 s serial), worth
+  about **+3.9 s**. This is the contention inflation: `-j4` puts a CPU-bound case beside three busy
+  neighbours on 4 vCPUs.
+- 2.3 + 3.9 = 6.2 s against the 6.1 s gap (32.15 - 26.0). The prediction's assumption that the
+  long case runs at its serial speed was the one that was wrong, by 1.17x.
+
+**Two pre-registered statements were wrong and are corrected here, not tidied away:**
+1. *The O4 ceiling of 2.50.* Per-case durations are *inflated* under contention (sum of durations:
+   94 s against 58.5 s serial), so efficiency computed from them exceeds 2.50 (observed up to 2.97).
+   The floor of 2.0 is sound; the upper bound as an error detector is not. O5 (same-run wall >=
+   longest case) is the working sanity check.
+2. *"Below 23 s means the measurement is wrong."* That used the slow host's 23.4 s as the floor. On
+   a fast host the floor is ~15-17 s, so 19-20 s is legitimate. O5 as written (same run) held.
+
+The ">35 s: investigate" and ">50 s: stop" actions were not triggered (max 32.9 s).
+
+### What a parallel run is now made of (the next lever)
+
+On the slow host, a 32 s step is: **~5 s** to dispatch the first 412 cases, then the single HUD case
+(25-27 s) holding one worker to the end, while the other ~1040 cases (sum ~67 s of inflated
+durations) finish on the other three workers by +17-20 s. **From about +5 s the wall is set by
+that one case alone.** Whole-job view of the real-workflow runs (warm cache, 82-126 s): Vulkan apt
+8-30 s, other apt 4-10 s, cache restore 3-10 s, configure 18-30 s, build 15-33 s, **unit tests
+21-34 s**, smoke 3 s. Corrected estimate for the next lever: with the HUD case gone, the same
+arithmetic gives ~9 s on a fast host and ~17-20 s on a slow one (sum without it / 4), i.e. roughly
+**10-20 s**, not the 10-12 s first estimated, which was fast-host-shaped.
+
 ## Standing constraints
 
 - First-party actions only; no new third-party actions; no change to cache keys; no change to the

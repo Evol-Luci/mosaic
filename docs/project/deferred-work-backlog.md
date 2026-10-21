@@ -2786,8 +2786,8 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   floor of the step's wall time. Found 2026-10-21 while auditing `ctest -j`. **Not root-caused**
   (ptrace is blocked in this sandbox, so no profile was taken). Deferred: separable from
   parallelising, and the fix is test or render-path work, not CI work. Depends on nothing.
-  **The named next lever after `-j`:** removing it takes the parallel step from ~26 s to roughly
-  10-12 s (35.1 s of remaining work over 4 workers is ~8.8 s, plus dispatch and overhead), a larger
+  **The named next lever after `-j`:** removing it takes the parallel step from ~20-32 s (measured, bimodal by host) to roughly
+  10-20 s (sum of the remaining work over 4 workers: ~9 s on a fast host, ~17-20 s on a slow one), a larger
   remaining win than parallelism itself, in one test. Cause is **unknown**, not guessed.
 - **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
   The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
@@ -2911,7 +2911,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
-| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step (~35 s saved), floored by that case; the HUD case is the next lever (-> ~10-12 s). See the CI and build section. |
+| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
 | **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
