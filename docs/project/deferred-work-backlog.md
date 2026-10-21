@@ -1628,29 +1628,42 @@ them as this list does.
   and the verification pass only authorised the palette. Depends on
   nothing; it is a judgement about how a particle should die.
 
-- **No demo entity exercises bloom on ribbons or world text** — carried
-  forward from the 2026-10-20 human verification pass, which could not ask
-  about them. The demo has one `TrailRenderer` (covered by the particle
-  item) but no standalone ribbon authored above the 1.0 threshold, and no
-  `WorldLabel` above it either, so "ribbons and world text glow" has never
-  been judged by anyone. Deliberately NOT fixed inside a verification pass:
-  extending the fixture is building, not verifying, and a prop authored
-  just to make a checklist answerable is its own slice with its own tests.
-  Depends on nothing. Pick it up the next time the demo scene is edited for
-  another reason, and the next pass can then include it.
+- ~~**No demo entity exercises bloom on ribbons or world text**~~ — **DONE
+  2026-10-21.** Two entities now: a scripted counter-orbiting "comet" whose
+  only visible part is a magenta `TrailRenderer` `{2.4, 0.12, 1.9}`, and a
+  static lime `WorldLabel` `{1.0, 2.85, 0.25}`. **Predicted on-screen colours**
+  (the Narkowicz ACES fit, checked first against the fountain's known
+  `{2.85, 0.30, 0.05}` -> `(0.95, 0.44, 0.04)`): ribbon head
+  `(0.93, 0.16, 0.91)`, label interior `(0.80, 0.95, 0.37)`, both before
+  bloom's halo and for the opaque core only (the ribbon tapers to nothing).
+  **Nobody has seen either yet**; these are arithmetic, not observation, and
+  the lime label on a light-grey lit ground is a low-contrast pairing that may
+  not read. The next human pass should judge both. **What the entry got wrong:**
+  it said "two entities and the existing retune arithmetic". The arithmetic
+  held, but a ribbon is a `TrailRenderer` (there is no standalone ribbon
+  component; `build_ribbon` is a function) and a trail only exists behind
+  something that MOVES, so the comet needed a third thing, a new orbit script
+  (`kRibbonOrbitScript`), and that script moved a fourth count assertion (the
+  scripted-object count 3 -> 4) beside the three entity counts 12 -> 14.
+  `bundle_test`'s `== 11` needed no change: it does not use
+  `build_default_scene`.
 
-- **Demo props are placed against the world origin, not against the
-  surface they sit on** — generalised from the decal bug the 2026-10-20
-  pass found (fixed in #265). The ground is a unit cube scaled `{10,1,10}`,
-  so its top FACE is at `y = 0.5` while its origin is at `y = 0`; the decal
-  was authored at `y = 0.02` and spent six weeks buried inside the ground,
-  depth-rejected every frame, with no test and no reader noticing. #265
-  pins the decal specifically. What is NOT pinned is the class: any future
-  prop meant to rest on the ground can repeat it, and the suite will not
-  say so. The real fix is either a scene helper that places a prop on a
-  surface, or a general "nothing authored flat on the ground is below its
-  top face" test. Deferred because one data point does not show which, and
-  the cheap half is already done.
+- ~~**Demo props are placed against the world origin, not against the
+  surface they sit on**~~ — **DONE 2026-10-21** (the class; #265 had fixed
+  the decal). The test `nothing authored in the demo sits below the ground's
+  top face` loops over every non-ground entity that draws something (mesh,
+  decal, trail, world label, particle emitter) over the ground's footprint
+  and requires its origin at or above the top face, the ground being the
+  scene's only static `RigidBody`. **Ruling: the general test, not a
+  `place_on_surface` helper**, because it pins the class with no new API; a
+  helper can follow if a second case wants to PLACE rather than check.
+  **Probed:** burying the new comet, the new label, and the decal each turns
+  it red. Two things the entry did not predict: "props" needed a definition
+  (a test over only `MeshRenderer` would have missed the decal, the very
+  bug), and it compares ORIGINS, so the fountain and puffer emitters sit at
+  exactly `y = 0.5` and pass only because the check is `>=`. A prop whose
+  origin is above the face but whose extent dips below it is NOT caught;
+  every mesh here is centred, so that is not a live gap.
 
 ## Project templates
 
@@ -2727,7 +2740,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   ~93-143 s and the serial `ctest` step is 35-64 s of it (CI log 2026-10-21: 60.8 s, image
   `20261012.334.1`, nproc 4, gcc 13.3.0), which compiler caching can never touch. **What the win is:**
   the step cannot drop below its longest single case (23.4 s on that CI run, see the HUD-underlay
-  entry below), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
+  entry below, fixed 2026-10-21), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
   then the long case runs 23.4 s), not 60/4; the rest of a warm run is apt
   (~25-30 s) and configure (~23 s), and **neither is test parallelism**.
 - **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
@@ -2776,19 +2789,29 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
   fan-out can, for cold and wide-header builds alike. Different kind of work.
-- **The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**
+- ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~
+  — **FIXED and ROOT-CAUSED 2026-10-21.**
   `the default scene's HUD underlay image draws beneath the checker`
-  (`tests/unit/app/demo_scene_test.cpp:116`) is a single CPU-bound thread (user 16.4 s of 16.5 s
-  wall, locally) inside `render_system->render(...)`; every sibling that builds the same scene
-  without rendering takes under 0.25 s. It arrived in #241 and nobody noticed: the 2026-10-07
-  `TIMEOUT` sizing recorded the slowest case at 1.11 s. Today it is 38% of the 60.8 s serial CI
-  test step, ~39% of `TIMEOUT 60`'s ceiling (2.6x headroom on CI), and under `-j` it becomes the
-  floor of the step's wall time. Found 2026-10-21 while auditing `ctest -j`. **Not root-caused**
-  (ptrace is blocked in this sandbox, so no profile was taken). Deferred: separable from
-  parallelising, and the fix is test or render-path work, not CI work. Depends on nothing.
-  **The named next lever after `-j`:** removing it takes the parallel step from ~20-32 s (measured, bimodal by host) to roughly
-  10-20 s (sum of the remaining work over 4 workers: ~9 s on a fast host, ~17-20 s on a slow one), a larger
-  remaining win than parallelism itself, in one test. Cause is **unknown**, not guessed.
+  (`tests/unit/app/demo_scene_test.cpp`) was the only case in the suite that
+  renders a frame, and `setup_runtime` registers the demo environment as a lazy
+  asset whose loader bakes the full-size IBL products (equirect -> 512 cubemap,
+  irradiance, prefiltered chain) on the FIRST FRAME with a device, plus the BRDF
+  LUT factory in the same branch. Fix: the case now calls
+  `runtime.render_system->set_environment_asset({})` (an existing public
+  setter) before rendering; its claim, draws and assertions are unchanged, and
+  there is no production change. **Measured, local, 20 cores, debug:** 14.2 s
+  -> 0.17 s under `ctest -j20`; the suite's new longest case is
+  `PluginFileWatcher.poll detects a modified file's mtime` at 1.11 s. **Probed:** deleting the image pass's
+  `stable_sort`, flipping its comparator, and moving the underlay to
+  `order = 1` each turn the case RED both before and after the fix.
+  **What this entry got wrong:** it said the cause was "not yet diagnosed, so
+  the effort is a guess", and guessed "`render()` on the default scene in a
+  debug build" and "test or render-path work"; the cause was a known, documented
+  lazy bake that only this case forces, and the fix was a one-line test change.
+  Its "7 ms" for sibling cases was also off: the nearest sibling that calls the
+  same `setup_runtime` takes 0.18 s. No other case in the suite pays the bake
+  (the full-suite junit has nothing else above 1.2 s). The parallel CI step's
+  prediction is in `docs/project/next-steps.md`.
 - **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
   The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
   ephemeral range (34001-34006 -> 24101-24106) in the `ctest -j` slice**, because a hard-coded port
@@ -2814,7 +2837,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   that quietly grows 40x (the HUD-underlay case did, unseen, for weeks). A CI step that reads
   `ctest --output-junit` and fails or annotates any case above a stated fraction of the timeout
   would catch the next one. Deferred: needs a threshold chosen from CI data, and a flaky budget is
-  worse than none. Depends on the HUD-underlay case being fixed first, or it trips on day one.
+  worse than none. The HUD-underlay case it would have tripped on day one is fixed (2026-10-21; slowest case is now ~1.1 s), so this is unblocked.
 - **`execution.jobs` in the `debug` test preset (local `ctest -j`).** The slice puts `-j` in the
   workflow only. Putting it in `CMakePresets.json` would change every developer's default, on
   machines with unknown memory and with the sandbox's slow cross-process loopback. Deferred:
@@ -2902,9 +2925,9 @@ re-reading the same source docs. Both items are in the Rendering section above.
 
 | Item | Why it is a quick win |
 |---|---|
-| **Author a ribbon and a world label above the bloom threshold in the demo** | The demo has one `TrailRenderer` and no standalone ribbon or `WorldLabel` authored above 1.0, so "ribbons and world text glow" has never been judged by anyone — the 2026-10-20 pass could not ask about it, and said so on the page rather than guessing. Two entities and the existing retune arithmetic; the work is picking colours that survive ACES, which #260 already did four times. Deliberately kept out of the verification pass itself: extending a fixture is building, not verifying. |
-| **A test that nothing authored flat on the ground sits below its top face** | #265 pins the decal; the *class* is unpinned. The ground is a unit cube scaled `{10,1,10}`, so its top face is at `y = 0.5` while its origin is at `y = 0`, and the decal spent six weeks buried inside it with a green suite. One loop over the scene's props against the ground's top face. The judgement call — a general test versus a `place_on_surface` scene helper — is the only reason this is not already done, and one data point does not settle it. |
-| **Root-cause the 16.5 s default-scene HUD-underlay test** | One CPU-bound case is 38% of the serial CI test step and the floor of any parallel run. Not yet diagnosed, so the effort is a guess: it is `render()` on the default scene in a debug build, and every sibling case that skips `render()` takes 7 ms. See the CI and build section. |
+| ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ | **DONE 2026-10-21.** Two entities as predicted, but the ribbon needed a mover (a trail follows motion), so also a new orbit script and a fourth count assertion. Predicted colours `(0.93, 0.16, 0.91)` and `(0.80, 0.95, 0.37)`, unseen. See the Rendering section. |
+| ~~**A test that nothing authored flat on the ground sits below its top face**~~ | **DONE 2026-10-21**, as the general test (ruled over a `place_on_surface` helper). One loop, as predicted; it needed a definition of "prop" and passes the emitters at exactly `y = 0.5` only because the check is `>=`. See the Rendering section. |
+| ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ | **DONE 2026-10-21.** Not a render-path mystery: the only case that renders a frame paid `setup_runtime`'s lazy full-size IBL bake. One-line test change, 14.2 s -> 0.17 s. The row's "not yet diagnosed, effort is a guess" and "7 ms siblings" were wrong. See the CI and build section. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
