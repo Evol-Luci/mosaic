@@ -151,11 +151,12 @@ jobs:
       # write. Only a green push to main saves: a PR restores only (no PR write, including from
       # forks), purely so PR pushes cannot churn the ~10 GB pool and evict main's entry. (It is not
       # a poisoning defence: GitHub already scopes a PR's cache writes to that PR's ref.)
-      # Re-running a main commit whose cache already exists does NOT fail this step: the key is
-      # <prefix><sha>, so the save hits a duplicate key, which actions/cache raises as
-      # ReserveCacheError and logs at info level ("Failed to save: Unable to reserve cache...").
-      # Read from actions/cache v4 dist/save-only (2026-10-21). Expected; do not "fix" it, and do
-      # not add continue-on-error, which would also hide a genuine save failure.
+      # Re-running a main commit whose cache already exists does NOT fail this step, but it DOES
+      # leave a yellow warning annotation on an otherwise green run. The key is <prefix><sha>, so
+      # the save hits a duplicate key; actions/cache v4 catches it and reports it through
+      # utils.logWarning plus core.warning("Cache save failed."), and the job stays green.
+      # Expected on a re-run of an already-cached main commit; nothing is wrong. Do not "fix" it,
+      # and do not add continue-on-error, which would also hide a genuine save failure.
       - name: Save ccache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4
