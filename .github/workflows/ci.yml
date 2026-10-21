@@ -96,7 +96,21 @@ jobs:
           } >> "$GITHUB_ENV"
           echo "prefix=ccache-v1${EXP_EPOCH:-}-${ImageOS}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
 
+      - name: "EXPERIMENT: restore against a DEAD cache service (simulated outage)"
+        if: env.EXP_DEAD_CACHE == '1'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        env:
+          ACTIONS_CACHE_URL: http://127.0.0.1:9/
+          ACTIONS_RESULTS_URL: http://127.0.0.1:9/
+          ACTIONS_RUNTIME_TOKEN: dead
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ${{ steps.cc.outputs.prefix }}${{ github.sha }}
+          restore-keys: ${{ steps.cc.outputs.prefix }}
+
       - name: Restore ccache
+        if: env.EXP_DEAD_CACHE != '1'
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/ccache
@@ -111,6 +125,25 @@ jobs:
           test "${cfg}" = "${RUNNER_TEMP}/ccache" || { echo "::error::ccache would write somewhere other than the directory actions/cache saves"; exit 1; }
           du -sh "${RUNNER_TEMP}/ccache" 2>/dev/null || echo "cache dir empty (cold)"
           ccache --zero-stats
+
+      - name: "EXPERIMENT: corrupt the restored cache"
+        if: env.EXP_CORRUPT == '1'
+        run: |
+          python3 - <<'PY'
+          import os,random
+          random.seed(1); files=[]
+          for r,_,fs in os.walk(os.environ["CCACHE_DIR"]):
+              files+= [os.path.join(r,f) for f in fs]
+          files.sort(); n=0
+          for i,f in enumerate(files):
+              if i%2==0:
+                  sz=os.path.getsize(f)
+                  with open(f,"r+b") as h:
+                      if i%4==0: h.truncate(sz//2)
+                      else: h.seek(sz//3); h.write(bytes(random.getrandbits(8) for _ in range(min(64,sz-sz//3))))
+                  n+=1
+          print(f"CORRUPTED {n} of {len(files)} cache files")
+          PY
 
       - name: Configure (debug)
         run: >
@@ -164,6 +197,10 @@ jobs:
           PROJ="$(mktemp -d)/smoke_project"
           ./build/debug/app/mosaic create "$PROJ"
           ./build/debug/app/mosaic run "$PROJ" --ticks 120 --json
+
+      - name: "EXPERIMENT: force a failure before Save (save-guard probe)"
+        if: env.EXP_FAIL == '1'
+        run: exit 1
 
       # The split cache actions have NO post-step success guard, so this condition is ours to
       # write. Only a green push to main saves: a PR restores only (no PR write, including from
