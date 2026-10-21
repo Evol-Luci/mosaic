@@ -35,4 +35,3 @@ struct Image
     std::vector<std::uint8_t> pixels; // width*height*bytes_per_pixel(format)
 };
 } // namespace mosaic::engine::render
-inline constexpr int ccprobe_img = 1;
