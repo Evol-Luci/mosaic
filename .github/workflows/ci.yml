@@ -88,7 +88,12 @@ jobs:
           {
             echo "CCACHE_DIR=${RUNNER_TEMP}/ccache"
             echo "CCACHE_COMPILERCHECK=content"
-            echo "CCACHE_MAXSIZE=500M"
+            # 1G, not 500M: measured on CI, one 171-TU header change took a 500M store to 98.6%
+            # of the cap (106% after a flags change), at which point ccache evicts
+            # least-recently-used entries during ordinary work, and the eviction lands on the
+            # entries the NEXT build wants. A full tree is ~266 MB; restore costs 2-5 s at that
+            # size, so more headroom costs seconds against a multi-minute rebuild.
+            echo "CCACHE_MAXSIZE=1G"
           } >> "$GITHUB_ENV"
           echo "prefix=ccache-v1-${ImageOS}-gcc$(gcc -dumpfullversion)-" >> "$GITHUB_OUTPUT"
 
@@ -146,6 +151,11 @@ jobs:
       # write. Only a green push to main saves: a PR restores only (no PR write, including from
       # forks), purely so PR pushes cannot churn the ~10 GB pool and evict main's entry. (It is not
       # a poisoning defence: GitHub already scopes a PR's cache writes to that PR's ref.)
+      # Re-running a main commit whose cache already exists does NOT fail this step: the key is
+      # <prefix><sha>, so the save hits a duplicate key, which actions/cache raises as
+      # ReserveCacheError and logs at info level ("Failed to save: Unable to reserve cache...").
+      # Read from actions/cache v4 dist/save-only (2026-10-21). Expected; do not "fix" it, and do
+      # not add continue-on-error, which would also hide a genuine save failure.
       - name: Save ccache
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v4

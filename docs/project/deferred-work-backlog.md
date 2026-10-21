@@ -2714,13 +2714,26 @@ Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci
 (2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
 from that spec; `ctest` and wide-header figures are local or inferred where marked.
 
-- **`ctest -j` in CI.** The CI test step runs `ctest --preset debug` serially and takes
-  37-65 s, which once the build is cached becomes the largest fixed cost of a run (roughly 15-30%
-  of a warm job). Each Catch2 case runs as its own process, which suggests parallelism is
-  plausible, but the embedded-Python threaded tests have a recorded flaky SIGSEGV and a recorded
-  race on 2-core CI, so "parallel-safe" is a question to answer, not assume. **Unmeasured.**
-  Deferred because it is a separate risk surface from caching and could mask or provoke the flaky
-  tests. 🟡 candidate; depends on nothing.
+- **`ctest -j` in CI — the next lever after build caching, but NOT a quick win.** With a
+  restored ccache a warm job is ~93-143 s, and the **serial `ctest` step is 35-64 s of it**
+  (median ~40 s, roughly a third), which compiler caching can never touch (measured on CI,
+  spec Results). **The catch:** parallelising changes test ordering and timing, and this suite
+  has two known flakes that are *specifically* ordering- and timing-sensitive. `ctest -j4` on a
+  4-vCPU runner makes both more likely, and a CI that goes red at random is worse than one that is
+  40 s slower. **Prerequisite work, one per test:**
+  1. `PhysicsSystem::raycast is callable from another thread while update runs`
+     (`tests/unit/physics/physics_system_test.cpp:601`) asserts a *race outcome* (a reader thread
+     must be scheduled before the main thread finishes 200 ticks) and already fails on 2-core CI;
+     it needs a deterministic handshake instead of a timing bet.
+  2. `threaded ScriptSystem applies script writes one tick later`
+     (`tests/unit/script/script_system_test.cpp`, ~line 191) SIGSEGVs only under full-suite
+     ordering (embedded-Python GIL/teardown); it has to be understood before ordering is
+     perturbed further.
+  Also unknown: whether the remaining Catch2 cases (each its own process) are safe to run
+  concurrently (shared ports, temp paths, the embedded interpreter). **What the win is after
+  that:** at most the ~40 s tests step shrinks; the rest of a warm run is apt (~25-30 s) and
+  configure (~23 s), and **neither is test parallelism**. Tier: 🟡 Medium, gated on the two
+  prerequisites above, not "depends on nothing".
 - **Release-preset build caching.** CI builds only the `debug` preset, so there is nothing to
   cache. Deferred until a release job exists; the ccache bucket key would need the build type's
   compiler flags to differ only via ccache's own hash (they do), so the design extends cleanly.
@@ -2846,7 +2859,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
-| **`ctest -j` in CI** | The CI test step is serial and 37-65 s; after build caching it is the largest fixed cost. Parallel-safety of the embedded-Python and port-binding tests is unproven. See the CI and build section. |
+| **`ctest -j` in CI** | The serial test step is ~40 s of a ~120 s warm job, the largest fixed cost once the build is cached. Gated on making the `PhysicsSystem::raycast` cross-thread case and the threaded `ScriptSystem` case order/timing-robust first; parallelising before that makes both flakes likelier. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
