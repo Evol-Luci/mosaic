@@ -108,7 +108,7 @@ All first-party. In `ci.yml`:
 - [ ] Guard step: fail if `ccache --show-config` `cache_dir` differs from the cached path; print
       the directory size after restore.
 - [ ] Configure with `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_C_COMPILER_LAUNCHER=ccache`
-      added to the command line; `CCACHE_COMPILERCHECK=content`, `CCACHE_MAXSIZE=1G` (raised from 500M on measured fill, see the spec)`.
+      added to the command line; `CCACHE_COMPILERCHECK=content`, `CCACHE_MAXSIZE=1G` (raised from 500M on measured fill, see the spec).
 - [ ] After build, `if: always()`: `ccache --show-stats`; print the directory size.
 - [ ] `actions/cache/save`, `if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'`.
       Warn if the directory is empty at save time.
