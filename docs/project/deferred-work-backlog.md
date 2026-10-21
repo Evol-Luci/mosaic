@@ -2727,7 +2727,8 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   ~93-143 s and the serial `ctest` step is 35-64 s of it (CI log 2026-10-21: 60.8 s, image
   `20261012.334.1`, nproc 4, gcc 13.3.0), which compiler caching can never touch. **What the win is:**
   the step cannot drop below its longest single case (23.4 s on that CI run, see the HUD-underlay
-  entry below), so the realistic target is ~25-40 s, not 60/4; the rest of a warm run is apt
+  entry below), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
+  then the long case runs 23.4 s), not 60/4; the rest of a warm run is apt
   (~25-30 s) and configure (~23 s), and **neither is test parallelism**.
 - **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
   `actions/cache/restore@v4`, `actions/cache/save@v4` and `actions/checkout@v4` target Node.js 20
@@ -2785,24 +2786,30 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   floor of the step's wall time. Found 2026-10-21 while auditing `ctest -j`. **Not root-caused**
   (ptrace is blocked in this sandbox, so no profile was taken). Deferred: separable from
   parallelising, and the fix is test or render-path work, not CI work. Depends on nothing.
-  Fixing it is worth more than `-j` itself: serial step ~37 s, parallel floor ~10 s.
-- **ENet test ports sit inside the Linux ephemeral range.** `tests/unit/net/enet_transport_test.cpp`
-  hard-codes UDP 34001-34006; `ip_local_port_range` is 32768-60999 here and on stock Ubuntu. Six
-  adjacent cases would run concurrently under `-j4`, and each ENet client binds an ephemeral UDP
-  port, so a client can in principle take a port another case's server is about to bind (the
-  server would then be a null pointer, dereferenced: a bare SIGSEGV, not a named assertion).
-  Estimated at well under 1 in 2000 per run, by arithmetic not measurement. Deferred as not worth
-  a test edit in the parallel slice; the fix is either ports below 32768 or a ctest
-  `RESOURCE_LOCK` on the net cases. Revisit if a net case ever goes red under `-j`.
+  **The named next lever after `-j`:** removing it takes the parallel step from ~26 s to roughly
+  10-12 s (35.1 s of remaining work over 4 workers is ~8.8 s, plus dispatch and overhead), a larger
+  remaining win than parallelism itself, in one test. Cause is **unknown**, not guessed.
+- **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
+  The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
+  ephemeral range (34001-34006 -> 24101-24106) in the `ctest -j` slice**, because a hard-coded port
+  in that range has already failed a real CI run in this repo, serially (`live_link_server_test.cpp`
+  :185-189, "34906 was not free"), and `-j4` runs the six adjacent cases together. That is a
+  mitigation, not a fix: any fixed number can still be taken. The template is what `LiveLinkServer`
+  already did: `start(0)` and report the kernel's choice through `port()`. For ENet that is an API
+  change to `create_enet_server` / `Transport`, so it is not a CI slice. Depends on a decision to
+  change the transport interface.
 - **`LiveLinkServer::port reports an explicitly requested port verbatim` releases then rebinds.**
   It learns a free port from `start(0)`, `stop()`s, then binds that number; a concurrent
-  `start(0)` or outgoing connection in that window could take it. Microsecond window, ~1/28000
-  per overlapping bind. Deferred for the same reason as the ENet ports; fix is to keep the probe
-  socket open while asserting, or accept a bind failure as skip.
-- **Longest-first scheduling for `ctest -j`.** CI has no `Testing/Temporary/CTestCostData.txt`, so
-  ctest schedules in definition order. The long case starts at roughly test 413 of 1455; at `-j4`
-  that is ~3 s in, which is early enough that it costs nothing. Becomes worth a `COST` property
-  only if a slow case lands late in definition order. Depends on the HUD-underlay case staying slow.
+  `start(0)` or outgoing connection in that window could take it. **Accepted, not planned
+  (2026-10-21 ruling):** a microsecond window against a pool of ~28 000 ports (~1/28 000 per
+  overlapping bind), and the only alternative, holding the probe socket bound, makes it impossible
+  to bind that number. `SO_REUSEADDR` (already set) does **not** close it: it only permits binding
+  over TIME_WAIT. Revisit only if this case is ever seen red.
+- **Longest-first scheduling for `ctest -j`.** **Measured and declined (2026-10-21), not
+  overlooked.** CI has no `Testing/Temporary/CTestCostData.txt`, so ctest schedules in definition
+  order. From CI run 39534182320: serial work before the long case (#413) is 10.71 s, so under `-j4`
+  it is dispatched at ~2.7 s and the step ends at ~26.0 s; longest-first would end at 23.4 s, a gain
+  of **~2.6 s**. Worth a `COST` property only if a long case ever lands late in declaration order.
 - **A per-test duration budget.** `TIMEOUT 60` is a hang backstop and says nothing about a case
   that quietly grows 40x (the HUD-underlay case did, unseen, for weeks). A CI step that reads
   `ctest --output-junit` and fails or annotates any case above a stated fraction of the timeout
@@ -2898,14 +2905,14 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | **Author a ribbon and a world label above the bloom threshold in the demo** | The demo has one `TrailRenderer` and no standalone ribbon or `WorldLabel` authored above 1.0, so "ribbons and world text glow" has never been judged by anyone — the 2026-10-20 pass could not ask about it, and said so on the page rather than guessing. Two entities and the existing retune arithmetic; the work is picking colours that survive ACES, which #260 already did four times. Deliberately kept out of the verification pass itself: extending a fixture is building, not verifying. |
 | **A test that nothing authored flat on the ground sits below its top face** | #265 pins the decal; the *class* is unpinned. The ground is a unit cube scaled `{10,1,10}`, so its top face is at `y = 0.5` while its origin is at `y = 0`, and the decal spent six weeks buried inside it with a green suite. One loop over the scene's props against the ground's top face. The judgement call — a general test versus a `place_on_surface` scene helper — is the only reason this is not already done, and one data point does not settle it. |
 | **Root-cause the 16.5 s default-scene HUD-underlay test** | One CPU-bound case is 38% of the serial CI test step and the floor of any parallel run. Not yet diagnosed, so the effort is a guess: it is `render()` on the default scene in a debug build, and every sibling case that skips `render()` takes 7 ms. See the CI and build section. |
-| **ENet test ports out of the ephemeral range** | Six fixed UDP ports sit in 32768-60999. Cheap, but only matters under `-j`. See the CI and build section. |
 
 ### 🟡 Medium (a real focused sub-project, bounded new machinery)
 
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
-| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Realistic win ~20-35 s, floored by that case. See the CI and build section. |
+| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step (~35 s saved), floored by that case; the HUD case is the next lever (-> ~10-12 s). See the CI and build section. |
+| **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable

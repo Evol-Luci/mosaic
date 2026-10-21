@@ -244,12 +244,14 @@ include(Catch)
 # produced two hang-shaped bugs -- a watchdog use-after-free and a GIL deadlock -- so the
 # scenario is observed, not hypothetical.
 #
-# Measured 2026-10-07 over a full run: the slowest single case is 1.11s
-# (`PluginFileWatcher.poll detects a modified file's mtime`, which waits out filesystem
-# mtime granularity), the next tier is 0.40s (the IBL furnace cases, which bake a 64x64
-# BRDF LUT), and the whole 1158-case suite takes 24s. So 60s is ~54x the slowest case and
-# still ~10x clear of it even if CI runs 5x slower than this machine, while a single case
-# reaching 60s in a 24s suite is unambiguously wrong rather than merely slow.
+# Measured 2026-10-07 over a full run the slowest case was 1.11s and the suite took 24s, so 60s
+# was ~54x the slowest. THAT IS NO LONGER TRUE. Since #241 the slowest case is
+# `the default scene's HUD underlay image draws beneath the checker`: 16.5s locally and
+# 23.4s on CI (2026-10-21, image 20261012.334.1), so the real headroom is ~2.6x on CI, not 54x.
+# A comment whose job is "nothing is wrong here" must not predict the wrong margin. Do NOT
+# raise TIMEOUT to make room: under `ctest -j` a case nearing 60s is the regression to see.
+# The slice that made ctest parallel (docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md)
+# treats a longest case above 40s as a ship-blocker. Every other case is under ~1.2s.
 #
 # This does NOT replace the in-test watchdogs. A watchdog gives a named assertion in
 # seconds and works when running the test binary directly; a ctest property does neither.

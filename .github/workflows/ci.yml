@@ -33,6 +33,8 @@ jobs:
           echo "ImageOS=${ImageOS:-unset} ImageVersion=${ImageVersion:-unset} nproc=$(nproc)"
           gcc --version | head -1
           cmake --version | head -1
+          # Self-documenting only; nothing gates on it (4 concurrent test processes peak ~340 MB).
+          free -m | sed -n '1,2p'
 
       - name: Dependency-rule lint's own unit tests
         run: python3 -m unittest tools/ci/test_check_dependency_rules.py
@@ -45,6 +47,9 @@ jobs:
 
       - name: Test-name check (ctest discovery)
         run: python3 tools/ci/check_test_case_names.py
+
+      - name: CI ctest-run guard's own unit tests
+        run: python3 -m unittest tools/ci/test_check_ctest_run.py
 
       - name: Install Vulkan SDK components (loader + headers + glslc)
         run: |
@@ -129,17 +134,30 @@ jobs:
           du -sh "${RUNNER_TEMP}/ccache" 2>/dev/null || true
 
       - name: Unit tests
-        # No -E exclusions: the two embedded-Python threading tests excluded here since
-        # 2026-09-21 were not flaky. ScriptWorker::collect() could not distinguish "job
-        # executing right now" from "nothing dispatched", because pending_ was cleared at
-        # dequeue while result_ready_ was only set after execute() returned, so a collect()
-        # landing in that window silently dropped a tick's results. With that fixed both
-        # pass 12/12 locally and the full suite is green with no exclusions.
-        # The separately-recorded SIGSEGV-under-full-suite-ordering mode is NOT explained
-        # by that fix; it has not reproduced since, and is now gated by CI rather than
-        # excluded from it.
-        run: >
-          ctest --preset debug --output-on-failure
+        # Parallel (design: docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md).
+        # catch_discover_tests registers one process per TEST_CASE, so ctest never runs the
+        # suite in one process at any -j; the full-suite-ordering SIGSEGV recorded for the
+        # threaded ScriptSystem case is therefore unreachable here (it is a hazard of running
+        # the binary directly). The two cases once excluded with -E were not flaky either: see
+        # ScriptWorker::collect() in #208. -j"$(nproc)" matches the build step.
+        #
+        # The standing guard: a green exit code does not say how many tests ran, and a parallel
+        # or filtered run that silently ran fewer would be green and protect nothing. So N is
+        # taken from `ctest -N` IN THIS JOB (never a literal), and the JUnit file must contain
+        # exactly N testcases, all passed. There is deliberately no fallback for an empty or zero
+        # N and no `|| true`: the check script fails hard on both. ctest's own failure and the
+        # check's failure are both reported before the step exits.
+        run: |
+          N="$(ctest --preset debug -N | sed -n 's/^Total Tests: *//p')"
+          echo "discovered N=${N}"
+          JUNIT="${RUNNER_TEMP}/ctest-junit.xml"
+          set +e
+          ctest --preset debug --output-on-failure --no-tests=error -j"$(nproc)" --output-junit "${JUNIT}"
+          ctest_rc=$?
+          python3 tools/ci/check_ctest_run.py "${JUNIT}" "${N}" build/debug/tests/mosaic_unit_tests-*_tests.cmake
+          check_rc=$?
+          echo "ctest_rc=${ctest_rc} check_rc=${check_rc}"
+          exit $(( ctest_rc != 0 || check_rc != 0 ))
 
       - name: Headless smoke test (mosaic run --ticks, no window/GPU)
         run: |

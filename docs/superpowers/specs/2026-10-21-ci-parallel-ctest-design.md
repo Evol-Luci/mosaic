@@ -1,8 +1,8 @@
 # CI parallel ctest — design
 
-**Status:** spec, written 2026-10-21, awaiting review. Nothing is implemented. No plan exists yet.
-No parallel timing has been collected; the only numbers below are the serial baselines and the
-hazard audit, and the oracle is fixed *before* any parallel number exists.
+**Status:** spec written 2026-10-21; reviewed, and the reviewer's rulings are written in below beside
+the thing each governs (marked **Ruling**). The oracle was fixed before any parallel number existed
+(commit `6d79832`); the rulings tightened it, again before any CI parallel number existed.
 
 **Path: bounded.** The mechanism is one flag on one workflow line. What makes it a slice rather
 than a line is the claim underneath it ("1455 independent test processes are safe to run
@@ -104,8 +104,8 @@ an audit, not a proof**: static reading cannot show absence, which is why the or
 
 | # | Hazard | Finding | Class |
 |---|---|---|---|
-| H1 | **Fixed ports: ENet.** `tests/unit/net/enet_transport_test.cpp` binds UDP 34001-34006, one per case. | Distinct per case, so no two cases collide. Only file in `tests/` with fixed ports (grep for `bind`/`listen`/`port =`/`AF_INET` across all of `tests/`). UDP has no TIME_WAIT, so (b) cannot occur. **But 32768-60999 is the ephemeral range** (`/proc/sys/net/ipv4/ip_local_port_range` here; Ubuntu default), and each ENet client binds an ephemeral UDP port, so a client could take a port another case's server is about to bind. The six cases are adjacent in definition order, so they *do* run together at `-j4`. Estimated well under 1 in 2000 per run, by arithmetic (about 6 servers x a few live ephemeral sockets / 28 232), **not measured**. Failure mode: `create_enet_server` returns null, dereferenced: a bare SIGSEGV. | **Residual, accepted, recorded** (backlog) |
-| H2 | **Fixed ports: LiveLink.** `tests/unit/studio/live_link_server_test.cpp` | Uses `start(0)` (kernel-chosen), `SO_REUSEADDR` set. Every case that accepts a client uses a kernel port it never rebinds. Two cases do bind a *known* port: "start() fails on an already-bound port" (holds server1 open: safe) and "port reports an explicitly requested port verbatim" (**probe.start(0), stop(), then bind that number**): a microsecond window in which a concurrent bind could take it, ~1/28 000 per overlapping bind. No connection is accepted on the probed port, so no TIME_WAIT. | **Residual, accepted, recorded** (backlog) |
+| H1 | **Fixed ports: ENet.** `tests/unit/net/enet_transport_test.cpp` binds UDP 34001-34006, one per case. | Distinct per case, so no two cases collide. Only file in `tests/` with fixed ports. UDP has no TIME_WAIT. **But 34001-34006 is inside the ephemeral range** (32768-60999), every ENet client binds an ephemeral UDP port, and the six cases are adjacent in declaration order so they run together at `-j4`. **Ruling: IN SCOPE, overturning my first recommendation (to accept the residual).** My reason was "well under 1 in 2000 per run, by arithmetic only". The better evidence is the repo's own record: `live_link_server_test.cpp:185-189` says the hard-coded ports there are why "one of them failed a real CI run when 34906 was not free". That is the same range and the same class of bug, failing a real run *serially*; `-j4` makes it strictly likelier. A slice whose premise is "random red is worse than 40 s slower" cannot ship the change that raises the likelihood of a *recorded* failure while deferring the one-file fix. **Done in this slice:** the six constants moved to **24101-24106**: below 32768, unprivileged, and absent from `/etc/services` (grep: 0 hits; also nothing listening on them here). **Deferred (structural):** the LiveLink template, bind 0 and report the kernel's choice via a `port()` accessor, which is an ENet transport API change. | **Fixed in this slice**; structural fix in backlog |
+| H2 | **Fixed ports: LiveLink.** `tests/unit/studio/live_link_server_test.cpp` | Uses `start(0)` (kernel-chosen), `SO_REUSEADDR` set. Every case that accepts a client uses a kernel port it never rebinds. Two cases do bind a *known* port: "start() fails on an already-bound port" (holds server1 open: safe) and "port reports an explicitly requested port verbatim" (**probe.start(0), stop(), then bind that number**): a microsecond window in which a concurrent bind could take it, ~1/28 000 per overlapping bind. No connection is accepted on the probed port, so no TIME_WAIT. **Ruling: accepted.** Reason: a microsecond window against a pool of ~28 000 ports, and the only alternative (keep the probe socket bound) makes it impossible to bind that number. **`SO_REUSEADDR` does not close this window**; it only lets a bind succeed over TIME_WAIT, and does nothing about another process taking the number while it is free. | **Accepted**, recorded (backlog) |
 | H3 | **Other sockets.** | No other `socket`/`bind`/`listen`/`enet_host_create` in `tests/`. `app/main.cpp` hosts ENet only on `--host`, which no unit test invokes. Audio uses the miniaudio **null** device (`create_miniaudio_backend(true)`), so no sound device is opened. | None |
 | H4 | **Shared filesystem: literal tmp paths.** | Every file that touches `temp_directory_path()`/`tmpnam` was read (21 files). Names fall into: (i) **pid-keyed** (`mosaic_t3_*`, `t3r`, `t4`, `t5`, `a3`, `font`, `hotreload`, `pfw`, `mcp_*`): unique per concurrent process by construction; (ii) **time-keyed** (`import_plugins`, `plugin_host`: `steady_clock` nanoseconds); (iii) **`tmpnam`** (`scene_io`, `scene_save_roundtrip`, `populate_world`): random 6-char suffix, ~5.7e10 space; (iv) **literal-tag** (`package_sources_registry`, `package_source`, `package_install`, `studio_prefs`, `git_test`, `mcp_tools` plugin-list): the full path is a fixed function of a tag. A mechanical scan (165 tag/literal uses across the 14 files that have them, grouped per `TEST_CASE`) found **no tag or `mosaic_*` literal used by two different cases**. Literal-tag paths therefore collide only if two cases share a tag, and none does. Cross-file prefixes are distinct. | **None found**; the guarantee is "no shared tag today", not structural |
 | H5 | **Writes into the source/build tree.** `WORKING_DIRECTORY` is `build/debug/tests` for every test. | After a full serial run: `git status --porcelain --ignored` outside `build/` is empty; no file under `build/debug/tests` newer than the binary other than the cmake file generated at build time; `/tmp` `mosaic_*` entry count unchanged (93 before, 93 after: the suite neither leaks nor reuses unpredictably). Tests read the source tree (`MOSAIC_TEST_DIR`, fixtures, shader sources) read-only. | **None** |
@@ -146,7 +146,7 @@ Consequences:
 3. **It is not caused by `-j` and not a `-j` fix.** It is a regression nobody saw (arrived with
    #241; `TIMEOUT` was sized when the slowest case was 1.11 s). Root cause **not established**:
    it is `render_system->render(...)` on the default scene, and ptrace is blocked in this sandbox so
-   no profile was taken. Every sibling that builds the same scene without `render()` takes about
+   no profile was taken. **The cause is unknown and is recorded as unknown.** Every sibling that builds the same scene without `render()` takes about
    7 ms. Backlog (Non-goal 1).
 
 ### Time ceilings (wall-clock assertions in tests)
@@ -163,6 +163,8 @@ All but the last have at least 14x margin. The ENet/LiveLink loops poll same-pro
 
 ## Design
 
+**Ruling (scope): the slice is** the `-j` workflow change, the permanent O1/O2 guard, the six ENet port constants, the stale `TIMEOUT` comment, this spec, the backlog, and `docs/project/next-steps.md` riding the branch. **Not** in scope: the HUD case, the `TIMEOUT` value, anything structural in ENet.
+
 **One change to `.github/workflows/ci.yml`:** the Unit tests step runs
 `ctest --preset debug --output-on-failure -j"$(nproc)"` (the build step already uses
 `-j"$(nproc)"`, so the two stay consistent; CI prints `nproc` in the environment step). Not
@@ -171,21 +173,33 @@ All but the last have at least 14x margin. The ENet/LiveLink loops poll same-pro
 
 Everything else in this slice is the *instrument*, not the change:
 
-- The oracle's checks (below), implemented as a small script under `tools/ci/` with its own
-  `unittest` file, following the existing `check_dependency_rules.py` / `check_test_case_names.py`
-  pattern, run in the workflow after the tests, **or** kept out of the final workflow and used only
-  in the measurement campaign. That choice is for the plan and for review; the spec requires only
-  that the oracle runs at least in the campaign.
+- **Ruling: O1 and O2 ship permanently in the workflow; O3-O7 stay in the measurement campaign.**
+  Count and pass-count are cheap and are the standing guard against a future change silently
+  running fewer tests, which a green run cannot otherwise reveal. `tools/ci/check_ctest_run.py`
+  (with `test_check_ctest_run.py`, run as its own lint step) implements it. **N is computed in-job
+  from `ctest -N` and the step fails hard if N is empty, non-numeric or zero**: no `${N:-unset}`
+  fallback and no `|| true`, because a fallback is where a silent failure hides, printing a
+  complete-looking log that protects nothing. The guard is proved by negative controls that make it
+  **red** (below), not by a green run, which proves only that the guard did not break the build.
+  The same script has a `--report` mode (outcome-map diff, efficiency, longest case) used for
+  O3-O6 in the campaign.
 - `--output-junit` so a per-test outcome map exists.
 - `--no-tests=error`, so a discovery regression that finds zero tests is an error, not a vacuous
   green.
-- Timing lines printed beside the environment line.
+- `free -m` added to the environment step. **Ruling: RAM is decided, not a gate**: 85 MB peak x 4
+  is about 340 MB against a documented 16 GB, three orders of magnitude of margin. It is printed
+  because it is free and makes the environment self-documenting; nothing gates on it and no run is
+  spent measuring it.
 
 Rejected alternatives: **`ctest --test-load`** (no evidence load throttling is needed at 340 MB and
 4 slots); **`--schedule-random`** (would randomise the very ordering we want stable, and hides a
 failure's reproducibility); **a `RESOURCE_LOCK` on the ENet cases** (a CMake change to close a
 residual estimated well below 1 in 2000; recorded, not done); **`RUN_SERIAL` for the HUD case**
 (would serialise 23 s of the step against everything else and cancel the win).
+
+**Ruling on `TIMEOUT`: do not raise it.** Raising it would mask exactly the regression O6 exists to
+detect. The comment at `tests/CMakeLists.txt` that claimed 54x headroom was corrected in this slice
+to the real figure, 23.36 s against 60 s, about 2.6x on CI.
 
 ## The oracle (fixed before any parallel number is collected)
 
@@ -198,7 +212,9 @@ first time a test is added and teach people to edit the check.
 **O1 — count run.** The number of testcases in the `-jK` JUnit file equals N, equals the serial
 run's count. A parallel invocation that runs fewer is filtering, not parallelising, and fails here.
 *Negative control, run once before trusting the check:* `ctest -j4 -R ENet` against the same build
-must turn O1 **red**.
+must turn O1 **red** (executed; the failing line is quoted in the results, not just a green run).
+The guard additionally fails on an empty, zero or non-numeric N (tested in
+`tools/ci/test_check_ctest_run.py`).
 
 **O2 — pass count.** Passed = N; failures = 0; skipped = 0; disabled = 0; "Not Run" = 0.
 
@@ -209,9 +225,15 @@ control:* a deliberately failing probe test case (on a throwaway branch only, ne
 up as a name-level difference and as O2 red.
 
 **O4 — the mechanism moves.** Efficiency = (sum of per-test durations) / (step wall) is about 1.0
-serially (LOCAL: 46.9 / 47.6 = 0.98) and must be **> 1.5** under `-j4` on CI. A value near 1.0 means
-`-j` did not take effect. A value above 4.0 is impossible on 4 vCPUs and means a measurement error.
-Sum of durations comes from the JUnit file; wall from ctest's own "Total Test time (real)".
+serially (LOCAL: 46.9 / 47.6 = 0.98). **Ruling: the floor is >= 2.0 on CI, not my first > 1.5.**
+Derivation, from CI run 39534182320's log (image 20261012.334.1, nproc 4, gcc 13.3.0): 1455 cases
+sum to **58.48 s**, of which case #413 is **23.36 s**; so the *ceiling* is 58.48 / 23.36 = **2.50**
+(no schedule can beat the longest case) and the *predicted* value is 60.8 / 26.0 = **2.34**. A floor
+of 1.5 would pass a run that had silently lost 40% of the win available. 2.0 is decided by the data,
+now, before any parallel number exists. A value near 1.0 means `-j` did not take effect; a value
+above 2.50 on CI is a measurement error. (LOCAL shape: 2.79 at `-j4` pinned to 4 cores, because the
+local case is a smaller share; the 2.0 / 2.50 numbers are CI-specific.) Sum comes from the JUnit
+file; wall from ctest's own "Total Test time (real)".
 
 **O5 — the physical floor holds.** Step wall >= the longest single case's duration in the same run
 (about 23.4 s on CI). Wall below that is a measurement error, not a speed-up.
@@ -219,21 +241,34 @@ Sum of durations comes from the JUnit file; wall from ctest's own "Total Test ti
 **O6 — timeout headroom.** In every `-j4` CI run, the longest single case is **<= 40 s** (two-thirds
 of `TIMEOUT 60`) and I report its inflation factor against the serial duration of the *same*
 `ImageVersion`. 40 s was chosen as 23.4 s x 1.7, i.e. generous for contention but leaving real
-margin. If any case exceeds 40 s, `-j4` ships only with a stated fix (raise the timeout with a
-measured justification, or fix the case), never silently.
+margin. **Ruling: O6 is a hard ship-blocker, and the answer is never to raise `TIMEOUT 60`.** If any case
+exceeds 40 s, `-j4` does not ship until the case is fixed or the cause is explained and
+reproduced; raising the timeout would hide the very regression the check exists to see.
 
 **O7 — repeatability.** LOCAL: 30 consecutive `taskset -c 0-3 ctest -j4` runs, O1-O3 hold in all 30
 (shape only). CI: at least 10 consecutive green runs on the PR branch with O1-O6 holding, across
 `ImageVersion`s only if they all complete within one image. **These runs can refute and cannot
 prove**: 0 failures in n runs bounds the true failure rate only to about 3/n at 95% (30% for n = 10,
 10% for n = 30). The proof of safety is the audit above; the runs are a net for what the audit
-cannot see. I will say this in the results rather than claim "stable".
+cannot see. I will say this in the results rather than claim "stable". **Ruling: this framing stands exactly as written and must not become "stable" in the results.**
 
-**Speed prediction (CI, written now).** Step wall **25-40 s** against the 60.8 s serial baseline
-(35-64 s historically), efficiency 1.5-2.6, job saving about **20-35 s of 93-143 s**. If the step
-exceeds **50 s**, the premise (CPU-bound, parallelisable) is wrong and I stop and report. If it is
-below **23 s**, O5 says the measurement is wrong. The prediction is deliberately a range; the
-flat 4x that `60.8 / 4` suggests is excluded by the longest-case floor.
+**Speed prediction (CI, written now; sharpened by ruling from my first "25-40 s").** From the same
+CI log: serial work *before* case #413 is **10.71 s** (after it 24.41 s; 10.71 + 23.36 + 24.41 =
+58.48 s). With four workers that prefix is dispatched in about 10.71 / 4 = **2.7 s**, so #413 starts
+at ~2.7 s and ends at 2.7 + 23.4 = **26.0 s**. The other 35.1 s of work (58.48 - 23.36) spread over
+the three remaining workers is **11.7 s**, which finishes well inside that. So the step wall is
+predicted at **~26 s** (serial baseline 60.8 s on that run), efficiency 60.8 / 26.0 = 2.34, and the
+job saving about **35 s of a 93-143 s job**. Actions on the result: **> 35 s: investigate before
+shipping** (at 40 s the old range would have called it "within range" while something real had gone
+wrong); **> 50 s: the premise is wrong; stop and report**; **< 23 s: O5 says the measurement is
+wrong**. The flat 4x that 60.8 / 4 suggests is excluded by the longest-case floor. Results will
+report achieved beside predicted, with the gap and its cause.
+
+**What comes next (named now): the HUD case.** Removing that one 23.4 s case would take the
+predicted step from ~26 s to roughly **10-12 s** (58.48 - 23.36 = 35.12 s over 4 workers is 8.8 s,
+plus dispatch and overhead). That is a **larger remaining win than parallelism itself**, and it is
+one test rather than a workflow change. Its cause is **unknown** (ptrace is blocked in this
+sandbox); this slice does not guess.
 
 ### Classification of a red run (before it counts as data)
 
@@ -283,11 +318,15 @@ impact".
 1. **Root-causing the 16.5 s HUD-underlay case** (`demo_scene_test.cpp:116`). Separable; fixing it
    is worth more than `-j` (serial step about 37 s, parallel floor about 10 s). Backlog: "The
    default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI"; 🟢 row.
-2. **Moving the ENet test ports out of the ephemeral range, or a `RESOURCE_LOCK`.** Closes H1's
-   residual. Backlog: "ENet test ports sit inside the Linux ephemeral range"; 🟢 row.
-3. **The LiveLink release-then-rebind window** (H2). Backlog: "`LiveLinkServer::port reports an
+2. **The structural ENet fix: bind 0 and report the kernel's port via a `port()` accessor**, with
+   `LiveLinkServer` as the template. An ENet transport API change, not a CI slice. (The six constants
+   themselves *were* moved in this slice, per ruling.) Backlog: "ENet servers take a fixed port"
+   (🟡 row), cross-referenced from the LiveLink precedent.
+3. **The LiveLink release-then-rebind window** (H2), accepted by ruling with its reason. Backlog: "`LiveLinkServer::port reports an
    explicitly requested port verbatim` releases then rebinds".
-4. **Longest-first scheduling (`COST`).** Free today because the long case starts early. Backlog:
+4. **Longest-first scheduling (`COST`).** Measured and declined: #413 is dispatched at ~2.7 s, so
+   longest-first would buy only 26.0 -> 23.4 s, **about 2.6 s**. Revisit only if a long case ever lands
+   late in declaration order. Backlog:
    "Longest-first scheduling for `ctest -j`".
 5. **A per-test duration budget in CI.** `TIMEOUT 60` is a hang backstop; the HUD case grew unseen.
    Backlog: "A per-test duration budget". Depends on non-goal 1.
@@ -300,17 +339,11 @@ impact".
 9. **Test selection or caching results**, and the apt and configure steps. Already in the CI and
    build section (test selection) or out of scope (apt/configure are not test parallelism).
 
-## Open items for review
+## Open items
 
-- **The 40 s ceiling in O6 and the `> 1.5` in O4** are my choices; they are open to ruling before
-  any data is collected.
-- **Whether the oracle script ships in the workflow or stays in the campaign.** A standing check
-  catches a future discovery regression; it also adds a step and a thing to maintain.
-- **`-j"$(nproc)"` vs a literal.** I chose `nproc`; if the runner image ever reports more vCPUs the
-  slot count rises with it and H8 and H1 scale accordingly.
-- **Whether to accept H1 and H2 as residuals** or fold the ENet port move into this slice. I
-  recommend accepting and recording: it is a test-code change to close an estimate of well under
-  1 in 2000 per run, and the oracle's O3 would catch it if it fired.
-- **CI RAM is documented, not measured.**
-- **The HUD case's cause is unknown.** If a reviewer prefers, fixing it first changes the whole
-  speed prediction (floor drops to about 10 s) but is a different slice.
+Decided by ruling: the O4/O6 thresholds, the oracle split (O1/O2 permanent), the ENet ports, `nproc`
+vs a literal (kept `nproc`), RAM (printed, not gated), the HUD case (out of scope, named next lever).
+Still open:
+
+- **The HUD case's cause is unknown**, and stays so until someone can profile it.
+- **LOCAL has no ccache**, so local builds are cold and LOCAL numbers are shape only.
