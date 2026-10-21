@@ -2734,6 +2734,13 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   that:** at most the ~40 s tests step shrinks; the rest of a warm run is apt (~25-30 s) and
   configure (~23 s), and **neither is test parallelism**. Tier: 🟡 Medium, gated on the two
   prerequisites above, not "depends on nothing".
+- **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
+  `actions/cache/restore@v4`, `actions/cache/save@v4` and `actions/checkout@v4` target Node.js 20
+  and are being forced to Node.js 24 (seen in the post-merge runs, 2026-10-21). Nothing is broken,
+  but a floating `@v4` can start behaving differently under a different Node, and the day the
+  forced-run fallback is removed the workflow needs the actions bumped. Found while checking
+  annotations on the cache re-run; unrelated to caching. Deferred: no action is needed until the
+  actions publish a Node 24 version.
 - **Release-preset build caching.** CI builds only the `debug` preset, so there is nothing to
   cache. Deferred until a release job exists; the ccache bucket key would need the build type's
   compiler flags to differ only via ccache's own hash (they do), so the design extends cleanly.

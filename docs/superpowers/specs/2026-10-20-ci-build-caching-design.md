@@ -365,7 +365,7 @@ Cold baseline (no ccache, same shallow clones): 6 runs, mean **547 s (9m07s)**, 
 | fully warm, same sources | 3 | 93, 120, 121 | 120 s (2m00s) | 0 of 452 |
 | one `.cpp` edited | 5 | 104, 114, 125, 137, 143 | **125 s (2m05s)** | 1 (= 1 dependent) |
 | `image.hpp` edited (41 TUs) | 4 | 229, 229, 242, 259 | 236 s (3m56s) | 41 (= 41) |
-| `entity_id.hpp` edited (171 TUs) | 5 | 349, 367, 424, 440, 500 | 424 s (7m04s) | 171 (= 171) |
+| `entity_id.hpp` edited (171 TUs) | 8 (5 campaign + 3 post-merge, see below) | 349, 367, 424, 440, 500, 506, 510, 587 | **470 s (7m50s)** (the five campaign runs alone gave 424 s; that was optimistic) | 171 (= 171) |
 
 - **Misses equal the dependent-TU count in every scenario**, as they did locally. Fewer would be a stale hit; more would be a key that is too tight.
 - Restore of the 266 MB cache took **2-5 s**; a save took **2 s**. The cache on disk is **266 MB** (`ccache --show-stats`: 53.6% of the then-500M cap).
@@ -384,7 +384,7 @@ Cold baseline (no ccache, same shallow clones): 6 runs, mean **547 s (9m07s)**, 
 | single `.cpp` or docs-only | 2m30s-3m30s | 1m44s-2m23s | **30-60 s faster than predicted at the low end.** The prediction budgeted ~30 s for cache restore and save; they cost **2-5 s**. |
 | 41-TU header | (not predicted) | 3m49s-4m19s | |
 | 77-TU change (p90) | 4m30s-6m | **interpolated, NOT measured:** linear between 41 TUs (236 s) and 171 TUs (424 s) gives ~288 s (4m48s), inside the predicted band; the honest bound is 3m56s-7m04s | the mechanism (misses equal dependent TUs) is established in every scenario, so another run would buy a number we can already bound; per-TU compile cost is not uniform, so linear is an estimate |
-| 171-TU header | 7m-9m | 5m49s-8m20s, median 7m04s | Lower edge of the band; the spread (151 s) is wider than any other scenario. |
+| 171-TU header | 7m-9m | 5m49s-9m47s, median 7m50s (n=8) | Inside the band, but the spread (238 s) is the widest of any scenario and the three post-merge runs (506-587 s) sat above the five campaign runs (349-500 s): runner variance, not a trend I can show. |
 
 What a warm single-file job is made of (medians): apt ~25-30 s, Configure ~23 s (clone floor after Slice A), Build ~16 s (of which ~10 s is the unit-test link), **unit tests ~40 s (35-64 s)**. So **tests, configure and apt are ~80% of a warm job**, and none of them is helped by compiler caching. The largest remaining lever is the serial `ctest` step (backlog: `ctest -j` in CI), which is now the biggest single item in a warm run.
 
@@ -414,12 +414,25 @@ The distribution is bimodal by which file changed: ~2 min for a source file, ~4 
 
 **An invalid probe, redone.** The first outage simulation overrode the cache service variables in the step environment; the runner does not allow that, so the restore reached the real service (452 / 452 hits) and showed nothing. It is discarded. The hosts-file version above replaced it.
 
+### Post-merge verification (2026-10-21)
+
+Done after #271 merged (`d9be155`). Image `20261018.339.1` unless stated.
+
+| Check | Result |
+|---|---|
+| **Seeding push** (run 39530657371, `main`) | cold, 0 / 452 hits; `Save ccache` **succeeded in 3 s**; key `ccache-v1-ubuntu24-gcc13.3.0-d9be155a...` on `refs/heads/main`; 265,666,646 B (~253 MB; 26.8% of the 1G cap); job 544 s (cold mean was 547 s) |
+| **First PR restore** (run 39531621520, PR #272) | **the claim the design rests on holds:** restored `main`'s cache (`Cache restored from key: ...d9be155...`), **452 / 452 hits**, restore 2 s, Save skipped, job **130 s (2m10s)** against 544 s cold |
+| **Re-run of the seeding push** (attempt 2) | conclusion **success**; `Save ccache` step green (1 s); log: `Failed to save: Unable to reserve cache with key ..., another job may be creating this cache.` then `##[warning]Cache save failed.`, shown as a **yellow annotation on a green run**. Matches the corrected workflow comment; my first reading ("info level") was wrong |
+| **Wide-header change, restoring `main`'s cache** (3 runs on a throwaway branch; branch ref reads `main`'s scope) | each run **281 hits / 171 misses**, exactly as in the campaign; store **50.05% of the 1G cap** (it was 98.6% of 500M), so the raise bought real headroom; jobs 587, 506, 510 s |
+
+Achieved vs predicted for the first PR restore (a workflow-only change, so the same cost as a docs-only one): predicted 2m30s-3m30s, achieved **2m10s**. The gap is the same cause as before: restore cost 2 s, not the ~30 s that was budgeted.
+
+Not changed by this: the 1G store was **not** driven toward its cap by successive `main` saves, so restore time at the cap is still an estimate.
+
 ### Not yet verified
 
-- **Main -> PR restore.** Branch-ref and PR-ref scoping behave as documented in this repo, but a cache written by a push to `main` being restored by a PR can only be proven after merge. The first merged run is necessarily cold; the next PR must restore it.
 - **Eviction over time.** The pool limits cannot be read through the API (HTTP 402). **The cap was raised from 500M to 1G on this evidence:** after a 171-TU change the store was at 98.6% of the 500M cap, and after the -O1 run 106%, at which point ccache evicts least-recently-used entries during ordinary work, and the eviction lands on the entries the next build wants. A full tree is 266 MB. The 1G cap was **not** itself measured on CI; restore time scales with stored size (2-5 s at 266 MB), so a store that grows to the cap is an estimated 8-20 s. The cost of the headroom is quota: each `main` save can now approach 1 GB against a ~10 GB pool, so older `main` caches are evicted sooner. Only the newest is ever restored, so that is acceptable. Eviction over time is still unmeasured and goes in the post-merge checks.
 - **77-TU change** was not run; its figure above is interpolated.
-- **Re-run of a green `main` commit.** Read from `actions/cache` v4 source (`ReserveCacheError` is caught and logged at info level), so the save step should not fail on a duplicate key. Not yet observed in this repo; checked after merge by re-running the seeding push.
 - ccache on noble is **4.9.1** (printed in the log); all local measurements used 4.14. The CI numbers above are the ones to trust.
 
 ## Non-goals

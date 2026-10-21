@@ -155,6 +155,10 @@ jobs:
       # leave a yellow warning annotation on an otherwise green run. The key is <prefix><sha>, so
       # the save hits a duplicate key; actions/cache v4 catches it and reports it through
       # utils.logWarning plus core.warning("Cache save failed."), and the job stays green.
+      # Observed 2026-10-21 on a re-run of the seeding push (attempt 2, conclusion success): the
+      # log reads "Failed to save: Unable to reserve cache with key ..., another job may be
+      # creating this cache." followed by "##[warning]Cache save failed.", shown as a yellow
+      # annotation on the run summary.
       # Expected on a re-run of an already-cached main commit; nothing is wrong. Do not "fix" it,
       # and do not add continue-on-error, which would also hide a genuine save failure.
       - name: Save ccache
