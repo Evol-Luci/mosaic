@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Roll old dated blocks out of docs/project/next-steps.md into docs/updates/YYYY-MM.md.
+"""Roll old dated blocks out of docs/project/next-steps.md into docs/record/YYYY-MM.md.
 
 WHY THIS EXISTS. `next-steps.md` is the live "you are here" handoff doc, and it is
 append-only: every slice adds a dated block at the top. By 2026-10-21 it had reached
@@ -9,7 +9,7 @@ happens; the file just gets slower to read until it cannot be read.
 
 THE RULE (chosen 2026-10-21):
   * blocks dated in the CURRENT calendar month stay in next-steps.md;
-  * everything older moves to docs/updates/<YYYY-MM>.md, one file per month;
+  * everything older moves to docs/record/<YYYY-MM>.md, one file per month;
   * plus a ceiling -- if the live file is still over it after the month rule, the
     OLDEST in-month blocks move too, into that month's file. A busy month would
     otherwise reach ~139 KB before it rolled, which is how this started.
@@ -77,7 +77,7 @@ def parse(text: str) -> Tuple[str, List[Block]]:
     return header + "\n", blocks
 
 
-def render_live(header: str, blocks: List[Block], archive_dir_name: str = "updates") -> str:
+def render_live(header: str, blocks: List[Block], archive_dir_name: str = "record") -> str:
     """The live doc: header, an archive pointer, then the kept blocks in order."""
     clean = [l for l in header.rstrip("\n").split("\n") if POINTER_MARK not in l]
     while clean and not clean[-1].strip():
@@ -200,7 +200,7 @@ def main(argv: List[str]) -> int:
     root = Path(__file__).resolve().parents[2]
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--doc", type=Path, default=root / "docs/project/next-steps.md")
-    ap.add_argument("--archive-dir", type=Path, default=root / "docs/updates")
+    ap.add_argument("--archive-dir", type=Path, default=root / "docs/record")
     ap.add_argument("--today", default=None, help="YYYY-MM-DD (default: the system date)")
     ap.add_argument("--ceiling", type=int, default=DEFAULT_CEILING,
                     help=f"live-file size backstop in bytes (default {DEFAULT_CEILING})")
