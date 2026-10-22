@@ -168,6 +168,30 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Documentation tooling
 
+**Deferred while designing the `next-steps.md` rolling archive (2026-10-21).** The archive
+slice itself is scoped to `next-steps.md` only; these were named in that design and
+deliberately left out.
+
+- **`deferred-work-backlog.md` has the same unbounded-growth problem** — 228 KB today
+  against `next-steps.md`'s 492 KB, and growing for the same reason (append-only, never
+  pruned). It is NOT in the archive slice because the two files fail differently: a handoff
+  doc is read newest-first and its tail is genuinely dead, whereas a backlog is *searched*
+  and an archived entry is an entry nobody finds again. Splitting it by date would hide live
+  work. Depends on deciding what "done" means for a backlog entry (struck-through items are
+  already kept deliberately, as the house style), which is its own conversation. Revisit when
+  it impairs reading or when a struck-through-item sweep is wanted.
+- **Automating the archive split in the pre-commit hook** — considered and declined for now.
+  The hook already aborts commits to regenerate docs; adding a step that *moves content
+  between files* to that same path is a much larger surface for surprise, and the failure
+  mode (content silently relocated mid-commit) is worse than the one it prevents (a file
+  that gets big slowly). Chosen instead: a script run deliberately and reviewed in a PR.
+  Revisit if the manual run is actually forgotten for more than a month or two.
+- **The eight existing `docs/updates/*-summary.md` files stay as they are** — the Aug-Sep
+  2026 development summaries. They are a *different* document type (retrospective narrative
+  with PR links) from the handoff blocks being archived beside them, and rewriting them into
+  the new convention would be churn for no reader benefit. Deferred permanently unless the
+  archive's nav turns out to read badly with two kinds of file in one directory.
+
 - ~~CI/pre-commit wiring for `mosaic docs` + nav regen~~ — **SHIPPED** as
   a local pre-commit hook (`.githooks/pre-commit`, opt-in via
   `git config core.hooksPath .githooks`). Caught real staleness in
