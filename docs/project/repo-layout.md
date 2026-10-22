@@ -56,7 +56,7 @@ mosaic/
 | `studio/` | The editor UI (viewport, hierarchy, inspector, console, plugin host) + Blender live-link (out-of-process). Depends only on engine. |
 | `app/` | The composition root — `main()`, CLI subcommands, the MCP automation API, project/plugin/asset management. Depends on engine and studio (studio never depends back on app). |
 | `modules/` | Backends behind engine-level interfaces (Vulkan rendering, Box3D physics, miniaudio, ENet networking, embedded Python). |
-| `tools/` | The dependency-rule lint, docs generation, the Blender live-link addon, example plugins. |
+| `tools/` | The dependency-rule lint, the CI test-run guard (`tools/ci/check_ctest_run.py`, which fails the build unless every discovered test ran and passed), docs generation, the Blender live-link addon, example plugins. |
 | `packages/` | Bundled example plugins installable via `mosaic plugin install`. |
 | `templates/` | Project scaffolds `mosaic create` copies from. |
 | `tests/` | Unit tests + fixtures. |

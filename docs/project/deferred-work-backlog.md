@@ -1672,7 +1672,11 @@ them as this list does.
   `app/run/demo_scene.hpp` (the decision is recorded beside it too). **`WorldLabel` has no
   outline or shadow field** (font, text, size, colour, alpha, offset only), so the options
   are: a different colour, a different position (against something darker than the light-grey
-  ground), or new engine work to add an outline/shadow. Deferred: passing as is; low priority.
+  ground), or new engine work to add an outline/shadow. **Re-confirmed after #275**: the verdict
+  above was first given while the label was being drawn TWICE (double-blended, brighter than
+  authored) because of the `draw_world_text` aliasing bug; once that was fixed the label draws
+  once and dimmer, and the human re-checked and kept the decision. It therefore rests on the
+  label's true appearance. Deferred: passing as is; low priority.
   Depends on nothing. Note the human judged it on a look that was double-blended (see the
   batching entry in `next-steps.md`), so a re-check after that fix is owed.
 - **`draw_particles` and `draw_ribbons` share the world-text backend shape.** Each writes one

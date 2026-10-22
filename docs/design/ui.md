@@ -141,7 +141,14 @@ All UI components are reflected via `ComponentReflection` and can be inspected, 
 UI rendering is divided between in-world text and screen-space HUD passes in `RenderSystem`:
 
 1. **Pass Ordering:**
-   - **World-Space Labels:** Rendered after opaque meshes and 3D billboards, but **before** the 2D HUD. Submits via `RenderDevice::draw_world_text()`.
+   - **World-Space Labels:** Rendered after opaque meshes and 3D billboards, but **before** the 2D HUD.
+     Submits via `RenderDevice::draw_world_text()` — **one call per font atlas, carrying every label that
+     shares it**, groups in first-seen order. Do NOT "simplify" this back to a call per label: the Vulkan
+     backend stages vertices with a CPU memcpy while the draw only executes at submit, so a call per label
+     made each label overwrite the one before it (the demo's "Orbiter" label rendered as "ter" once a
+     second label existed; fixed 2026-10-21 in #275). The backend is now structurally safe too — one buffer
+     per call per frame-in-flight — but the engine-side batching is what `FakeRenderDevice` can assert,
+     since nothing in the suite creates a `VkDevice`.
    - **Screen-Space Layer 1 (Panels):** Emitted via `RenderDevice::draw_ui()`.
    - **Screen-Space Layer 2 (Images):** Emitted via `RenderDevice::draw_ui_image()`.
    - **Screen-Space Layer 3 (Text):** Emitted via `RenderDevice::draw_ui_text()`.
