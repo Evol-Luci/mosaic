@@ -245,7 +245,7 @@ class RunTest(unittest.TestCase):
             doc.write_text(DOC, encoding="utf-8")
             rec = Path(d) / "record"
             rec.mkdir()
-            prior = "# October 2026 — handoff entries\n\n## Where we are\n\nhandoff text\n"
+            prior = "# October 2026 — the record\n\n## Where we are\n\nhandoff text\n"
             (rec / "2026-10.md").write_text(prior, encoding="utf-8")
             arc.run(doc, rec, dry_run=False)
             self.assertTrue((rec / "2026-10.md").read_text(encoding="utf-8").startswith(prior))

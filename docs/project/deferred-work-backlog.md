@@ -2082,7 +2082,7 @@ Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci
 (2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
 from that spec; `ctest` and wide-header figures are local or inferred where marked.
 
-- **`ctest -j` in CI — IN PROGRESS 2026-10-21** (spec
+- **`ctest -j` in CI — SHIPPED 2026-10-21 (#273)** (spec
   `docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md`). **The framing this entry used
   to carry ("gated on two flaky tests") was stale and has been replaced.** Verified 2026-10-21:
   (1) the threaded-raycast case was fixed in #230 (`e7927cf`, 2026-10-09: a bounded 5 s wait for
@@ -2269,7 +2269,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
-| **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
+| **`ctest -j` in CI** | **Shipped 2026-10-21 (#273)** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
 | **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
