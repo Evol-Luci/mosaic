@@ -172,14 +172,35 @@ view that was actually used to pick what to build next as of this writing.
 slice itself is scoped to `next-steps.md` only; these were named in that design and
 deliberately left out.
 
-- **`deferred-work-backlog.md` has the same unbounded-growth problem** — 228 KB today
-  against `next-steps.md`'s 492 KB, and growing for the same reason (append-only, never
-  pruned). It is NOT in the archive slice because the two files fail differently: a handoff
-  doc is read newest-first and its tail is genuinely dead, whereas a backlog is *searched*
-  and an archived entry is an entry nobody finds again. Splitting it by date would hide live
-  work. Depends on deciding what "done" means for a backlog entry (struck-through items are
-  already kept deliberately, as the house style), which is its own conversation. Revisit when
-  it impairs reading or when a struck-through-item sweep is wanted.
+- ~~**`deferred-work-backlog.md` has the same unbounded-growth problem**~~ — **DESIGNED
+  2026-10-21**, see `docs/superpowers/specs/2026-10-21-docs-record-architecture-design.md`.
+  The entry below said a date-based split would hide live work, which is true and was the
+  wrong axis: measuring showed **half this file (111 KB of 226 KB, 55 struck bullets plus 14
+  struck tier rows) is work already SHIPPED**, and a *status*-based split cannot hide live
+  work by construction. Shipped entries move to `docs/record/` leaving a one-line stub, so
+  "did we already consider this?" still answers from here. Four slices in the spec. Original
+  entry: 228 KB today against `next-steps.md`'s 492 KB, growing for the same reason
+  (append-only, never pruned); a backlog is *searched*, and an archived entry is an entry
+  nobody finds again.
+
+**Non-goals of that design (2026-10-21), each deferred with its reason:**
+
+- **A checker for `next-steps.md`'s verifiable claims.** The design makes every claim
+  carry the command that regenerates it (`ctest --preset debug -N` beside a test count), so
+  a reader can check one by hand. A tool that runs them all and fails on drift is a real
+  follow-up — it would have caught the six-week-stale gate that misled a reader on
+  2026-10-21 — but the right time to build it is after the file's shape has settled.
+- **Splitting the record by subsystem instead of by month.** Monthly matches the existing
+  archive and needs no judgement call per entry; by-subsystem reads better when revisiting
+  one area. Revisit only if reading the record by subsystem becomes a real need.
+- **Reconciling `next-steps.md` with the agent memory directory.** The landmine list the
+  design puts in `next-steps.md` duplicates what an agent's memory already holds. The
+  intended rule is recorded in the spec — the repo file is authoritative, memory holds only
+  what is personal to how an agent works — but actually reconciling the two is its own
+  piece of work, and doing it badly recreates the duplication problem one layer up.
+- **Backfilling record entries for work predating the convention.** The record starts with
+  what the archive already holds; reconstructing earlier slices from git history is
+  speculative narrative, which is the opposite of what the record is for.
 - **Automating the archive split in the pre-commit hook** — considered and declined for now.
   The hook already aborts commits to regenerate docs; adding a step that *moves content
   between files* to that same path is a much larger surface for surprise, and the failure
