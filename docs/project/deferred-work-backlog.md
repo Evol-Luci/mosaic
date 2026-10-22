@@ -27,120 +27,34 @@ view that was actually used to pick what to build next as of this writing.
 
 ## Agent API / MCP (Phase 6 — complete, these are follow-on extensions)
 
-- ~~**Wrap remaining CLI verbs as MCP tools**~~ — decomposed 2026-09-19
-  into one-tool-per-slice sub-projects (this bundled 7-8 separate
-  wrappers, too big for one slice): `plugin_list` **SHIPPED** (MCP
-  tool 28), `plugin_install`/`plugin_remove` **SHIPPED** (MCP tools
-  29-30), `plugin_source_{add,list,remove,pull}` **SHIPPED** (MCP
-  tools 31-34). The last item, a `mosaic docs`-regeneration tool, was
-  **dropped** (not built) after discovering `mosaic docs` always
-  regenerates the Mosaic *engine repo's own* `docs/reference/`
-  (`MOSAIC_DOCS_DIR` is baked in at compile time from
-  `CMAKE_SOURCE_DIR`) -- completely independent of whatever project a
-  `mosaic mcp <project-dir>` session is serving. Every other MCP tool
-  here is meant for an agent building a *game* with Mosaic; this one
-  would only ever matter to an agent doing self-hosted Mosaic engine
-  development (like this session) -- a scope mismatch with the
-  server's actual purpose, confirmed with the user rather than built
-  anyway. **With this, the whole arc is closed** (3 of its 4 slices
-  shipped, the 4th correctly dropped). *Source:*
-  `2026-09-19-project-maintenance-build-project-design.md`
-- ~~**Verify AssetID referencing via `set_component`**~~ — **CONFIRMED**
-  2026-09-20, no code change needed. `2026-09-18-asset-generation-
-  import-asset-design.md`'s Non-goals speculated this was "arguably
-  already possible" through the existing generic `set_component` tool
-  but left it unverified. It works exactly as speculated: `set_value`'s
-  default `ReferenceResolver::resolve_asset` is a plain identity
-  passthrough (`foundation/serialization/reference.hpp`), so a bare
-  `AssetID` field accepts any UUID string verbatim, no registry
-  validation at set-time (matching `broken_references`'s own
-  validate-on-read design, not a gap). Already extensively exercised
-  by existing tests (`mcp_tools_test.cpp`'s `broken_references`/
-  `orphaned_assets` test suites both use `set_component` on
-  `Material.texture` as their own setup, both with stray and
-  real-registered ids) -- re-confirmed end-to-end via the real CLI:
-  imported a real PPM asset, `set_component`'d `Material.texture` to
-  its id, `get_component` read it back correctly, `broken_references`
-  did not flag it. *Source:* `2026-09-18-asset-generation-import-
-  asset-design.md`
-- ~~**Spatial queries**~~ — **SHIPPED** 2026-09-20, `entities_near`/
-  `scene_bounds`, MCP tools 35-36. Computes each entity's world
-  position live via `TransformSystem::compute_world()` (made public)
-  rather than the cached `WorldTransform`, which never gets
-  recomputed in a headless `mosaic mcp` session after startup and
-  would have been silently stale for anything moved mid-session.
-  *Source:* `2026-09-16-scene-reasoning-describe-scene-design.md`
-- ~~**Asset-usage queries**~~ — **SHIPPED**, `entities_referencing`, MCP
-  tool 26. "What entities reference asset X", via a third `FieldVisitor`
-  subclass (`AssetReferenceCollector`) alongside `AssetRefCollector`
-  (`broken_references`) and `ReferencedAssetGatherer` (`orphaned_assets`),
-  both in `app/mcp/mcp_tools.cpp`. Classified bounded, not architectural
-  — no spec/plan doc, agreed in chat and implemented directly. *Source:*
-  `2026-09-16-scene-reasoning-describe-scene-design.md`.
+- ~~**Wrap remaining CLI verbs as MCP tools**~~ — SHIPPED, see [record](../record/undated.md#wrap-remaining-cli-verbs-as-mcp-tools).
+- ~~**Verify AssetID referencing via `set_component`**~~ — CONFIRMED 2026-09-20, see [record](../record/2026-09.md#verify-assetid-referencing-via-set_component).
+- ~~**Spatial queries**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#spatial-queries).
+- ~~**Asset-usage queries**~~ — SHIPPED, see [record](../record/undated.md#asset-usage-queries).
 - **Generic criteria-based search (query DSL)** — "find entities where
   field Y matches Z". Most general/powerful, needs its own decomposition.
   *Source:* same
-- ~~**Studio plugin (`.py`) authoring via MCP**~~ — **SHIPPED** 2026-09-20
-  (MCP tools 37-39, PR #193). `plugin_script_write` validates via a
-  throwaway `PluginHost` load (a scratch directory holding only the
-  candidate file, bound to the real live World) before persisting to
-  the project's real `plugins/`; `plugin_script_read`/`plugin_script_list`
-  round out the loop. *Source:*
-  `2026-09-16-code-generation-set-script-design.md`
-- ~~**Undo support for `set_script`**~~ — **SHIPPED** 2026-09-20.
-  `ScriptEditorModel::apply()` now applies via `SetComponentCommand`
-  (the same mechanism `set_component` uses) instead of a raw field
-  mutation, so undo restores the entity's entire prior
-  `ScriptComponent` snapshot. *Source:* same
+- ~~**Studio plugin (`.py`) authoring via MCP**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#studio-plugin-py-authoring-via-mcp).
+- ~~**Undo support for `set_script`**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#undo-support-for-set_script).
 - **`ScriptEditorModel::debug()` exposure** — compile + run `on_update(0)`
   with a debugger attached, no write. *Source:* same
 - **Procedural asset generation** — generate texture/mesh/audio content
   from scratch (not import). No existing machinery, needs its own
   decomposition. *Source:*
   `2026-09-18-asset-generation-import-asset-design.md`
-- ~~**Confirm `AssetID` referencing via `set_component`**~~ — **RESOLVED**,
-  no longer deferred. Exercised repeatedly and directly during the
-  project-health arc's manual verification (`broken_references`,
-  `orphaned_assets`, `bulk_set_field` all set `Material.texture` to a
-  literal `AssetID` string via `set_component` against a real `mosaic mcp`
-  session) — confirmed working, no gap remains.
-- ~~**Hot-reload imported assets into the live `AssetRegistry` mid-session**~~
-  — **SHIPPED**. `import_asset` now reruns `load_project_assets()` on
-  success, threaded through a new `handle_tool_call` pointer parameter.
-  `broken_references`/`orphaned_assets`/`entities_referencing` see a
-  same-session import immediately, no restart. *Source:*
-  `2026-09-18-automated-testing-tick-design.md`.
-- ~~**"Tick until condition met" tool**~~ — **SHIPPED** as `tick_until`
-  (MCP tool 27), reusing `entities_where`'s exact matching primitives.
-  *Source:* same
+- ~~**Confirm `AssetID` referencing via `set_component`**~~ — RESOLVED, see [record](../record/undated.md#confirm-assetid-referencing-via-set_component).
+- ~~**Hot-reload imported assets into the live `AssetRegistry` mid-session**~~ — SHIPPED, see [record](../record/undated.md#hot-reload-imported-assets-into-the-live-assetregistry-mid-session).
+- ~~**"Tick until condition met" tool**~~ — SHIPPED, see [record](../record/undated.md#tick-until-condition-met-tool).
 - **Broader per-system profiling** — physics/animation/particles timing,
   not just scripts. *Source:*
   `2026-09-19-optimization-script-profile-design.md`
-- ~~**Bulk refactoring / project health checks**~~ — **SHIPPED, all 4
-  sub-projects complete** (`entities_where`, `broken_references`,
-  `orphaned_assets`, `bulk_set_field` — MCP tools 22-25). No longer
-  deferred; kept here only as the historical pointer. *Source:*
-  `2026-09-19-project-maintenance-build-project-design.md`. Specs:
-  `2026-09-19-project-health-{entities-where,broken-references,
-  orphaned-assets,bulk-set-field}-design.md`.
+- ~~**Bulk refactoring / project health checks**~~ — SHIPPED, see [record](../record/undated.md#bulk-refactoring--project-health-checks).
 - **Multi-scene project support in MCP**, **concurrent MCP session locking
   on `save_scene`** — both explicitly unaddressed. *Source:*
   `2026-09-16-agent-api-mcp-server-design.md`
 
 **Refresh notes (2026-09-19, post-arc):**
-- ~~The `FieldVisitor` extension~~ — **SHIPPED**, along with both of its
-  consumer follow-ups except one. `field_entity`/`field_handle_asset`
-  exist (`engine/reflection/field_visitor.hpp`), both read-only, both
-  defaulting to the exact prior `field_readonly` output — zero behavior
-  change for any existing visitor. `broken_references`/`orphaned_assets`/
-  `entities_referencing` cover `Handle<R>` references, closing that
-  blind spot. `broken_references` also now detects a non-nil `EntityID`
-  field that fails `world.is_valid()` (verified end-to-end against a
-  real destroyed entity via `Transform.parent`) — every `"broken"` entry
-  now carries a `"kind"` discriminator (`"asset"`/`"entity"`).
-  Precise field type labels in component reference docs also **SHIPPED**
-  — with this, every follow-up the `FieldVisitor` extension enabled is
-  now closed out.
+- ~~**The `FieldVisitor` extension**~~ — SHIPPED, see [record](../record/undated.md#the-fieldvisitor-extension).
 - The `AssetRegistry`-staleness gap ("hot-reload imported assets... mid-
   session") was hit and explicitly worked around three separate times
   this arc (`broken_references`, `orphaned_assets`, and implicitly by
@@ -154,11 +68,7 @@ view that was actually used to pick what to build next as of this writing.
 - **Native `.so`/`.dll` dynamic-library plugins** — repeatedly deferred
   across all 3 Plugin SDK slices; ABI stability, cross-platform loader,
   sandboxing are the blockers.
-- ~~**Per-plugin enable/disable + manifest/versioning**~~ — **shipped**
-  2026-09-21 (PR #194). ~~**Live file-watching/hot-reload**~~ — **shipped**
-  2026-09-21 (PR #195); Studio no longer needs a manual "Reload Plugins"
-  click for edits made while the editor is open. **User-global
-  (non-project) plugins** — still unbuilt.
+- ~~**Per-plugin enable/disable + manifest/versioning**~~ — SHIPPED 2026-09-21, see [record](../record/2026-09.md#per-plugin-enabledisable--manifestversioning).
 - **Public marketplace** — hosting, moderation pipeline, static/dynamic
   analysis review layers. *Status:* design-only
   (`docs/design/marketplace.md`), explicitly "not yet scheduled."
@@ -172,16 +82,7 @@ view that was actually used to pick what to build next as of this writing.
 slice itself is scoped to `next-steps.md` only; these were named in that design and
 deliberately left out.
 
-- ~~**`deferred-work-backlog.md` has the same unbounded-growth problem**~~ — **DESIGNED
-  2026-10-21**, see `docs/superpowers/specs/2026-10-21-docs-record-architecture-design.md`.
-  The entry below said a date-based split would hide live work, which is true and was the
-  wrong axis: measuring showed **half this file (111 KB of 226 KB, 55 struck bullets plus 14
-  struck tier rows) is work already SHIPPED**, and a *status*-based split cannot hide live
-  work by construction. Shipped entries move to `docs/record/` leaving a one-line stub, so
-  "did we already consider this?" still answers from here. Four slices in the spec. Original
-  entry: 228 KB today against `next-steps.md`'s 492 KB, growing for the same reason
-  (append-only, never pruned); a backlog is *searched*, and an archived entry is an entry
-  nobody finds again.
+- ~~**`deferred-work-backlog.md` has the same unbounded-growth problem**~~ — DESIGNED 2026-10-21, see [record](../record/2026-10.md#deferred-work-backlogmd-has-the-same-unbounded-growth-problem).
 
 **Non-goals of that design (2026-10-21), each deferred with its reason:**
 
@@ -213,13 +114,7 @@ deliberately left out.
   the new convention would be churn for no reader benefit. Deferred permanently unless the
   archive's nav turns out to read badly with two kinds of file in one directory.
 
-- ~~CI/pre-commit wiring for `mosaic docs` + nav regen~~ — **SHIPPED** as
-  a local pre-commit hook (`.githooks/pre-commit`, opt-in via
-  `git config core.hooksPath .githooks`). Caught real staleness in
-  `docs/index.html`'s nav on its first run. **Scope note:** this repo
-  has no CI at all (no `.github/workflows/`), so only the pre-commit
-  half was built — standing up actual CI is a separate, larger item,
-  see below.
+- ~~**CI/pre-commit wiring for `mosaic docs` + nav regen**~~ — SHIPPED, see [record](../record/undated.md#cipre-commit-wiring-for-mosaic-docs--nav-regen).
 - **No CI exists in this repo at all** — discovered while shipping the
   pre-commit hook above. `CONTRIBUTING.md` claims the `Foundation →
   Engine → Editor → Studio` dependency rules are "enforced in CI," but
@@ -233,19 +128,7 @@ deliberately left out.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
-- ~~**U8a — inherited alpha and stack layout**~~ — **SHIPPED 2026-10-17.**
-  `UiStack{axis, spacing, padding}` on a parent narrows each child's frame to
-  an evenly divided slot, inside `resolve_parent_frame` — the one function
-  panels, images, button hit-tests and text all funnel through. A container's
-  alpha multiplies down the `UiParent` chain at render time, writing nothing
-  back. Two of U8's own claims were wrong and are corrected in the spec: layout
-  cannot be a mutating pre-pass (resolution is lazy and `pos` is reflected, so
-  the overwrite would serialise), and the hook belongs in
-  `resolve_parent_frame` rather than `resolve_ui_rect` (the text pass calls the
-  former directly). The decision U8 reserved for the human turned out not to
-  need one: narrowing the frame means `resolve_in` already treats `pos` as an
-  offset from the slot. Spec
-  `docs/superpowers/specs/2026-10-17-ui-layout-containers-design.md`.
+- ~~**U8a — inherited alpha and stack layout**~~ — SHIPPED 2026-10-17, see [record](../record/2026-10.md#u8a--inherited-alpha-and-stack-layout).
 
 - **`stack_children` scans the whole world once per laid-out element, per frame.**
   Introduced by U8a 2026-10-17 and recorded by its author rather than found in
@@ -421,70 +304,9 @@ no scissor, so **clipping/scroll is a renderer change before it is a UI change**
 which is why the decomposition separates it from auto-layout rather than bundling
 them as this list does.
 
-- ~~**U6 interaction depth** — hover enter/exit + visual feedback, pointer
-  capture/drag, z-order-aware overlap resolution. First: its prerequisite just
-  landed, and it is the gap a user meets in the first five seconds.~~
-  **SHIPPED 2026-10-10** — two of the three features. Z-order hit resolution now lives in
-  `engine/ui/ui_hit.hpp`'s pure `topmost_hit`, `UiButton` carries its own `order`, and
-  `UiSystem` emits `hover_enter`/`hover_exit` on the button's existing `event` channel with
-  the same `{entity, action}` payload the click path uses. **The motivating bug turned out to
-  be a wrong answer rather than an undefined one:** the press took the FIRST button under
-  the pointer while the panel pass draws the LAST of an equal-order run on top, so a click
-  on two overlapping equal-order buttons went to the button the user could not see.
-  ~~**Capture/drag remains open** (listed above).~~ **U6 IS COMPLETE as of 2026-10-12** —
-  capture/drag shipped; see its own entry. So do both accepted costs — a button's
-  `order` can disagree with its visual's, and the engine still renders no hover feedback of
-  its own — and neither was resolved by this slice. ~~Carries one open
-  question for a human — whether `UiButton` gets its own `order` or inherits its
-  `UiPanel` ancestor's.~~ **DECIDED 2026-10-10: `UiButton` gets its own `order`**, matching
-  `UiPanel`, `UiImage` and `UiText`, all of which already carry one — `UiButton` was the
-  only UI component without it. The known cost of that choice, recorded so it is not
-  rediscovered as a surprise: a button's `order` and its overlaid visual's `order` **can
-  disagree**, and nothing warns about it. **Scoped 2026-10-10 to z-order + hover**, with
-  capture/drag split out (below).
-- ~~**Pointer capture and drag for `UiButton`**~~ — **SHIPPED 2026-10-12, closing U6.**
-  `UiSystem::pressed_` became `captured_`, which is what it already meant; hover now resolves
-  against the captured entity alone, so no other button lights up mid-drag and the captured
-  one is hovered only while the cursor is inside its own rect. Four new actions on the
-  button's existing channel: `drag_start` (on movement past `kDragThreshold`, **not** on
-  press, or every click would also emit one), `drag` per moving frame, `drag_end` on release,
-  `drag_cancel` when the pointer leaves the surface. `drag_start`/`drag`/`drag_end` carry
-  `x`/`y`; `click` and the hover actions keep their exact `{entity, action}` shape.
-  **Both open questions this entry named are answered:** a captured press does *not* follow
-  the pointer outside the surface — the editor's provider deliberately drops `down` there, so
-  a drag cannot keep running while the user clicks in the Inspector — and a drag emits
-  per-frame events *and* a start/end pair, since `drag_start` is an edge and `drag` a stream.
-  Original entry: split out of U6 on 2026-10-10 when U6 was
-  scoped, not dropped. **Why it was separated:** z-order and hover are *coupled* — "which
-  button is hovered" has no answer without a tie-break, so hover built on the current
-  behaviour would flicker between overlapping buttons — whereas capture is partly present
-  already (`UiSystem` remembers `pressed_` and requires release inside the same button), so
-  what remains is a smaller and genuinely independent change. **And it is the riskiest
-  third:** its failure modes are the subtlest (the pointer leaving the window mid-drag, a
-  press surviving a play-mode change), which is the exact bug class that shipped viewport
-  pointer input **dead** while thirteen tests stayed green. Reviewing it beside two
-  unrelated features is how that recurs. **Depends on** U6's z-order work only loosely;
-  it mainly needs the pointer-state widening recorded for U9 (wheel/multi-button) if drag
-  is ever to mean more than left-button. **What it will need deciding:** whether a captured
-  press follows the pointer outside the window, and whether a drag emits per-frame events
-  or only a start/end pair.
-- ~~**A pointer that leaves the window can still hover an edge-anchored button**~~ —
-  **FIXED 2026-10-10 in the U6 review pass, and this entry was WRONG twice over while it
-  stood.** It scoped the problem to `app/main.cpp` and "the pointer is over another
-  application", when in the editor the clamp region is a *panel* inside a window full of
-  other panels — so leaving it is a constant, ordinary action, not an edge case. And it
-  justified deferring by saying the honest fix needed a `PointerState` widening "the same
-  one U9 needs"; that was false for the editor path, where `ViewportPointerSample::hovered`
-  was **already sampled and already consulted three lines away** for `down`. It also never
-  mentioned the `(0,0)` case at all, which is not "tracks to the edge, better than
-  sticking" but the exact phantom hover the `if (!pointer_)` guard was written for, arriving
-  through a different door: headless `mosaic run` never creates a window, so its provider
-  returned `{0,0,false}` every tick and hovered any button containing the origin forever.
-  **What shipped instead:** `PointerState` gained an explicit `inside` flag, honoured in
-  `topmost_hit` so press and hover cannot disagree about it; the editor provider sets it
-  from `hovered`; and headless is given **no** provider rather than one returning zeroes.
-  The lesson worth keeping: the entry asserted the demo was unaffected and therefore eyes
-  would not catch it, and treated that as a reason to defer rather than as a reason to fix.
+- ~~**U6 interaction depth — hover enter/exit + visual feedback, pointer capture/drag, z-order-aware overlap resolution. First: its prerequisite just landed, and it …**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#u6-interaction-depth--hover-enterexit--visual-feedback-pointer-capturedrag-z-order-aware-overlap-resolution-first-its-prerequisite-just-landed-and-it-).
+- ~~**Pointer capture and drag for `UiButton`**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#pointer-capture-and-drag-for-uibutton).
+- ~~**A pointer that leaves the window can still hover an edge-anchored button**~~ — FIXED 2026-10-10, see [record](../record/2026-10.md#a-pointer-that-leaves-the-window-can-still-hover-an-edge-anchored-button).
 - **Hover styling is never cleared when a hovered button is destroyed** — from the U6
   review, 2026-10-10. `hover_exit` deliberately emits nothing when the hovered entity has
   lost its `UiButton`, because the channel name lived on that component and there is no
@@ -519,34 +341,7 @@ them as this list does.
   hover to treat "outside" as hovering nothing. That widening is the same one U9 needs for
   wheel and multi-button, so it should be done once. Papering over it with a timeout inside
   `UiSystem` was considered and rejected: it would make hover depend on frame timing.
-- ~~**Engine-rendered hover visuals (a `UiHoverStyle` component)**~~ — **SHIPPED 2026-10-10.**
-  `UiHoverStyle` (authored, reflected) multiplies an element's colour and alpha while
-  hovered; `UiHovered` (runtime, deliberately **unregistered**) marks the hovered entity;
-  `active_hover_style` walks up the `UiParent` chain and `resolve_appearance` does the
-  multiply and clamp; the three UI render passes apply it as a **render-time override** so
-  nothing mutates the authored values. The demo now authors a style instead of running a
-  script, and its nested "HP" label inherits the style from the bar it is parented to.
-  **Still open:** the `order`-disagreement item below, which this slice unblocked but
-  deliberately did not take. Originally recorded as **UNBLOCKED and specified 2026-10-10**: `docs/superpowers/specs/2026-10-10-ui-hover-ownership-design.md`. The blocker
-  turned out to be a non-problem. **The ownership relation already existed as entity
-  identity:** every button in the repository shares an entity with its visuals (the shipped
-  template's entity 8 carries `UiButton` + `UiImage` + `UiPanel` + `UiText`; the demo puts
-  `UiButton` on the `camera` entity that already holds the HUD `UiPanel`), with no
-  counter-example anywhere. The convention was in the data and had simply never been written
-  down. The stated rule is now "the element's own entity, or its nearest `UiParent`
-  ancestor", resolved by walking **up** — `UiParent` points upward, so finding descendants
-  would have meant scanning every entity. Original reasoning kept below, because it was wrong
-  in an instructive way. **Why it was deferred:** it needs a button→visual **ownership**
-  relationship that does not exist.
-  `UiButton` is deliberately non-visual and `UiParent` is a *transform* hierarchy, not an
-  ownership one, so "tint the thing this button looks like" has no definition today. It
-  would also put interaction state into the render path, which has so far been kept free of
-  it. **The honest cost of deferring:** on the events-only design the engine shows a user
-  **nothing** by itself — a button acknowledges the pointer only if someone wrote a script
-  for it, which is not what a person expects from a button. U6 ships a demo script so the
-  behaviour is visible, but that is a demonstration, not a default. **Depends on** settling
-  UI ownership, which is also what the `order`-disagreement item below needs — they are
-  likely one piece of work.
+- ~~**Engine-rendered hover visuals (a `UiHoverStyle` component)**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#engine-rendered-hover-visuals-a-uihoverstyle-component).
 - **An absolute hover colour, rather than a multiplier** — non-goal of the hover slice,
   2026-10-10. `UiHoverStyle` multiplies the authored colour and alpha, because `{1,1,1}` and
   `1.0` make a default-constructed style an exact no-op and one style then composes across
@@ -592,45 +387,8 @@ them as this list does.
   feature, and bundling a warning system into a rendering diff is how a reviewer loses track
   of which half to scrutinise. **It is a heuristic lint, not a correctness check** — see the
   reframing item below.
-- ~~**The REAL `order` bug is pairwise and relative, not per-entity and absolute**~~ —
-  **SHIPPED 2026-10-12** as `find_order_conflicts` in `engine/ui/ui_order_check.hpp`, with the
-  button-rect flatten extracted to `engine/ui/ui_button_rects.hpp` so the check polices the
-  exact rects `UiSystem`'s hit test uses. Two kinds: **Inverted** (both axes ordered,
-  opposite rankings — the definite bug) and **Ambiguous** (one axis tied, so the outcome
-  falls to iteration order and can flip when an unrelated button is destroyed). Both-axes-tied
-  is deliberately silent: the author expressed no preference either way, and reporting it
-  would fire on every pair of overlapping default-constructed buttons. Overlap is inclusive,
-  matching `topmost_hit`, so buttons touching along an edge count. The per-entity lint
-  **stays** — it catches the authoring slip before a second button exists, which is exactly
-  when this check has nothing to say — but **it stands down for any entity this check names**
-  (`without_entities_in_conflict`, added 2026-10-12 after a human working the verification
-  checklist saw two warnings for one mistake). One problem, one line. Original framing, which was right:  found
-  2026-10-11 while building the lint above, which is why that lint is honest about being a
-  heuristic. A single button in a scene cannot misroute a click whatever its `order` says: the
-  failure needs **two overlapping buttons**, where A's `UiButton::order` ranks above B's while
-  A's `UiPanel::order` ranks below B's, so the click goes to A and the user sees B on top. The
-  shipped lint catches the authoring slip that bug grows from (editing a panel's order and
-  forgetting its button), which is cheap; the real check needs resolved-rect overlap testing
-  between every pair of buttons, the screen aspect, and is O(n²) over buttons. **Deferred
-  because it is a different and much larger piece of work** than the recorded item asked for,
-  and the cheap lint plausibly prevents most instances. **Depends on** nothing new —
-  `resolve_ui_rect` already exists — so this is a scoping decision, not a blocker.
-- ~~**`UiImage::order` and `UiText::order` are ignored by the renderer entirely**~~ —
-  **FIXED 2026-10-11.** Both passes now collect, `stable_sort` ascending, then emit, so higher
-  `order` draws on top within its own pass and equal orders keep `for_each` order. The
-  semantics are documented on both components for the first time. Original finding, which
-  still explains the pass-boundary limitation below:
-  confirmed
-  2026-10-11 by reading `engine/render/render_system.hpp`'s three HUD passes. They are fixed
-  and sequential (panels, then images over panels, then text over both) and **only the panel
-  pass `stable_sort`s**. So a `UiText` is above a `UiPanel` unconditionally, whatever either
-  `order` says, and both fields are reflected, documented and inert. This is **why the lint
-  above compares panels only**: an earlier version compared all three and fired on the shipped
-  demo, whose `camera` entity carries `UiPanel{0}`, `UiImage{0}` and `UiText{1}` — a finding
-  **no button order could have silenced**, because those three do not agree with each other
-  either. The 🟢 quick win "Sort the HUD image pass by `UiImage::order`" is half of the fix;
-  the text pass needs the same treatment and is **not** currently tracked as a quick win.
-  Until both land, any cross-pass `order` comparison is meaningless.
+- ~~**The REAL `order` bug is pairwise and relative, not per-entity and absolute**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#the-real-order-bug-is-pairwise-and-relative-not-per-entity-and-absolute).
+- ~~**`UiImage::order` and `UiText::order` are ignored by the renderer entirely**~~ — FIXED 2026-10-11, see [record](../record/2026-10.md#uiimageorder-and-uitextorder-are-ignored-by-the-renderer-entirely).
 - **Combo boxes for enum-as-int fields, instead of a bare `DragInt`** — the explicit non-goal
   of the `field_int` slice, 2026-10-11. `UiPanel`/`UiText`/`UiImage`'s `anchor`, `UiImage`'s
   `fit_mode`, `ParticleEmitter`'s three easing curves and `AudioSource::attenuation_model` are
@@ -666,61 +424,15 @@ them as this list does.
   numbers. Each line is a genuinely different disagreement, so this is not a de-duplication
   failure. Debouncing during an active drag was considered and **declined**. The decision is
   also written into `studio/order_warnings.hpp` beside the code that causes it.
-- ~~**Three copies of the same anchor clamper**~~ — **FIXED 2026-10-12.** One
-  `mosaic::engine::ui::to_anchor` now lives in `engine/ui/ui_rect.hpp`, beside the `Anchor`
-  enum it clamps to, and all five call sites use it. Its upper bound is written against
-  `Anchor::BottomRight` rather than a literal `8`, so extending the enum needs no edit there
-  at all — which was the actual hazard, not the duplication. Original entry: `to_anchor` in
-  `engine/render/render_system.hpp`, `hierarchy_anchor` in `engine/ui/ui_hierarchy.hpp` and
-  `button_anchor` in `engine/ui/ui_button_rects.hpp` are the same four-line
-  `(a >= 0 && a <= 8) ? cast : TopLeft` in three files. Noticed 2026-10-12 while moving the
-  third one, and a **deliberate non-goal of that slice**: collapsing them is an unrelated
-  refactor touching the render system, and bundling it into a diagnostic diff is how a
-  reviewer loses track of which half to scrutinise. Pre-existing, correctness-safe (all three
-  are identical), cheap whenever someone wants it. **Depends on** nothing.
-- ~~**No end-to-end test that a conflicting pair actually misroutes a click**~~ — **CLOSED
-  2026-10-12**, the same night it was filed. `tests/unit/render/render_system_test.cpp`'s "a
-  conflicting pair really does misroute the click" builds one world with an inverted pair,
-  drives a real `PointerState` through press and release, asserts the `ScriptEvent` came from
-  the button with the higher `UiButton::order`, then renders the same world through
-  `FakeRenderDevice` and asserts the OTHER button's panel is the last quad in the batch —
-  so the one that answered is provably the one drawn underneath. Probed both ways: inverting
-  `topmost_hit`'s ordering and reversing the panel pass's sort each turn it red, so it holds
-  both mechanisms and not just one. Original entry: recorded
-  2026-10-12 as the one thing the pairwise check cannot prove about itself. It reports that
-  `UiButton::order` and `UiPanel::order` rank a pair differently; that this *causes* the wrong
-  button to receive the event rests on `topmost_hit`'s tests plus the panel pass's sort, each
-  covered separately but never together. A test that drives a real `PointerState` into a
-  conflicting pair and asserts which entity gets the `ScriptEvent` would close it. **Depends
-  on** nothing — `UiSystem` already takes an injected pointer, so it is headless; it was left
-  out only to keep the slice's diff about the check itself.
+- ~~**Three copies of the same anchor clamper**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#three-copies-of-the-same-anchor-clamper).
+- ~~**No end-to-end test that a conflicting pair actually misroutes a click**~~ — CLOSED 2026-10-12, see [record](../record/2026-10.md#no-end-to-end-test-that-a-conflicting-pair-actually-misroutes-a-click).
 - **Cross-entity overlap is still invisible to both order diagnostics** — restated
   2026-10-12 now that the pairwise check exists and *still* cannot see it. A button whose
   visual lives on a different entity is skipped whole by `find_order_conflicts`, because the
   ownership rule gives it no visual rank. Detecting it needs rect-overlap analysis between a
   button and panels it does not own, which is a different and much larger question than the
   pair comparison that shipped.
-- ~~**The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in
-  `mosaic run --window`**~~ — **FIXED 2026-10-12: the standalone runtime now matches the
-  editor.** The policy moved to `app/run/window_pointer.hpp` as a pure
-  `window_pointer_state(cursor_x, cursor_y, window_w, window_h, button_down)`, which is the
-  same split `studio/viewport.hpp` makes for the editor's provider and for the same stated
-  reason — the policy is the part worth testing and stays testable only if the GLFW calls
-  live at the call site. Presence is gated on the cursor being over the window, `down` is
-  gated on presence, and the edges are inclusive to match `topmost_hit`. **Two visible
-  consequences, both intended:** a cursor on the desktop no longer hovers an edge-anchored
-  button, and a drag off the window edge now ends as `drag_cancel` rather than a `drag_end`
-  carrying a clamped coordinate. Original entry: found by review 2026-10-12. `app/main.cpp`'s pointer lambda leaves
-  `inside` at its default `true` except for a null or minimised window, and clamps `x`/`y`
-  into `[0,1]`. GLFW keeps reporting the button pressed while the cursor is outside a focused
-  window, so dragging off the edge and releasing there gives `down` false with `inside` true →
-  a **`drag_end` carrying a clamped coordinate the user never pointed at**. That is exactly
-  the dishonesty the capture spec cites as its reason for omitting the position from
-  `drag_cancel` — but the reasoning only holds for the editor's provider, which gates `inside`
-  on `hovered`. **Deferred because the fix is a behaviour decision about the standalone
-  runtime** (should hover stop at the window edge there, as it does in the editor?) rather
-  than part of the slice that exposed it. Nothing is affected today: no shipped handler reads
-  a drag action.
+- ~~**The GLFW provider never reports `inside = false`, so `drag_cancel` is unreachable in `mosaic run --window`**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#the-glfw-provider-never-reports-inside--false-so-drag_cancel-is-unreachable-in-mosaic-run---window).
 - **`UiSystem`'s drag branch does not gate on `p.inside` while the release path does** —
   latent, found by review 2026-10-12. Unreachable with both shipped providers (the editor
   drops `down` off-panel; GLFW never drops `inside`), but a third provider reporting
@@ -728,13 +440,7 @@ them as this list does.
   `drag` at clamped coordinates forever and never reach `drag_cancel`. One `&& p.inside` makes
   the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
   effect; worth folding into whichever slice adds a third provider.
-- ~~**A press surviving a play-mode change emits a stale drag action**~~ — **FIXED
-  2026-10-18**, where this entry said it belonged: in the editor, which is the only
-  party that knows a transition happened. `UiSystem` gained
-  `reset_press_state()` (silent, and deliberately leaving hover alone), and
-  `editor.cpp` calls it edge-triggered on `is_playing()` changing. Three tests
-  cover it: the abandoned gesture emits nothing, `press_consumed()` stops
-  claiming the click, and hover is undisturbed. Original entry:
+- ~~**A press surviving a play-mode change emits a stale drag action**~~ — FIXED 2026-10-18, see [record](../record/2026-10.md#a-press-surviving-a-play-mode-change-emits-a-stale-drag-action).
 
 - **A press surviving a play-mode change emits a stale drag action** — found by review
   2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
@@ -820,27 +526,8 @@ them as this list does.
   to follow, not an invariant the data enforces. Deferred because nothing breaks today: the
   shipped lint reads only `UiPanel`, which on that entity genuinely is the button's visual.
   Worth revisiting before any feature leans harder on "the components on a button's entity".
-- ~~**`int` fields are read-only in the Inspector (no `field_int`)**~~ — **FIXED 2026-10-11**,
-  so the order lint's advice is now actionable in-editor: the field the warning names can be
-  dragged. Original entry: recorded 2026-10-11.
-  `ImGuiFieldVisitor` (`studio/inspector.hpp`) implements `field_float`, `field_string`,
-  `field_asset` and `field_readonly` only, so every `order`, `anchor` and `fit_mode` renders as
-  a label. **This makes the new lint's advice unactionable inside the editor**: a user reads
-  "UiButton order 7 but UiPanel order 0" in the Console and then has to go and edit the scene
-  file or write a script, because the field the warning names cannot be typed into. Cheap on
-  the existing visitor machinery — one `field_int` override plus a `DragInt` — and it is the
-  natural companion to the lint rather than part of it.
-- ~~**U7 image presentation** — aspect-preserving fit/fill, 9-slice scaling, texture
-  atlas sub-rects. Independent of everything else and the cheapest real group.~~
-  **SHIPPED 2026-10-10** — but only two of the three features. `UiImage` gained
-  `sub_rect_pos`/`sub_rect_size` (texture **pixels**, zero size = whole texture) and
-  `fit_mode` (Stretch/Fit/Fill), with all the arithmetic in one pure function,
-  `engine/ui/ui_fit.hpp`'s `resolve_image_quad`, tested with no world and no device.
-  `TextureCache` now keeps `{handle, width, height}` — it already loaded the `Image`
-  to create the texture and threw the dimensions away. `UiImagePush` went 32 → 48 and
-  `ui_image.vert` interpolates the UVs with the same `mix()` form `ui_text.vert` has
-  used for glyph sub-rects all along. **9-slice is still open** and still listed above;
-  its stated dependency — this slice's sub-rect UVs — now exists.
+- ~~**`int` fields are read-only in the Inspector (no `field_int`)**~~ — FIXED 2026-10-11, see [record](../record/2026-10.md#int-fields-are-read-only-in-the-inspector-no-field_int).
+- ~~**U7 image presentation — aspect-preserving fit/fill, 9-slice scaling, texture atlas sub-rects. Independent of everything else and the cheapest real group.**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#u7-image-presentation--aspect-preserving-fitfill-9-slice-scaling-texture-atlas-sub-rects-independent-of-everything-else-and-the-cheapest-real-group).
 - **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
   auto-layout. Needs nothing from the renderer.
 - **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
@@ -897,34 +584,7 @@ them as this list does.
   time a *dynamic* pass need shows up (conditional/reorderable passes,
   not just "one more fixed pass"), since that's the harder case direct
   submission genuinely doesn't scale to.
-- ~~**Shadows — v1 (directional-only, hard-edged, fixed-size ortho
-  frustum)**~~ — **SHIPPED 2026-09-21.** See `docs/project/next-steps.md`
-  for the full shipment entry (a real editor-pass-ordering bug found by
-  functional testing, not by review, and fixed with a ruling). The
-  upgrades below remain real, explicitly-deferred follow-ups, each its
-  own future slice, not silently folded in:
-  - **PCF / soft shadow filtering** — v1 ships hard-edged (single depth
-    sample) shadows deliberately, to prove the pipeline (light-space
-    matrix, depth pass, sampling) before adding filtering. A small,
-    separable follow-up (a few extra texture samples averaged in the
-    shader) once v1 is solid.
-  - **Point-light shadows (cubemap / 6-pass omnidirectional depth)** —
-    v1 is directional-light-only. Point-light shadows are a genuinely
-    different technique (cubemap rendering, not a single ortho
-    frustum), roughly doubling the scope of v1 — its own future slice.
-  - **Scene/camera-fitted (and eventually cascaded) shadow frustum** —
-    v1 uses a fixed-size orthographic box centered on the origin,
-    correct for the current demo/test scenes but not for scenes bigger
-    than that box or not centered near the origin. Fitting the frustum
-    to the live scene bounds (similar math to the existing
-    `entities_near`/`scene_bounds` MCP tool) or the camera's view
-    frustum, and eventually cascaded shadow maps for large open scenes,
-    are named, deliberate follow-ups, not built in v1.
-  - **Configurable shadow map resolution** — v1 fixes the shadow map's
-    resolution as an implementation constant, not a user- or
-    project-facing setting. Exposing it (likely alongside a future
-    quality/performance settings surface, not on its own) is a named
-    follow-up once there's a real place for such a setting to live.
+- ~~**Shadows — v1 (directional-only, hard-edged, fixed-size ortho frustum)**~~ — SHIPPED 2026-09-21, see [record](../record/2026-09.md#shadows--v1-directional-only-hard-edged-fixed-size-ortho-frustum).
 - **"Specular/PBR, spot lights" decomposed 2026-09-21** (confirmed with
   the user before brainstorming any of it): the current lighting model
   is Lambert diffuse only (no specular term at all), single directional
@@ -1650,17 +1310,7 @@ them as this list does.
   code. Deferred because nothing has asked for one of those yet. See
   `docs/superpowers/specs/2026-10-17-render-bloom-design.md`.
 
-- ~~**Retune the demo's particle, ribbon, decal and world-text colours**~~
-  — **DONE 2026-10-17**, after the human verification pass said yes. The
-  curve desaturates: the puffer's cyan went from 0.70 saturation to 0.46,
-  and the decal's warm tint from 0.40 to **0.16** — nearly grey, and
-  invisible against the white ground, which is why it could not be found
-  in the pass's own screenshots. The fountain's orange was worse than a
-  desaturation: ACES RAISES the green channel (0.5 -> 0.62) while lowering
-  red (1.0 -> 0.80), so it read yellow. Retuned by authoring ABOVE 1.0 and
-  letting the roll-off do the work — which is the headroom this slice
-  bought, used for the first time. Ribbons and world text have no entity
-  in the demo scene, so they were not retuned and remain unjudged.
+- ~~**Retune the demo's particle, ribbon, decal and world-text colours**~~ — DONE 2026-10-17, see [record](../record/2026-10.md#retune-the-demos-particle-ribbon-decal-and-world-text-colours).
 
 - **The particle fade curves hide the colour journey** — raised by the
   2026-10-17 verification pass: "the fading colour particles are staying
@@ -1673,42 +1323,9 @@ them as this list does.
   and the verification pass only authorised the palette. Depends on
   nothing; it is a judgement about how a particle should die.
 
-- ~~**No demo entity exercises bloom on ribbons or world text**~~ — **DONE
-  2026-10-21.** Two entities now: a scripted counter-orbiting "comet" whose
-  only visible part is a magenta `TrailRenderer` `{2.4, 0.12, 1.9}`, and a
-  static lime `WorldLabel` `{1.0, 2.85, 0.25}`. **Predicted on-screen colours**
-  (the Narkowicz ACES fit, checked first against the fountain's known
-  `{2.85, 0.30, 0.05}` -> `(0.95, 0.44, 0.04)`): ribbon head
-  `(0.93, 0.16, 0.91)`, label interior `(0.80, 0.95, 0.37)`, both before
-  bloom's halo and for the opaque core only (the ribbon tapers to nothing).
-  **Nobody has seen either yet**; these are arithmetic, not observation, and
-  the lime label on a light-grey lit ground is a low-contrast pairing that may
-  not read. The next human pass should judge both. **What the entry got wrong:**
-  it said "two entities and the existing retune arithmetic". The arithmetic
-  held, but a ribbon is a `TrailRenderer` (there is no standalone ribbon
-  component; `build_ribbon` is a function) and a trail only exists behind
-  something that MOVES, so the comet needed a third thing, a new orbit script
-  (`kRibbonOrbitScript`), and that script moved a fourth count assertion (the
-  scripted-object count 3 -> 4) beside the three entity counts 12 -> 14.
-  `bundle_test`'s `== 11` needed no change: it does not use
-  `build_default_scene`.
+- ~~**No demo entity exercises bloom on ribbons or world text**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#no-demo-entity-exercises-bloom-on-ribbons-or-world-text).
 
-- ~~**Demo props are placed against the world origin, not against the
-  surface they sit on**~~ — **DONE 2026-10-21** (the class; #265 had fixed
-  the decal). The test `nothing authored in the demo sits below the ground's
-  top face` loops over every non-ground entity that draws something (mesh,
-  decal, trail, world label, particle emitter) over the ground's footprint
-  and requires its origin at or above the top face, the ground being the
-  scene's only static `RigidBody`. **Ruling: the general test, not a
-  `place_on_surface` helper**, because it pins the class with no new API; a
-  helper can follow if a second case wants to PLACE rather than check.
-  **Probed:** burying the new comet, the new label, and the decal each turns
-  it red. Two things the entry did not predict: "props" needed a definition
-  (a test over only `MeshRenderer` would have missed the decal, the very
-  bug), and it compares ORIGINS, so the fountain and puffer emitters sit at
-  exactly `y = 0.5` and pass only because the check is `>=`. A prop whose
-  origin is above the face but whose extent dips below it is NOT caught;
-  every mesh here is centred, so that is not a live gap.
+- ~~**Demo props are placed against the world origin, not against the surface they sit on**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#demo-props-are-placed-against-the-world-origin-not-against-the-surface-they-sit-on).
 
 - **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem
   (human decision 2026-10-21).** The verification pass's verdict, verbatim: "The word GLOW is
@@ -1743,8 +1360,7 @@ them as this list does.
   work, explicitly tracked as deferred.
 - Template parameterization (setup wizard, prompted values) beyond
   verbatim copy.
-- ~~Remove now-unused `types` param from `create_project`~~ — **SHIPPED**
-  2026-09-20, ~40 call sites updated.
+- ~~**Remove now-unused `types` param from `create_project`**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#remove-now-unused-types-param-from-create_project).
 
 ## Editor / Studio
 
@@ -1832,26 +1448,7 @@ them as this list does.
   viewport-to-scene transform to carry two cameras. Worth doing eventually;
   worth knowing it has a cost beyond the camera controls.
 
-- ~~**The editor forwards no pointer input to the scene, so nothing in it
-  can be clicked**~~ — **SHIPPED 2026-10-07**, play-mode only. `ViewportPanel`
-  records the raw ImGui facts and computes the `PointerState`; `editor.cpp`
-  hands the same provider to `UiSystem` (through `setup_runtime`'s `pointer`
-  parameter, which it had been leaving defaulted) and to `ClickNudgeSystem`
-  (through `register_windowed_systems`, which only `main.cpp` had ever
-  called). **Three things the original analysis below did not anticipate.**
-  (1) The panel-relative coordinate transform *already existed* in
-  `draw_viewport`, for edit-mode click-to-select — which is what made
-  play-mode-only cheap, and which now has to be gated on `!is_playing()` or
-  one click both drives the pointer and moves the selection. That gate is a
-  behaviour change to shipped code: clicking the viewport no longer selects
-  while playing. (2) `ClickNudgeSystem` fires on a press **edge**, so gating
-  `down` on play mode *synthesises a click* — hold the button in edit mode,
-  press Play, and `down` flips false→true with no physical press. The panel
-  latches presses that began while ineligible and stays suppressed until
-  release. (3) The `aspect` provider must be the viewport **panel's**, not the
-  window's; the scene renders into a panel-sized offscreen target, so a
-  window-derived aspect diverges the nudge ray from the clicked image.
-  Original analysis follows.
+- ~~**The editor forwards no pointer input to the scene, so nothing in it can be clicked**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#the-editor-forwards-no-pointer-input-to-the-scene-so-nothing-in-it-can-be-clicked).
 - **The editor forwards no pointer input to the scene, so nothing in it
   can be clicked** — found 2026-10-06 while visually verifying IBL in the
   editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
@@ -1885,36 +1482,9 @@ them as this list does.
   Depends on nothing technically; it needs the play-mode-versus-edit-mode
   answer first.
 
-- ~~**In-editor "File → Reload"**~~ — **SHIPPED** 2026-09-20. Turned out
-  to need two new primitives that didn't exist before: `World::clear()`
-  (synchronous, no-system-stepping entity wipe -- `destroy_entity()`
-  alone is deferred to the next `tick()`) and `CommandStack::clear()`.
-  `reload_scene_from_disk()` (`app/run/scene_load.hpp`) validates via a
-  throwaway scratch `World` before touching the live one. A real bug
-  (confirmation popup's `OpenPopup`/`BeginPopupModal` in mismatched
-  ImGui window contexts -- a well-documented pitfall) was caught by
-  review and fixed.
-- ~~**Studio has zero persisted preferences**~~ — window size/panel
-  layout **SHIPPED** 2026-09-20 (`app/studio_prefs.hpp`,
-  `~/.config/mosaic/studio.toml` + `studio_layout.ini`); **theme
-  SHIPPED** 2026-09-21 (PR #196) -- a `UiTheme` enum on
-  `RenderDevice` (Dark/Light/Classic, ImGui's own built-ins), a
-  live-switching "Theme" menu, and persistence alongside window
-  size; **recent-projects SHIPPED** 2026-09-21 (PR #197) -- a
-  persisted, capped, deduped `recent_projects` list, a dismissible
-  startup picker window, and a full-process relaunch (`readlink`
-  + `execl`) to reopen a chosen project (no in-process
-  project-switching mechanism exists, correctly left as its own
-  future design rather than half-built here). **All three slices of
-  this item are now shipped.**
-- ~~**Plugin discovery doesn't follow the project dir**, only CWD~~ —
-  **SHIPPED** 2026-09-20. `resolve_plugins_dir()`
-  (`app/project/project_io.hpp`) derives `<project_dir>/plugins` from
-  the CLI's positional argument; `StudioApp` uses it instead of a bare
-  `"plugins"` literal. Verified via the real editor binary launched
-  from an unrelated CWD. Scoped to Studio's `PluginHost` specifically
-  -- `import_plugins` (used by `mosaic run`) already resolved
-  correctly and needed no change.
+- ~~**In-editor "File → Reload"**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#in-editor-file--reload).
+- ~~**Studio has zero persisted preferences**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#studio-has-zero-persisted-preferences).
+- ~~**Plugin discovery doesn't follow the project dir, only CWD**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#plugin-discovery-doesnt-follow-the-project-dir-only-cwd).
 
 ## Scripting
 
@@ -2083,23 +1653,7 @@ anything shipped; they are capabilities that were never built.
   removed while `RigidBody` stays -- the body currently persists with the shape
   it was created with, and arguably should be recreated instead, which makes it
   the same question rather than a separate one.
-- ~~**Destroying an entity never destroys its physics body**~~ — **SHIPPED
-  2026-10-02.** `PhysicsBackend` gained a pure-virtual `destroy_body`, and
-  `PhysicsSystem::update()` gained a reap as step 0 inside the existing lock:
-  any entry in `bodies_` whose `RigidBody` has vanished loses its body and its
-  three map entries. The predicate is "`RigidBody` is gone" rather than "the
-  entity is invalid", which covers `destroy_entity` committing, `World::clear()`
-  (which bypasses the deferred queue and runs no systems), and removing
-  `RigidBody` from a living entity -- all three with one check. The Box3D side
-  was the bulk of it: `handle == index + 1` in an insert-only vector, so a
-  destroyed slot is tombstoned with `b3_nullBodyId` and all four handle-taking
-  methods now route through one `live_body()` guard, where three of them
-  previously checked only the range. Evidence: with the backend
-  call dropped but the maps still erased, the call-counting tests fail merely
-  because the call is absent while the stacked-boxes test fails
-  `1.99934 < 1.49934` -- the upper box still propped up by a ghost. That
-  asymmetry is why a positional test was written instead of a call-counting one.
-  Original entry follows.
+- ~~**Destroying an entity never destroys its physics body**~~ — SHIPPED 2026-10-02, see [record](../record/2026-10.md#destroying-an-entity-never-destroys-its-physics-body).
 
 - **Destroying an entity never destroys its physics body.** Found 2026-10-01
   while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
@@ -2132,35 +1686,7 @@ anything shipped; they are capabilities that were never built.
   own binding-surface design (how a script names an entity, what a
   raycast result looks like in Python) and is a bigger question than the
   C++ primitive it would wrap. Depends on the impulse API existing first.
-- ~~**The `[script]` SIGSEGV**~~ — **ROOT-CAUSED AND FIXED 2026-10-03. It was
-  never a flake, and the cause was written in our own comment.**
-  `ensure_interpreter` noted that after init "the calling (main) thread holds
-  the GIL ... no explicit GIL handoff" — so whoever won the `std::call_once`
-  race kept the GIL for the process. The threaded script test passed alone
-  because the `ScriptWorker` thread won and held it; it died after any other
-  engine had been created on the main thread, because the worker then called
-  `PyDict_New()` with no GIL. `ctest` never saw it because
-  `catch_discover_tests` gives every `TEST_CASE` its own process, so the worker
-  was always first — **the gate was green and blind at the same time.**
-  Fixed by making the invariant real: no thread owns the GIL implicitly, and
-  every entry into CPython acquires. Four things that were not obvious going
-  in, each of which cost a failing-gate iteration: `globals_` had to become a
-  `std::optional<py::dict>` in both engines, because a `py::dict` *member* is
-  built before the constructor body and destroyed after the destructor body,
-  leaving no scope in which to guard `PyDict_New`; `restricted_builtins`'
-  function-local static `ProxyClasses` had to start leaking, because
-  `__cxa_atexit` destroys it with no GIL and `dec_ref` aborts -- and that abort is a
-  *debug* symptom only (`PYBIND11_ASSERT_GIL_HELD_INCREF_DECREF` is defined when
-  `NDEBUG` is unset), so in a Release build the same path is a silent unguarded
-  `Py_XDECREF`: the leak is **more** necessary there, not less; `trace_fn_` had
-  to be emptied inside the guarded destructor, since a `py::` member outlives
-  the body; and every direct pybind11 user outside the engines — the docs
-  generator and four test files that build their own `py::dict` — had to
-  acquire too. Evidence: `[script]` in one process is 5/5 clean where it was
-  RC=139 every time, the whole binary now runs in a single process (1081
-  cases, 31577 assertions) which the crash made impossible, and removing the
-  release makes the new tests **deadlock** rather than crash.
-  The entry that called this "unexplained" follows for context.
+- ~~**The `[script]` SIGSEGV**~~ — FIXED 2026-10-03, see [record](../record/2026-10.md#the-script-sigsegv).
 
 - **The `[script]` SIGSEGV now has a deterministic, one-command reproduction,
   and `ctest` structurally cannot see it.** Found 2026-10-03 while guarding
@@ -2193,20 +1719,7 @@ anything shipped; they are capabilities that were never built.
   fix. But it is no longer "cannot reproduce" -- the command above is the
   starting point, and `script_system_test.cpp:195` is the assertion that goes
   first.
-- ~~**`raycast()`'s script binding indexes its sequence arguments without a
-  length check**~~ — **SHIPPED 2026-10-03.** It now uses the same `to_vec3`
-  helper `apply_impulse` has used since #207, so a short sequence or a
-  non-numeric element yields the miss dict the call already returns when no
-  host callback is set, rather than raising out of pybind11 and aborting the
-  tick. The host is deliberately not called at all on malformed input --
-  zero-filling the missing components would hand the simulation a ray the
-  script never asked for -- which the tests pin with a call counter. On the
-  behaviour-change worry recorded below: what goes away is an *undocumented*
-  exception. `raycast`'s `py::doc` promised only "hit data as a dictionary" and
-  never promised to raise; it now states the miss-on-malformed rule explicitly.
-  Each of the three new sections asserts both the miss AND that the script
-  keeps running, and all three fail under the mutation that restores unguarded
-  indexing. Original entry follows.
+- ~~**`raycast()`'s script binding indexes its sequence arguments without a length check**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#raycasts-script-binding-indexes-its-sequence-arguments-without-a-length-check).
 
 - **`raycast()`'s script binding indexes its sequence arguments without a
   length check.** `python_script_engine.cpp`'s `raycast` reads
@@ -2216,42 +1729,7 @@ anything shipped; they are capabilities that were never built.
   guards its own reads). Deferred: pre-existing, and tightening it would
   change behaviour a script might already depend on, so it wants its own
   change rather than riding along silently.
-- ~~**Five small `ScriptWorker` tidy-ups found in review 2026-09-30**~~ —
-  **ADDRESSED 2026-10-04, and two of the five were WRONG.** Checked each against
-  the code rather than taking the entry at its word:
-
-  **(a) "`host_` is now write-only" — FALSE.** It is read at
-  `script_worker.cpp:19`, inside the recording `apply_impulse` lambda
-  (`if (!host_.apply_impulse) { return false; }`). There is a live reader; the
-  member is not dead. No change made.
-
-  **(d) "`execute()` clears `pending_impulses_` after `std::move`-ing it, a
-  no-op" — FALSE.** A moved-from `std::vector` is valid but *unspecified*, so the
-  `clear()` guarantees empty instead of relying on an implementation detail. It is
-  defensive and correct. No change made.
-
-  **(b) "`has_pending()` has no callers" — true. Removed.** Grep found only its
-  declaration and definition; public API with zero consumers and its correctness
-  verified by nothing. The gate proved nothing used it.
-
-  **(c) "`dispatch()` clears `result_ready_` unconditionally" — true, and now
-  documented with two measurements rather than a vague comment.** The clear is
-  deliberate, not vestigial: without it a `collect()` after two dispatches would
-  return the STALE result while the newer job was still pending, which is worse
-  than losing the older one. Two things were measured and are recorded in the
-  header: the drop is reachable only by a race between `dispatch()` and the worker
-  dequeuing, which came out **9 passes / 11 failures over 20 runs** — so a test of
-  it would be flaky rather than load-bearing; and **removing the clear entirely
-  leaves the whole suite green (1081/1081)**, so nothing pins it today. The
-  precondition (collect before dispatch) is now stated as the contract.
-
-  **(e)** stands as recorded: a script-spawned Python thread calling
-  `apply_impulse` after `on_update` returns would race `execute()`'s tail, and
-  `SnapshotContext` has the identical exposure, so it is not a new hazard class.
-
-  Lesson worth keeping: this entry had been carried for five days with two
-  incorrect claims in it. A recorded finding is a hypothesis until someone
-  re-checks it against the code.
+- ~~**Five small `ScriptWorker` tidy-ups found in review 2026-09-30**~~ — ADDRESSED 2026-10-04, see [record](../record/2026-10.md#five-small-scriptworker-tidy-ups-found-in-review-2026-09-30).
 - **`apply_impulse`'s return value is optimistic for non-scripted targets.**
   **DOCUMENTED 2026-10-04** at the binding's `py::doc` rather than changed -- the
   behaviour below is still the right call, it was simply invisible to a script author
@@ -2287,19 +1765,7 @@ anything shipped; they are capabilities that were never built.
   agreement forever, whose failure mode is silent divergence from the real
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
-- ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding
-  `backend_mutex_`**~~ — **SHIPPED 2026-10-01.** `update()` now maps contacts
-  into a local vector inside a braced block holding the lock, and emits after
-  the block closes. The extent is delimited lexically on purpose: a `unique_lock`
-  plus `unlock()` would have been a smaller diff but would leave the locked
-  region ending at an unmarked statement, so a later edit adding a call-out above
-  it would reintroduce exactly this bug. The pose write-back already preceded
-  emission, so handler-visible ordering did not change -- the entry below, and the
-  #209 summary it came from, were wrong to claim it would. Evidence: both new
-  re-entrancy tests fail on a 3000 ms watchdog with the emit back under the lock
-  and pass with it outside; the watchdog runs the tick on a detached thread so the
-  failure is a named assertion in seconds rather than a 25-minute ctest stall.
-  Original entry follows.
+- ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding `backend_mutex_`**~~ — SHIPPED 2026-10-01, see [record](../record/2026-10.md#physicssystemupdate-emits-contactevent-synchronously-while-holding-backend_mutex_).
 
 - **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
   holding `backend_mutex_` — a lock-ordering constraint, not just a
@@ -2325,28 +1791,7 @@ anything shipped; they are capabilities that were never built.
   observe a contact relative to the pose write-back — a behaviour decision
   worth its own slice. A recursive mutex would hide the re-entrant hang
   without making the read correct, and would do nothing about the ordering.
-- ~~**A spurious watchdog trip in the contact-reentry tests degrades into a
-  use-after-free**~~ — **SHIPPED 2026-10-03.** The World and the state the
-  handlers write are now heap-owned (`std::shared_ptr<World>` plus a `Probe`
-  struct), and `tick_with_watchdog` captures both by value, so a thread that
-  outlives the `TEST_CASE` keeps what it touches alive and they leak on a trip --
-  self-healingly for a spurious slow-runner trip (the thread finishes late and
-  drops its references), but for the rest of the test *process* on a genuine
-  deadlock trip, since Catch2 keeps running later cases after a failed
-  `REQUIRE`. Both are bounded by process exit, and `backend_mutex_` is
-  per-instance, so a leaked parked thread cannot block the next case. **The entry below understated the hazard:** heap-allocating the World
-  alone would not have fixed it, because the subscriber lambdas also captured
-  `handler_calls`/`hit_the_box`/`pushed`/`box` by reference -- all `TEST_CASE`
-  stack locals, reachable from inside the World's own EventBus. The ordering
-  that makes the fix correct: `Probe` deliberately does NOT own the World, since
-  the EventBus holds a lambda owning the Probe, and a Probe owning the World
-  back would close a reference cycle and leak on the *passing* path too; the
-  handlers hold World and PhysicsSystem as raw non-owning pointers instead.
-  Measured both ways with a 50 ms watchdog against 4,000,000 ticks, so the
-  thread is certainly still running when the case unwinds: before, RC=134
-  (SIGABRT) and RC=139 (SIGSEGV), printing the assertion and *then* dying on a
-  signal; after, **RC=1 five times out of five** with the clean named failure.
-  Original entry follows.
+- ~~**A spurious watchdog trip in the contact-reentry tests degrades into a use-after-free**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#a-spurious-watchdog-trip-in-the-contact-reentry-tests-degrades-into-a-use-after-free).
 
 - **A spurious watchdog trip in the contact-reentry tests degrades into a
   use-after-free instead of the named failure it is designed to produce.**
@@ -2368,70 +1813,10 @@ anything shipped; they are capabilities that were never built.
   affects a failure path that the four-orders-of-magnitude timing margin makes
   very unlikely, and leaking a `World` on purpose wants its own justification
   in the test's comments rather than arriving as a fix-round edit.
-- ~~**No ctest `TIMEOUT` property anywhere in the suite.**~~ — **SHIPPED 2026-10-07**
-  as `catch_discover_tests(mosaic_unit_tests PROPERTIES TIMEOUT 60)`. The value is
-  measured, not chosen by taste: over a full run the slowest single case is **1.11s**
-  (`PluginFileWatcher.poll detects a modified file's mtime`, which waits out filesystem
-  mtime granularity), the next tier is 0.40s (the IBL furnace cases baking a 64x64 BRDF
-  LUT), and the whole suite is 24s — so 60s is ~54x the slowest case and still ~10x
-  clear if CI runs 5x slower than this machine, while one case reaching 60s in a 24s
-  suite is unambiguously wrong rather than merely slow. Verified with
-  `ctest --show-only=json-v1`: all 1158 discovered tests carry `TIMEOUT 60.0`, rather
-  than trusting that the CMake call did what its docs say. It does **not** replace the
-  in-test watchdogs, which give a named assertion in seconds and work when running the
-  binary directly; it is the backstop for the next hang nobody anticipated. Original
-  entry follows.
-- ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is
-  flaky on CI, and the flakiness is in the test's design.**~~ — **FIXED 2026-10-09**,
-  in the same PR that recorded it. The case ran 200 main-thread ticks, set `stop`,
-  joined the reader thread, and only *then* asserted `REQUIRE(hits.load() > 0)`.
-  Nothing synchronised the two, so on a **2-core** GitHub runner with the main thread
-  busy stepping box3d the reader could be starved for the entire run and `hits` stayed
-  0 — failing a test whose actual claims (no deadlock, no crash, the ray hits) had all
-  been met. Observed failing 2026-10-09 on a **docs-only** PR that changed no code, and
-  **not reproducible on a 20-core machine in 35 runs**, including under deliberate CPU
-  contention — which is the whole story: the reader always gets a core here and may get
-  none there. **The fix removes the dependency on the scheduler rather than widening a
-  tolerance:** the main thread now waits (bounded, 5s, uncontended so it completes in
-  microseconds) for the reader to land its first hit *before* the tick loop, so
-  `hits > 0` is established deterministically; the concurrent phase that follows asserts
-  nothing a scheduler can zero out — reaching the join without a deadlock or crash *is*
-  the claim; and the ray's geometry is re-asserted afterwards **from the main thread**,
-  which cannot be starved. The 5s ceiling exists so a genuine failure reports instead of
-  hanging, and its message distinguishes "the reader was never scheduled" from "raycast
-  from a non-main thread returns no hit".
-- ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by
-  name.**~~ — **WITHDRAWN 2026-10-09: the premise was wrong, and the count was wrong.**
-  There are **89**, not nine (the original count came from grepping four files), and
-  **they are not broken.** `CatchAddTests.cmake` escapes commas when it generates each
-  `add_test`, which the generated
-  `build/debug/tests/mosaic_unit_tests-*_tests.cmake` shows directly:
-  `add_test( [==[... (0,0,0,1)]==] ... [==[... (0\,0\,0\,1)]==] )`. So every one of
-  them runs correctly under `ctest`, and under a manual invocation that escapes the
-  comma, and under `ctest -R`. Verified both ways 2026-10-09.
-  **The defect was in my own tooling, not in the test names.** Catch2 treats a comma in
-  a name filter as a test-spec separator, so the *unescaped* per-name invocation used by
-  mutation-probe scripts matched nothing and exited non-zero — which the scripts read as
-  a failing test. That cost a full probe round on the multi-scatter slice and two
-  false-red columns on the exposure slice. The fix is to escape the comma (or filter by
-  tag) in probe scripts, which is now recorded, and **not** to rename 89 well-written
-  test names to work around it. Acting on the original entry would have been pure churn
-  against a non-problem.
-  **What survives as real:** a leading `--` and an unbalanced `[` in a `TEST_CASE` name
-  genuinely break ctest discovery, and those two are worth a guard — see the lint entry
-  below.
-- ~~**A guard against `TEST_CASE` names that break ctest discovery.**~~ — **SHIPPED
-  2026-10-09** as `tools/ci/check_test_case_names.py`, wired into
-  `.githooks/pre-commit` and CI alongside the dependency lint, with 12 unit tests of
-  its own. It rejects exactly two things, both silent when violated — the suite still
-  builds and the damage appears as tests that *do not exist* rather than tests that
-  fail: a name beginning with `--`, which ctest parses as a flag, and a name with an
-  unbalanced `[`, which breaks `CatchAddTests.cmake`'s tag parsing. **The suite is
-  currently clean, so this is a guard and not a cleanup** — it exists because both
-  traps have cost this project real time before, and neither announces itself.
-  **It deliberately does NOT reject commas,** and that non-rule has its own unit test
-  so nobody "completes" the lint by adding one: `CatchAddTests.cmake` escapes commas
-  when generating `add_test`, so comma-containing names run fine under ctest.
+- ~~**No ctest `TIMEOUT` property anywhere in the suite.**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#no-ctest-timeout-property-anywhere-in-the-suite).
+- ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is flaky on CI, and the flakiness is in the test's design.**~~ — FIXED 2026-10-09, see [record](../record/2026-10.md#physicssystemraycast-is-callable-from-another-thread-while-update-runs-is-flaky-on-ci-and-the-flakiness-is-in-the-tests-design).
+- ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by name.**~~ — WITHDRAWN 2026-10-09, see [record](../record/2026-10.md#nine-existing-test_case-names-contain-commas-so-none-of-them-can-be-run-by-name).
+- ~~**A guard against `TEST_CASE` names that break ctest discovery.**~~ — SHIPPED 2026-10-09, see [record](../record/2026-10.md#a-guard-against-test_case-names-that-break-ctest-discovery).
 - **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
   a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
   calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
@@ -2490,20 +1875,7 @@ anything shipped; they are capabilities that were never built.
   Deferred 2026-09-30 as speculative: there is no measured contention, and
   a finer-grained lock is the classic way to turn a correct coarse lock
   into a subtly wrong fine one.
-- ~~**`raycast()` still runs off the script-worker thread**~~ — **SHIPPED
-  2026-09-30.** Closed with a `mutable std::mutex` on `PhysicsSystem`, taken by
-  `update()`, `raycast()`, `apply_impulse()` **and** `has_body()`. The lock
-  protects two things, not one: the seven `backend_` call sites, and the
-  `bodies_`/`handle_to_entity_` maps that `update()` writes while the other
-  three read them — so `has_body()` needs it despite never touching the
-  backend, and `apply_impulse()` needs it despite being main-thread-only
-  (it runs from `ScriptSystem::update_threaded`'s replay, *outside*
-  `update()`). The entry below guessed this needed the same buffering/snapshot
-  design as the impulse work; it did not — blocking a worker raycast for the
-  duration of one physics update is bounded and was the user's call. Evidence:
-  the new concurrent smoke test **segfaults 3/3 runs** without the lock, and a
-  dedicated overlap-detecting fake backend **fails 5/5 runs** when the
-  `lock_guard` is removed from `raycast()` alone. Original entry follows.
+- ~~**`raycast()` still runs off the script-worker thread**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#raycast-still-runs-off-the-script-worker-thread).
 
 - **`raycast()` still runs off the script-worker thread.** The
   `--script-thread` path binds the same `ScriptHost` into worker-thread
@@ -2525,13 +1897,7 @@ anything shipped; they are capabilities that were never built.
   unproven: removing it fails nothing, because the only invalid-id test uses
   an id that also fails `has_body`. A test that destroys a bodied entity and
   pushes it in the same tick would make it load-bearing.
-- ~~**Script-thread impulses are disabled, not buffered**~~ — **SHIPPED
-  2026-09-30.** Impulses are now recorded by `ScriptWorker` against the job
-  snapshot and replayed on the main thread through the neutral host callback,
-  so the same script works on both paths with the one-tick lag the threaded
-  path already has for component writes. The `!script_thread` guard is gone.
-  `raycast`'s off-thread read is unchanged and still tracked below. Original
-  entry follows for context.
+- ~~**Script-thread impulses are disabled, not buffered**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#script-thread-impulses-are-disabled-not-buffered).
 
 - **Script-thread impulses are disabled, not buffered.** On the
   `--script-thread` path, `on_update` runs on a worker thread while the main
@@ -2547,26 +1913,7 @@ anything shipped; they are capabilities that were never built.
   main thread -- which needs a design decision about ordering against the
   physics step. Note `raycast` still runs off-thread on that path; it is a
   read and pre-existing, but it is the same boundary.
-- ~~**A dict passed to `apply_impulse` raises instead of returning `False`**~~ —
-  **SHIPPED 2026-10-04, for `raycast` too.** `to_vec3` now takes a `py::handle` and
-  checks sequence-ness itself, and both bindings take `py::object` instead of
-  `py::sequence`. The signature was the whole problem: with `py::sequence` there,
-  pybind11's *dispatcher* rejected a non-sequence before the binding body ran, so the
-  guard the spec relied on never got a chance. A dict, an int and `None` now all
-  return `False`/a miss without aborting the tick.
-  **Taken wider than recorded, deliberately:** the entry scoped this to
-  `apply_impulse`, but #214 had just made `raycast` degrade for malformations *within*
-  a sequence, so fixing only one would have left a dict returning `False` from one
-  binding and raising from the other -- a new inconsistency rather than a closed one.
-  Also documented at both surfaces, including the one imprecision that stays:
-  `apply_impulse` under `--script-thread` returns `True` meaning "accepted for replay",
-  not "a body was pushed", since the worker can only judge entities in its own job
-  snapshot. That was a deliberate 2026-09-30 choice and remains so -- it was just
-  undocumented at the binding. One behaviour is pinned as a two-layer guard rather than
-  one: `str` passes `PySequence_Check`, so a string falls through to the element casts
-  and fails there, which the tests now cover so the layers stay honest. Mutation:
-  restoring `py::sequence` in either signature fails that binding's cases (3 and 4
-  sections respectively). Original entry follows.
+- ~~**A dict passed to `apply_impulse` raises instead of returning `False`**~~ — SHIPPED 2026-10-04, see [record](../record/2026-10.md#a-dict-passed-to-apply_impulse-raises-instead-of-returning-false).
 
 - **A dict passed to `apply_impulse` raises instead of returning `False`.**
   The spec says a malformed argument returns `False` rather than raising, but
@@ -2635,18 +1982,7 @@ anything shipped; they are capabilities that were never built.
   system becomes a candidate to run concurrently with `PhysicsSystem`. The fix
   is two `reads<>()` lines, but it should land with whatever actually consumes
   the access sets, so the declaration and its enforcement are reviewed together.
-- ~~**`app/main.cpp`'s system wiring is untestable**~~ — **SHIPPED 2026-09-29.**
-  `app/run/windowed_systems.hpp`'s `register_windowed_systems()` now owns the
-  conditional registration, and tests assert what is registered under which
-  condition. Investigation narrowed the problem first: `setup_runtime` was
-  already a testable seam with five test callers registering eleven systems,
-  and the dead feature had simply been wired *outside* it. Only conditional
-  registration carries this risk — an unconditional one cannot silently
-  vanish — so `TransformSystem` stayed where it is. Known limit, stated in the
-  header: this makes the registration decision testable but cannot verify the
-  caller passes the right condition; `main()` therefore passes the parsed CLI
-  flag straight through with no intermediate that can go stale. Original entry
-  follows for context.
+- ~~**`app/main.cpp`'s system wiring is untestable**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#appmaincpps-system-wiring-is-untestable).
 
 - **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
   dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
@@ -2672,17 +2008,7 @@ anything shipped; they are capabilities that were never built.
   fix-round edit. If an explicit active-camera policy is ever added and only one
   site is updated, the nudge would push along a ray from the wrong eye while
   picking still used the right one.
-- ~~**Static bodies cannot be created rotated**~~ — **SHIPPED 2026-09-29.**
-  `BodyDef` gained a `rotation` field, passed through from the entity's
-  `Transform` and into `b3BodyDef::rotation` (which already existed and was
-  simply never wired). Investigation found this was **two** live bugs, not the
-  one recorded: a rotated *static* body kept its Transform rotation while its
-  collider stayed axis-aligned, and a rotated *dynamic* body had its authored
-  rotation **overwritten with identity by the pose write-back on the first
-  tick** — visibly flattening itself the instant physics started. Nothing
-  pinned the old behavior (no test used a non-identity rotation on a physics
-  body, and no `BodyDef{...}` aggregate-init sites existed), so the fix was a
-  clean addition. Original entry follows for context.
+- ~~**Static bodies cannot be created rotated**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#static-bodies-cannot-be-created-rotated).
 
 - **Static bodies cannot be created rotated.** `BodyDef` carries
   `{type, position, shape, density}` — no rotation — so `create_body`
@@ -2700,27 +2026,8 @@ anything shipped; they are capabilities that were never built.
 
 ## Tech debt
 
-- ~~**Issue #25 — Component TypeID densification**~~ — **SHIPPED**
-  2026-09-20. `storages_` now indexed by a new, purely-internal dense
-  slot (`detail::component_storage_slot<T>()`) instead of the shared
-  `type_id<T>()` -- `ComponentTypeID` itself deliberately untouched,
-  avoiding a reintroduction of the earlier "#9 identity drift" bug.
-- ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ —
-  **SHIPPED 2026-09-30.** All eight now call `start(0)` and ask the kernel for a
-  free ephemeral port. `start(0)` was already possible; what was missing was any
-  way to learn the kernel's choice, so `LiveLinkServer` gained
-  `port()` (via `getsockname()`, reset to 0 by `stop()`). Production is
-  unchanged: `studio_app` still calls `start(kDefaultLiveLinkPort)` and `port()`
-  returns exactly that. The already-bound-port case got *stronger* rather than
-  merely portable — it now binds a port it **knows** is taken
-  (`server1.port()`) instead of hoping a hard-coded number is free.
-  The mutation probe turned up a second defect worth recording: `TestClient`
-  ignored `connect()`'s return value, and `send_text()` on a never-connected
-  socket raises **SIGPIPE**, killing the whole test binary as a bare exit 141
-  with no named assertion — which is exactly how the original port collision
-  would have presented on CI. With `connected()` asserted, removing
-  `getsockname()` now fails **7 named assertions across 7 cases**. Original
-  entry follows.
+- ~~**Issue #25 — Component TypeID densification**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#issue-25--component-typeid-densification).
+- ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#livelinkserver-tests-hard-code-listen-ports-and-one-flaked-on-ci).
 
 - **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
   `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
@@ -2745,30 +2052,7 @@ anything shipped; they are capabilities that were never built.
   interface change on the UDP side is the difference between two slices, and the
   UDP tests have not actually flaked yet where the LiveLink one has. Depends on
   nothing; pick it up if a net test ever fails on CI.
-- ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ —
-  **ROOT-CAUSED AND FIXED 2026-09-30. It was never a flake.**
-  `ScriptWorker::run()` cleared `pending_` when a job was dequeued but set
-  `result_ready_` only after `execute()` returned — and `execute()` runs
-  *unlocked*, for as long as starting Python and compiling scripts takes. In
-  that window both flags were false, so `collect()`'s early-out
-  (`if (!pending_ && !result_ready_) return {};`) could not distinguish "job
-  executing right now" from "nothing was ever dispatched" and silently
-  returned an empty result, dropping that tick's writes. Fixed by adding an
-  `executing_` flag covering the window, so `collect()` waits for an in-flight
-  job instead of skipping it. Measured: the headline test went from **2/12 to
-  12/12**, the other from flaky to 12/12, and the full suite is green with **no
-  `-E` exclusions**, which have accordingly been removed from the CI gate.
-  **The old entry below understated it as "rare/near-impossible to reproduce
-  locally"; it actually failed ~80% of the time locally.** That mischaracterisation
-  is why a real race sat behind a CI exclusion for nine days — worth remembering
-  the next time something is labelled a flake.
-  **One caveat, stated rather than buried:** the original entry recorded TWO
-  failure modes, and this fix explains only one. The SIGSEGV under full-suite
-  ordering, attributed to embedded-Python interpreter init/teardown across
-  threads, is untouched by an `executing_` flag and remains unexplained. It has
-  not reproduced since, and is now gated by CI rather than excluded from it --
-  but if a segfault returns, this is the thread to pull.
-  Original entry follows.
+- ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ — FIXED 2026-09-30, see [record](../record/2026-09.md#embedded-python-worker-thread-flakiness-scriptsystemscriptworker).
 
 - **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
   — real, currently un-root-caused. Two tests --
@@ -2860,29 +2144,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
   fan-out can, for cold and wide-header builds alike. Different kind of work.
-- ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~
-  — **FIXED and ROOT-CAUSED 2026-10-21.**
-  `the default scene's HUD underlay image draws beneath the checker`
-  (`tests/unit/app/demo_scene_test.cpp`) was the only case in the suite that
-  renders a frame, and `setup_runtime` registers the demo environment as a lazy
-  asset whose loader bakes the full-size IBL products (equirect -> 512 cubemap,
-  irradiance, prefiltered chain) on the FIRST FRAME with a device, plus the BRDF
-  LUT factory in the same branch. Fix: the case now calls
-  `runtime.render_system->set_environment_asset({})` (an existing public
-  setter) before rendering; its claim, draws and assertions are unchanged, and
-  there is no production change. **Measured, local, 20 cores, debug:** 14.2 s
-  -> 0.17 s under `ctest -j20`; the suite's new longest case is
-  `PluginFileWatcher.poll detects a modified file's mtime` at 1.11 s. **Probed:** deleting the image pass's
-  `stable_sort`, flipping its comparator, and moving the underlay to
-  `order = 1` each turn the case RED both before and after the fix.
-  **What this entry got wrong:** it said the cause was "not yet diagnosed, so
-  the effort is a guess", and guessed "`render()` on the default scene in a
-  debug build" and "test or render-path work"; the cause was a known, documented
-  lazy bake that only this case forces, and the fix was a one-line test change.
-  Its "7 ms" for sibling cases was also off: the nearest sibling that calls the
-  same `setup_runtime` takes 0.18 s. No other case in the suite pays the bake
-  (the full-suite junit has nothing else above 1.2 s). The parallel CI step's
-  prediction is in `docs/project/next-steps.md`.
+- ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~ — FIXED 2026-10-21, see [record](../record/2026-10.md#the-default-scene-hud-underlay-case-takes-165-s-locally-and-234-s-on-ci).
 - **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
   The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
   ephemeral range (34001-34006 -> 24101-24106) in the `ctest -j` slice**, because a hard-coded port
@@ -2946,8 +2208,8 @@ re-reading the same source docs:
 
 | Item | Why it is a quick win |
 |---|---|
-| ~~**Exposure control**~~ | **SHIPPED 2026-10-07.** The "one `float` through the existing lighting UBO" framing was wrong — there was no free slot, `camera_position.w` being the IBL flag — so the UBO grew by a `vec4`. The design question *was* the real work, as predicted; it landed on `Camera`. |
-| ~~**A suite-wide ctest `TIMEOUT`**~~ | **SHIPPED 2026-10-07** as `PROPERTIES TIMEOUT 60` on `catch_discover_tests` — one argument, not a `set_tests_properties` call. The prediction that "the work is choosing the value, not writing the line" was exactly right: the line took seconds, the value came from timing a full run (slowest case 1.11s, suite 24s, replacing ctest's silent 1500s default). |
+| ~~**Exposure control**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#exposure-control). | — |
+| ~~**A suite-wide ctest `TIMEOUT`**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#a-suite-wide-ctest-timeout). | — |
 
 **Re-derived 2026-10-10** after U7 image presentation shipped. Both 2026-10-04 entries are
 now struck through, and this pass takes its material from that slice's review findings
@@ -2956,10 +2218,10 @@ note set for re-deriving at all.
 
 | Item | Why it is a quick win |
 |---|---|
-| ~~**Tighten the "position starts past the edge" test to exact values**~~ | **SHIPPED 2026-10-12**, and the prediction was exactly right: the assertions took a minute, choosing the probe was the work. The old bounds (`u0 <= 1`, `u1 <= 1 + eps`, `u1 >= u0`) passed at `u0 = 0.984`, which is what an upper bound written `tw - 1` produces — so that off-by-one is the **defined** probe, and it is now red on both axes. A second section at 64x32 was added because at 64x64 a clamp measuring y against the *width* is undetectable. **Confirmed UB trap, worth remembering:** mutating the position clamp away entirely, or clamping y against the width, makes the next line `std::clamp(v, lo, hi)` with `lo > hi` — one of those aborted on a libstdc++ debug assertion rather than returning a wrong value. The real code never trips it, because `x1`'s `lo` is the already-clamped `x0`; but a probe of this function must mutate a *bound*, never remove the clamp. |
-| ~~**Warn when a sub-rect lands entirely off its texture**~~ | **SHIPPED 2026-10-12, and this row under-rated it.** "One diagnostic at the `resolve_image_quad` seam" is the one place it cannot go: that is a pure header-only function the render pass calls for every image every frame, so a `log::warn` there would fire 60 times a second with no ledger within reach — engine code cannot see the studio-side one. The shape that works is the pattern the order diagnostics established: a pure `sub_rect_off_texture` predicate in `engine/ui/ui_fit.hpp` beside the clamp it describes, plus a loop in `app/run/editor.cpp` where the asset registry actually is, de-duplicated through `WarningLedger`. A slice rather than a one-liner. The *warning-not-behaviour-change* call in this row was right and was kept. **One asymmetry worth knowing:** a NEGATIVE `sub_rect_pos` is not a finding — the lower clamp pulls it back on-texture, so it samples a shifted-but-valid region instead of collapsing. |
-| ~~**Sort the HUD image pass by `UiImage::order`**~~ | **SHIPPED 2026-10-11, image AND text together.** Two of this row's own claims were wrong. It was **not** "a copy of a shipped loop": the panel pass batches every quad into ONE `draw_ui` call after sorting, while the image and text passes draw per entity with their own texture/atlas handles — so each needed a collect → sort → emit reshape, not a copied `stable_sort`. And `order` was **not** "documented" on either component: both fields carried no comment at all, unlike `UiPanel::order`. The semantics are now written down, including that the order cannot cross a pass boundary. |
-| ~~**An Inspector `field_int` (`DragInt`)**~~ | **SHIPPED 2026-10-11.** `FieldVisitor::field_int` (defaulting to `field_readonly`, like every other optional field hook), one `std::is_same_v<U, int>` branch in `FieldVisitorAdapter`, one `DragInt` override. The payoff is wider than the order lint that prompted it: `ParticleEmitter`'s `burst`/`burst_trigger`/`max_particles` and three easing curves, `TrailRenderer::max_points`, `AudioSource::attenuation_model` and `NavAgent::goal_x`/`goal_y` all became editable too. `int` only, deliberately — the reflected `std::uint32_t` fields are ids, dimensions and versions. Combo boxes for the enum-as-int fields are the follow-up below. |
+| ~~**Tighten the "position starts past the edge" test to exact values**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#tighten-the-position-starts-past-the-edge-test-to-exact-values). | — |
+| ~~**Warn when a sub-rect lands entirely off its texture**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#warn-when-a-sub-rect-lands-entirely-off-its-texture). | — |
+| ~~**Sort the HUD image pass by `UiImage::order`**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#sort-the-hud-image-pass-by-uiimageorder). | — |
+| ~~**An Inspector `field_int` (`DragInt`)**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#an-inspector-field_int-dragint). | — |
 
 **Re-derived 2026-10-12** after seven slices landed (#240–#246: the order lint, the HUD
 pass sorting, `field_int`, the manual-verification record, the pairwise conflict check, its
@@ -2971,8 +2233,8 @@ comment correction rather than work to schedule:
 
 | Item | Outcome |
 |---|---|
-| ~~**`UiButton::order`'s "KNOWN COST" comment said the disagreement could not be validated**~~ | **FIXED 2026-10-12.** It read "validating that needs an ownership relation ... which does not exist" — true when written, false three slices later. Two validations now ship (`find_order_disagreements`, `find_order_conflicts`) and the editor reports both. The worst kind of stale comment: it sat on the field and told a reader the diagnostic they were looking for was impossible. |
-| ~~**`ui_hit.hpp`'s rule 2 described a hazard that is now reported**~~ | **FIXED 2026-10-12.** Its "author distinct `order` values when it matters" paragraph explains that an unrelated destroy can reorder an equal-order run; that is precisely what an `Ambiguous` conflict warns about, so it now says so. |
+| ~~**`UiButton::order`'s "KNOWN COST" comment said the disagreement could not be validated**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#uibuttonorders-known-cost-comment-said-the-disagreement-could-not-be-validated). | — |
+| ~~**`ui_hit.hpp`'s rule 2 described a hazard that is now reported**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#ui_hithpps-rule-2-described-a-hazard-that-is-now-reported). | — |
 
 **The two carried items below are the actionable remainder** — both re-confirmed as still
 valid and still small. The well is otherwise close to dry: everything else surfaced tonight
@@ -2996,9 +2258,9 @@ re-reading the same source docs. Both items are in the Rendering section above.
 
 | Item | Why it is a quick win |
 |---|---|
-| ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ | **DONE 2026-10-21.** Two entities as predicted, but the ribbon needed a mover (a trail follows motion), so also a new orbit script and a fourth count assertion. Predicted colours `(0.93, 0.16, 0.91)` and `(0.80, 0.95, 0.37)`, unseen. See the Rendering section. |
-| ~~**A test that nothing authored flat on the ground sits below its top face**~~ | **DONE 2026-10-21**, as the general test (ruled over a `place_on_surface` helper). One loop, as predicted; it needed a definition of "prop" and passes the emitters at exactly `y = 0.5` only because the check is `>=`. See the Rendering section. |
-| ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ | **DONE 2026-10-21.** Not a render-path mystery: the only case that renders a frame paid `setup_runtime`'s lazy full-size IBL bake. One-line test change, 14.2 s -> 0.17 s. The row's "not yet diagnosed, effort is a guess" and "7 ms siblings" were wrong. See the CI and build section. |
+| ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#author-a-ribbon-and-a-world-label-above-the-bloom-threshold-in-the-demo). | — |
+| ~~**A test that nothing authored flat on the ground sits below its top face**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#a-test-that-nothing-authored-flat-on-the-ground-sits-below-its-top-face). | — |
+| ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#root-cause-the-165-s-default-scene-hud-underlay-test). | — |
 | **Guard `draw_particles` / `draw_ribbons` against a second call per frame** | Hours: copy the per-call chunk list from `draw_world_text`, or add an assert. Rendering section above. |
 | **Revisit the lime "GLOW" label contrast** | Only if it becomes a problem (human decision 2026-10-21); needs no new code for a colour/position change. Rendering section above. |
 
@@ -3006,7 +2268,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 
 | Item | Why this tier |
 |---|---|
-| ~~**Pointer input from the editor viewport to the scene**~~ — **SHIPPED 2026-10-07**, play-mode only; the behaviour question that made this 🟡 was answered before any code. The warnings below were all real, and two more turned up: `ClickNudgeSystem`'s press-edge detection synthesises a click when the play gate opens mid-press (fixed with a latch), and the nudge aspect has to come from the panel rather than the window. The panel-relative transform turned out to already exist, for edit-mode selection — which now needs gating on `!is_playing()`. Original entry: | Not the one-line pass-through it resembles. The scene renders to an offscreen texture composited by ImGui, so coordinates must be panel-relative, gated on hover, and suppressed while ImGui holds the mouse; `UiSystem` and `ClickNudgeSystem` must share one provider or the UI-claim arbitration breaks. And it needs a behaviour decision first — whether a viewport click drives the game's pointer in edit mode at all, or only in play mode. High impact: today, manipulating a scene and exercising its scripts are in two different programs. |
+| ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
 | **`ctest -j` in CI** | **In progress 2026-10-21** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
 | **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
 
@@ -3020,7 +2282,7 @@ recent-projects list (PR #197).
 
 | Item | Shape |
 |---|---|
-| ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — **SHIPPED 2026-10-16.** The engine-side boundary landed 2026-10-13 (#255); the Vulkan backend half followed in this branch: the `R16G16B16A16_SFLOAT` target, the resolve pipeline pair, and `tonemap_aces` moved out of `cube.frag`/`skybox.frag` into `hdr_resolve.frag`, its only copy in the tree. **Bloom is unblocked.** Two things the estimate missed, in opposite directions: every pipeline was built TWICE (once per destination pass), so the scene's seven pairs collapsed to seven singles and the backend got smaller, not bigger; and the editor opens its viewport pass around the whole of `render()`, so that pass had to become lazy before the HDR pass could open without nesting inside it. The gate was what the entry predicted — 1358/1358 says nothing about the image, and a validation-layer grep plus a human at the window are the real checks. Original entry: || New render target, new pass, new pipeline, and a decision about where UI draws relative to the resolve. Bounded new machinery rather than a quick win, and it is the prerequisite for bloom. **Trigger, not preference:** the moment any additive-blending pipeline is added, in-shader tone mapping stops being defensible and this becomes necessary. |
+| ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — SHIPPED 2026-10-16, see [record](../record/2026-10.md#an-offscreen-hdr-render-target-plus-a-fullscreen-resolve-pass). | — |
 
 **Re-derived 2026-10-16, corrected and then SHIPPED 2026-10-17.** That item
 shipped, and **bloom** — which took its place in this tier — shipped the same
@@ -3050,7 +2312,7 @@ implementation starts.
 | **Test selection / caching test results** | Needs change-impact analysis; low priority. See the CI and build section. |
 | Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
 | Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| ~~Rendering: full PBR material model~~ — **COMPLETE 2026-10-07.** Decomposed 2026-10-04; all of it shipped: 1 tone mapping, 2 metallic/roughness + GGX Cook-Torrance, 3 texture maps + real image import, 4a mipmaps, 4b cubemaps/HDR/skybox, 4c image-based lighting, then multi-scatter energy compensation closing the one correctness gap the arc had recorded against itself (furnace test 0.31 → 1.000000 at roughness 1). | ~~High~~ done |
+| ~~**Rendering: full PBR material model**~~ — COMPLETE 2026-10-07, see [record](../record/2026-10.md#rendering-full-pbr-material-model). | — |
 | RenderGraph refactor | Medium (enabling, not user-visible) |
 | UI pillar gaps — **DECOMPOSED 2026-10-07** into U6–U11, see `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. U6 (interaction depth) is first and carries one open question for a human; U7 (image presentation) is independent and needs no decision; U10 is blocked on an editor keyboard-input provider. | High if interactive-game UI is a near-term goal, else Low — **and that is still the open question**, which the decomposition does not answer. It only removes the excuse that the item was too shapeless to start. |
 | Networking gaps | High if shipping real multiplayer soon, else Low |
