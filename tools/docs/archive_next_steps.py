@@ -98,7 +98,7 @@ def render_live(header: str, blocks: List[Block], archive_dir_name: str = "recor
 
 def render_archive(month: str, blocks: List[Block]) -> str:
     year, mon = month.split("-")
-    title = f"# {MONTHS[int(mon) - 1]} {year} — handoff entries"
+    title = f"# {MONTHS[int(mon) - 1]} {year} — the record"
     note = ("Dated entries rolled out of `docs/project/next-steps.md`, newest first. "
             "Moved verbatim; see `tools/docs/archive_next_steps.py`.")
     body = "\n\n".join(b.text for b in blocks)
