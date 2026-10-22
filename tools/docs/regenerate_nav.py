@@ -16,6 +16,7 @@ INDEX_HTML = DOCS_DIR / "index.html"
 
 # (marker_key, directory relative to docs/, sort_mode)
 GROUPS = [
+    ("record", "record", "newest-first"),
     ("updates", "updates", "newest-first"),
     ("architecture", "architecture", "alphabetical"),
     ("design", "design", "alphabetical"),
