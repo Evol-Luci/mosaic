@@ -10,12 +10,15 @@ Pending work is in [`deferred-work-backlog.md`](deferred-work-backlog.md).
 Every claim carries the command that regenerates it. If a command disagrees with
 the text, trust the command and fix the text.
 
+Rows here must be slow-moving. A `main` SHA row was tried and removed the same day:
+it rots on every commit, `git log` already answers it, and a row that is wrong more
+often than right teaches a reader to distrust the ones that are stable. Do not re-add it.
+
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
 | Suite size | 1459 tests | `ctest --preset debug -N \| tail -1` | 2026-10-21 |
 | Suite status | all passing | `ctest --preset debug -j"$(nproc)"` | 2026-10-21 |
 | CI test step | ~12-17 s (#278: 12 s, #279: 17 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-21 |
-| `main` | `9e689ac` | `git rev-parse --short origin/main` | 2026-10-21 |
 | Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-21 |
 
 ## Next work
