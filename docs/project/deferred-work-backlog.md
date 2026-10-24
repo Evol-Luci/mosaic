@@ -1907,11 +1907,18 @@ and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2
 **The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
 new work has landed since the last pass -- don't immediately re-run a fourth time expecting
 different material from the same unchanged source docs.* This pass's material is the live bullets
-and record entries that the 16 PRs themselves created (25 of the 131 live bullets, from the CI-caching, parallel
+and record entries that the 16 PRs themselves created (25 live bullets, against roughly 130 live overall, from the CI-caching, parallel
 `ctest`, world-text, ENet and docs-record slices), not a re-grep of the specs' Non-goals. The
 older live bullets in the subsystem sections are **not ranked here** and are not claimed to be:
 they carry no new evidence. Every row below names a live bullet above by its bold title, or a PR;
 a row that matched nothing was cut.
+
+*The overall figure is deliberately approximate ("roughly 130"), not exact.* It was written as an
+exact number twice during this pass and was stale both times, because every backlog edit changes
+it. It is the same failure that got the `main` SHA row removed from `next-steps.md`'s State table
+(#283): a figure that is wrong more often than right teaches a reader to distrust the stable ones.
+Do not "fix" it back into an exact count; if you need the exact one, derive it (top-level `- `
+bullets not starting `- ~~`) on the day you need it.
 
 **Reading a row.** *Effort*: hours (one focused change with a gate) / slice (a spec-plan-implement
 cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that would show it done.
