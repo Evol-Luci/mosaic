@@ -583,16 +583,34 @@ them as this list does.
 
 ## Rendering
 
-- **Slice 3 step 2b: assert a `draw_*` call through the offscreen target — the payoff, NOT yet done.**
-  Step 2a (2026-10-24) made the real `VulkanRenderDevice` renderable with no window and readable
-  back as RGBA8, but asserts only a *cleared* frame, so it cannot yet see a single shader bug.
-  Step 2b is the half that can: draw one `UiQuad` into a known corner via `draw_ui` and assert it
-  lands in that corner of the readback, which makes the **`screen_effect.vert` Y-flip** (the
-  negative-height viewport compensation `ui.vert` does and `screen_effect.vert` does not) catchable
-  by machine instead of by eye. Deferred from step 2a deliberately, so each half has a gate that
-  can fail for exactly one reason. Depends on nothing further: the infrastructure is merged.
-  Note `init_ui` is NOT offscreen-capable (ImGui needs a GLFW window), so step 2b must use the
-  `draw_ui` backend path directly, not the editor's ImGui layer.
+- **`next-steps.md` needs a real trim pass, not another opportunistic one — it sits at ~94% of its
+  8 KB ceiling (2026-10-24).** It was compressed to 83% on 2026-10-24 and that headroom was spent
+  within the same day on three genuinely load-bearing landmines (the renderer validation gate, the
+  offscreen readback, the `ui.vert` guard), each paid for by shaving a neighbouring bullet. That
+  works once; it is not a strategy. Deferred because the remaining content is all load-bearing, so
+  trimming means deciding what a cold-starting agent can be trusted to find in the record instead —
+  a judgement call, not a mechanical edit. `archive_next_steps.py` does NOT help: it looks for
+  dated narrative blocks and this file is a pointer doc, so it reports "nothing to do".
+- **Slice 3 step 2b SHIPPED 2026-10-24** — `draw_ui` quad placement is asserted on the offscreen
+  target and `ui.vert`'s `1.0 - ny * 2.0` Y-flip compensation is guarded by a mutation-proven test
+  (`tests/gpu/offscreen_ui_orientation_test.cpp`). Narrative in the
+  [record](../record/2026-10.md#a-headless-vkdevice-for-tests-slice-3-step-2b-the-first-asserted-draw-path).
+- **`screen_effect.vert`'s missing Y-flip compensation is LATENT and NOT pixel-observable — do not
+  write a test claiming to catch it.** Checked 2026-10-24: `ScreenEffectParams` is
+  `{ Vec3 tint; float tint_strength; float vignette; }`. A tint is uniform across the frame and a
+  vignette is radially symmetric about the centre, so neither can distinguish a vertically flipped
+  `fragUV` from a correct one. The shader is genuinely wrong and the bug is genuinely invisible.
+  **Trigger:** the first *asymmetric* screen effect (gradient, scanline, directional blur,
+  off-centre vignette). At that point fix the shader and gate it; the orientation test above is the
+  template and the assertion is a few lines. Deferred because an unobservable fix cannot be verified.
+- **Assert the per-frame buffer-aliasing class through the offscreen target — not yet done.**
+  The bug that bit twice (#275 world text, then `draw_particles`/`draw_ribbons`) is "a draw path
+  called once per entity reusing one per-frame buffer aliases itself", and it is still unasserted.
+  `draw_ui` could NOT cover it: it uses push constants per quad with no per-frame staging buffer,
+  so step 2b's two-call part is a composition check only. Catching this needs two
+  `draw_particles` (or `draw_ribbons`/`draw_world_text`) calls in one frame with different
+  contents, both asserted present in the readback. Depends on building meshes/textures and
+  staging uploads on the offscreen device, which step 2b did not need and did not do.
 - **`VK_EXT_headless_surface` is NOT available here — probed 2026-10-24, do not burn time on it.**
   It is the obvious shortcut for slice 3: a headless surface would let the EXISTING
   `VulkanRenderDevice` work unchanged, surface and swapchain and all, with no refactor. It is not
@@ -2009,7 +2027,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICES 1, 2 AND 3-STEP-2a SHIPPED 2026-10-24.** The real `VulkanRenderDevice` now renders with no window and reads back RGBA8. | **Step 2b is all that is left, and it carries the whole user-visible value:** assert a `draw_*` call, aiming the readback at the eye-only classes (Y-flip, per-frame buffer aliasing, HUD underlay). Step 2a asserts only a cleared frame. | Step 2b: a currently-eye-only render bug caught by an automated pixel assertion. | User-raised 2026-10-24 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **ALL THREE SLICES SHIPPED 2026-10-24.** The real `VulkanRenderDevice` renders with no window, reads back RGBA8, and `draw_ui` quad placement is asserted — `ui.vert`'s Y-flip compensation is now guarded by a mutation-proven test. | Remaining, as separate backlog entries: the per-frame buffer-aliasing class (`draw_particles`/`draw_ribbons`/`draw_world_text`), the HUD underlay, and `screen_effect.vert` (latent, see below). GPU tests stay opt-in until a software ICD or GPU runner exists. | Done: a Y-flip regression is now caught by machine instead of by eye. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
