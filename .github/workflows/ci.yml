@@ -127,9 +127,20 @@ jobs:
           du -sh "${RUNNER_TEMP}/ccache" 2>/dev/null || echo "cache dir empty (cold)"
           ccache --zero-stats
 
+      # PCH is DISABLED here on purpose, and it is not a hedge -- it is measured.
+      # The stdlib PCH (MOSAIC_PCH_HEADERS) exists for the LOCAL developer loop; its own
+      # backlog row says "impact is on the developer loop, not CI". ccache cannot cache a
+      # compilation that consumes a PCH without sloppiness settings, so leaving it on made
+      # 243 of 456 calls UNCACHEABLE (53%) and took this job from 1m38s to 6m49s -- every
+      # PR, permanently, since the cache restored fine and the 213 cacheable calls still hit
+      # 100%. Turning it off here restores 452/452 cacheable and costs nothing we wanted,
+      # because CI does no incremental header-edit rebuilds.
+      # It also makes the include-hygiene guard FREE: a PCH can hide a missing #include, and
+      # this job is now exactly the no-PCH build that catches one, on every PR.
       - name: Configure (debug)
         run: >
           cmake --preset debug -G Ninja
+          -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 

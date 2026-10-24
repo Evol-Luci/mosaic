@@ -138,6 +138,28 @@ FetchContent_Declare(
 set(PYBIND11_FINDPYTHON ON)
 FetchContent_MakeAvailable(pybind11)
 
+# Stdlib-only precompiled headers. Do NOT add project headers here: editing a
+# widely-included header (e.g. foundation/core/entity_id.hpp) would invalidate
+# the PCH and force every TU to wait on a full PCH rebuild before recompiling.
+set(MOSAIC_PCH_HEADERS
+  <string>
+  <vector>
+  <cstdint>
+  <memory>
+  <cmath>
+  <algorithm>
+  <filesystem>
+  <utility>
+  <optional>
+  <functional>
+  <unordered_map>
+  <array>
+  <cstddef>
+  <string_view>
+  <chrono>
+  <stdexcept>
+)
+
 add_subdirectory(foundation)
 add_subdirectory(engine)
 add_subdirectory(modules/render_vulkan)

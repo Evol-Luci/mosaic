@@ -1926,23 +1926,17 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   fails with `fatal: unable to read tree (30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c)`. The full
   `box3d` clone is 40 commits total; revisit only if `box3d` is bumped to a tagged release or
   branch tip.
-- **Reduce header fan-out / precompiled headers / unity builds.** `foundation/core/entity_id.hpp`
-  is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
-  even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
-  fan-out can, for cold and wide-header builds alike. Different kind of work.
-  **Baseline measured 2026-10-24 (the row's own "measure first" gate, the BEFORE half):**
-  `touch foundation/core/entity_id.hpp && cmake --build --preset debug -j20` recompiles exactly
-  **171 TUs in 83.2 s** (3 runs: 83.7 / 83.2 / 83.0 -- the spread is under 1%, so a later
-  comparison does not need many runs). Machine: nproc=20, Ninja, debug preset, no ccache
-  locally. The 171/254 fan-out in this bullet was re-verified at the same time and is correct:
-  the repo has 452 unique sources in total, but 198 of those are third-party `_deps` sources
-  that cannot include a first-party header, and 254 is first-party + tests -- so quoting a
-  denominator of 452 would understate the fan-out as 38% instead of 67%.
-  **Still deferred, and the decision is still open:** this is the baseline, not a verdict.
-  Whether PCH or unity builds pay for themselves needs the AFTER number, and both carry real
-  risk (PCH changes what a TU sees; unity builds change ODR and symbol visibility). Note the
-  83.2 s is on 20 cores -- the developer-loop cost is roughly linear in core count, so a 4-core
-  machine pays minutes per header edit, which is where the impact actually lands.
+- ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24 (stdlib-only, 89.6 s → 80.0 s, 10.7%), see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds DECLINED with a trigger, below.
+- **Unity builds — declined 2026-10-24, with a trigger.** The PCH half of the fan-out row
+  shipped and took the edit-one-header rebuild from 89.6 s to 80.0 s (10.7%). Unity builds were
+  **not** attempted, and this is a decision rather than an omission: they merge TUs, so they
+  change ODR and internal-linkage semantics, and they turn an unrelated symbol collision into a
+  confusing error in a file the author did not touch. 10.7% was bought for a 6-line, fully
+  reversible CMake change with a negative control; unity builds cost semantics for the next
+  increment. **Trigger to revisit:** an edit-one-header rebuild back above ~120 s, or a specific
+  complaint about the developer loop from someone working on a low-core machine (the cost is
+  roughly linear in core count, so a 4-core machine already pays minutes per header edit).
+- ~~**A standing CI negative control for the PCH (no-PCH build).**~~ — SHIPPED 2026-10-24, and it cost nothing in the end: CI builds with `-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` because the PCH destroyed ccache's hit rate, so the no-PCH build the guard wanted is now the build CI already does. See [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). The earlier ruling that declined this on cost was correct about the cost and wrong about the alternative.
 - ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~ — FIXED 2026-10-21, see [record](../record/2026-10.md#the-default-scene-hud-underlay-case-takes-165-s-locally-and-234-s-on-ci).
 - ~~**ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#enet-servers-take-a-fixed-port-the-structural-fix-is-bind-0-plus-a-port-accessor).
 - **`port reports an explicitly requested port verbatim` releases then rebinds** (LiveLink, and since 2026-10-23 the ENet case too).**
@@ -2006,7 +2000,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 |---|---|---|---|---|
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
-| 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. **BEFORE measured 2026-10-24: 171 TUs, 83.2 s at -j20** (see the bullet above); the AFTER half is what remains. | PR #271 |
+| 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
 | 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** | Slice (first of 3; see the decomposition in the entry). **Highest impact available on the gate**: it is the only item that converts "checkable by eye" into "checkable" for the whole renderer. Feasibility probed 2026-10-24 (RTX 3080 + validation layer present); the blocker is our own surface coupling, not the environment. | Slice 1: a device constructed and destroyed in-suite with the validation layer on and ZERO validation errors. Slice 2: one asserted pixel value. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
