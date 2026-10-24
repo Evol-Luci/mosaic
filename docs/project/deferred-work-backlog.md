@@ -1440,6 +1440,19 @@ them as this list does.
   entity's destruction. Overlapping labels in different fonts, or the same font, may blend in
   a different order after such a change. Back-to-front by camera distance would make it
   deterministic. Deferred: no scene overlaps two labels; the existing behaviour was the same.
+- **Offscreen pixel-readback aliasing tests for `draw_ribbons` and `draw_world_text`, and a
+  cross-frame `begin_frame()` counter-reset check.** `tests/gpu/offscreen_particle_aliasing_test.cpp`
+  covers `draw_particles` (`particle_calls_[frame_]++` at `vulkan_render_device.cpp:1563`) as the
+  representative of the per-frame buffer-aliasing class (#275, #287). The sibling paths
+  (`ribbon_calls_[frame_]++` at `:1613` and `world_text_calls_[frame_]++` at `:1662`) and the
+  `begin_frame()` counter resets (`:1931-1933`, whose omission grows `particle_instances_[frame_]`
+  unboundedly across frames rather than aliasing intra-frame) were considered and deferred to keep
+  this slice scoped to the `draw_particles` oracle. **Depends on:** for `draw_ribbons`, nothing
+  beyond constructing two pre-expanded `RibbonVertex` triangle batches; for `draw_world_text`,
+  uploading a non-empty atlas texture via `create_texture` on the offscreen device
+  (`draw_world_text` early-returns when `textures_.empty()`); for the `begin_frame()` reset, a
+  chunk-count inspection seam (un-reset counters still allocate distinct buffers per call, so the
+  leak is not pixel-observable).
 
 ## Project templates
 
