@@ -11,7 +11,7 @@ include(FetchContent)
 FetchContent_Declare(
   Catch2
   GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-  GIT_TAG        v3.5.2
+  GIT_TAG        05e10dfccc28c7f973727c54f850237d07d5e10f  # v3.5.2
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(Catch2)
@@ -20,19 +20,19 @@ list(APPEND CMAKE_MODULE_PATH ${Catch2_SOURCE_DIR}/extras)
 FetchContent_Declare(
   tomlplusplus
   GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
-  GIT_TAG        v3.4.0
+  GIT_TAG        30172438cee64926dc41fdd9c11fb3ba5b2ba9de  # v3.4.0
   GIT_SHALLOW    TRUE
 )
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG        v3.11.3
+  GIT_TAG        9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03  # v3.11.3
   GIT_SHALLOW    TRUE
 )
 FetchContent_Declare(
   CLI11
   GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
-  GIT_TAG        v2.4.2
+  GIT_TAG        6c7b07a878ad834957b98d0f9ce1dbe0cb204fc9  # v2.4.2
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(tomlplusplus nlohmann_json CLI11)
@@ -44,7 +44,7 @@ find_package(Vulkan REQUIRED)
 FetchContent_Declare(
   glfw
   GIT_REPOSITORY https://github.com/glfw/glfw.git
-  GIT_TAG        3.4
+  GIT_TAG        7b6aead9fb88b3623e3b3725ebb42670cbe4c579  # 3.4
   GIT_SHALLOW    TRUE
 )
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
@@ -53,16 +53,32 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(glfw)
 
 # --- Box3D (physics backend; alpha, pinned to a commit) -----------------------
-# NOTE: no GIT_SHALLOW here, deliberately. GIT_TAG below is a commit SHA, and CMake's
-# GIT_SHALLOW needs a branch or tag (a bare SHA is not shallow-fetchable in general: it
-# depends on the server advertising that object). Every other dependency is tag-pinned and
-# shallow. Do not "tidy" this into consistency; configure would break.
-# If an upstream TAG is ever moved, an existing shallow build/*/_deps can fail to fetch it (the
-# history lacks the new commit): `rm -rf build/*/_deps` and reconfigure. CI always clones fresh.
+# NOTE: SHA pinning + GIT_SHALLOW TRUE works for every dependency whose SHA is pointed to by an
+# upstream tag or branch tip (all 9 other FetchContent dependencies in this file, verified with
+# CMake 4.4.3: `git rev-parse --is-shallow-repository` -> `true`, `git log --oneline | wc -l` -> `1`,
+# `.git` 2.5 MB; and GitHub also permits `git fetch --depth 1 origin <bare SHA>` directly in 0.33 s).
+# Do not cite commit-SHA pinning as a reason to drop GIT_SHALLOW on tagged dependencies.
+#
+# KNOWN RISK, recorded deliberately: CMake DOCUMENTS this combination as unsupported.
+# ExternalProject.cmake's GIT_TAG docs state "If GIT_SHALLOW is enabled then GIT_TAG works only
+# with branch names and tags. A commit hash is not allowed." It nevertheless works here, for the
+# mechanical reason given below (depth-1 of every ref happens to include every tag-backed commit),
+# and every CI run re-proves it from a cold clone. So this is real behaviour, not luck -- but it
+# is behaviour CMake does not promise. If a future CMake makes the shallow clone single-branch,
+# configure will fail LOUDLY at the checkout step, not silently build the wrong source. The fix
+# then is to DROP `GIT_SHALLOW TRUE` from the affected dependencies and accept full clones --
+# NOT to unpin the SHAs back to mutable tags, which is the property this pinning exists to hold.
+#
+# Why box3d alone omits GIT_SHALLOW: CMake 4.4.3's `gitclone.cmake.in` implements `GIT_SHALLOW TRUE`
+# via `git clone --no-checkout --depth 1 --no-single-branch` followed by `git checkout <GIT_TAG> --`
+# (rather than `git fetch --depth 1 origin <SHA>`). That fetches depth-1 of every branch and tag ref,
+# which includes every tag-backed commit SHA (and fails loudly if a tag is ever moved or deleted
+# upstream), but does NOT fetch an untagged mid-history commit like box3d's `30c67b5e...` (`main` has
+# since advanced to `f36d061b...`), which fails with `fatal: unable to read tree (30c67b5e...)`.
 FetchContent_Declare(
   box3d
   GIT_REPOSITORY https://github.com/erincatto/box3d.git
-  GIT_TAG        30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c
+  GIT_TAG        30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c  # main (untagged alpha)
 )
 set(BOX3D_SAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(box3d)
@@ -71,7 +87,7 @@ FetchContent_MakeAvailable(box3d)
 FetchContent_Declare(
   miniaudio
   GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-  GIT_TAG        0.11.21
+  GIT_TAG        4a5b74bef029b3592c54b6048650ee5f972c1a48  # 0.11.21
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(miniaudio)
@@ -80,7 +96,7 @@ FetchContent_MakeAvailable(miniaudio)
 FetchContent_Declare(
   enet
   GIT_REPOSITORY https://github.com/lsalzman/enet.git
-  GIT_TAG        v1.3.18
+  GIT_TAG        2662c0de09e36f2a2030ccc2c528a3e4c9e8138a  # v1.3.18
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(enet)
@@ -89,7 +105,7 @@ FetchContent_MakeAvailable(enet)
 FetchContent_Declare(
   imgui
   GIT_REPOSITORY https://github.com/ocornut/imgui.git
-  GIT_TAG        v1.91.5-docking
+  GIT_TAG        368123ab06b2b573d585e52f84cd782c5c006697  # v1.91.5-docking
   GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(imgui)
@@ -114,7 +130,7 @@ find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 FetchContent_Declare(
   pybind11
   GIT_REPOSITORY https://github.com/pybind/pybind11.git
-  GIT_TAG        v2.13.6
+  GIT_TAG        a2e59f0e7065404b44dfe92a28aca47ba1378dc4  # v2.13.6
   GIT_SHALLOW    TRUE
 )
 # Force pybind11 to reuse the Python3 already found above (avoids a second
