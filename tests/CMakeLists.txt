@@ -274,6 +274,7 @@ if(MOSAIC_ENABLE_GPU_TESTS)
     gpu/offscreen_render_device_test.cpp
     gpu/offscreen_ui_orientation_test.cpp
     gpu/offscreen_particle_aliasing_test.cpp
+    gpu/offscreen_hud_underlay_test.cpp
   )
   target_link_libraries(mosaic_gpu_tests PRIVATE
     mosaic_render_vulkan
