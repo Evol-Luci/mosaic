@@ -583,6 +583,16 @@ them as this list does.
 
 ## Rendering
 
+- **Slice 3 step 2b: assert a `draw_*` call through the offscreen target — the payoff, NOT yet done.**
+  Step 2a (2026-10-24) made the real `VulkanRenderDevice` renderable with no window and readable
+  back as RGBA8, but asserts only a *cleared* frame, so it cannot yet see a single shader bug.
+  Step 2b is the half that can: draw one `UiQuad` into a known corner via `draw_ui` and assert it
+  lands in that corner of the readback, which makes the **`screen_effect.vert` Y-flip** (the
+  negative-height viewport compensation `ui.vert` does and `screen_effect.vert` does not) catchable
+  by machine instead of by eye. Deferred from step 2a deliberately, so each half has a gate that
+  can fail for exactly one reason. Depends on nothing further: the infrastructure is merged.
+  Note `init_ui` is NOT offscreen-capable (ImGui needs a GLFW window), so step 2b must use the
+  `draw_ui` backend path directly, not the editor's ImGui layer.
 - **`VK_EXT_headless_surface` is NOT available here — probed 2026-10-24, do not burn time on it.**
   It is the obvious shortcut for slice 3: a headless surface would let the EXISTING
   `VulkanRenderDevice` work unchanged, surface and swapchain and all, with no refactor. It is not
@@ -1999,7 +2009,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICES 1 AND 2 OF 3 SHIPPED 2026-10-24.** The project asserts pixels now; `pixels[i].r == 0x12` is the first asserted pixel value in its history. | Slice 3 next, and it carries the user-visible value: aim the readback at the eye-only classes (Y-flip, per-frame buffer aliasing, HUD underlay). Needs a pipeline and real shaders. | Slice 3: a currently-eye-only render bug caught by an automated pixel assertion. | User-raised 2026-10-24 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICES 1, 2 AND 3-STEP-2a SHIPPED 2026-10-24.** The real `VulkanRenderDevice` now renders with no window and reads back RGBA8. | **Step 2b is all that is left, and it carries the whole user-visible value:** assert a `draw_*` call, aiming the readback at the eye-only classes (Y-flip, per-frame buffer aliasing, HUD underlay). Step 2a asserts only a cleared frame. | Step 2b: a currently-eye-only render bug caught by an automated pixel assertion. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 

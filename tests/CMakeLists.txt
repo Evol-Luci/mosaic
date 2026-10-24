@@ -271,6 +271,7 @@ if(MOSAIC_ENABLE_GPU_TESTS)
   add_executable(mosaic_gpu_tests
     gpu/headless_device_test.cpp
     gpu/offscreen_readback_test.cpp
+    gpu/offscreen_render_device_test.cpp
   )
   target_link_libraries(mosaic_gpu_tests PRIVATE
     mosaic_render_vulkan
