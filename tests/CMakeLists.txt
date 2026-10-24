@@ -265,3 +265,20 @@ include(Catch)
 # `catch_discover_tests` applies PROPERTIES to the discovered tests as a whole, and gives
 # each case its own process, so one case timing out cannot take another down.
 catch_discover_tests(mosaic_unit_tests PROPERTIES TIMEOUT 60)
+
+option(MOSAIC_ENABLE_GPU_TESTS "Build and register GPU tests that require a Vulkan physical device" OFF)
+if(MOSAIC_ENABLE_GPU_TESTS)
+  add_executable(mosaic_gpu_tests
+    gpu/headless_device_test.cpp
+  )
+  target_link_libraries(mosaic_gpu_tests PRIVATE
+    mosaic_render_vulkan
+    mosaic_foundation
+    Vulkan::Vulkan
+    Catch2::Catch2WithMain
+  )
+  target_compile_features(mosaic_gpu_tests PRIVATE cxx_std_20)
+  target_include_directories(mosaic_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR})
+  target_precompile_headers(mosaic_gpu_tests PRIVATE ${MOSAIC_PCH_HEADERS})
+  catch_discover_tests(mosaic_gpu_tests PROPERTIES TIMEOUT 60)
+endif()
