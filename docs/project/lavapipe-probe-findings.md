@@ -211,3 +211,54 @@ Running on this workstation's user-space `vulkan-swrast 1:26.2.2-1` is a **local
 Revert or abandon the CI change if, on the actual `ubuntu-latest` runner:
 1. Ubuntu's `mesa-vulkan-drivers` (`lvp_icd.x86_64.json`) + LunarG `vulkan-validationlayers` emits driver-specific validation warnings/errors that do not occur on hardware drivers (violating Question 3's zero-false-failure requirement), **or**
 2. The `apt-get install` wall-clock overhead of adding `mesa-vulkan-drivers` and `vulkan-validationlayers` inflates the ~1m20s CI job beyond what the human considers acceptable for 4 GPU tests.
+
+---
+
+## Reproducing this probe (added during supervision, 2026-10-24)
+
+**The original probe environment was ephemeral and did not survive the session.** The
+numbers above were produced against a lavapipe extracted into a scratch directory that no
+longer exists; `/usr/share/vulkan/icd.d/` on this host still contains only
+`nvidia_icd.json`, and `pacman -Q vulkan-swrast` reports the package is not installed. As
+first written, this document recorded the measurements but not the provisioning steps, so
+no one could re-run it — the evidence existed only as pasted output.
+
+The steps below were **re-derived and re-executed independently** during review, which is
+how the result was confirmed rather than merely re-read. They need no `sudo`.
+
+```sh
+# 1. Fetch and extract the ICD into an isolated directory (no root, nothing installed).
+mkdir -p /tmp/lvp && cd /tmp/lvp
+curl -sSLO "https://archive.archlinux.org/packages/v/vulkan-swrast/vulkan-swrast-1%3A26.2.2-1-x86_64.pkg.tar.zst"
+tar --use-compress-program=unzstd -xf vulkan-swrast-1%3A26.2.2-1-x86_64.pkg.tar.zst
+
+# 2. The shipped manifest uses a RELATIVE library_path, which the loader will not resolve
+#    from an arbitrary directory. Rewrite it to an absolute path.
+python3 - <<'PY'
+import json
+p = "/tmp/lvp/usr/share/vulkan/icd.d/lvp_icd.json"
+d = json.load(open(p))
+d["ICD"]["library_path"] = "/tmp/lvp/usr/lib/libvulkan_lvp.so"
+json.dump(d, open("/tmp/lvp/lvp_abs.json", "w"), indent=2)
+PY
+
+# 3. Prove the override took effect BEFORE trusting any result. Every line must say
+#    llvmpipe; a single NVIDIA line voids the run.
+VK_ICD_FILENAMES=/tmp/lvp/lvp_abs.json VK_LOADER_DEBUG=driver \
+  ./build/debug/tests/mosaic_gpu_tests 2>&1 | grep -i 'Using "' | sort | uniq -c
+
+# 4. Run the tests.
+VK_ICD_FILENAMES=/tmp/lvp/lvp_abs.json ctest --test-dir build/debug -R gpu --output-on-failure
+```
+
+**Independent re-run result (2026-10-24, same host, 5 GPU tests including the new
+`draw_particles` aliasing case):** step 3 reported `7 llvmpipe, 0 NVIDIA` across all seven
+`vkCreateDevice` calls; step 4 reported **5/5 passed, 0.25 s total**, against **1.05 s** for
+the same binary on the NVIDIA driver — a 4.2x speedup, inside the 2.5x–9.2x range measured
+above. The conformance and zero-false-failure findings reproduce.
+
+**A caveat the headline numbers should carry:** the Arch package used here is Mesa 26.2.2.
+`ubuntu-latest` ships an older `mesa-vulkan-drivers`, and the manifest is named
+`lvp_icd.x86_64.json` there rather than `lvp_icd.json`. This probe is therefore evidence
+about *lavapipe as an approach*, not a measurement of the runner. The runner's Mesa version
+and its `apt-get` cost remain unmeasured, which is exactly what the trial PR is for.
