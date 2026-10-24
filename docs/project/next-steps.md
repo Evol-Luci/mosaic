@@ -17,8 +17,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
 | Suite size | 1462 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-24 |
-| Suite status | all passing (1462/1462, 2.7 s local) | `ctest --preset debug -j"$(nproc)"` | 2026-10-24 |
-| CI test step | ~12-17 s (#284: 14.2 s, #285: 13.8 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-23 |
+| Suite status | all passing (1462/1462, 3.7 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-24 |
+| CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
 ## Next work
@@ -32,7 +32,7 @@ Things that waste an hour and that reading the code will not reveal.
 - **`git commit --amend` after a pre-commit abort.** The hook aborts to regenerate docs. `git add -A`, re-run the FULL commit. `--amend` silently rewrites the previous commit; `--no-verify --amend` hides that it did.
 - **A GUI run under `timeout` passes with exit 124**, not 0. `mosaic run --window` has no natural exit.
 - **A wrong CLI subcommand exits non-zero with ZERO validation errors**, which looks exactly like a clean run. Verify the subcommand exists before trusting a quiet failure.
-- **The presets pin `Ninja` since 2026-10-24.** A `build/debug` left over from before that (Unix Makefiles) makes `cmake --preset debug` fail with "does not match the generator used previously". Delete `build/debug` once. The memory-pressure link failure above is a LINK-step hazard only; it does not apply to `ctest -j`, whose heaviest case peaks at ~85 MB.
+- **The presets pin `Ninja` since 2026-10-24.** A `build/debug` left over from before that (Unix Makefiles) makes `cmake --preset debug` fail with "does not match the generator used previously". Delete `build/debug` once. The memory-pressure link failure in the next landmine is a LINK-step hazard only; it does not apply to `ctest -j`, whose heaviest case peaks at ~85 MB.
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
 - **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count**, because the count comes from the discovery file regenerated after a successful link. This reads exactly like the State table being wrong: an unbuilt or half-built tree reported 1459 against a correct claim of 1461. Build successfully first, then trust the count.
 - **Nothing in the suite creates a `VkDevice`.** Renderer-backend behaviour is checkable only by eye; green says nothing about the pixels. Sync validation is never enabled either, so the gate cannot see synchronisation bugs.
