@@ -583,18 +583,29 @@ them as this list does.
 
 ## Rendering
 
-- **A headless `VkDevice` for tests, and offscreen pixel readback — SLICE 1 OF 3 SHIPPED
-  2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
+- **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
+  SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
   [record](../record/2026-10.md#a-headless-vkdevice-for-tests-slice-1-surfaceless-device-creation).
   `modules/render_vulkan/vulkan_headless_device.{hpp,cpp}` creates an instance with no surface
   extensions, picks a physical device with no present-support query, and creates a logical device
   with `enabledExtensionCount = 0`. **The project can now create a `VkDevice` inside a test, which
   it could not do at any price before.**
 
-  **Still open — slice 2 (the one that produces pixels):** render a known value to an offscreen
-  target, copy it to a host-visible buffer, and assert the pixel. Gate: one asserted pixel value,
-  the first in the project. **Slice 3:** point it at the classes that are currently eye-only —
-  the Y-flip/upside-down class, per-frame buffer aliasing (#275, #287), the HUD underlay.
+  **Slice 2 shipped too: the project now asserts pixels.**
+  `vulkan_headless_readback.{hpp,cpp}` clears a 16x16 `R8G8B8A8_UNORM` offscreen image to
+  (0x12,0x34,0x56,0x78), copies it to a host-visible buffer and asserts **all 256 pixels**, twice
+  in one process. Proved load-bearing by mutation: perturbing the clear's red channel by +1 failed
+  on `pixels[i].r == 0x12` with `19 == 18`, so the assertion reads real GPU output rather than its
+  own input. A clear was chosen over a drawn triangle deliberately -- it exercises the whole
+  readback path (image, memory, layout barriers, submit, fence, image-to-buffer copy, host map)
+  with no pipeline or SPIR-V surface, so the first asserted pixel was not gated behind shader
+  tooling.
+
+  **Still open — slice 3, and it is where the user-visible value is:** point the readback at the
+  classes that are currently eye-only. The Y-flip/upside-down class (`screen_effect.vert` does not
+  compensate for the negative-height viewport and nothing can see it), per-frame buffer aliasing
+  (#275, #287), the HUD underlay. This needs a graphics pipeline and real shaders, which slice 2
+  deliberately avoided, so it is a genuine slice rather than an extension.
 
   **Three honest limitations of slice 1, none of them fixed by it.**
   1. *It is opt-in, so it guards nothing automatically.* The target is
@@ -1968,7 +1979,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICE 1 OF 3 SHIPPED 2026-10-24** (surfaceless device creation, opt-in `mosaic_gpu_tests`, validation-clean). | Slice 2 next: offscreen render + buffer readback. Still the highest-impact item on the gate — it is what converts "checkable by eye" into "checkable" for the renderer. | Slice 2: one asserted pixel value, the first in the project. | User-raised 2026-10-24 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICES 1 AND 2 OF 3 SHIPPED 2026-10-24.** The project asserts pixels now; `pixels[i].r == 0x12` is the first asserted pixel value in its history. | Slice 3 next, and it carries the user-visible value: aim the readback at the eye-only classes (Y-flip, per-frame buffer aliasing, HUD underlay). Needs a pipeline and real shaders. | Slice 3: a currently-eye-only render bug caught by an automated pixel assertion. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
