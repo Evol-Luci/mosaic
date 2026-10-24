@@ -115,16 +115,36 @@ deliberately left out.
   archive's nav turns out to read badly with two kinds of file in one directory.
 
 - ~~**CI/pre-commit wiring for `mosaic docs` + nav regen**~~ — SHIPPED, see [record](../record/undated.md#cipre-commit-wiring-for-mosaic-docs--nav-regen).
-- **No CI exists in this repo at all** — discovered while shipping the
-  pre-commit hook above. `CONTRIBUTING.md` claims the `Foundation →
-  Engine → Editor → Studio` dependency rules are "enforced in CI," but
-  there is no `.github/workflows/` (or any other CI config) anywhere —
-  that enforcement doesn't actually run anywhere today. Standing up a
-  first CI workflow (running the test suite, then the dependency-rule
-  check, then possibly the same docs/nav staleness check the local
-  hook covers) is real, undone work, not a stale doc claim to just
-  delete — scope TBD (a GitHub Actions build of this project needs a
-  full C++ toolchain + Vulkan/GLFW deps, non-trivial to set up).
+- ~~**No CI exists in this repo at all**~~ — SHIPPED 2026-09-21, see [record](../record/2026-09.md#no-ci-exists-in-this-repo-at-all).
+
+**Non-goals of the 2026-10-23 tier re-derivation, each deferred with its reason:**
+
+- **Ranking the older live bullets in the subsystem sections.** The tiers rank only the 25 live
+  bullets the 2026-10-20..23 PRs created. The other ~100 (UI, Physics, Rendering, Editor) carry no new
+  evidence, and the standing rule forbids re-deriving from unchanged sources. Ranking them is a
+  per-subsystem judgement that wants a human for impact. Revisit when real work lands in one
+  subsystem: rank that subsystem's bullets then, from that work.
+- **Promoting the tier pass's checks to `tools/docs/` and CI.** The conservation check (live-bullet
+  count and title multiset), the record-anchor check and the tier-row traceability check were
+  written for one pass and run by hand, as a scratch script that was NOT committed, so they are
+  currently **unreproducible**: the evidence for that pass exists only as pasted output. Whoever
+  picks this up is rebuilding them, not wiring up something that exists. A standing version wants
+  the design the claims-checker item above has. Depends on that item; do them together.
+- **Ten record anchors in this file are already dead, and a one-file check cannot see them.**
+  Found 2026-10-23 by a checker scanning all of `docs/` (80 record anchors); the tier pass's own
+  check scanned only this file and reported 0 dead, which was true of what it covered. The same 10
+  are dead on `main`, so they predate the tier pass. Most likely from #280's migration: the stubs
+  link to slugs the record headings do not produce (headings written with different text or
+  punctuation), e.g. `undated.md#bulk-refactoring--project-health-checks`,
+  `2026-09.md#issue-25--component-typeid-densification`, `2026-10.md#u8a--inherited-alpha-and-stack-layout`
+  and the U6, U7 and GLFW-`inside` stubs. Deferred: out of scope for the tier pass. This is the
+  concrete evidence that the anchor check should be promoted to CI and scoped over all of `docs/`.
+- **Teaching `archive_shipped_backlog.py` to find an unstruck original sitting under its own stub,
+  and to collapse prose "Re-derived" blocks.** The 2026-10-23 pass found 14 live bullets directly
+  under their own struck stubs (the tool classifies only entries that START with `~~`, so it
+  cannot see them) and folded them into the record by hand, plus 5 shipped bullets that were never
+  struck. Deferred: a one-off cleanup, and a detector that guesses at "same entry" needs the
+  prefix-key matching this pass used and its false-positive cost measured first.
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
@@ -441,18 +461,6 @@ them as this list does.
   the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
   effect; worth folding into whichever slice adds a third provider.
 - ~~**A press surviving a play-mode change emits a stale drag action**~~ — FIXED 2026-10-18, see [record](../record/2026-10.md#a-press-surviving-a-play-mode-change-emits-a-stale-drag-action).
-
-- **A press surviving a play-mode change emits a stale drag action** — found by review
-  2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
-  U6 ("its failure modes are the subtlest: the pointer leaving the window mid-drag, a press
-  surviving a play-mode change"). While the editor is stopped, `World::tick` never runs, so
-  `UiSystem` freezes mid-press with `was_down_` true. Press the HUD button, drag past the
-  threshold, hit **Stop**, then later **Play** or **Step**: the first tick takes the release
-  edge and emits a `drag_cancel` — or `drag_end` plus `click` if the cursor happens to be back
-  over the button — for a gesture that ended seconds earlier. The `click` half is pre-existing;
-  the slice widens it from one stale action to three. **The right fix is in the editor**
-  (reset the system's press state on a play-state transition), not in `UiSystem`, which is why
-  it is deferred rather than patched where it was noticed.
 - **A one-frame hover lag on the release frame** — `hover_target` is computed before the
   release edge clears `captured_`, so releasing over a *different* button leaves it unhovered
   for that frame and it enters on the next. About 16ms at 60Hz. Recorded 2026-10-12 so it is
@@ -1364,35 +1372,7 @@ them as this list does.
 
 ## Editor / Studio
 
-- **The editor should start STOPPED, not playing.** `PlayState`'s default is
-  `playing_ = true` (`studio/play_state.hpp:27`), so `mosaic editor` begins
-  simulating the moment it opens. **Requested 2026-10-10 after the viewport
-  pointer-input acceptance pass**, where the default surfaced as the first thing
-  a user meets: because viewport clicks are routed to the game while playing,
-  the default click behaviour is now "drive the game" and click-to-select
-  requires pressing Stop first. The product is editor-facing, so the default
-  should be authoring, not simulating — the user's call, and the right one.
-  **It is a one-token change plus one trap.** The token:
-  `playing_ = false`. The test: `tests/unit/studio/play_state_test.cpp:7`
-  ("PlayState defaults to playing") inverts, name included.
-  **THE TRAP — `mosaic editor --ticks N` would never terminate.**
-  `FramePump` exits on `loop_.tick_count() >= *options_.ticks`
-  (`app/run/frame_pump.hpp:87`), and `RuntimeLoop::advance` returns early while
-  stopped (`engine/runtime/runtime_loop.hpp:29`) so `tick_count_` never
-  increments. A stopped editor therefore hangs forever instead of exiting after
-  N ticks. **CI is unaffected** — its smoke test runs `mosaic run`, not `mosaic
-  editor` — but `--ticks` is exactly how the editor gets verified in a sandbox
-  that cannot screenshot, which is how every editor change this month was
-  checked. Needs a decision, not just a fix: either `--ticks` counts *frames*
-  in the editor path, or `--ticks` implies play, or the editor gains a separate
-  frame limit. Picking one is the actual work here.
-  **Consequences that are CORRECT and must not be "fixed" on sight:** the demo
-  scene sits still until Play (physics and scripts do not step — that is what
-  stopped means); the Blender live-link push is gated on `is_playing()`
-  (`studio/studio_app.cpp:246`) so it stays quiet until Play; the Step button
-  becomes enabled at startup, which is right. Transform propagation already runs
-  every frame regardless of play state, so Inspector edits still appear
-  immediately — the editor will not look frozen.
+- ~~**The editor should start STOPPED, not playing.**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#the-editor-should-start-stopped-not-playing).
 
 - **Drag-off-then-release is treated as a click, not a cancel.** When the cursor
   leaves the viewport mid-press, `ViewportPanel::pointer_state` reports
@@ -1449,35 +1429,6 @@ them as this list does.
   worth knowing it has a cost beyond the camera controls.
 
 - ~~**The editor forwards no pointer input to the scene, so nothing in it can be clicked**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#the-editor-forwards-no-pointer-input-to-the-scene-so-nothing-in-it-can-be-clicked).
-- **The editor forwards no pointer input to the scene, so nothing in it
-  can be clicked** — found 2026-10-06 while visually verifying IBL in the
-  editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
-  position normalised against the window, plus the left button) and hands
-  it to `setup_runtime`; `app/run/editor.cpp:159-160` stops its own
-  `setup_runtime` call at the audio backend, so the `pointer` parameter
-  takes its empty default. `UiSystem` and `ClickNudgeSystem` therefore
-  receive nothing, and UI buttons, click-driven scripts and any
-  pointer-reading gameplay cannot be exercised in the editor at all --
-  only by `mosaic run --window`, which has no camera or object
-  manipulation. The two halves of testing a scene are in different
-  programs.
-
-  **Why this is not the one-line fix it looks like.** The editor renders
-  the scene into an *offscreen viewport texture* that ImGui composites
-  into a panel, so window-relative cursor coordinates are simply wrong:
-  they must be relative to that panel's rect, valid only while the cursor
-  is over it, and suppressed entirely while ImGui has captured the mouse
-  (dragging a gizmo, typing in a field). `main.cpp:299` also records that
-  `UiSystem` and `ClickNudgeSystem` **must agree about the pointer within
-  a tick, or the UI-claim arbitration breaks** -- so the editor needs one
-  shared provider too, not two call sites that happen to compute
-  something similar.
-
-  There is a second design question underneath: whether clicking in the
-  viewport should drive the *game's* pointer at all while the editor is
-  in edit mode, or only in play mode -- otherwise selecting an object
-  would also press whatever UI button is under the cursor. That is a
-  behaviour decision, not an implementation detail.
 
   Depends on nothing technically; it needs the play-mode-versus-edit-mode
   answer first.
@@ -1499,22 +1450,7 @@ Both were discovered while trying to get the demo sphere rolling so a
 specular highlight could be seen sweeping across it. Neither is a bug in
 anything shipped; they are capabilities that were never built.
 
-- **No way to apply an impulse or set a velocity.** `PhysicsBackend`'s
-  only write path into the simulation is `set_body_transform`, which
-  teleports a body *and resets its velocity*, and `BodyDef` has no
-  initial-velocity field. So a body can be positioned but never pushed —
-  nothing in the engine can make an object move under its own momentum.
-  This blocks click-to-nudge, any gameplay verb (throwing, knockback,
-  jumping), and even a scripted "roll this ball" one-liner. The real
-  design question inside it: an impulse applied **at a point** induces
-  torque and makes a sphere *roll*, while a center-of-mass impulse makes
-  it *slide* — the demo needs the former, so the API must take a world
-  point, not just a direction. ~~**SHIPPED 2026-09-29**~~ --
-  `PhysicsBackend::apply_impulse(BodyHandle, impulse, world_point)` plus an
-  entity-level `PhysicsSystem::apply_impulse` and a `ClickNudgeSystem` that
-  turns a click into an impulse along the camera ray. See
-  `docs/project/next-steps.md` for the full entry, including the Critical
-  dead-code bug it shipped past a fully green suite.
+- ~~**No way to apply an impulse or set a velocity.**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#no-way-to-apply-an-impulse-or-set-a-velocity).
 - **The Box3D backend's end-event shape-validity filter became load-bearing on
   2026-10-02 and nothing but a comment records it.** Found in review of the
   body-destruction slice. `b3DestroyBody` pushes a `b3ContactEndTouchEvent` for
@@ -1654,25 +1590,6 @@ anything shipped; they are capabilities that were never built.
   it was created with, and arguably should be recreated instead, which makes it
   the same question rather than a separate one.
 - ~~**Destroying an entity never destroys its physics body**~~ — SHIPPED 2026-10-02, see [record](../record/2026-10.md#destroying-an-entity-never-destroys-its-physics-body).
-
-- **Destroying an entity never destroys its physics body.** Found 2026-10-01
-  while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
-  `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
-  and `bodies_`, `handle_to_entity_` and `synced_pose_` are only ever inserted
-  into. So destroying a simulated entity leaks its Box3D body, which keeps
-  stepping and keeps generating contacts forever, while the three maps keep
-  stale entries that grow without bound over a long session. `update()` happens
-  to tolerate it -- step 2 and step 4 both `continue` when `get_component`
-  returns null, and step 5 drops contacts whose handles are unmapped -- which is
-  exactly why this has stayed invisible. Deferred 2026-10-01: the fix adds a
-  pure virtual (`destroy_body`) to `PhysicsBackend`, which every backend must
-  then implement, plus a decision about how `PhysicsSystem` learns an entity
-  died (poll the ECS each tick for vanished bodies, or an explicit
-  entity-destroyed event it subscribes to). That is an interface change and a
-  design question, not a patch. Noted now because the ContactEvent fix lets a
-  subscriber call back into `PhysicsSystem` for the first time, which makes
-  "handler destroys a colliding entity" a reachable shape rather than a
-  hypothetical one -- it is still safe today, but it is one step closer.
 - **Angular impulse / torque API.** Box3D exposes
   `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
   only the linear-at-a-point call, which already induces spin via torque
@@ -1720,15 +1637,6 @@ anything shipped; they are capabilities that were never built.
   starting point, and `script_system_test.cpp:195` is the assertion that goes
   first.
 - ~~**`raycast()`'s script binding indexes its sequence arguments without a length check**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#raycasts-script-binding-indexes-its-sequence-arguments-without-a-length-check).
-
-- **`raycast()`'s script binding indexes its sequence arguments without a
-  length check.** `python_script_engine.cpp`'s `raycast` reads
-  `origin[0..2]` and `direction[0..2]` directly, so a script passing a
-  two-element list raises out of pybind11 rather than returning a miss,
-  killing the tick. Found 2026-09-29 while adding `apply_impulse` (which
-  guards its own reads). Deferred: pre-existing, and tightening it would
-  change behaviour a script might already depend on, so it wants its own
-  change rather than riding along silently.
 - ~~**Five small `ScriptWorker` tidy-ups found in review 2026-09-30**~~ — ADDRESSED 2026-10-04, see [record](../record/2026-10.md#five-small-scriptworker-tidy-ups-found-in-review-2026-09-30).
 - **`apply_impulse`'s return value is optimistic for non-scripted targets.**
   **DOCUMENTED 2026-10-04** at the binding's `py::doc` rather than changed -- the
@@ -1766,68 +1674,11 @@ anything shipped; they are capabilities that were never built.
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
 - ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding `backend_mutex_`**~~ — SHIPPED 2026-10-01, see [record](../record/2026-10.md#physicssystemupdate-emits-contactevent-synchronously-while-holding-backend_mutex_).
-
-- **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
-  holding `backend_mutex_` — a lock-ordering constraint, not just a
-  re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
-  `EventBus::emit` dispatches immediate subscribers on the same stack, so a
-  subscriber runs inside the lock. The narrow risk is a subscriber that calls
-  `raycast`/`has_body`/`apply_impulse` and hangs on a plain `std::mutex`;
-  today's two subscribers were checked (one logs, one re-emits onto the
-  *deferred* bus) and neither does. The wider and already-live consequence is
-  that **every lock a synchronous subscriber takes is now ordered *under*
-  `backend_mutex_`** — which today includes the global logger mutex, since the
-  contact logger calls `log::info` once per contact inside the lock. Nothing
-  inverts that ordering right now, but it is an unwritten invariant: a future
-  log sink, or any sync subscriber holding a lock that another thread holds
-  while waiting on `backend_mutex_`, deadlocks in a way that looks nothing
-  like the re-entrancy case. There is a performance half to the same point: a
-  worker `raycast()` can wait behind per-contact logging and the `Table`
-  construction in the contact-to-`ScriptEvent` bridge — work with nothing to
-  do with the backend. The spec accepts holding the lock across ECS
-  traversal explicitly; it never considered holding it across subscriber
-  dispatch. Deferred 2026-09-30: the fix is to collect contacts under the
-  lock and emit them after releasing it, which changes when subscribers
-  observe a contact relative to the pose write-back — a behaviour decision
-  worth its own slice. A recursive mutex would hide the re-entrant hang
-  without making the read correct, and would do nothing about the ordering.
 - ~~**A spurious watchdog trip in the contact-reentry tests degrades into a use-after-free**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#a-spurious-watchdog-trip-in-the-contact-reentry-tests-degrades-into-a-use-after-free).
-
-- **A spurious watchdog trip in the contact-reentry tests degrades into a
-  use-after-free instead of the named failure it is designed to produce.**
-  Found 2026-10-01 in review of the contact-emit slice.
-  `tests/unit/physics/physics_contact_reentry_test.cpp`'s `tick_with_watchdog`
-  runs the tick on a detached thread capturing `&world`, so when the main
-  thread times out and `REQUIRE` throws, `world` is destroyed at scope exit
-  while that thread may still be using it. In the genuine-deadlock case the
-  thread is parked on a mutex that is then destroyed -- UB, though observed to
-  unwind cleanly and print the assertion. In the case the 3000 ms margin is
-  actually guarding against (a loaded runner, no deadlock), the thread is
-  *actively ticking* a destroyed `World`, so the run reports a segfault rather
-  than "the tick did not return" -- defeating the whole reason the watchdog was
-  chosen over a ctest `TIMEOUT`. Damage is bounded: `catch_discover_tests` gives
-  each case its own process, so it cannot take other cases down. Deferred
-  2026-10-01: the fix is to heap-allocate the `World` on the watchdog path and
-  deliberately leak it when the flag never sets, which turns both failure modes
-  into a clean named assertion. Not folded into that slice because it only
-  affects a failure path that the four-orders-of-magnitude timing margin makes
-  very unlikely, and leaking a `World` on purpose wants its own justification
-  in the test's comments rather than arriving as a fix-round edit.
 - ~~**No ctest `TIMEOUT` property anywhere in the suite.**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#no-ctest-timeout-property-anywhere-in-the-suite).
 - ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is flaky on CI, and the flakiness is in the test's design.**~~ — FIXED 2026-10-09, see [record](../record/2026-10.md#physicssystemraycast-is-callable-from-another-thread-while-update-runs-is-flaky-on-ci-and-the-flakiness-is-in-the-tests-design).
 - ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by name.**~~ — WITHDRAWN 2026-10-09, see [record](../record/2026-10.md#nine-existing-test_case-names-contain-commas-so-none-of-them-can-be-run-by-name).
 - ~~**A guard against `TEST_CASE` names that break ctest discovery.**~~ — SHIPPED 2026-10-09, see [record](../record/2026-10.md#a-guard-against-test_case-names-that-break-ctest-discovery).
-- **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
-  a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
-  calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
-  1500s default applies to every case in the suite: any test that hangs costs 25 minutes
-  of CI before it fails, and says only "Timeout" when it does. Deferred
-  2026-10-01 rather than folded into that slice, which solves its own hang with
-  an in-test watchdog instead -- the watchdog gives a named failure in seconds
-  and works when running the test binary directly, which a ctest property does
-  not. A suite-wide timeout is still worth having as a backstop for the next
-  hang nobody anticipated; it needs its own value chosen against the slowest
-  legitimate test rather than a number picked to fit one case.
 - **Nothing enforces that a system never calls user code while holding an
   internal lock.** Recorded 2026-10-01 as a non-goal of the ContactEvent slice,
   which fixes the single live instance. `PhysicsSystem` is the only system that
@@ -1876,18 +1727,6 @@ anything shipped; they are capabilities that were never built.
   a finer-grained lock is the classic way to turn a correct coarse lock
   into a subtly wrong fine one.
 - ~~**`raycast()` still runs off the script-worker thread**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#raycast-still-runs-off-the-script-worker-thread).
-
-- **`raycast()` still runs off the script-worker thread.** The
-  `--script-thread` path binds the same `ScriptHost` into worker-thread
-  engines, and while `apply_impulse` is now deliberately left unwired there,
-  `raycast` is not: it queries the live physics world from the worker thread
-  while the main thread may be inside `PhysicsSystem`'s step. It is a *read*
-  rather than a write and predates all of this, which is why it was not
-  changed alongside the impulse guard — but it is the same boundary, and a
-  read racing a step can still return torn or mid-integration results.
-  Deferred 2026-09-30: fixing it properly means the same buffering/snapshot
-  design decision the impulse entry above needs, and the two should be solved
-  together rather than one at a time.
 - **Two thin spots in the new physics-binding tests.** Found 2026-09-30 in
   review, both real but neither load-bearing today. (a) The demo ball-pusher
   test asserts only `fabs(delta) > 0.05`, which would not distinguish the
@@ -1898,34 +1737,7 @@ anything shipped; they are capabilities that were never built.
   an id that also fails `has_body`. A test that destroys a bodied entity and
   pushes it in the same tick would make it load-bearing.
 - ~~**Script-thread impulses are disabled, not buffered**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#script-thread-impulses-are-disabled-not-buffered).
-
-- **Script-thread impulses are disabled, not buffered.** On the
-  `--script-thread` path, `on_update` runs on a worker thread while the main
-  thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
-  straight into the live Box3D body -- an unsynchronized write during a step
-  is undefined behaviour. Found 2026-09-30 in whole-branch review, once the
-  default demo scene began calling `apply_impulse` and made the hazard
-  reachable with no user code. Mitigated by NOT wiring the hook on that path,
-  so it returns `False` there per `ScriptHost`'s unset-hook contract. That is
-  a guard, not a fix: a script that works single-threaded silently does
-  nothing under `--script-thread`. The real fix is to buffer impulses the way
-  the threaded path already buffers component writes, and apply them on the
-  main thread -- which needs a design decision about ordering against the
-  physics step. Note `raycast` still runs off-thread on that path; it is a
-  read and pre-existing, but it is the same boundary.
 - ~~**A dict passed to `apply_impulse` raises instead of returning `False`**~~ — SHIPPED 2026-10-04, see [record](../record/2026-10.md#a-dict-passed-to-apply_impulse-raises-instead-of-returning-false).
-
-- **A dict passed to `apply_impulse` raises instead of returning `False`.**
-  The spec says a malformed argument returns `False` rather than raising, but
-  that only covers malformations *within* a sequence. A non-sequence -- and
-  the single most likely wrong argument here is a **dict**, because this same
-  scripting surface uses dicts for component values (`tr['position']`) -- is
-  rejected by pybind11's dispatcher before the binding's own guard runs, so
-  `apply_impulse(e, {'x':1,'y':0,'z':0}, ...)` raises and aborts that
-  script's `on_update` for the tick. Found 2026-09-30 in review. Deferred:
-  it mirrors `raycast`'s existing behaviour exactly, and tightening it means
-  taking `py::object` and hand-rolling the sequence check for both bindings,
-  which is its own change.
 - **Other physics verbs from scripts** — setting a body's velocity
   directly, teleporting a body, and overlap/shape queries. Deferred
   2026-09-29 during the scripting-bindings design: impulse and raycast are
@@ -1983,21 +1795,6 @@ anything shipped; they are capabilities that were never built.
   is two `reads<>()` lines, but it should land with whatever actually consumes
   the access sets, so the declaration and its enforcement are reviewed together.
 - ~~**`app/main.cpp`'s system wiring is untestable**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#appmaincpps-system-wiring-is-untestable).
-
-- **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
-  dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
-  behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is
-  created, so the guard was always false and clicking did nothing in the real
-  app. Every automated check passed — the unit tests construct the system
-  directly and bypass `main()` entirely, and the launch check only proves the
-  process starts. The gap is structural: `main()` is one long function whose
-  wiring decisions no test can observe. The fix is to extract the registration
-  decisions into small functions that take their inputs explicitly (e.g.
-  `register_windowed_systems(World&, bool windowed, providers...)`) so a test
-  can assert *that* a system is registered under the right conditions.
-  Deferred 2026-09-29 rather than done inside a fix round, because carving a
-  testable seam out of `main()` is a design change that deserves its own
-  review. Depends on nothing.
 - **`ClickNudgeSystem::camera_position` duplicates `studio::pick_entity`'s
   camera selection.** Both independently implement "first entity with a
   `Camera` and a `WorldTransform`, take the world matrix translation". They
@@ -2010,71 +1807,12 @@ anything shipped; they are capabilities that were never built.
   picking still used the right one.
 - ~~**Static bodies cannot be created rotated**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#static-bodies-cannot-be-created-rotated).
 
-- **Static bodies cannot be created rotated.** `BodyDef` carries
-  `{type, position, shape, density}` — no rotation — so `create_body`
-  always produces an axis-aligned body. A tilted ramp, a slanted wall, or
-  any angled static geometry is therefore unrepresentable: the renderer
-  draws the entity rotated while the collider stays axis-aligned, and the
-  two silently disagree. The only workaround today is to mutate the
-  entity's Transform *after* creation so the "external edit" path calls
-  `set_body_transform`, which does accept a rotation — a hack that
-  depends on a sync heuristic rather than on the API meaning what it
-  says. Deferred 2026-09-29: the fix is to add `rotation` to `BodyDef`
-  and pass it through `create_body`, which is small but touches the
-  backend interface and wants its own tests. Not needed once impulses
-  exist, which is why it is not being folded into that slice.
-
 ## Tech debt
 
 - ~~**Issue #25 — Component TypeID densification**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#issue-25--component-typeid-densification).
 - ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#livelinkserver-tests-hard-code-listen-ports-and-one-flaked-on-ci).
-
-- **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
-  `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
-  34907, ...). On 2026-09-29 the case "LiveLinkServer start() fails on an
-  already-bound port" failed a GitHub Actions run (1015/1016) and passed on
-  a re-run of the same branch with no code change in that area, which is the
-  signature of a lingering socket in `TIME_WAIT` or a port collision on a
-  shared runner. Each Catch2 case runs as its own process, so the exposure is
-  real. **Do not add a third `-E` exclusion for it** -- the fix is to bind
-  port 0 and ask the OS which port it got, so the tests stop competing for
-  fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
-  test-infrastructure change unrelated to whatever slice is in flight.
-- **`enet_transport_test.cpp` hard-codes six UDP ports too** (34001-34006).
-  Found 2026-09-30 while scoping the `LiveLinkServer` ephemeral-port fix, which
-  covers the TCP side only. Same failure signature is available to it: a fixed
-  port colliding with anything else on a shared CI runner. Not folded into that
-  slice because the fix is materially bigger — ENet's `enet_host_create` accepts
-  port 0 and records the kernel's choice in `host->address.port`, but Mosaic's
-  transport sits behind its own neutral interface, so learning the bound port
-  means adding an accessor to that interface and threading it through the
-  backend. Deferred 2026-09-30: a one-file test change on the TCP side versus an
-  interface change on the UDP side is the difference between two slices, and the
-  UDP tests have not actually flaked yet where the LiveLink one has. Depends on
-  nothing; pick it up if a net test ever fails on CI.
+- ~~**`enet_transport_test.cpp` hard-codes six UDP ports too (34001-34006).**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet_transport_testcpp-hard-codes-six-udp-ports-too-34001-34006).
 - ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ — FIXED 2026-09-30, see [record](../record/2026-09.md#embedded-python-worker-thread-flakiness-scriptsystemscriptworker).
-
-- **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
-  — real, currently un-root-caused. Two tests --
-  `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem
-  applies script writes one tick later" (a known SIGSEGV flake,
-  previously observed under full-suite local ordering) and
-  `tests/unit/script/script_worker_test.cpp`'s "ScriptWorker runs a
-  job on its thread and returns the write batch" (a size-mismatch
-  failure, not a crash) -- both touch the same embedded-Python +
-  worker-thread machinery and both are rare/near-impossible to
-  reproduce in local dev runs, but failed on 2 of the first 3 real
-  GitHub Actions CI runs (`.github/workflows/ci.yml`, added 2026-09-21)
-  -- a materially higher rate than anything seen in this project's
-  local-dev history, almost certainly because CI's shared/constrained
-  runner vCPUs expose thread-scheduling races local hardware doesn't.
-  **Not fixed, only worked around for now:** both are excluded from
-  the CI `ctest` gate via `-E` (still run by every local/full-suite
-  invocation) so CI stays usably green; the actual race in
-  `engine/script/script_worker.hpp`/`ScriptSystem`'s threaded path
-  needs real investigation (likely embedded-Python interpreter
-  init/teardown ordering across threads) as its own scoped piece of
-  work, not something to guess at blind.
 
 ## CI and build
 
@@ -2082,22 +1820,7 @@ Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci
 (2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
 from that spec; `ctest` and wide-header figures are local or inferred where marked.
 
-- **`ctest -j` in CI — SHIPPED 2026-10-21 (#273)** (spec
-  `docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md`). **The framing this entry used
-  to carry ("gated on two flaky tests") was stale and has been replaced.** Verified 2026-10-21:
-  (1) the threaded-raycast case was fixed in #230 (`e7927cf`, 2026-10-09: a bounded 5 s wait for
-  `hits > 0` before the concurrent phase); (2) the threaded-`ScriptSystem` SIGSEGV cannot occur on
-  the ctest path at all, because `catch_discover_tests` registers all 1455 cases as separate
-  processes, so the full-suite ordering that triggers it never happens under ctest at any `-j`
-  (it remains a hazard of running `mosaic_unit_tests` directly; see the Physics-pillar entry "The `[script]` SIGSEGV now has a deterministic, one-command reproduction").
-  The real gates are the concurrency hazards of 1455 independent processes and the per-test
-  `TIMEOUT 60` against one slow case; the spec audits both. With a restored ccache a warm job is
-  ~93-143 s and the serial `ctest` step is 35-64 s of it (CI log 2026-10-21: 60.8 s, image
-  `20261012.334.1`, nproc 4, gcc 13.3.0), which compiler caching can never touch. **What the win is:**
-  the step cannot drop below its longest single case (23.4 s on that CI run, see the HUD-underlay
-  entry below, fixed 2026-10-21), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
-  then the long case runs 23.4 s), not 60/4; the rest of a warm run is apt
-  (~25-30 s) and configure (~23 s), and **neither is test parallelism**.
+- ~~**`ctest -j` in CI**~~ — SHIPPED 2026-10-21, see [record](../record/2026-10.md#ctest--j-in-ci).
 - **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
   `actions/cache/restore@v4`, `actions/cache/save@v4` and `actions/checkout@v4` target Node.js 20
   and are being forced to Node.js 24 (seen in the post-merge runs, 2026-10-21). Nothing is broken,
@@ -2175,243 +1898,85 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
 
 ## Effort vs. impact
 
-Cross-cutting prioritization pass, originally 2026-09-19, **re-derived
-2026-09-19** post-arc: the shipped item is removed, resolved items are
-removed, and the two refresh-note items (asset-usage queries' now-easier
-build, the `FieldVisitor` extension's now-tripled motivation) are
-re-rated. Re-derive again when the backlog above has moved significantly
-rather than trusting the ratings below forever.
+The cross-cutting view: of the live work above, **what is worth doing next**. Last derived
+**2026-10-23**, from the 16 PRs merged after the previous pass's own PR (#266): #267, #268,
+#271-#284. Six earlier passes (2026-09-19 to 2026-10-20) and the tier tables they edited are in
+the record: [2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21)
+and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2026-10-04-to-2026-10-20-and-the-tier-tables-they-edited).
+
+**The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
+new work has landed since the last pass -- don't immediately re-run a fourth time expecting
+different material from the same unchanged source docs.* This pass's material is the live bullets
+and record entries that the 16 PRs themselves created (25 live bullets, against roughly 130 live overall, from the CI-caching, parallel
+`ctest`, world-text, ENet and docs-record slices), not a re-grep of the specs' Non-goals. The
+older live bullets in the subsystem sections are **not ranked here** and are not claimed to be:
+they carry no new evidence. Every row below names a live bullet above by its bold title, or a PR;
+a row that matched nothing was cut.
+
+*The overall figure is deliberately approximate ("roughly 130"), not exact.* It was written as an
+exact number twice during this pass and was stale both times, because every backlog edit changes
+it. It is the same failure that got the `main` SHA row removed from `next-steps.md`'s State table
+(#283): a figure that is wrong more often than right teaches a reader to distrust the stable ones.
+Do not "fix" it back into an exact count; if you need the exact one, derive it (top-level `- `
+bullets not starting `- ~~`) on the day you need it.
+
+**Reading a row.** *Effort*: hours (one focused change with a gate) / slice (a spec-plan-implement
+cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that would show it done.
 
 ### 🟢 Quick wins (hours-scale, single focused change)
 
-**Empty as of 2026-09-20, re-derived three times today** — the original
-2026-09-19 survey's items shipped, then two follow-up re-derivations each
-found exactly one more genuine item (both now shipped too), then a third
-pass found nothing at all ("the well is dry" -- every remaining Non-goals/
-deferred-work mention traces to already-shipped items, not-yet-applicable
-conditions, or content already tracked in the Medium/Large tiers below).
-Re-derive again once real new work has landed since the last pass — don't
-immediately re-run a fourth time expecting different material from the
-same unchanged source docs.
+| Order | Item | Effort / impact | Gate | Source |
+|---|---|---|---|---|
+| 1 | **`draw_particles` and `draw_ribbons` share the world-text backend shape.** | Hours. Latent correctness: both alias one per-frame buffer and are right only because `RenderSystem` calls each once. Same class as the world-text bug fixed in #275. | A test that fails on the old batching; the Vulkan side is checkable by eye only (nothing creates a `VkDevice`). | PR #275 |
+| 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
+| 3 | **`execution.jobs` in the `debug` test preset (local `ctest -j`).** | Hours, but **decision-gated**: it changes every developer's default on machines of unknown memory. Low impact (CI already parallel). | A human's yes/no; the edit is one preset field. | PR #273 |
 
-**Re-derived 2026-10-04** after eleven slices landed (#209–#219). Two
-genuine quick wins now exist, both surfaced by those slices rather than by
-re-reading the same source docs:
+### 🟡 Medium (a slice with its own spec and gate)
 
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Exposure control**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#exposure-control). | — |
-| ~~**A suite-wide ctest `TIMEOUT`**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#a-suite-wide-ctest-timeout). | — |
-
-**Re-derived 2026-10-10** after U7 image presentation shipped. Both 2026-10-04 entries are
-now struck through, and this pass takes its material from that slice's review findings
-rather than from re-reading the same source docs — which is the condition the 2026-09-20
-note set for re-deriving at all.
-
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Tighten the "position starts past the edge" test to exact values**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#tighten-the-position-starts-past-the-edge-test-to-exact-values). | — |
-| ~~**Warn when a sub-rect lands entirely off its texture**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#warn-when-a-sub-rect-lands-entirely-off-its-texture). | — |
-| ~~**Sort the HUD image pass by `UiImage::order`**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#sort-the-hud-image-pass-by-uiimageorder). | — |
-| ~~**An Inspector `field_int` (`DragInt`)**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#an-inspector-field_int-dragint). | — |
-
-**Re-derived 2026-10-12** after seven slices landed (#240–#246: the order lint, the HUD
-pass sorting, `field_int`, the manual-verification record, the pairwise conflict check, its
-end-to-end proof, and the anchor-clamper unification). Material comes from reading that code
-back, not from re-reading the same source docs.
-
-**The pass found two stale claims and shipped both in the same commit**, since each was a
-comment correction rather than work to schedule:
-
-| Item | Outcome |
-|---|---|
-| ~~**`UiButton::order`'s "KNOWN COST" comment said the disagreement could not be validated**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#uibuttonorders-known-cost-comment-said-the-disagreement-could-not-be-validated). | — |
-| ~~**`ui_hit.hpp`'s rule 2 described a hazard that is now reported**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#ui_hithpps-rule-2-described-a-hazard-that-is-now-reported). | — |
-
-**The two carried items below are the actionable remainder** — both re-confirmed as still
-valid and still small. The well is otherwise close to dry: everything else surfaced tonight
-is either already shipped, needs a human's eyes or judgement (the `Ambiguous` noise level, a
-real two-button scene), or is a dependency decision (`imgui_test_engine`). **Do not re-run
-this pass expecting new material** until real new work has landed — that is the condition the
-2026-09-20 note set, and three of the four passes since have obeyed it.
-
-One trigger rather than an item, **corrected 2026-10-12 after looking at the code again**:
-the editor frame loop now has three diagnostic blocks, but only **two** of them build
-`WarningLedger` entries generically — the per-entity order lint goes through the typed
-`OrderWarningModel` wrapper and is a single line. So the count that matters is *generic*
-blocks, and it is two, not three. A helper over two sites would absorb about five lines and
-add an abstraction to a long frame loop, so it was weighed and declined. Fire this at the
-*third generic* block, not the third diagnostic.
-
-**Re-derived 2026-10-20** after the bloom and UI-layout arcs landed (#258, #260, #261,
-#263) and the first human verification pass ran. The condition the 2026-09-20 note set is
-met: this takes its material from that pass's one failure and its one fixture gap, not from
-re-reading the same source docs. Both items are in the Rendering section above.
-
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#author-a-ribbon-and-a-world-label-above-the-bloom-threshold-in-the-demo). | — |
-| ~~**A test that nothing authored flat on the ground sits below its top face**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#a-test-that-nothing-authored-flat-on-the-ground-sits-below-its-top-face). | — |
-| ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#root-cause-the-165-s-default-scene-hud-underlay-test). | — |
-| **Guard `draw_particles` / `draw_ribbons` against a second call per frame** | Hours: copy the per-call chunk list from `draw_world_text`, or add an assert. Rendering section above. |
-| **Revisit the lime "GLOW" label contrast** | Only if it becomes a problem (human decision 2026-10-21); needs no new code for a colour/position change. Rendering section above. |
-
-### 🟡 Medium (a real focused sub-project, bounded new machinery)
-
-| Item | Why this tier |
-|---|---|
-| ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
-| **`ctest -j` in CI** | **Shipped 2026-10-21 (#273)** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
-| ~~**ENet servers: bind 0 and report the port**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-bind-0-and-report-the-port). | — |
-
-**The five original items in this tier shipped as of 2026-09-21:** Studio
-plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
-+ versioning (PR #194), plugin live file-watching/hot-reload
-(PR #195), Studio theme system + persistence (PR #196), Studio
-recent-projects list (PR #197).
-
-**Re-derived 2026-10-04.** One genuine medium item now exists:
-
-| Item | Shape |
-|---|---|
-| ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — SHIPPED 2026-10-16, see [record](../record/2026-10.md#an-offscreen-hdr-render-target-plus-a-fullscreen-resolve-pass). | — |
-
-**Re-derived 2026-10-16, corrected and then SHIPPED 2026-10-17.** That item
-shipped, and **bloom** — which took its place in this tier — shipped the same
-day: a prefilter with a soft knee, a mip chain whose length is a function of
-resolution, an additive upsample, and a composite inside the tone curve. It was
-**not** where the RenderGraph got its trigger; the chain is a loop, not a graph,
-and the graph's trigger is restated in the Rendering section above. The estimate
-held, with one surprise in each direction: the downsample and upsample turned
-out to need only ONE shader, and the chain's one-time clear forced a constructor
-reordering that no headless test could have found. See
-`docs/superpowers/specs/2026-10-17-render-bloom-design.md` and
-`docs/superpowers/plans/2026-10-17-render-bloom.md`.
-
-**The 🟡 tier has no obvious next pick.** The Rendering section's open items are
-now the five bloom follow-ups (all deliberately deferred, none asked for) plus
-the resize-churn entry. The next slice probably comes from another subsystem or
-from the 🔴 Large tier below.
-
-Otherwise the next pick comes from the 🔴 Large
-tier below — each of those items needs its own decomposition before
-implementation starts.
+| Order | Item | Effort / impact | Gate | Source |
+|---|---|---|---|---|
+| 1 | **A checker for `next-steps.md`'s verifiable claims.** | Slice. Medium impact: this very pass found the handoff's "twelve PRs" wrong at the time it was written (it is 16, or 18 counting #265-#284). | Must go red against a deliberately wrong claim. | PR #278 |
+| 2 | **Pin mutable FetchContent tags to commit SHAs.** | Slice. Reproducibility/supply chain: 9 of 10 dependencies are tag-pinned. `GIT_SHALLOW` needs a tag, so SHA pinning trades shallow clones away unless done per dependency. | A retagged upstream no longer changes a build silently. | PR #268 |
+| 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. | PR #271 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
+Carried from the previous pass; none gained new evidence from the 16 PRs, so none is re-rated.
+
 | Item | Impact |
 |---|---|
-| **Test selection / caching test results** | Needs change-impact analysis; low priority. See the CI and build section. |
-| Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
-| Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| ~~**Rendering: full PBR material model**~~ — COMPLETE 2026-10-07, see [record](../record/2026-10.md#rendering-full-pbr-material-model). | — |
-| RenderGraph refactor | Medium (enabling, not user-visible) |
-| UI pillar gaps — **DECOMPOSED 2026-10-07** into U6–U11, see `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. U6 (interaction depth) is first and carries one open question for a human; U7 (image presentation) is independent and needs no decision; U10 is blocked on an editor keyboard-input provider. | High if interactive-game UI is a near-term goal, else Low — **and that is still the open question**, which the decomposition does not answer. It only removes the excuse that the item was too shapeless to start. |
-| Networking gaps | High if shipping real multiplayer soon, else Low |
-| Package manager (network/deps/registry) | Medium |
-| Public marketplace | Low today, High later — gated on an actual user base |
-| 3rd-person adventure template | Medium |
+| **Test selection / caching test results.** | Needs change-impact analysis; low priority. |
+| **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
+| **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
+| **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
+| **U8 layout containers** | U8a shipped (#260); the remainder, and U9-U11, are in the UI section. High if interactive-game UI is a near-term goal, else Low; that is still the open question. |
+| **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
+| **Package manager: network fetch, version constraints/dependency** | Medium. |
+| **Public marketplace** | Low today, High later: gated on an actual user base. |
+| **3rd-person adventure template content** | Medium. |
 
-**Stand up real CI (GitHub Actions) — SHIPPED 2026-09-21 (PR #198)**,
-removed from the table above. `.github/workflows/ci.yml`: debug-preset
-build, full `ctest`, headless `mosaic run --ticks N --json` smoke test,
-on every push to `main` and every PR.
+### Decided: no action (with the trigger that would reopen each)
 
-**Dependency-rule lint — SHIPPED 2026-09-21 (PR #199)**, the follow-up
-named above. `tools/ci/check_dependency_rules.py` (+ its own unit
-tests), wired into CI and `.githooks/pre-commit`. Surfaced and fixed a
-real doc-vs-reality mismatch along the way: `ARCHITECTURE.md`/
-`repo-layout.md` described a `Foundation → Engine → Editor → Studio`
-layout with an `editor/` directory that was never built — rewritten to
-describe the real tiers (`foundation/engine/studio/app` + `modules/`)
-confirmed by grepping every `#include` direction in the tree. See the
-`next-steps.md` entry for the full story, including the real
-`app → studio` direction (opposite of what the old docs said) and the
-CI-flake exclusion this PR's own run surfaced (tracked separately in
-Tech debt above).
+Not work to schedule. Each was weighed and declined, or is waiting on a named condition, so the
+question "did we already consider this?" answers here.
 
-**Rendering: shadows — SHIPPED 2026-09-21 (PR #200)** and **spot lights
-— SHIPPED 2026-09-21 (PR #201)**, both removed from the table above.
-Directional-light-only, hard-edged, fixed-frustum shadow mapping, and a
-third simultaneous light type reusing the point light's positional
-machinery plus a `smoothstep` cone edge. Both extended direct
-submission rather than building the RenderGraph, which stays deferred
-(its own row above) until a genuinely *dynamic* pass need appears. The
-per-slice deferrals each opened — PCF, point/spot-light shadows,
-scene-fitted and cascaded frustums, configurable shadow resolution,
-real multi-light support — are tracked in the Rendering section above,
-not here.
-
-**The old "Rendering: PBR/specular/spot lights" row is now only "full
-PBR."** Decomposing it turned out to be the right call: spot lights
-shipped as their own small slice, and the **shading-data UBO migration
-— SHIPPED 2026-09-27 (PR #202)** (world-space shading, the codebase's
-first uniform buffer, push constants 256 → 208 bytes) unblocked
-**Blinn-Phong specular**, which is now a *small* slice rather than part
-of a Large item — it needs 8 bytes of per-draw data against 48 bytes of
-headroom, since world-space shading moved the camera position into the
-per-frame UBO. Specular is tracked in the Rendering section above and
-does **not** need its own decomposition pass. What genuinely remains
-Large is the full metallic/roughness Cook-Torrance material model,
-which still needs its own design decisions (scalar params vs. texture
-maps for v1) and likely its own sub-decomposition.
-
-**Picked as the largest effective win (2026-09-19, original pass):** bulk
-refactoring / project health checks — **shipped**, all 4 sub-projects
-complete (see specs above). Next pick TBD with the user.
-
-**Scoping pass on "Stand up real CI" (2026-09-21, after the Medium tier
-closed out)** — investigated the actual dependency chain rather than
-guessing at a workflow file blind, since getting package names wrong
-means a slow guess-push-fail loop with no one around to weigh
-trade-offs. Findings from reading `CMakeLists.txt` and
-`modules/render_vulkan/CMakeLists.txt` directly:
-- Hard `REQUIRED` dependencies at configure time: `Threads`, system
-  `Vulkan` (`find_package(Vulkan REQUIRED)` — needs the SDK/loader +
-  headers installed, not just runtime-resolvable), `Python3`
-  (Interpreter + Development, for the embedded pybind11 scripting),
-  and a `glslc` binary on `PATH` (`find_program(GLSLC glslc
-  REQUIRED)` — shaders are compiled to SPIR-V at *build* time, so a
-  CI runner needs the compiler even though it never needs a real GPU
-  to run it). GLFW is fetched and built from source via
-  `FetchContent` — no system package needed for it.
-- **The good news, confirmed by actually running the full suite
-  locally and reading what it touches:** `ctest`/`mosaic_unit_tests`
-  never creates a real `VkDevice`/window — it's headless logic
-  (confirmed via this session's own repeated full-suite runs, all
-  green, on a sandbox with no functioning GPU-backed Vulkan ICD).
-  Only `mosaic run --window`/`mosaic editor` (never invoked by
-  `ctest`) touch a real GPU. **This means CI likely does NOT need a
-  working GPU or software rasterizer (lavapipe/llvmpipe) at all** —
-  just the Vulkan *headers + loader* to satisfy `find_package`/link,
-  and a real `glslc` binary to compile shaders at build time. This
-  significantly de-risks the item versus the original "needs a full
-  Vulkan toolchain in the runner" framing.
-- **The actual open risk is `glslc` package availability on GitHub's
-  `ubuntu-latest` runner image** — not confirmed by installing it
-  anywhere, only reasoned about from memory (Ubuntu's own repos have
-  historically been inconsistent about shipping a standalone `glslc`
-  package versus only `glslang-tools`' `glslangValidator`, a
-  different tool). The standard robust fix other Vulkan projects use
-  is adding LunarG's official Vulkan SDK apt repository and
-  installing the `vulkan-sdk` meta-package (guarantees loader,
-  headers, validation layers, and `glslc` together) rather than
-  hunting for the right combination of distro packages — but this
-  needs an actual CI run to confirm, not more reading.
-- **Not attempted tonight, deliberately:** writing and iterating on
-  the actual `.github/workflows/*.yml` needs a real push-and-watch
-  loop (`gh run watch`) to get the LunarG-repo-vs-distro-packages
-  question and the exact CMake preset/build-type right, plus
-  judgment calls this session's own practice would normally raise
-  with the user first rather than decide alone at 1am: which preset
-  (debug/release/both as a matrix?), whether to also gate on the
-  dependency-rule check `CONTRIBUTING.md` already claims is
-  "enforced" (it isn't, anywhere, today — a lint pass would need
-  writing from scratch, not just wiring up a workflow), and whether
-  a `ctest`-only pipeline is an acceptable v1 or whether launching
-  `mosaic run --ticks N` headlessly (no `--window`) should also gate
-  merges as a smoke test. **Next: brainstorm this properly with the
-  user** (a real spec/plan cycle, not a chat-agreed bounded slice —
-  this is the first item in the whole session that touches
-  infrastructure outside the repo itself) before writing the
-  workflow file.
+| Item | Trigger |
+|---|---|
+| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). |
+| **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
+| **GitHub Actions Node.js 20 deprecation.** | The actions publish a Node 24 version. |
+| **Release-preset build caching.** | A release CI job exists. |
+| **Caching the apt layer.** | Apt becomes a large share of a run once the build is cached. |
+| **A source-only FetchContent cache.** | Shallow clones disappoint on CI. |
+| **Per-PR cache writes.** | Hit-rate data from a few real PR iterations. |
+| **A periodic cold-vs-cached parity check.** | The ship-time invalidation probes stop being enough. |
+| **A shared/remote compiler cache for developer machines.** | A different trust and operations decision. |
+| **Cache housekeeping.** | A bad cache that bumping the `v1` epoch cannot cure. |
+| **`port reports an explicitly requested port verbatim` releases then rebinds** | The case is ever seen red. |
+| **Longest-first scheduling for `ctest -j`.** | A long case lands late in declaration order (measured gain ~2.6 s). |
+| **A CI job that runs `mosaic_unit_tests` as one process.** | The full-suite-order SIGSEGV is re-observed (it cannot occur under `ctest`). |
+| **Splitting the record by subsystem instead of by month.** | Reading the record by subsystem becomes a real need. |
+| **Reconciling `next-steps.md` with the agent memory directory.** | After the claims checker above exists. |
+| **Backfilling record entries for work predating the convention.** | Never planned: it would be speculative narrative. |
+| **Automating the archive split in the pre-commit hook** | The manual run is forgotten for more than a month or two. |
+| **The eight existing `docs/updates/*-summary.md` files stay as they are** | Deferred permanently unless the archive's nav reads badly. |

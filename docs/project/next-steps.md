@@ -23,7 +23,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-Three candidates, most ready first.
+Three candidates, most ready first. The ranking behind them is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
 
 ### 1. Guard `draw_particles` / `draw_ribbons` against a second call per frame (green, hours)
 - **What:** both stage into one per-frame buffer, so a second call in a frame aliases the first. Same latent class as the world-text bug fixed in #275.
@@ -31,11 +31,11 @@ Three candidates, most ready first.
 - **Gate:** a test that fails on the old behaviour. Nothing creates a `VkDevice`, so only engine-side batching is testable; the backend change is checkable by eye.
 - **Unverified:** `RenderSystem` makes exactly one call of each per frame (`engine/render/render_system.hpp:380`, `:397`), so this bites only with a second caller or a second pass.
 
-### 2. Re-derive the Effort vs. impact tiers (no code)
-- **What:** the tier tables rank almost nothing — one red (low priority) and two greens, one already decided as no-action — while the subsystem sections hold ~150 live items the tiers do not cover. The backlog can say what is *left* but not what is *worth doing*.
-- **Where:** `docs/project/deferred-work-backlog.md`, the "Effort vs. impact" section; last re-derived 2026-10-20, and twelve PRs have landed since.
-- **Gate:** the pass must take its material from what shipped since, not from re-reading the same source docs — the backlog's own standing rule for re-deriving.
-- **Unverified:** at least one known-stale entry to resolve on the way — an unstruck `LiveLinkServer` ports bullet duplicates a struck one and describes work shipped 2026-09-30.
+### 2. A per-test duration budget in the CI ctest check (green, hours)
+- **What:** `TIMEOUT 60` is a hang backstop; a case that quietly grows 40x passes it (the HUD-underlay case did, unseen, for weeks). Fail or annotate any case above a stated fraction of the timeout.
+- **Where:** `tools/ci/check_ctest_run.py` already parses per-case seconds from the JUnit file (`parse_junit`, and `--report`); add one threshold there and wire it in the "Unit tests" step of `.github/workflows/ci.yml`. Backlog entry: "A per-test duration budget" (CI and build section).
+- **Gate:** red against a synthetic JUnit with one case over the budget, plus the existing `tools/ci/test_check_ctest_run.py` still green.
+- **Unverified:** the threshold. Slowest case is ~1.1 s since #274, so anything from 5 s to 15 s works; pick from a few CI runs, not from one.
 
 ### 3. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
 - **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.
