@@ -2028,18 +2028,6 @@ anything shipped; they are capabilities that were never built.
 
 - ~~**Issue #25 — Component TypeID densification**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#issue-25--component-typeid-densification).
 - ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#livelinkserver-tests-hard-code-listen-ports-and-one-flaked-on-ci).
-
-- **`LiveLinkServer` tests hard-code listen ports, and one flaked on CI.**
-  `tests/unit/studio/live_link_server_test.cpp` binds fixed ports (34906,
-  34907, ...). On 2026-09-29 the case "LiveLinkServer start() fails on an
-  already-bound port" failed a GitHub Actions run (1015/1016) and passed on
-  a re-run of the same branch with no code change in that area, which is the
-  signature of a lingering socket in `TIME_WAIT` or a port collision on a
-  shared runner. Each Catch2 case runs as its own process, so the exposure is
-  real. **Do not add a third `-E` exclusion for it** -- the fix is to bind
-  port 0 and ask the OS which port it got, so the tests stop competing for
-  fixed numbers. Deferred 2026-09-29: small and self-contained, but it is a
-  test-infrastructure change unrelated to whatever slice is in flight.
 - **`enet_transport_test.cpp` hard-codes six UDP ports too** (34001-34006).
   Found 2026-09-30 while scoping the `LiveLinkServer` ephemeral-port fix, which
   covers the TCP side only. Same failure signature is available to it: a fixed
@@ -2082,22 +2070,7 @@ Deferred from the CI build-caching design, `docs/superpowers/specs/2026-10-20-ci
 (2026-10-20). Each entry says why it was not folded into that slice. Measurements quoted are
 from that spec; `ctest` and wide-header figures are local or inferred where marked.
 
-- **`ctest -j` in CI — SHIPPED 2026-10-21 (#273)** (spec
-  `docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md`). **The framing this entry used
-  to carry ("gated on two flaky tests") was stale and has been replaced.** Verified 2026-10-21:
-  (1) the threaded-raycast case was fixed in #230 (`e7927cf`, 2026-10-09: a bounded 5 s wait for
-  `hits > 0` before the concurrent phase); (2) the threaded-`ScriptSystem` SIGSEGV cannot occur on
-  the ctest path at all, because `catch_discover_tests` registers all 1455 cases as separate
-  processes, so the full-suite ordering that triggers it never happens under ctest at any `-j`
-  (it remains a hazard of running `mosaic_unit_tests` directly; see the Physics-pillar entry "The `[script]` SIGSEGV now has a deterministic, one-command reproduction").
-  The real gates are the concurrency hazards of 1455 independent processes and the per-test
-  `TIMEOUT 60` against one slow case; the spec audits both. With a restored ccache a warm job is
-  ~93-143 s and the serial `ctest` step is 35-64 s of it (CI log 2026-10-21: 60.8 s, image
-  `20261012.334.1`, nproc 4, gcc 13.3.0), which compiler caching can never touch. **What the win is:**
-  the step cannot drop below its longest single case (23.4 s on that CI run, see the HUD-underlay
-  entry below, fixed 2026-10-21), so the predicted step is ~26 s (pre-registered in the spec; 10.7 s of work is dispatched first,
-  then the long case runs 23.4 s), not 60/4; the rest of a warm run is apt
-  (~25-30 s) and configure (~23 s), and **neither is test parallelism**.
+- ~~**`ctest -j` in CI**~~ — SHIPPED 2026-10-21, see [record](../record/2026-10.md#ctest--j-in-ci).
 - **GitHub Actions Node.js 20 deprecation.** Every run now carries an annotation that
   `actions/cache/restore@v4`, `actions/cache/save@v4` and `actions/checkout@v4` target Node.js 20
   and are being forced to Node.js 24 (seen in the post-merge runs, 2026-10-21). Nothing is broken,
@@ -2261,7 +2234,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 | Item | Why this tier |
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
-| **`ctest -j` in CI** | **Shipped 2026-10-21 (#273)** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
+| ~~**`ctest -j` in CI**~~ — SHIPPED 2026-10-21, see [record](../record/2026-10.md#ctest--j-in-ci-1). | — |
 | ~~**ENet servers: bind 0 and report the port**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-bind-0-and-report-the-port). | — |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
