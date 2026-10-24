@@ -16,10 +16,10 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1461 tests | `ctest --preset debug -N \| tail -1` | 2026-10-23 |
-| Suite status | all passing | `ctest --preset debug -j"$(nproc)"` | 2026-10-21 |
-| CI test step | ~12-17 s (#278: 12 s, #279: 17 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-21 |
-| Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-21 |
+| Suite size | 1461 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-23 |
+| Suite status | all passing (1461/1461, 3.0 s local) | `ctest --preset debug -j"$(nproc)"` | 2026-10-23 |
+| CI test step | ~12-17 s (#284: 14.2 s, #285: 13.8 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-23 |
+| Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
 ## Next work
 
@@ -51,6 +51,7 @@ Things that waste an hour and that reading the code will not reveal.
 - **A GUI run under `timeout` passes with exit 124**, not 0. `mosaic run --window` has no natural exit.
 - **A wrong CLI subcommand exits non-zero with ZERO validation errors**, which looks exactly like a clean run. Verify the subcommand exists before trusting a quiet failure.
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
+- **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count**, because the count comes from the discovery file regenerated after a successful link. This reads exactly like the State table being wrong: an unbuilt or half-built tree reported 1459 against a correct claim of 1461. Build successfully first, then trust the count.
 - **Nothing in the suite creates a `VkDevice`.** Renderer-backend behaviour is checkable only by eye; green says nothing about the pixels. Sync validation is never enabled either, so the gate cannot see synchronisation bugs.
 - **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:56` and `:71`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component.
 - **Adding a field to a component silently re-binds `app/run/demo_scene.hpp`'s positional brace initialisers.** gcc only catches it when the types differ.
