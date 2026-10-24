@@ -19,14 +19,10 @@ using mosaic::net::enet::create_enet_server;
 
 namespace
 {
-// PORTS: 24101-24106, one per case, deliberately BELOW the Linux ephemeral range
-// (32768-60999, /proc/sys/net/ipv4/ip_local_port_range). These used to be 34001-34006, inside
-// it, so any process that bound an ephemeral UDP port (every ENet client does) could take a
-// port a server here was about to bind -- the same class of bug that failed a real CI run in
-// live_link_server_test.cpp when 34906 was not free. Under `ctest -j` these six adjacent cases
-// run together, which makes that likelier. Unprivileged (>1023) and absent from /etc/services.
-// The structural fix (bind 0 and report the kernel's choice, as LiveLinkServer::port() does)
-// would be an ENet transport API change and is a backlog item, not done here.
+// Every case binds port 0 and reads the kernel's choice back with server->port(). There
+// are no fixed ports in this file: a fixed port is one another process can already hold,
+// which failed a real CI run here (live_link_server_test.cpp:185, port 34906). Moving the
+// ports below the ephemeral range in #273 was a mitigation; this is the fix.
 //
 // Call pred() up to max_attempts times (sleeping sleep_ms between) until it returns true.
 // pred is responsible for its own polling/event-collection — this helper only paces the
@@ -46,10 +42,9 @@ void poll_until(Pred pred, int max_attempts = 200, int sleep_ms = 5)
 
 TEST_CASE("ENet transport completes a connect handshake over loopback", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24101;
-    auto server = create_enet_server(port, 4);
-    auto client = create_enet_client("127.0.0.1", port);
-    REQUIRE(server != nullptr);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client = create_enet_client("127.0.0.1", server->port());
     REQUIRE(client != nullptr);
 
     std::vector<NetEvent> server_events;
@@ -72,9 +67,9 @@ TEST_CASE("ENet transport completes a connect handshake over loopback", "[net][e
 
 TEST_CASE("ENet transport delivers a reliable message to the peer", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24102;
-    auto server = create_enet_server(port, 4);
-    auto client = create_enet_client("127.0.0.1", port);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client = create_enet_client("127.0.0.1", server->port());
 
     ConnectionId server_side_client_id = 0;
     ConnectionId client_side_server_id = 0;
@@ -112,9 +107,9 @@ TEST_CASE("ENet transport delivers a reliable message to the peer", "[net][enet]
 
 TEST_CASE("ENet transport preserves the unreliable channel tag", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24103;
-    auto server = create_enet_server(port, 4);
-    auto client = create_enet_client("127.0.0.1", port);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client = create_enet_client("127.0.0.1", server->port());
 
     ConnectionId client_side_server_id = 0;
     poll_until([&]
@@ -147,9 +142,9 @@ TEST_CASE("ENet transport preserves the unreliable channel tag", "[net][enet]")
 
 TEST_CASE("ENet transport surfaces a Disconnected event on the peer", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24104;
-    auto server = create_enet_server(port, 4);
-    auto client = create_enet_client("127.0.0.1", port);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client = create_enet_client("127.0.0.1", server->port());
 
     ConnectionId server_side_client_id = 0;
     poll_until([&]
@@ -179,9 +174,9 @@ TEST_CASE("ENet transport surfaces a Disconnected event on the peer", "[net][ene
 
 TEST_CASE("ENet transport drops a send to an unknown connection id", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24105;
-    auto server = create_enet_server(port, 4);
-    auto client = create_enet_client("127.0.0.1", port);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client = create_enet_client("127.0.0.1", server->port());
 
     client->send(/*never-seen id*/ 999u, Channel::Reliable, "nowhere"); // no crash expected
 
@@ -191,10 +186,10 @@ TEST_CASE("ENet transport drops a send to an unknown connection id", "[net][enet
 
 TEST_CASE("ENet server assigns distinct ids to multiple clients", "[net][enet]")
 {
-    constexpr std::uint16_t port = 24106;
-    auto server = create_enet_server(port, 4);
-    auto client_a = create_enet_client("127.0.0.1", port);
-    auto client_b = create_enet_client("127.0.0.1", port);
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr); // before port(): a null server must fail, not segfault
+    auto client_a = create_enet_client("127.0.0.1", server->port());
+    auto client_b = create_enet_client("127.0.0.1", server->port());
 
     std::vector<ConnectionId> ids;
     poll_until([&]
@@ -210,4 +205,53 @@ TEST_CASE("ENet server assigns distinct ids to multiple clients", "[net][enet]")
 
     REQUIRE(ids.size() == 2);
     REQUIRE(ids[0] != ids[1]);
+}
+
+TEST_CASE("ENet server binds port 0 and reports the kernel's choice", "[net][enet]")
+{
+    // The structural fix for hard-coded test ports. Fixed ports in the ephemeral range
+    // have already failed a real CI run here (live_link_server_test.cpp:185, port 34906);
+    // moving them below that range in #273 was a mitigation, not a fix -- a fixed port is
+    // still a port something else can hold. Binding 0 and asking the kernel what it gave
+    // us removes the class, exactly as LiveLinkServer::port() already does.
+    auto server = create_enet_server(0, 4);
+    REQUIRE(server != nullptr);
+
+    // Non-zero is necessary but NOT sufficient: a port() that returned any plausible
+    // number would pass this and still be useless. The handshake below is what proves
+    // the number is the port the server is actually listening on.
+    REQUIRE(server->port() != 0);
+
+    auto client = create_enet_client("127.0.0.1", server->port());
+    REQUIRE(client != nullptr);
+
+    bool connected = false;
+    poll_until(
+        [&]
+        {
+            for (const auto& e : server->poll())
+            {
+                if (e.type == NetEvent::Type::Connected) { connected = true; }
+            }
+            client->poll();
+            return connected;
+        });
+    REQUIRE(connected);
+}
+
+TEST_CASE("ENet server reports an explicitly requested port verbatim", "[net][enet]")
+{
+    // Guards against port() being a function that merely returns something plausible:
+    // with a port we chose, it must return that exact number. Bound via 0 first so the
+    // number is known-free rather than hoped-free -- the same construction
+    // live_link_server_test.cpp uses for the same reason.
+    auto probe = create_enet_server(0, 1);
+    REQUIRE(probe != nullptr);
+    const std::uint16_t known_free = probe->port();
+    REQUIRE(known_free != 0);
+    probe.reset();
+
+    auto server = create_enet_server(known_free, 4);
+    REQUIRE(server != nullptr);
+    REQUIRE(server->port() == known_free);
 }
