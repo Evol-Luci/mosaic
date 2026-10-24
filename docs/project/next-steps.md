@@ -19,19 +19,13 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 | Suite size | 1462 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-24 |
 | Suite status | all passing (1462/1462, 2.7 s local) | `ctest --preset debug -j"$(nproc)"` | 2026-10-24 |
 | CI test step | ~12-17 s (#284: 14.2 s, #285: 13.8 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-23 |
-| Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
+| Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
 ## Next work
 
-Two candidates, most ready first. The ranking behind them is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
+One candidate. The ranking behind it is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
 
-### 1. A per-test duration budget in the CI ctest check (green, hours)
-- **What:** `TIMEOUT 60` is a hang backstop; a case that quietly grows 40x passes it (the HUD-underlay case did, unseen, for weeks). Fail or annotate any case above a stated fraction of the timeout.
-- **Where:** `tools/ci/check_ctest_run.py` already parses per-case seconds from the JUnit file (`parse_junit`, and `--report`); add one threshold there and wire it in the "Unit tests" step of `.github/workflows/ci.yml`. Backlog entry: "A per-test duration budget" (CI and build section).
-- **Gate:** red against a synthetic JUnit with one case over the budget, plus the existing `tools/ci/test_check_ctest_run.py` still green.
-- **Unverified:** the threshold. Slowest case is ~1.1 s since #274, so anything from 5 s to 15 s works; pick from a few CI runs, not from one.
-
-### 2. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
+### 1. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
 - **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.
 - **Where:** new, under `tools/docs/`; wire it beside the other docs checks in `.github/workflows/ci.yml`.
 - **Gate:** it must go red against a deliberately wrong claim.

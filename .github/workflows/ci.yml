@@ -156,6 +156,9 @@ jobs:
           ctest_rc=$?
           python3 tools/ci/check_ctest_run.py "${JUNIT}" "${N}" build/debug/tests/mosaic_unit_tests-*_tests.cmake
           check_rc=$?
+          # Informational per-case summary (longest case + sum of durations) so the number is
+          # observable in every run; the enforcing 10.0s per-case budget is O3 in the check above.
+          python3 tools/ci/check_ctest_run.py --report "${JUNIT}"
           echo "ctest_rc=${ctest_rc} check_rc=${check_rc}"
           exit $(( ctest_rc != 0 || check_rc != 0 ))
 

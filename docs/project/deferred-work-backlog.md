@@ -1876,11 +1876,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   order. From CI run 39534182320: serial work before the long case (#413) is 10.71 s, so under `-j4`
   it is dispatched at ~2.7 s and the step ends at ~26.0 s; longest-first would end at 23.4 s, a gain
   of **~2.6 s**. Worth a `COST` property only if a long case ever lands late in declaration order.
-- **A per-test duration budget.** `TIMEOUT 60` is a hang backstop and says nothing about a case
-  that quietly grows 40x (the HUD-underlay case did, unseen, for weeks). A CI step that reads
-  `ctest --output-junit` and fails or annotates any case above a stated fraction of the timeout
-  would catch the next one. Deferred: needs a threshold chosen from CI data, and a flaky budget is
-  worse than none. The HUD-underlay case it would have tripped on day one is fixed (2026-10-21; slowest case is now ~1.1 s), so this is unblocked.
+- ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget).
 - ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j).
 - **A CI job that runs `mosaic_unit_tests` as one process.** The full-suite-order SIGSEGV in the
   threaded `ScriptSystem` case (see the Physics-pillar `[script]` SIGSEGV entry on `catch_discover_tests` blindness) is
@@ -1920,7 +1916,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | Order | Item | Effort / impact | Gate | Source |
 |---|---|---|---|---|
 | 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
-| 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
+| 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 
 ### 🟡 Medium (a slice with its own spec and gate)
