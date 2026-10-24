@@ -115,16 +115,7 @@ deliberately left out.
   archive's nav turns out to read badly with two kinds of file in one directory.
 
 - ~~**CI/pre-commit wiring for `mosaic docs` + nav regen**~~ — SHIPPED, see [record](../record/undated.md#cipre-commit-wiring-for-mosaic-docs--nav-regen).
-- **No CI exists in this repo at all** — discovered while shipping the
-  pre-commit hook above. `CONTRIBUTING.md` claims the `Foundation →
-  Engine → Editor → Studio` dependency rules are "enforced in CI," but
-  there is no `.github/workflows/` (or any other CI config) anywhere —
-  that enforcement doesn't actually run anywhere today. Standing up a
-  first CI workflow (running the test suite, then the dependency-rule
-  check, then possibly the same docs/nav staleness check the local
-  hook covers) is real, undone work, not a stale doc claim to just
-  delete — scope TBD (a GitHub Actions build of this project needs a
-  full C++ toolchain + Vulkan/GLFW deps, non-trivial to set up).
+- ~~**No CI exists in this repo at all**~~ — SHIPPED 2026-09-21, see [record](../record/2026-09.md#no-ci-exists-in-this-repo-at-all).
 
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
@@ -1352,35 +1343,7 @@ them as this list does.
 
 ## Editor / Studio
 
-- **The editor should start STOPPED, not playing.** `PlayState`'s default is
-  `playing_ = true` (`studio/play_state.hpp:27`), so `mosaic editor` begins
-  simulating the moment it opens. **Requested 2026-10-10 after the viewport
-  pointer-input acceptance pass**, where the default surfaced as the first thing
-  a user meets: because viewport clicks are routed to the game while playing,
-  the default click behaviour is now "drive the game" and click-to-select
-  requires pressing Stop first. The product is editor-facing, so the default
-  should be authoring, not simulating — the user's call, and the right one.
-  **It is a one-token change plus one trap.** The token:
-  `playing_ = false`. The test: `tests/unit/studio/play_state_test.cpp:7`
-  ("PlayState defaults to playing") inverts, name included.
-  **THE TRAP — `mosaic editor --ticks N` would never terminate.**
-  `FramePump` exits on `loop_.tick_count() >= *options_.ticks`
-  (`app/run/frame_pump.hpp:87`), and `RuntimeLoop::advance` returns early while
-  stopped (`engine/runtime/runtime_loop.hpp:29`) so `tick_count_` never
-  increments. A stopped editor therefore hangs forever instead of exiting after
-  N ticks. **CI is unaffected** — its smoke test runs `mosaic run`, not `mosaic
-  editor` — but `--ticks` is exactly how the editor gets verified in a sandbox
-  that cannot screenshot, which is how every editor change this month was
-  checked. Needs a decision, not just a fix: either `--ticks` counts *frames*
-  in the editor path, or `--ticks` implies play, or the editor gains a separate
-  frame limit. Picking one is the actual work here.
-  **Consequences that are CORRECT and must not be "fixed" on sight:** the demo
-  scene sits still until Play (physics and scripts do not step — that is what
-  stopped means); the Blender live-link push is gated on `is_playing()`
-  (`studio/studio_app.cpp:246`) so it stays quiet until Play; the Step button
-  becomes enabled at startup, which is right. Transform propagation already runs
-  every frame regardless of play state, so Inspector edits still appear
-  immediately — the editor will not look frozen.
+- ~~**The editor should start STOPPED, not playing.**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#the-editor-should-start-stopped-not-playing).
 
 - **Drag-off-then-release is treated as a click, not a cancel.** When the cursor
   leaves the viewport mid-press, `ViewportPanel::pointer_state` reports
@@ -1437,35 +1400,6 @@ them as this list does.
   worth knowing it has a cost beyond the camera controls.
 
 - ~~**The editor forwards no pointer input to the scene, so nothing in it can be clicked**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#the-editor-forwards-no-pointer-input-to-the-scene-so-nothing-in-it-can-be-clicked).
-- **The editor forwards no pointer input to the scene, so nothing in it
-  can be clicked** — found 2026-10-06 while visually verifying IBL in the
-  editor. `app/main.cpp:301-314` builds a `glfw_pointer` lambda (cursor
-  position normalised against the window, plus the left button) and hands
-  it to `setup_runtime`; `app/run/editor.cpp:159-160` stops its own
-  `setup_runtime` call at the audio backend, so the `pointer` parameter
-  takes its empty default. `UiSystem` and `ClickNudgeSystem` therefore
-  receive nothing, and UI buttons, click-driven scripts and any
-  pointer-reading gameplay cannot be exercised in the editor at all --
-  only by `mosaic run --window`, which has no camera or object
-  manipulation. The two halves of testing a scene are in different
-  programs.
-
-  **Why this is not the one-line fix it looks like.** The editor renders
-  the scene into an *offscreen viewport texture* that ImGui composites
-  into a panel, so window-relative cursor coordinates are simply wrong:
-  they must be relative to that panel's rect, valid only while the cursor
-  is over it, and suppressed entirely while ImGui has captured the mouse
-  (dragging a gizmo, typing in a field). `main.cpp:299` also records that
-  `UiSystem` and `ClickNudgeSystem` **must agree about the pointer within
-  a tick, or the UI-claim arbitration breaks** -- so the editor needs one
-  shared provider too, not two call sites that happen to compute
-  something similar.
-
-  There is a second design question underneath: whether clicking in the
-  viewport should drive the *game's* pointer at all while the editor is
-  in edit mode, or only in play mode -- otherwise selecting an object
-  would also press whatever UI button is under the cursor. That is a
-  behaviour decision, not an implementation detail.
 
   Depends on nothing technically; it needs the play-mode-versus-edit-mode
   answer first.
@@ -1674,15 +1608,6 @@ anything shipped; they are capabilities that were never built.
   starting point, and `script_system_test.cpp:195` is the assertion that goes
   first.
 - ~~**`raycast()`'s script binding indexes its sequence arguments without a length check**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#raycasts-script-binding-indexes-its-sequence-arguments-without-a-length-check).
-
-- **`raycast()`'s script binding indexes its sequence arguments without a
-  length check.** `python_script_engine.cpp`'s `raycast` reads
-  `origin[0..2]` and `direction[0..2]` directly, so a script passing a
-  two-element list raises out of pybind11 rather than returning a miss,
-  killing the tick. Found 2026-09-29 while adding `apply_impulse` (which
-  guards its own reads). Deferred: pre-existing, and tightening it would
-  change behaviour a script might already depend on, so it wants its own
-  change rather than riding along silently.
 - ~~**Five small `ScriptWorker` tidy-ups found in review 2026-09-30**~~ — ADDRESSED 2026-10-04, see [record](../record/2026-10.md#five-small-scriptworker-tidy-ups-found-in-review-2026-09-30).
 - **`apply_impulse`'s return value is optimistic for non-scripted targets.**
   **DOCUMENTED 2026-10-04** at the binding's `py::doc` rather than changed -- the
@@ -1720,53 +1645,7 @@ anything shipped; they are capabilities that were never built.
   physics world. This is the right answer only if blocking ever shows up
   in a profile.
 - ~~**`PhysicsSystem::update()` emits `ContactEvent` synchronously while holding `backend_mutex_`**~~ — SHIPPED 2026-10-01, see [record](../record/2026-10.md#physicssystemupdate-emits-contactevent-synchronously-while-holding-backend_mutex_).
-
-- **`PhysicsSystem::update()` emits `ContactEvent` synchronously while
-  holding `backend_mutex_` — a lock-ordering constraint, not just a
-  re-entrancy one.** Found 2026-09-30 in review of the mutex slice.
-  `EventBus::emit` dispatches immediate subscribers on the same stack, so a
-  subscriber runs inside the lock. The narrow risk is a subscriber that calls
-  `raycast`/`has_body`/`apply_impulse` and hangs on a plain `std::mutex`;
-  today's two subscribers were checked (one logs, one re-emits onto the
-  *deferred* bus) and neither does. The wider and already-live consequence is
-  that **every lock a synchronous subscriber takes is now ordered *under*
-  `backend_mutex_`** — which today includes the global logger mutex, since the
-  contact logger calls `log::info` once per contact inside the lock. Nothing
-  inverts that ordering right now, but it is an unwritten invariant: a future
-  log sink, or any sync subscriber holding a lock that another thread holds
-  while waiting on `backend_mutex_`, deadlocks in a way that looks nothing
-  like the re-entrancy case. There is a performance half to the same point: a
-  worker `raycast()` can wait behind per-contact logging and the `Table`
-  construction in the contact-to-`ScriptEvent` bridge — work with nothing to
-  do with the backend. The spec accepts holding the lock across ECS
-  traversal explicitly; it never considered holding it across subscriber
-  dispatch. Deferred 2026-09-30: the fix is to collect contacts under the
-  lock and emit them after releasing it, which changes when subscribers
-  observe a contact relative to the pose write-back — a behaviour decision
-  worth its own slice. A recursive mutex would hide the re-entrant hang
-  without making the read correct, and would do nothing about the ordering.
 - ~~**A spurious watchdog trip in the contact-reentry tests degrades into a use-after-free**~~ — SHIPPED 2026-10-03, see [record](../record/2026-10.md#a-spurious-watchdog-trip-in-the-contact-reentry-tests-degrades-into-a-use-after-free).
-
-- **A spurious watchdog trip in the contact-reentry tests degrades into a
-  use-after-free instead of the named failure it is designed to produce.**
-  Found 2026-10-01 in review of the contact-emit slice.
-  `tests/unit/physics/physics_contact_reentry_test.cpp`'s `tick_with_watchdog`
-  runs the tick on a detached thread capturing `&world`, so when the main
-  thread times out and `REQUIRE` throws, `world` is destroyed at scope exit
-  while that thread may still be using it. In the genuine-deadlock case the
-  thread is parked on a mutex that is then destroyed -- UB, though observed to
-  unwind cleanly and print the assertion. In the case the 3000 ms margin is
-  actually guarding against (a loaded runner, no deadlock), the thread is
-  *actively ticking* a destroyed `World`, so the run reports a segfault rather
-  than "the tick did not return" -- defeating the whole reason the watchdog was
-  chosen over a ctest `TIMEOUT`. Damage is bounded: `catch_discover_tests` gives
-  each case its own process, so it cannot take other cases down. Deferred
-  2026-10-01: the fix is to heap-allocate the `World` on the watchdog path and
-  deliberately leak it when the flag never sets, which turns both failure modes
-  into a clean named assertion. Not folded into that slice because it only
-  affects a failure path that the four-orders-of-magnitude timing margin makes
-  very unlikely, and leaking a `World` on purpose wants its own justification
-  in the test's comments rather than arriving as a fix-round edit.
 - ~~**No ctest `TIMEOUT` property anywhere in the suite.**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#no-ctest-timeout-property-anywhere-in-the-suite).
 - ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is flaky on CI, and the flakiness is in the test's design.**~~ — FIXED 2026-10-09, see [record](../record/2026-10.md#physicssystemraycast-is-callable-from-another-thread-while-update-runs-is-flaky-on-ci-and-the-flakiness-is-in-the-tests-design).
 - ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by name.**~~ — WITHDRAWN 2026-10-09, see [record](../record/2026-10.md#nine-existing-test_case-names-contain-commas-so-none-of-them-can-be-run-by-name).
@@ -1887,21 +1766,6 @@ anything shipped; they are capabilities that were never built.
   is two `reads<>()` lines, but it should land with whatever actually consumes
   the access sets, so the declaration and its enforcement are reviewed together.
 - ~~**`app/main.cpp`'s system wiring is untestable**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#appmaincpps-system-wiring-is-untestable).
-
-- **`app/main.cpp`'s system wiring is untestable, and it has already shipped a
-  dead feature once.** Found 2026-09-29: `ClickNudgeSystem` was registered
-  behind `if (glfw_window != nullptr)` placed ~60 lines *before* the window is
-  created, so the guard was always false and clicking did nothing in the real
-  app. Every automated check passed — the unit tests construct the system
-  directly and bypass `main()` entirely, and the launch check only proves the
-  process starts. The gap is structural: `main()` is one long function whose
-  wiring decisions no test can observe. The fix is to extract the registration
-  decisions into small functions that take their inputs explicitly (e.g.
-  `register_windowed_systems(World&, bool windowed, providers...)`) so a test
-  can assert *that* a system is registered under the right conditions.
-  Deferred 2026-09-29 rather than done inside a fix round, because carving a
-  testable seam out of `main()` is a design change that deserves its own
-  review. Depends on nothing.
 - **`ClickNudgeSystem::camera_position` duplicates `studio::pick_entity`'s
   camera selection.** Both independently implement "first entity with a
   `Camera` and a `WorldTransform`, take the world matrix translation". They
