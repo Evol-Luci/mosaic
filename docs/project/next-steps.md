@@ -23,21 +23,15 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-Three candidates, most ready first. The ranking behind them is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
+Two candidates, most ready first. The ranking behind them is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
 
-### 1. Guard `draw_particles` / `draw_ribbons` against a second call per frame (green, hours)
-- **What:** both stage into one per-frame buffer, so a second call in a frame aliases the first. Same latent class as the world-text bug fixed in #275.
-- **Where:** `modules/render_vulkan/vulkan_render_device.cpp:1505` and `:1554`. Copy the fix pattern from `draw_world_text` (`:1613`): a per-call chunk list, reset in `begin_frame` (`:1883`) after the fence wait.
-- **Gate:** a test that fails on the old behaviour. Nothing creates a `VkDevice`, so only engine-side batching is testable; the backend change is checkable by eye.
-- **Unverified:** `RenderSystem` makes exactly one call of each per frame (`engine/render/render_system.hpp:380`, `:397`), so this bites only with a second caller or a second pass.
-
-### 2. A per-test duration budget in the CI ctest check (green, hours)
+### 1. A per-test duration budget in the CI ctest check (green, hours)
 - **What:** `TIMEOUT 60` is a hang backstop; a case that quietly grows 40x passes it (the HUD-underlay case did, unseen, for weeks). Fail or annotate any case above a stated fraction of the timeout.
 - **Where:** `tools/ci/check_ctest_run.py` already parses per-case seconds from the JUnit file (`parse_junit`, and `--report`); add one threshold there and wire it in the "Unit tests" step of `.github/workflows/ci.yml`. Backlog entry: "A per-test duration budget" (CI and build section).
 - **Gate:** red against a synthetic JUnit with one case over the budget, plus the existing `tools/ci/test_check_ctest_run.py` still green.
 - **Unverified:** the threshold. Slowest case is ~1.1 s since #274, so anything from 5 s to 15 s works; pick from a few CI runs, not from one.
 
-### 3. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
+### 2. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
 - **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.
 - **Where:** new, under `tools/docs/`; wire it beside the other docs checks in `.github/workflows/ci.yml`.
 - **Gate:** it must go red against a deliberately wrong claim.
@@ -59,7 +53,7 @@ Things that waste an hour and that reading the code will not reveal.
 - **The editor opens stopped.** No ticks, so lazily-created state (physics bodies, particles, trails) does not exist until Play. A trail records nothing for something that is not moving.
 - **The sandbox cannot screenshot the GUI.** Verify a windowed run functionally (exit 124 under `timeout`, silent stderr); do not chase `hyprctl`/`grim`.
 - **Cross-process loopback sockets here are unpredictably slow** (seconds to 20+ s for a first packet). A sandbox property, not an engine bug.
-- **A backend draw path called once per entity that reuses one per-frame buffer aliases itself.** Fixed for world text in #275; `draw_particles` and `draw_ribbons` still have the shape and are correct only because each is called once per frame.
+- **A backend draw path called once per entity that reuses one per-frame buffer aliases itself.** Fixed for world text in #275; `draw_particles` and `draw_ribbons` are now chunked per call as well, so all three per-frame staging paths (`draw_particles`, `draw_ribbons`, `draw_world_text`) allocate a buffer per call and reset their call counters in `begin_frame`.
 - **After a squash merge leaves local `main` diverged, `git reset --keep origin/main`**, never `--hard`.
 - **Screen-space shaders must compensate for the negative-height (Y-flipped) viewport.** `ui.vert` does so explicitly; `screen_effect.vert` does not, invisible there only because a vignette is radially symmetric. A non-MVP shader needs `clip.y = 1 - 2*ny` for a top-left origin, or it ships upside-down and no test can see it.
 - **`blender --background` cannot import the stdlib here** (`math`, `subprocess` fail even with a clean env). A broken Blender install, not a project or script bug; do not re-diagnose it as one.

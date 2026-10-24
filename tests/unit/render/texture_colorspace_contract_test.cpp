@@ -341,3 +341,44 @@ TEST_CASE("the backend copies exposure into both of its GPU payloads", "[render]
     REQUIRE(src.find("ubo.exposure[0] = fl.exposure;") != std::string::npos);
     REQUIRE(src.find("push.exposure = params.exposure;") != std::string::npos);
 }
+
+TEST_CASE("every per-frame staging buffer is chunked per call", "[render]")
+{
+    // Latent-shape removal following #275 (where two draw_world_text calls in one frame
+    // shared one buffer at offset 0 and the second overwrote the first before submit).
+    //
+    // Why a source-level contract test is the gate here: nothing in the test suite
+    // creates a VkDevice, so the Vulkan backend cannot be executed by a test, and
+    // RenderSystem already batches all emitters into one draw_particles call and all
+    // trails into one draw_ribbons call per frame, so there is no engine-side batching
+    // bug or observable rendering artefact to make fail behaviourally.
+    const std::string src =
+        mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
+
+    // 1. Each of the three draws takes a chunk, not a shared buffer.
+    for (const char* method :
+         {"void draw_particles(", "void draw_ribbons(", "void draw_world_text("})
+    {
+        INFO(std::string("method: ") + method);
+        const std::size_t at = src.find(method);
+        REQUIRE(at != std::string::npos);
+        const std::string body = src.substr(at, 900);
+        REQUIRE(body.find("chunks.emplace_back();") != std::string::npos);
+        REQUIRE(body.find("_calls_[frame_]++]") != std::string::npos);
+    }
+
+    // 2. The single-buffer form is gone.
+    REQUIRE(src.find("InstanceBuffer& ib = particle_instances_[frame_];") == std::string::npos);
+    REQUIRE(src.find("InstanceBuffer& vb = ribbon_vertices_[frame_];") == std::string::npos);
+
+    // 3. All three counters are reset in begin_frame.
+    REQUIRE(src.find("particle_calls_[frame_] = 0;") != std::string::npos);
+    REQUIRE(src.find("ribbon_calls_[frame_] = 0;") != std::string::npos);
+    REQUIRE(src.find("world_text_calls_[frame_] = 0;") != std::string::npos);
+
+    // 4. The members are declared as chunk lists.
+    REQUIRE(src.find("std::array<std::vector<InstanceBuffer>, kFramesInFlight> particle_instances_")
+            != std::string::npos);
+    REQUIRE(src.find("std::array<std::vector<InstanceBuffer>, kFramesInFlight> ribbon_vertices_")
+            != std::string::npos);
+}

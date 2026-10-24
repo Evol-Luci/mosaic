@@ -1349,12 +1349,7 @@ them as this list does.
   label's true appearance. Deferred: passing as is; low priority.
   Depends on nothing. Note the human judged it on a look that was double-blended (see the
   batching entry in `next-steps.md`), so a re-check after that fix is owed.
-- **`draw_particles` and `draw_ribbons` share the world-text backend shape.** Each writes one
-  per-frame vertex/instance buffer at offset 0 on the CPU while the draw executes at submit,
-  and each is correct only because `RenderSystem` calls it at most once per frame (found by
-  the 2026-10-21 world-text audit; world text had the same assumption and broke it). Not a live
-  bug. The fix is the per-call chunk list `draw_world_text` now uses, or an assert. Deferred:
-  unreachable today and untestable without a `VkDevice`. Depends on nothing.
+- ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape).
 - **World labels are not depth-sorted for blending.** The world-text batch preserves
   `for_each` order, which is dense order over a sparse set and unstable across an unrelated
   entity's destruction. Overlapping labels in different fonts, or the same font, may blend in
@@ -1927,7 +1922,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 
 | Order | Item | Effort / impact | Gate | Source |
 |---|---|---|---|---|
-| 1 | **`draw_particles` and `draw_ribbons` share the world-text backend shape.** | Hours. Latent correctness: both alias one per-frame buffer and are right only because `RenderSystem` calls each once. Same class as the world-text bug fixed in #275. | A test that fails on the old batching; the Vulkan side is checkable by eye only (nothing creates a `VkDevice`). | PR #275 |
+| 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
 | 3 | **`execution.jobs` in the `debug` test preset (local `ctest -j`).** | Hours, but **decision-gated**: it changes every developer's default on machines of unknown memory. Low impact (CI already parallel). | A human's yes/no; the edit is one preset field. | PR #273 |
 

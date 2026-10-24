@@ -483,15 +483,21 @@ public:
             if (vp_ui_text_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, vp_ui_text_pipeline_, nullptr); }
             if (ui_text_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, ui_text_pipeline_, nullptr); }
             if (ui_text_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, ui_text_pipeline_layout_, nullptr); }
-            for (auto& ib : particle_instances_)
+            for (auto& chunks : particle_instances_)
             {
-                if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
-                if (ib.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, ib.mem, nullptr); }
+                for (auto& ib : chunks)
+                {
+                    if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
+                    if (ib.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, ib.mem, nullptr); }
+                }
             }
-            for (auto& vb : ribbon_vertices_)
+            for (auto& chunks : ribbon_vertices_)
             {
-                if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
-                if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
+                for (auto& vb : chunks)
+                {
+                    if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
+                    if (vb.mem != VK_NULL_HANDLE) { vkFreeMemory(device_, vb.mem, nullptr); }
+                }
             }
             for (auto& chunks : world_text_vertices_)
             {
@@ -1515,9 +1521,21 @@ public:
             return;
         }
 
-        // Grow this frame's instance buffer if needed, then upload.
         const VkDeviceSize bytes = instances.size() * sizeof(instances[0]);
-        InstanceBuffer& ib = particle_instances_[frame_];
+        // One buffer PER CALL this frame, for the reason spelled out in draw_world_text:
+        // the instances are copied now but the draw that reads them only executes at
+        // submit, so two calls sharing one buffer at offset 0 would both draw whatever
+        // was written last. Chunk n is first touched this frame by call n, so growing it
+        // here never destroys a buffer an already-recorded command references -- the
+        // previous use of this frame_ slot finished when begin_frame waited on its fence.
+        //
+        // RenderSystem makes exactly one draw_particles call per frame today (one vector
+        // accumulated across every emitter, called outside the for_each), so this is a
+        // latent shape rather than an observed artefact. It is chunked so that a second
+        // caller or a second pass cannot silently corrupt the first one's instances.
+        auto& chunks = particle_instances_[frame_];
+        if (particle_calls_[frame_] == chunks.size()) { chunks.emplace_back(); }
+        InstanceBuffer& ib = chunks[particle_calls_[frame_]++];
         if (ib.capacity < bytes)
         {
             if (ib.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, ib.buf, nullptr); }
@@ -1562,7 +1580,12 @@ public:
         if (frame_skipped_ || vertices.empty()) { return; }
 
         const VkDeviceSize bytes = vertices.size() * sizeof(vertices[0]);
-        InstanceBuffer& vb = ribbon_vertices_[frame_];
+        // One buffer PER CALL this frame -- same reasoning as draw_particles and
+        // draw_world_text. Latent today: RenderSystem accumulates one ribbon vector
+        // across every TrailRenderer and calls this once, outside the for_each.
+        auto& chunks = ribbon_vertices_[frame_];
+        if (ribbon_calls_[frame_] == chunks.size()) { chunks.emplace_back(); }
+        InstanceBuffer& vb = chunks[ribbon_calls_[frame_]++];
         if (vb.capacity < bytes)
         {
             if (vb.buf != VK_NULL_HANDLE) { vkDestroyBuffer(device_, vb.buf, nullptr); }
@@ -1879,7 +1902,9 @@ public:
 
         vkWaitForFences(device_, 1, &in_flight_[frame_], VK_TRUE, UINT64_MAX);
         // Every command recorded from this slot's previous use has finished, so its
-        // world-text chunks are free to be reused (and, if too small, replaced).
+        // per-call staging chunks are free to be reused (and, if too small, replaced).
+        particle_calls_[frame_] = 0;
+        ribbon_calls_[frame_] = 0;
         world_text_calls_[frame_] = 0;
 
         VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
@@ -5808,8 +5833,10 @@ private:
     VkPipelineLayout ui_text_pipeline_layout_ = VK_NULL_HANDLE;
 
     struct InstanceBuffer { VkBuffer buf = VK_NULL_HANDLE; VkDeviceMemory mem = VK_NULL_HANDLE; VkDeviceSize capacity = 0; };
-    std::array<InstanceBuffer, kFramesInFlight> particle_instances_{};
-    std::array<InstanceBuffer, kFramesInFlight> ribbon_vertices_{};
+    std::array<std::vector<InstanceBuffer>, kFramesInFlight> particle_instances_{};
+    std::array<std::size_t, kFramesInFlight>                 particle_calls_{};
+    std::array<std::vector<InstanceBuffer>, kFramesInFlight> ribbon_vertices_{};
+    std::array<std::size_t, kFramesInFlight>                 ribbon_calls_{};
     // Per frame-in-flight, one vertex buffer per draw_world_text call (see that method).
     std::array<std::vector<InstanceBuffer>, kFramesInFlight> world_text_vertices_{};
     std::array<std::size_t, kFramesInFlight>                 world_text_calls_{};
