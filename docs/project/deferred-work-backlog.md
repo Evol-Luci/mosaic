@@ -441,18 +441,6 @@ them as this list does.
   the two paths agree about what "on the surface" means. Deferred as a Minor with no reachable
   effect; worth folding into whichever slice adds a third provider.
 - ~~**A press surviving a play-mode change emits a stale drag action**~~ — FIXED 2026-10-18, see [record](../record/2026-10.md#a-press-surviving-a-play-mode-change-emits-a-stale-drag-action).
-
-- **A press surviving a play-mode change emits a stale drag action** — found by review
-  2026-10-12, and the backlog predicted this failure class when it split capture/drag out of
-  U6 ("its failure modes are the subtlest: the pointer leaving the window mid-drag, a press
-  surviving a play-mode change"). While the editor is stopped, `World::tick` never runs, so
-  `UiSystem` freezes mid-press with `was_down_` true. Press the HUD button, drag past the
-  threshold, hit **Stop**, then later **Play** or **Step**: the first tick takes the release
-  edge and emits a `drag_cancel` — or `drag_end` plus `click` if the cursor happens to be back
-  over the button — for a gesture that ended seconds earlier. The `click` half is pre-existing;
-  the slice widens it from one stale action to three. **The right fix is in the editor**
-  (reset the system's press state on a play-state transition), not in `UiSystem`, which is why
-  it is deferred rather than patched where it was noticed.
 - **A one-frame hover lag on the release frame** — `hover_target` is computed before the
   release edge clears `captured_`, so releasing over a *different* button leaves it unhovered
   for that frame and it enters on the next. About 16ms at 60Hz. Recorded 2026-10-12 so it is
@@ -1499,22 +1487,7 @@ Both were discovered while trying to get the demo sphere rolling so a
 specular highlight could be seen sweeping across it. Neither is a bug in
 anything shipped; they are capabilities that were never built.
 
-- **No way to apply an impulse or set a velocity.** `PhysicsBackend`'s
-  only write path into the simulation is `set_body_transform`, which
-  teleports a body *and resets its velocity*, and `BodyDef` has no
-  initial-velocity field. So a body can be positioned but never pushed —
-  nothing in the engine can make an object move under its own momentum.
-  This blocks click-to-nudge, any gameplay verb (throwing, knockback,
-  jumping), and even a scripted "roll this ball" one-liner. The real
-  design question inside it: an impulse applied **at a point** induces
-  torque and makes a sphere *roll*, while a center-of-mass impulse makes
-  it *slide* — the demo needs the former, so the API must take a world
-  point, not just a direction. ~~**SHIPPED 2026-09-29**~~ --
-  `PhysicsBackend::apply_impulse(BodyHandle, impulse, world_point)` plus an
-  entity-level `PhysicsSystem::apply_impulse` and a `ClickNudgeSystem` that
-  turns a click into an impulse along the camera ray. See
-  `docs/project/next-steps.md` for the full entry, including the Critical
-  dead-code bug it shipped past a fully green suite.
+- ~~**No way to apply an impulse or set a velocity.**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#no-way-to-apply-an-impulse-or-set-a-velocity).
 - **The Box3D backend's end-event shape-validity filter became load-bearing on
   2026-10-02 and nothing but a comment records it.** Found in review of the
   body-destruction slice. `b3DestroyBody` pushes a `b3ContactEndTouchEvent` for
@@ -1654,25 +1627,6 @@ anything shipped; they are capabilities that were never built.
   it was created with, and arguably should be recreated instead, which makes it
   the same question rather than a separate one.
 - ~~**Destroying an entity never destroys its physics body**~~ — SHIPPED 2026-10-02, see [record](../record/2026-10.md#destroying-an-entity-never-destroys-its-physics-body).
-
-- **Destroying an entity never destroys its physics body.** Found 2026-10-01
-  while scoping the ContactEvent lock-ordering fix. Neither `PhysicsSystem` nor
-  `PhysicsBackend` has any body-removal path: `create_body` has no counterpart,
-  and `bodies_`, `handle_to_entity_` and `synced_pose_` are only ever inserted
-  into. So destroying a simulated entity leaks its Box3D body, which keeps
-  stepping and keeps generating contacts forever, while the three maps keep
-  stale entries that grow without bound over a long session. `update()` happens
-  to tolerate it -- step 2 and step 4 both `continue` when `get_component`
-  returns null, and step 5 drops contacts whose handles are unmapped -- which is
-  exactly why this has stayed invisible. Deferred 2026-10-01: the fix adds a
-  pure virtual (`destroy_body`) to `PhysicsBackend`, which every backend must
-  then implement, plus a decision about how `PhysicsSystem` learns an entity
-  died (poll the ECS each tick for vanished bodies, or an explicit
-  entity-destroyed event it subscribes to). That is an interface change and a
-  design question, not a patch. Noted now because the ContactEvent fix lets a
-  subscriber call back into `PhysicsSystem` for the first time, which makes
-  "handler destroys a colliding entity" a reachable shape rather than a
-  hypothetical one -- it is still safe today, but it is one step closer.
 - **Angular impulse / torque API.** Box3D exposes
   `b3Body_ApplyAngularImpulse`, but the impulse slice deliberately ships
   only the linear-at-a-point call, which already induces spin via torque
@@ -1817,17 +1771,6 @@ anything shipped; they are capabilities that were never built.
 - ~~**`PhysicsSystem::raycast is callable from another thread while update runs` is flaky on CI, and the flakiness is in the test's design.**~~ — FIXED 2026-10-09, see [record](../record/2026-10.md#physicssystemraycast-is-callable-from-another-thread-while-update-runs-is-flaky-on-ci-and-the-flakiness-is-in-the-tests-design).
 - ~~**Nine existing `TEST_CASE` names contain commas, so none of them can be run by name.**~~ — WITHDRAWN 2026-10-09, see [record](../record/2026-10.md#nine-existing-test_case-names-contain-commas-so-none-of-them-can-be-run-by-name).
 - ~~**A guard against `TEST_CASE` names that break ctest discovery.**~~ — SHIPPED 2026-10-09, see [record](../record/2026-10.md#a-guard-against-test_case-names-that-break-ctest-discovery).
-- **No ctest `TIMEOUT` property anywhere in the suite.** Recorded 2026-10-01 as
-  a non-goal of the ContactEvent lock-ordering slice. `tests/CMakeLists.txt`
-  calls `catch_discover_tests(mosaic_unit_tests)` with no timeout, so ctest's
-  1500s default applies to every case in the suite: any test that hangs costs 25 minutes
-  of CI before it fails, and says only "Timeout" when it does. Deferred
-  2026-10-01 rather than folded into that slice, which solves its own hang with
-  an in-test watchdog instead -- the watchdog gives a named failure in seconds
-  and works when running the test binary directly, which a ctest property does
-  not. A suite-wide timeout is still worth having as a backstop for the next
-  hang nobody anticipated; it needs its own value chosen against the slowest
-  legitimate test rather than a number picked to fit one case.
 - **Nothing enforces that a system never calls user code while holding an
   internal lock.** Recorded 2026-10-01 as a non-goal of the ContactEvent slice,
   which fixes the single live instance. `PhysicsSystem` is the only system that
@@ -1876,18 +1819,6 @@ anything shipped; they are capabilities that were never built.
   a finer-grained lock is the classic way to turn a correct coarse lock
   into a subtly wrong fine one.
 - ~~**`raycast()` still runs off the script-worker thread**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#raycast-still-runs-off-the-script-worker-thread).
-
-- **`raycast()` still runs off the script-worker thread.** The
-  `--script-thread` path binds the same `ScriptHost` into worker-thread
-  engines, and while `apply_impulse` is now deliberately left unwired there,
-  `raycast` is not: it queries the live physics world from the worker thread
-  while the main thread may be inside `PhysicsSystem`'s step. It is a *read*
-  rather than a write and predates all of this, which is why it was not
-  changed alongside the impulse guard — but it is the same boundary, and a
-  read racing a step can still return torn or mid-integration results.
-  Deferred 2026-09-30: fixing it properly means the same buffering/snapshot
-  design decision the impulse entry above needs, and the two should be solved
-  together rather than one at a time.
 - **Two thin spots in the new physics-binding tests.** Found 2026-09-30 in
   review, both real but neither load-bearing today. (a) The demo ball-pusher
   test asserts only `fabs(delta) > 0.05`, which would not distinguish the
@@ -1898,34 +1829,7 @@ anything shipped; they are capabilities that were never built.
   an id that also fails `has_body`. A test that destroys a bodied entity and
   pushes it in the same tick would make it load-bearing.
 - ~~**Script-thread impulses are disabled, not buffered**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#script-thread-impulses-are-disabled-not-buffered).
-
-- **Script-thread impulses are disabled, not buffered.** On the
-  `--script-thread` path, `on_update` runs on a worker thread while the main
-  thread may be inside `PhysicsSystem`'s step, and `apply_impulse` writes
-  straight into the live Box3D body -- an unsynchronized write during a step
-  is undefined behaviour. Found 2026-09-30 in whole-branch review, once the
-  default demo scene began calling `apply_impulse` and made the hazard
-  reachable with no user code. Mitigated by NOT wiring the hook on that path,
-  so it returns `False` there per `ScriptHost`'s unset-hook contract. That is
-  a guard, not a fix: a script that works single-threaded silently does
-  nothing under `--script-thread`. The real fix is to buffer impulses the way
-  the threaded path already buffers component writes, and apply them on the
-  main thread -- which needs a design decision about ordering against the
-  physics step. Note `raycast` still runs off-thread on that path; it is a
-  read and pre-existing, but it is the same boundary.
 - ~~**A dict passed to `apply_impulse` raises instead of returning `False`**~~ — SHIPPED 2026-10-04, see [record](../record/2026-10.md#a-dict-passed-to-apply_impulse-raises-instead-of-returning-false).
-
-- **A dict passed to `apply_impulse` raises instead of returning `False`.**
-  The spec says a malformed argument returns `False` rather than raising, but
-  that only covers malformations *within* a sequence. A non-sequence -- and
-  the single most likely wrong argument here is a **dict**, because this same
-  scripting surface uses dicts for component values (`tr['position']`) -- is
-  rejected by pybind11's dispatcher before the binding's own guard runs, so
-  `apply_impulse(e, {'x':1,'y':0,'z':0}, ...)` raises and aborts that
-  script's `on_update` for the tick. Found 2026-09-30 in review. Deferred:
-  it mirrors `raycast`'s existing behaviour exactly, and tightening it means
-  taking `py::object` and hand-rolling the sequence check for both bindings,
-  which is its own change.
 - **Other physics verbs from scripts** — setting a body's velocity
   directly, teleporting a body, and overlap/shape queries. Deferred
   2026-09-29 during the scripting-bindings design: impulse and raycast are
@@ -2010,59 +1914,12 @@ anything shipped; they are capabilities that were never built.
   picking still used the right one.
 - ~~**Static bodies cannot be created rotated**~~ — SHIPPED 2026-09-29, see [record](../record/2026-09.md#static-bodies-cannot-be-created-rotated).
 
-- **Static bodies cannot be created rotated.** `BodyDef` carries
-  `{type, position, shape, density}` — no rotation — so `create_body`
-  always produces an axis-aligned body. A tilted ramp, a slanted wall, or
-  any angled static geometry is therefore unrepresentable: the renderer
-  draws the entity rotated while the collider stays axis-aligned, and the
-  two silently disagree. The only workaround today is to mutate the
-  entity's Transform *after* creation so the "external edit" path calls
-  `set_body_transform`, which does accept a rotation — a hack that
-  depends on a sync heuristic rather than on the API meaning what it
-  says. Deferred 2026-09-29: the fix is to add `rotation` to `BodyDef`
-  and pass it through `create_body`, which is small but touches the
-  backend interface and wants its own tests. Not needed once impulses
-  exist, which is why it is not being folded into that slice.
-
 ## Tech debt
 
 - ~~**Issue #25 — Component TypeID densification**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#issue-25--component-typeid-densification).
 - ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#livelinkserver-tests-hard-code-listen-ports-and-one-flaked-on-ci).
-- **`enet_transport_test.cpp` hard-codes six UDP ports too** (34001-34006).
-  Found 2026-09-30 while scoping the `LiveLinkServer` ephemeral-port fix, which
-  covers the TCP side only. Same failure signature is available to it: a fixed
-  port colliding with anything else on a shared CI runner. Not folded into that
-  slice because the fix is materially bigger — ENet's `enet_host_create` accepts
-  port 0 and records the kernel's choice in `host->address.port`, but Mosaic's
-  transport sits behind its own neutral interface, so learning the bound port
-  means adding an accessor to that interface and threading it through the
-  backend. Deferred 2026-09-30: a one-file test change on the TCP side versus an
-  interface change on the UDP side is the difference between two slices, and the
-  UDP tests have not actually flaked yet where the LiveLink one has. Depends on
-  nothing; pick it up if a net test ever fails on CI.
+- ~~**`enet_transport_test.cpp` hard-codes six UDP ports too (34001-34006).**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet_transport_testcpp-hard-codes-six-udp-ports-too-34001-34006).
 - ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ — FIXED 2026-09-30, see [record](../record/2026-09.md#embedded-python-worker-thread-flakiness-scriptsystemscriptworker).
-
-- **Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**
-  — real, currently un-root-caused. Two tests --
-  `tests/unit/script/script_system_test.cpp`'s "threaded ScriptSystem
-  applies script writes one tick later" (a known SIGSEGV flake,
-  previously observed under full-suite local ordering) and
-  `tests/unit/script/script_worker_test.cpp`'s "ScriptWorker runs a
-  job on its thread and returns the write batch" (a size-mismatch
-  failure, not a crash) -- both touch the same embedded-Python +
-  worker-thread machinery and both are rare/near-impossible to
-  reproduce in local dev runs, but failed on 2 of the first 3 real
-  GitHub Actions CI runs (`.github/workflows/ci.yml`, added 2026-09-21)
-  -- a materially higher rate than anything seen in this project's
-  local-dev history, almost certainly because CI's shared/constrained
-  runner vCPUs expose thread-scheduling races local hardware doesn't.
-  **Not fixed, only worked around for now:** both are excluded from
-  the CI `ctest` gate via `-E` (still run by every local/full-suite
-  invocation) so CI stays usably green; the actual race in
-  `engine/script/script_worker.hpp`/`ScriptSystem`'s threaded path
-  needs real investigation (likely embedded-Python interpreter
-  init/teardown ordering across threads) as its own scoped piece of
-  work, not something to guess at blind.
 
 ## CI and build
 
