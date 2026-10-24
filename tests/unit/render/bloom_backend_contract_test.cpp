@@ -257,7 +257,15 @@ TEST_CASE("the bloom descriptors are written after the chain exists", "[render][
     const std::string src  = read_backend();
     const std::size_t make = src.find("create_bloom_chain(extent_.width, extent_.height);");
     REQUIRE(make != std::string::npos);
-    const std::size_t ctor_end = src.find("glfwSetWindowUserPointer(window_, this);", make);
+    // ANCHOR: the copy-constructor deletion, not the GLFW callback registration.
+    // The old anchor was "glfwSetWindowUserPointer(window_, this);", which stopped being the
+    // constructor's last statement once device construction gained a target variant: that call
+    // now lives inside an `if (WindowTarget)` block and is absent on a surfaceless path, so the
+    // marker would silently stop meaning "the end of the constructor". The deleted copy
+    // constructor is unique in the file, is genuinely the first thing after the constructor
+    // body, and does not depend on which target was built.
+    const std::size_t ctor_end =
+        src.find("VulkanRenderDevice(const VulkanRenderDevice&) = delete;", make);
     REQUIRE(ctor_end != std::string::npos);
     const std::size_t write = src.find("write_bloom_descriptors();", make);
     INFO("A write_bloom_descriptors() call must follow create_bloom_chain inside the "
