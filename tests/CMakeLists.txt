@@ -285,5 +285,8 @@ if(MOSAIC_ENABLE_GPU_TESTS)
   target_compile_features(mosaic_gpu_tests PRIVATE cxx_std_20)
   target_include_directories(mosaic_gpu_tests PRIVATE ${CMAKE_SOURCE_DIR})
   target_precompile_headers(mosaic_gpu_tests PRIVATE ${MOSAIC_PCH_HEADERS})
-  catch_discover_tests(mosaic_gpu_tests PROPERTIES TIMEOUT 60)
+  # LABELS gpu is what lets CI separate the two suites without matching on test NAMES.
+  # The unit-test step runs `-LE gpu` and the lavapipe step runs `-L gpu`, so each keeps
+  # its own `check_ctest_run.py` denominator and neither can silently absorb the other.
+  catch_discover_tests(mosaic_gpu_tests PROPERTIES TIMEOUT 60 LABELS gpu)
 endif()

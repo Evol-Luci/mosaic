@@ -647,21 +647,15 @@ them as this list does.
   bring-up, not fillrate), adding ~0.1-0.4s to a test step; false failures, zero, including under
   `MOSAIC_VK_SYNC_VALIDATION=1`.
 
-- **Enable the GPU tests in CI under lavapipe — the actual change, not yet made.** Deferred
-  2026-10-24 to keep it off the back of the two test slices that shipped the same day; it is a
-  careful CI edit and deserves its own review. **Two traps, both confirmed by reading the
-  workflow, that will fail the build if missed:**
-  1. `.github/workflows/ci.yml:177` passes only `build/debug/tests/mosaic_unit_tests-*_tests.cmake`
-     to `check_ctest_run.py`. With GPU tests on, `ctest -N` discovers more tests than that glob has
-     `add_test` lines and **O1 fails**. Pass `mosaic_*_tests-*_tests.cmake` instead.
-  2. `tools/docs/check_next_steps_claims.py` verifies `next-steps.md`'s `Suite size` / `Suite status`
-     rows against the JUnit file, so those rows must move in **lockstep** or the next step fails.
-
-  Also needs `mesa-vulkan-drivers` and `vulkan-validationlayers` on the runner (the GPU tests
-  hard-assert `validation_enabled()`), and note Ubuntu names the manifest `lvp_icd.x86_64.json`
-  while Arch names it `lvp_icd.json`. **Unmeasured, and only a trial PR can measure it:** the
-  runner's older Mesa, and the `apt-get` wall-clock cost — likely ~3-10s, which would *exceed* the
-  test execution it buys. **Do not relax `check_ctest_run.py`'s O2 skip guard to make this work.**
+- ~~**Enable the GPU tests in CI under lavapipe.**~~ — **SHIPPED AS A TRIAL 2026-10-24**, see
+  [record](../record/2026-10.md#the-gpu-tests-join-ci-on-a-software-icd-as-a-trial-2026-10-24).
+  Both named traps were made unreachable rather than worked around: the suites are split by a
+  ctest `LABELS gpu` tag (`-LE gpu` / `-L gpu`), so each keeps its own `check_ctest_run.py`
+  denominator (1462 and 6) and the handoff's `Suite size` rows still read 1462, which is what a
+  default local build still discovers. O2's skip guard was not relaxed. **Still open: the two
+  figures only the runner can give** — its `mesa-vulkan-drivers` version, and the `apt-get`
+  wall-clock cost (estimated ~3-10s, which would exceed the 0.11s of test execution it buys).
+  The revert condition is recorded with the entry.
 
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
