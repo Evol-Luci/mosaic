@@ -117,6 +117,24 @@ deliberately left out.
 - ~~**CI/pre-commit wiring for `mosaic docs` + nav regen**~~ — SHIPPED, see [record](../record/undated.md#cipre-commit-wiring-for-mosaic-docs--nav-regen).
 - ~~**No CI exists in this repo at all**~~ — SHIPPED 2026-09-21, see [record](../record/2026-09.md#no-ci-exists-in-this-repo-at-all).
 
+**Non-goals of the 2026-10-23 tier re-derivation, each deferred with its reason:**
+
+- **Ranking the older live bullets in the subsystem sections.** The tiers rank only the 25 live
+  bullets the 2026-10-20..23 PRs created. The other ~100 (UI, Physics, Rendering, Editor) carry no new
+  evidence, and the standing rule forbids re-deriving from unchanged sources. Ranking them is a
+  per-subsystem judgement that wants a human for impact. Revisit when real work lands in one
+  subsystem: rank that subsystem's bullets then, from that work.
+- **Promoting the tier pass's checks to `tools/docs/` and CI.** The conservation check (live-bullet
+  count and title multiset), the record-anchor check and the tier-row traceability check were
+  written for one pass and run by hand. A standing version wants the design the claims-checker item
+  above has. Depends on that item; do them together.
+- **Teaching `archive_shipped_backlog.py` to find an unstruck original sitting under its own stub,
+  and to collapse prose "Re-derived" blocks.** The 2026-10-23 pass found 14 live bullets directly
+  under their own struck stubs (the tool classifies only entries that START with `~~`, so it
+  cannot see them) and folded them into the record by hand, plus 5 shipped bullets that were never
+  struck. Deferred: a one-off cleanup, and a detector that guesses at "same entry" needs the
+  prefix-key matching this pass used and its false-positive cost measured first.
+
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
 - ~~**U8a — inherited alpha and stack layout**~~ — SHIPPED 2026-10-17, see [record](../record/2026-10.md#u8a--inherited-alpha-and-stack-layout).
@@ -1869,243 +1887,78 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
 
 ## Effort vs. impact
 
-Cross-cutting prioritization pass, originally 2026-09-19, **re-derived
-2026-09-19** post-arc: the shipped item is removed, resolved items are
-removed, and the two refresh-note items (asset-usage queries' now-easier
-build, the `FieldVisitor` extension's now-tripled motivation) are
-re-rated. Re-derive again when the backlog above has moved significantly
-rather than trusting the ratings below forever.
+The cross-cutting view: of the live work above, **what is worth doing next**. Last derived
+**2026-10-23**, from the 16 PRs merged after the previous pass's own PR (#266): #267, #268,
+#271-#284. Six earlier passes (2026-09-19 to 2026-10-20) and the tier tables they edited are in
+the record: [2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21)
+and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2026-10-04-to-2026-10-20-and-the-tier-tables-they-edited).
+
+**The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
+new work has landed since the last pass -- don't immediately re-run a fourth time expecting
+different material from the same unchanged source docs.* This pass's material is the live bullets
+and record entries that the 16 PRs themselves created (25 of the 128 live bullets, from the CI-caching, parallel
+`ctest`, world-text, ENet and docs-record slices), not a re-grep of the specs' Non-goals. The
+older live bullets in the subsystem sections are **not ranked here** and are not claimed to be:
+they carry no new evidence. Every row below names a live bullet above by its bold title, or a PR;
+a row that matched nothing was cut.
+
+**Reading a row.** *Effort*: hours (one focused change with a gate) / slice (a spec-plan-implement
+cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that would show it done.
 
 ### 🟢 Quick wins (hours-scale, single focused change)
 
-**Empty as of 2026-09-20, re-derived three times today** — the original
-2026-09-19 survey's items shipped, then two follow-up re-derivations each
-found exactly one more genuine item (both now shipped too), then a third
-pass found nothing at all ("the well is dry" -- every remaining Non-goals/
-deferred-work mention traces to already-shipped items, not-yet-applicable
-conditions, or content already tracked in the Medium/Large tiers below).
-Re-derive again once real new work has landed since the last pass — don't
-immediately re-run a fourth time expecting different material from the
-same unchanged source docs.
+| Order | Item | Effort / impact | Gate | Source |
+|---|---|---|---|---|
+| 1 | **`draw_particles` and `draw_ribbons` share the world-text backend shape.** | Hours. Latent correctness: both alias one per-frame buffer and are right only because `RenderSystem` calls each once. Same class as the world-text bug fixed in #275. | A test that fails on the old batching; the Vulkan side is checkable by eye only (nothing creates a `VkDevice`). | PR #275 |
+| 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
+| 3 | **`execution.jobs` in the `debug` test preset (local `ctest -j`).** | Hours, but **decision-gated**: it changes every developer's default on machines of unknown memory. Low impact (CI already parallel). | A human's yes/no; the edit is one preset field. | PR #273 |
 
-**Re-derived 2026-10-04** after eleven slices landed (#209–#219). Two
-genuine quick wins now exist, both surfaced by those slices rather than by
-re-reading the same source docs:
+### 🟡 Medium (a slice with its own spec and gate)
 
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Exposure control**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#exposure-control). | — |
-| ~~**A suite-wide ctest `TIMEOUT`**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#a-suite-wide-ctest-timeout). | — |
-
-**Re-derived 2026-10-10** after U7 image presentation shipped. Both 2026-10-04 entries are
-now struck through, and this pass takes its material from that slice's review findings
-rather than from re-reading the same source docs — which is the condition the 2026-09-20
-note set for re-deriving at all.
-
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Tighten the "position starts past the edge" test to exact values**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#tighten-the-position-starts-past-the-edge-test-to-exact-values). | — |
-| ~~**Warn when a sub-rect lands entirely off its texture**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#warn-when-a-sub-rect-lands-entirely-off-its-texture). | — |
-| ~~**Sort the HUD image pass by `UiImage::order`**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#sort-the-hud-image-pass-by-uiimageorder). | — |
-| ~~**An Inspector `field_int` (`DragInt`)**~~ — SHIPPED 2026-10-11, see [record](../record/2026-10.md#an-inspector-field_int-dragint). | — |
-
-**Re-derived 2026-10-12** after seven slices landed (#240–#246: the order lint, the HUD
-pass sorting, `field_int`, the manual-verification record, the pairwise conflict check, its
-end-to-end proof, and the anchor-clamper unification). Material comes from reading that code
-back, not from re-reading the same source docs.
-
-**The pass found two stale claims and shipped both in the same commit**, since each was a
-comment correction rather than work to schedule:
-
-| Item | Outcome |
-|---|---|
-| ~~**`UiButton::order`'s "KNOWN COST" comment said the disagreement could not be validated**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#uibuttonorders-known-cost-comment-said-the-disagreement-could-not-be-validated). | — |
-| ~~**`ui_hit.hpp`'s rule 2 described a hazard that is now reported**~~ — FIXED 2026-10-12, see [record](../record/2026-10.md#ui_hithpps-rule-2-described-a-hazard-that-is-now-reported). | — |
-
-**The two carried items below are the actionable remainder** — both re-confirmed as still
-valid and still small. The well is otherwise close to dry: everything else surfaced tonight
-is either already shipped, needs a human's eyes or judgement (the `Ambiguous` noise level, a
-real two-button scene), or is a dependency decision (`imgui_test_engine`). **Do not re-run
-this pass expecting new material** until real new work has landed — that is the condition the
-2026-09-20 note set, and three of the four passes since have obeyed it.
-
-One trigger rather than an item, **corrected 2026-10-12 after looking at the code again**:
-the editor frame loop now has three diagnostic blocks, but only **two** of them build
-`WarningLedger` entries generically — the per-entity order lint goes through the typed
-`OrderWarningModel` wrapper and is a single line. So the count that matters is *generic*
-blocks, and it is two, not three. A helper over two sites would absorb about five lines and
-add an abstraction to a long frame loop, so it was weighed and declined. Fire this at the
-*third generic* block, not the third diagnostic.
-
-**Re-derived 2026-10-20** after the bloom and UI-layout arcs landed (#258, #260, #261,
-#263) and the first human verification pass ran. The condition the 2026-09-20 note set is
-met: this takes its material from that pass's one failure and its one fixture gap, not from
-re-reading the same source docs. Both items are in the Rendering section above.
-
-| Item | Why it is a quick win |
-|---|---|
-| ~~**Author a ribbon and a world label above the bloom threshold in the demo**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#author-a-ribbon-and-a-world-label-above-the-bloom-threshold-in-the-demo). | — |
-| ~~**A test that nothing authored flat on the ground sits below its top face**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#a-test-that-nothing-authored-flat-on-the-ground-sits-below-its-top-face). | — |
-| ~~**Root-cause the 16.5 s default-scene HUD-underlay test**~~ — DONE 2026-10-21, see [record](../record/2026-10.md#root-cause-the-165-s-default-scene-hud-underlay-test). | — |
-| **Guard `draw_particles` / `draw_ribbons` against a second call per frame** | Hours: copy the per-call chunk list from `draw_world_text`, or add an assert. Rendering section above. |
-| **Revisit the lime "GLOW" label contrast** | Only if it becomes a problem (human decision 2026-10-21); needs no new code for a colour/position change. Rendering section above. |
-
-### 🟡 Medium (a real focused sub-project, bounded new machinery)
-
-| Item | Why this tier |
-|---|---|
-| ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
-| ~~**`ctest -j` in CI**~~ — SHIPPED 2026-10-21, see [record](../record/2026-10.md#ctest--j-in-ci-1). | — |
-| ~~**ENet servers: bind 0 and report the port**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-bind-0-and-report-the-port). | — |
-
-**The five original items in this tier shipped as of 2026-09-21:** Studio
-plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable
-+ versioning (PR #194), plugin live file-watching/hot-reload
-(PR #195), Studio theme system + persistence (PR #196), Studio
-recent-projects list (PR #197).
-
-**Re-derived 2026-10-04.** One genuine medium item now exists:
-
-| Item | Shape |
-|---|---|
-| ~~**An offscreen HDR render target plus a fullscreen resolve pass**~~ — SHIPPED 2026-10-16, see [record](../record/2026-10.md#an-offscreen-hdr-render-target-plus-a-fullscreen-resolve-pass). | — |
-
-**Re-derived 2026-10-16, corrected and then SHIPPED 2026-10-17.** That item
-shipped, and **bloom** — which took its place in this tier — shipped the same
-day: a prefilter with a soft knee, a mip chain whose length is a function of
-resolution, an additive upsample, and a composite inside the tone curve. It was
-**not** where the RenderGraph got its trigger; the chain is a loop, not a graph,
-and the graph's trigger is restated in the Rendering section above. The estimate
-held, with one surprise in each direction: the downsample and upsample turned
-out to need only ONE shader, and the chain's one-time clear forced a constructor
-reordering that no headless test could have found. See
-`docs/superpowers/specs/2026-10-17-render-bloom-design.md` and
-`docs/superpowers/plans/2026-10-17-render-bloom.md`.
-
-**The 🟡 tier has no obvious next pick.** The Rendering section's open items are
-now the five bloom follow-ups (all deliberately deferred, none asked for) plus
-the resize-churn entry. The next slice probably comes from another subsystem or
-from the 🔴 Large tier below.
-
-Otherwise the next pick comes from the 🔴 Large
-tier below — each of those items needs its own decomposition before
-implementation starts.
+| Order | Item | Effort / impact | Gate | Source |
+|---|---|---|---|---|
+| 1 | **A checker for `next-steps.md`'s verifiable claims.** | Slice. Medium impact: this very pass found the handoff's "twelve PRs" wrong at the time it was written (it is 16, or 18 counting #265-#284). | Must go red against a deliberately wrong claim. | PR #278 |
+| 2 | **Pin mutable FetchContent tags to commit SHAs.** | Slice. Reproducibility/supply chain: 9 of 10 dependencies are tag-pinned. `GIT_SHALLOW` needs a tag, so SHA pinning trades shallow clones away unless done per dependency. | A retagged upstream no longer changes a build silently. | PR #268 |
+| 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. | PR #271 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
+Carried from the previous pass; none gained new evidence from the 16 PRs, so none is re-rated.
+
 | Item | Impact |
 |---|---|
-| **Test selection / caching test results** | Needs change-impact analysis; low priority. See the CI and build section. |
-| Blender mesh/geometry sync | Medium-High — the difference between a preview and a real DCC tool |
-| Native `.so`/`.dll` plugins | High, but reopens native-code security surface |
-| ~~**Rendering: full PBR material model**~~ — COMPLETE 2026-10-07, see [record](../record/2026-10.md#rendering-full-pbr-material-model). | — |
-| RenderGraph refactor | Medium (enabling, not user-visible) |
-| UI pillar gaps — **DECOMPOSED 2026-10-07** into U6–U11, see `docs/superpowers/specs/2026-10-07-ui-pillar-decomposition.md`. U6 (interaction depth) is first and carries one open question for a human; U7 (image presentation) is independent and needs no decision; U10 is blocked on an editor keyboard-input provider. | High if interactive-game UI is a near-term goal, else Low — **and that is still the open question**, which the decomposition does not answer. It only removes the excuse that the item was too shapeless to start. |
-| Networking gaps | High if shipping real multiplayer soon, else Low |
-| Package manager (network/deps/registry) | Medium |
-| Public marketplace | Low today, High later — gated on an actual user base |
-| 3rd-person adventure template | Medium |
+| **Test selection / caching test results.** | Needs change-impact analysis; low priority. |
+| **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
+| **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
+| **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
+| **U8 layout containers** | U8a shipped (#260); the remainder, and U9-U11, are in the UI section. High if interactive-game UI is a near-term goal, else Low; that is still the open question. |
+| **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
+| **Package manager: network fetch, version constraints/dependency** | Medium. |
+| **Public marketplace** | Low today, High later: gated on an actual user base. |
+| **3rd-person adventure template content** | Medium. |
 
-**Stand up real CI (GitHub Actions) — SHIPPED 2026-09-21 (PR #198)**,
-removed from the table above. `.github/workflows/ci.yml`: debug-preset
-build, full `ctest`, headless `mosaic run --ticks N --json` smoke test,
-on every push to `main` and every PR.
+### Decided: no action (with the trigger that would reopen each)
 
-**Dependency-rule lint — SHIPPED 2026-09-21 (PR #199)**, the follow-up
-named above. `tools/ci/check_dependency_rules.py` (+ its own unit
-tests), wired into CI and `.githooks/pre-commit`. Surfaced and fixed a
-real doc-vs-reality mismatch along the way: `ARCHITECTURE.md`/
-`repo-layout.md` described a `Foundation → Engine → Editor → Studio`
-layout with an `editor/` directory that was never built — rewritten to
-describe the real tiers (`foundation/engine/studio/app` + `modules/`)
-confirmed by grepping every `#include` direction in the tree. See the
-`next-steps.md` entry for the full story, including the real
-`app → studio` direction (opposite of what the old docs said) and the
-CI-flake exclusion this PR's own run surfaced (tracked separately in
-Tech debt above).
+Not work to schedule. Each was weighed and declined, or is waiting on a named condition, so the
+question "did we already consider this?" answers here.
 
-**Rendering: shadows — SHIPPED 2026-09-21 (PR #200)** and **spot lights
-— SHIPPED 2026-09-21 (PR #201)**, both removed from the table above.
-Directional-light-only, hard-edged, fixed-frustum shadow mapping, and a
-third simultaneous light type reusing the point light's positional
-machinery plus a `smoothstep` cone edge. Both extended direct
-submission rather than building the RenderGraph, which stays deferred
-(its own row above) until a genuinely *dynamic* pass need appears. The
-per-slice deferrals each opened — PCF, point/spot-light shadows,
-scene-fitted and cascaded frustums, configurable shadow resolution,
-real multi-light support — are tracked in the Rendering section above,
-not here.
-
-**The old "Rendering: PBR/specular/spot lights" row is now only "full
-PBR."** Decomposing it turned out to be the right call: spot lights
-shipped as their own small slice, and the **shading-data UBO migration
-— SHIPPED 2026-09-27 (PR #202)** (world-space shading, the codebase's
-first uniform buffer, push constants 256 → 208 bytes) unblocked
-**Blinn-Phong specular**, which is now a *small* slice rather than part
-of a Large item — it needs 8 bytes of per-draw data against 48 bytes of
-headroom, since world-space shading moved the camera position into the
-per-frame UBO. Specular is tracked in the Rendering section above and
-does **not** need its own decomposition pass. What genuinely remains
-Large is the full metallic/roughness Cook-Torrance material model,
-which still needs its own design decisions (scalar params vs. texture
-maps for v1) and likely its own sub-decomposition.
-
-**Picked as the largest effective win (2026-09-19, original pass):** bulk
-refactoring / project health checks — **shipped**, all 4 sub-projects
-complete (see specs above). Next pick TBD with the user.
-
-**Scoping pass on "Stand up real CI" (2026-09-21, after the Medium tier
-closed out)** — investigated the actual dependency chain rather than
-guessing at a workflow file blind, since getting package names wrong
-means a slow guess-push-fail loop with no one around to weigh
-trade-offs. Findings from reading `CMakeLists.txt` and
-`modules/render_vulkan/CMakeLists.txt` directly:
-- Hard `REQUIRED` dependencies at configure time: `Threads`, system
-  `Vulkan` (`find_package(Vulkan REQUIRED)` — needs the SDK/loader +
-  headers installed, not just runtime-resolvable), `Python3`
-  (Interpreter + Development, for the embedded pybind11 scripting),
-  and a `glslc` binary on `PATH` (`find_program(GLSLC glslc
-  REQUIRED)` — shaders are compiled to SPIR-V at *build* time, so a
-  CI runner needs the compiler even though it never needs a real GPU
-  to run it). GLFW is fetched and built from source via
-  `FetchContent` — no system package needed for it.
-- **The good news, confirmed by actually running the full suite
-  locally and reading what it touches:** `ctest`/`mosaic_unit_tests`
-  never creates a real `VkDevice`/window — it's headless logic
-  (confirmed via this session's own repeated full-suite runs, all
-  green, on a sandbox with no functioning GPU-backed Vulkan ICD).
-  Only `mosaic run --window`/`mosaic editor` (never invoked by
-  `ctest`) touch a real GPU. **This means CI likely does NOT need a
-  working GPU or software rasterizer (lavapipe/llvmpipe) at all** —
-  just the Vulkan *headers + loader* to satisfy `find_package`/link,
-  and a real `glslc` binary to compile shaders at build time. This
-  significantly de-risks the item versus the original "needs a full
-  Vulkan toolchain in the runner" framing.
-- **The actual open risk is `glslc` package availability on GitHub's
-  `ubuntu-latest` runner image** — not confirmed by installing it
-  anywhere, only reasoned about from memory (Ubuntu's own repos have
-  historically been inconsistent about shipping a standalone `glslc`
-  package versus only `glslang-tools`' `glslangValidator`, a
-  different tool). The standard robust fix other Vulkan projects use
-  is adding LunarG's official Vulkan SDK apt repository and
-  installing the `vulkan-sdk` meta-package (guarantees loader,
-  headers, validation layers, and `glslc` together) rather than
-  hunting for the right combination of distro packages — but this
-  needs an actual CI run to confirm, not more reading.
-- **Not attempted tonight, deliberately:** writing and iterating on
-  the actual `.github/workflows/*.yml` needs a real push-and-watch
-  loop (`gh run watch`) to get the LunarG-repo-vs-distro-packages
-  question and the exact CMake preset/build-type right, plus
-  judgment calls this session's own practice would normally raise
-  with the user first rather than decide alone at 1am: which preset
-  (debug/release/both as a matrix?), whether to also gate on the
-  dependency-rule check `CONTRIBUTING.md` already claims is
-  "enforced" (it isn't, anywhere, today — a lint pass would need
-  writing from scratch, not just wiring up a workflow), and whether
-  a `ctest`-only pipeline is an acceptable v1 or whether launching
-  `mosaic run --ticks N` headlessly (no `--window`) should also gate
-  merges as a smoke test. **Next: brainstorm this properly with the
-  user** (a real spec/plan cycle, not a chat-agreed bounded slice —
-  this is the first item in the whole session that touches
-  infrastructure outside the repo itself) before writing the
-  workflow file.
+| Item | Trigger |
+|---|---|
+| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). |
+| **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
+| **GitHub Actions Node.js 20 deprecation.** | The actions publish a Node 24 version. |
+| **Release-preset build caching.** | A release CI job exists. |
+| **Caching the apt layer.** | Apt becomes a large share of a run once the build is cached. |
+| **A source-only FetchContent cache.** | Shallow clones disappoint on CI. |
+| **Per-PR cache writes.** | Hit-rate data from a few real PR iterations. |
+| **A periodic cold-vs-cached parity check.** | The ship-time invalidation probes stop being enough. |
+| **A shared/remote compiler cache for developer machines.** | A different trust and operations decision. |
+| **Cache housekeeping.** | A bad cache that bumping the `v1` epoch cannot cure. |
+| **`port reports an explicitly requested port verbatim` releases then rebinds** | The case is ever seen red. |
+| **Longest-first scheduling for `ctest -j`.** | A long case lands late in declaration order (measured gain ~2.6 s). |
+| **A CI job that runs `mosaic_unit_tests` as one process.** | The full-suite-order SIGSEGV is re-observed (it cannot occur under `ctest`). |
+| **Splitting the record by subsystem instead of by month.** | Reading the record by subsystem becomes a real need. |
+| **Reconciling `next-steps.md` with the agent memory directory.** | After the claims checker above exists. |
+| **Backfilling record entries for work predating the convention.** | Never planned: it would be speculative narrative. |
+| **Automating the archive split in the pre-commit hook** | The manual run is forgotten for more than a month or two. |
+| **The eight existing `docs/updates/*-summary.md` files stay as they are** | Deferred permanently unless the archive's nav reads badly. |
