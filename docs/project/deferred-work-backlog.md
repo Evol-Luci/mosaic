@@ -583,14 +583,7 @@ them as this list does.
 
 ## Rendering
 
-- **`next-steps.md` needs a real trim pass, not another opportunistic one — it sits at ~94% of its
-  8 KB ceiling (2026-10-24).** It was compressed to 83% on 2026-10-24 and that headroom was spent
-  within the same day on three genuinely load-bearing landmines (the renderer validation gate, the
-  offscreen readback, the `ui.vert` guard), each paid for by shaving a neighbouring bullet. That
-  works once; it is not a strategy. Deferred because the remaining content is all load-bearing, so
-  trimming means deciding what a cold-starting agent can be trusted to find in the record instead —
-  a judgement call, not a mechanical edit. `archive_next_steps.py` does NOT help: it looks for
-  dated narrative blocks and this file is a pointer doc, so it reports "nothing to do".
+- **`next-steps.md` trim SHIPPED 2026-10-24** — 7691 -> 6857 bytes (94% -> 84% of the 8 KB ceiling), user-requested target was under 7 KB. No landmine was dropped: all 20 were kept and four were compressed, with the detail moved to a new record section. Two facts that existed ONLY in the handoff (the gate's exact three-`[INFO]`-line pass condition, and "do not loosen `check_ctest_run.py`'s O2 to let GPU tests skip") were written to the record FIRST, then cut — the conservation check is what caught them. Narrative: [record](../record/2026-10.md#two-gates-defined-precisely-moved-out-of-the-handoff-2026-10-24).
 - **Slice 3 step 2b SHIPPED 2026-10-24** — `draw_ui` quad placement is asserted on the offscreen
   target and `ui.vert`'s `1.0 - ny * 2.0` Y-flip compensation is guarded by a mutation-proven test
   (`tests/gpu/offscreen_ui_orientation_test.cpp`). Narrative in the
