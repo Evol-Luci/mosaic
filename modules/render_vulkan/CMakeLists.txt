@@ -1,6 +1,7 @@
 add_library(mosaic_render_vulkan STATIC
   vulkan_swapchain_support.cpp
   vulkan_bloom_levels.cpp
+  vulkan_headless_device.cpp
   vulkan_render_device.cpp
 )
 target_include_directories(mosaic_render_vulkan PUBLIC ${CMAKE_SOURCE_DIR})

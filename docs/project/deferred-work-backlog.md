@@ -583,68 +583,35 @@ them as this list does.
 
 ## Rendering
 
-- **A headless `VkDevice` for tests, and offscreen pixel readback.** Raised by
-  the user 2026-10-24 ("we are limited from taking screenshots because of this
-  missing VkDevice, we should fix this soon") and **not deferred for lack of
-  value** — it is the single largest hole in the gate. Nothing in the suite
-  creates a `VkDevice`, so every renderer claim is checkable only by eye, and
-  three real defects in the bloom slice alone came from the one step that runs
-  real Vulkan rather than from 1404 tests.
+- **A headless `VkDevice` for tests, and offscreen pixel readback — SLICE 1 OF 3 SHIPPED
+  2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
+  [record](../record/2026-10.md#a-headless-vkdevice-for-tests-slice-1-surfaceless-device-creation).
+  `modules/render_vulkan/vulkan_headless_device.{hpp,cpp}` creates an instance with no surface
+  extensions, picks a physical device with no present-support query, and creates a logical device
+  with `enabledExtensionCount = 0`. **The project can now create a `VkDevice` inside a test, which
+  it could not do at any price before.**
 
-  **Two separate blockers are usually conflated here; only one is ours.**
-  (1) *The sandbox cannot screenshot a GUI window* — `hyprctl`/`grim` do not
-  work on this machine. That one is environmental and we cannot fix it.
-  (2) *Nothing constructs a device in the test binary* — that one is entirely
-  our own coupling. Fixing (2) makes (1) irrelevant rather than fixing it: an
-  offscreen render with a buffer readback produces pixels through the driver,
-  with no compositor and no window involved. **So the goal is not a
-  screenshot; it is a readback.** Framing it as "screenshot the editor" is what
-  made this look environmental and therefore hopeless.
+  **Still open — slice 2 (the one that produces pixels):** render a known value to an offscreen
+  target, copy it to a host-visible buffer, and assert the pixel. Gate: one asserted pixel value,
+  the first in the project. **Slice 3:** point it at the classes that are currently eye-only —
+  the Y-flip/upside-down class, per-frame buffer aliasing (#275, #287), the HUD underlay.
 
-  **Feasibility probed 2026-10-24 and it is clear:** `vulkaninfo --summary`
-  reports an NVIDIA RTX 3080, `DRIVER_ID_NVIDIA_PROPRIETARY`, driver 610.57.04,
-  instance Vulkan 1.4.357, conformance 1.4.3.3, and
-  `VK_LAYER_KHRONOS_validation` is installed. A real GPU and the validation
-  layer are both present, so the environment was never the obstacle. Re-run
-  that command before believing any claim that this is impossible here.
-
-  **What actually blocks it, named precisely.** `VulkanRenderDevice`'s
-  constructor (`modules/render_vulkan/vulkan_render_device.cpp`) takes a
-  `GLFWwindow*` and immediately calls `glfwCreateWindowSurface`, and
-  `pick_physical_device` both requires the swapchain extension
-  (`device_supports_swapchain`) and queries `vkGetPhysicalDeviceSurfaceSupportKHR`
-  against that surface. The public factory
-  (`create_vulkan_render_device(GLFWwindow*)`) has no surfaceless form. So the
-  work is a *surfaceless construction path*, not new rendering code.
-
-  **Why this is cheaper than it sounds:** the offscreen machinery already
-  exists and is already exercised. `create_offscreen_render_pass` is the
-  editor's viewport target, the HDR and bloom passes already render to images
-  rather than the swapchain, and the editor already blits an offscreen target.
-  Nothing new has to learn to render off-screen; a headless path has to stop
-  *requiring* the swapchain.
-
-  **Decomposition (the first slice is the one with the gate).**
-  1. Surfaceless device creation: a second factory that skips the surface and
-     the swapchain extension, with device selection no longer surface-gated.
-     *Gate:* a test that constructs and destroys a device with the validation
-     layer enabled and zero validation errors — which is already more than the
-     suite can currently say.
-  2. Readback: render one known-colour triangle (or just a clear) to an
-     offscreen target, copy to a host-visible buffer, assert the pixel.
-     *Gate:* an asserted pixel value, the first in the project.
-  3. Only then: the regression targets that are currently eye-only — the
-     Y-flip/upside-down class, the per-frame buffer aliasing class (#275, #287),
-     the HUD underlay.
-
-  **The honest risks, recorded now rather than discovered later.** CI runners
-  have no GPU, so these tests must be *opt-in locally* and skipped (not
-  silently passed) in CI, or the step goes red on GitHub — a skip that reads as
-  a pass is exactly the failure `check_ctest_run.py`'s O2 exists to catch, so
-  this interacts with that guard and must not be made to "work" by loosening
-  it. The `~170 MB` test binary also already fails to link intermittently under
-  memory pressure; linking Vulkan into it will not help that. And a GPU test is
-  a new flake surface in a suite whose whole value is that it is trustworthy.
+  **Three honest limitations of slice 1, none of them fixed by it.**
+  1. *It is opt-in, so it guards nothing automatically.* The target is
+     `mosaic_gpu_tests`, built only with `-DMOSAIC_ENABLE_GPU_TESTS=ON` (default OFF), and the
+     default suite is still exactly 1462 tests. **This was forced, not chosen:** CI runners have
+     no GPU, and a Catch2 `SKIP` sets `skipped=1`, which `tools/ci/check_ctest_run.py`'s O2 check
+     correctly fails the build on — that guard exists so a skip cannot masquerade as a pass. An
+     opt-in test is therefore a manual verification tool today, not a regression guard.
+     **Trigger to make it standing:** a CI runner with a GPU, at which point register it and
+     delete this paragraph.
+  2. *It tests a parallel implementation, not the production constructor.*
+     `vulkan_render_device.cpp` was deliberately left untouched, because a slice whose gate cannot
+     see pixels should not edit the renderer. So slice 1 proves "we can make devices in tests",
+     NOT "the renderer's device creation is correct". **Follow-up, deliberately deferred:** share
+     the device-selection code between the two paths once slice 2 can observe the result.
+  3. *A GPU test is a new flake surface* in a suite whose entire value is that it is trustworthy.
+     Being opt-in contains that for now.
 
 - RenderGraph / multi-pass structure — deferred since the point-light
   slice, never picked up (two-pass submission chosen instead each time it
@@ -2001,7 +1968,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** | Slice (first of 3; see the decomposition in the entry). **Highest impact available on the gate**: it is the only item that converts "checkable by eye" into "checkable" for the whole renderer. Feasibility probed 2026-10-24 (RTX 3080 + validation layer present); the blocker is our own surface coupling, not the environment. | Slice 1: a device constructed and destroyed in-suite with the validation layer on and ZERO validation errors. Slice 2: one asserted pixel value. | User-raised 2026-10-24 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **SLICE 1 OF 3 SHIPPED 2026-10-24** (surfaceless device creation, opt-in `mosaic_gpu_tests`, validation-clean). | Slice 2 next: offscreen render + buffer readback. Still the highest-impact item on the gate — it is what converts "checkable by eye" into "checkable" for the renderer. | Slice 2: one asserted pixel value, the first in the project. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
