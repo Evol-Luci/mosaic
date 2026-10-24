@@ -16,7 +16,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1459 tests | `ctest --preset debug -N \| tail -1` | 2026-10-21 |
+| Suite size | 1461 tests | `ctest --preset debug -N \| tail -1` | 2026-10-23 |
 | Suite status | all passing | `ctest --preset debug -j"$(nproc)"` | 2026-10-21 |
 | CI test step | ~12-17 s (#278: 12 s, #279: 17 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-21 |
 | Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-21 |
@@ -31,11 +31,11 @@ Three candidates, most ready first.
 - **Gate:** a test that fails on the old behaviour. Nothing creates a `VkDevice`, so only engine-side batching is testable; the backend change is checkable by eye.
 - **Unverified:** `RenderSystem` makes exactly one call of each per frame (`engine/render/render_system.hpp:380`, `:397`), so this bites only with a second caller or a second pass.
 
-### 2. ENet servers: bind 0 and report the port (yellow)
-- **What:** test ports were moved below the ephemeral range in #273; the structural fix is an ENet transport API change, following `LiveLinkServer::port()`.
-- **Where:** `tests/unit/studio/live_link_server_test.cpp:185` (the precedent; records a real CI failure on port 34906).
-- **Gate:** a test binding 0 and asserting the reported port is non-zero and matches.
-- **Unverified:** how many ENet call sites hard-code a port.
+### 2. Re-derive the Effort vs. impact tiers (no code)
+- **What:** the tier tables rank almost nothing — one red (low priority) and two greens, one already decided as no-action — while the subsystem sections hold ~150 live items the tiers do not cover. The backlog can say what is *left* but not what is *worth doing*.
+- **Where:** `docs/project/deferred-work-backlog.md`, the "Effort vs. impact" section; last re-derived 2026-10-20, and twelve PRs have landed since.
+- **Gate:** the pass must take its material from what shipped since, not from re-reading the same source docs — the backlog's own standing rule for re-deriving.
+- **Unverified:** at least one known-stale entry to resolve on the way — an unstruck `LiveLinkServer` ports bullet duplicates a struck one and describes work shipped 2026-09-30.
 
 ### 3. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
 - **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.

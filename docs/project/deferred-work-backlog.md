@@ -2145,16 +2145,8 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
   fan-out can, for cold and wide-header builds alike. Different kind of work.
 - ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~ — FIXED 2026-10-21, see [record](../record/2026-10.md#the-default-scene-hud-underlay-case-takes-165-s-locally-and-234-s-on-ci).
-- **ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**
-  The six test constants in `tests/unit/net/enet_transport_test.cpp` were **moved out of the
-  ephemeral range (34001-34006 -> 24101-24106) in the `ctest -j` slice**, because a hard-coded port
-  in that range has already failed a real CI run in this repo, serially (`live_link_server_test.cpp`
-  :185-189, "34906 was not free"), and `-j4` runs the six adjacent cases together. That is a
-  mitigation, not a fix: any fixed number can still be taken. The template is what `LiveLinkServer`
-  already did: `start(0)` and report the kernel's choice through `port()`. For ENet that is an API
-  change to `create_enet_server` / `Transport`, so it is not a CI slice. Depends on a decision to
-  change the transport interface.
-- **`LiveLinkServer::port reports an explicitly requested port verbatim` releases then rebinds.**
+- ~~**ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-take-a-fixed-port-the-structural-fix-is-bind-0-plus-a-port-accessor).
+- **`port reports an explicitly requested port verbatim` releases then rebinds** (LiveLink, and since 2026-10-23 the ENet case too).**
   It learns a free port from `start(0)`, `stop()`s, then binds that number; a concurrent
   `start(0)` or outgoing connection in that window could take it. **Accepted, not planned
   (2026-10-21 ruling):** a microsecond window against a pool of ~28 000 ports (~1/28 000 per
@@ -2270,7 +2262,7 @@ re-reading the same source docs. Both items are in the Rendering section above.
 |---|---|
 | ~~**Pointer input from the editor viewport to the scene**~~ — SHIPPED 2026-10-07, see [record](../record/2026-10.md#pointer-input-from-the-editor-viewport-to-the-scene). | — |
 | **`ctest -j` in CI** | **Shipped 2026-10-21 (#273)** (spec `2026-10-21-ci-parallel-ctest-design.md`). The serial test step is 35-64 s of a ~93-143 s warm job. The old gate (two flaky tests) was stale: one was fixed in #230 and the other is unreachable under ctest; the real gates are process-concurrency hazards and one 23 s case against `TIMEOUT 60`. Predicted ~26 s step; achieved 19-33 s (median 30 s, bimodal by host) against a 43-61 s serial step, floored by that case; the HUD case is the next lever (-> ~10-20 s). See the CI and build section. |
-| **ENet servers: bind 0 and report the port** | The test ports were moved below the ephemeral range in the `ctest -j` slice; the structural fix (LiveLink's `port()` template) is an ENet transport API change. See the CI and build section. |
+| ~~**ENet servers: bind 0 and report the port**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-bind-0-and-report-the-port). | — |
 
 **The five original items in this tier shipped as of 2026-09-21:** Studio
 plugin (`.py`) authoring via MCP (PR #193), per-plugin enable/disable

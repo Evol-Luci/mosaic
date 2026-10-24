@@ -25,7 +25,7 @@ void release_enet()
 }
 } // namespace
 
-class EnetTransport : public Transport
+class EnetTransport : public mosaic::net::enet::EnetServer
 {
 public:
     explicit EnetTransport(ENetHost* host) : host_(host) {}
@@ -34,6 +34,11 @@ public:
         enet_host_destroy(host_);
         release_enet();
     }
+
+    // host_->address is what the socket is actually bound to: enet_host_create() calls
+    // enet_socket_get_address() into it after binding, so a port-0 request reads back as
+    // the kernel's choice rather than as 0.
+    std::uint16_t port() const override { return host_->address.port; }
 
     void send(ConnectionId to, Channel channel, const std::string& bytes) override
     {
@@ -107,7 +112,7 @@ private:
     ConnectionId next_id_ = 1; // 0 is reserved invalid (transport.hpp)
 };
 
-std::unique_ptr<Transport> create_enet_server(std::uint16_t port, std::size_t max_peers)
+std::unique_ptr<EnetServer> create_enet_server(std::uint16_t port, std::size_t max_peers)
 {
     acquire_enet();
     ENetAddress address;
