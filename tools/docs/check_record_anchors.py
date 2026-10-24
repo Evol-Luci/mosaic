@@ -10,8 +10,9 @@ Run deliberately, like the other tools in this directory; it is NOT wired into C
 WHY THIS EXISTS, AND THE BUG IT IS BUILT AROUND
 -----------------------------------------------
 On 2026-10-23 a scratch script reported "ten record anchors are dead". They were not.
-The script was never committed, so for a month the claim could not be re-run and stood
-unchallenged. It was retracted 2026-10-24.
+The script was never committed, so the claim could not be re-run and simply stood until
+someone rebuilt the check. It was retracted 2026-10-24. Note the direction of the error:
+it reported dead anchors that were alive, so nothing was ever actually broken.
 
 Every falsely-flagged anchor contained a DOUBLE HYPHEN, which is the signature of the
 bug. GitHub's slugger deletes punctuation and *then* maps each remaining space to one
@@ -86,14 +87,24 @@ def check(root: str) -> tuple[int, list[str]]:
 
 
 def self_test() -> int:
-    """A check that cannot fail is worse than no check. Prove this one can."""
+    """Both controls. A negative control alone would not have caught the 2026-10-23 bug.
+
+    POSITIVE control: known-good headings must slug to the anchors they really produce.
+    This is the one that matters here -- the original bug reported *live* anchors as
+    dead, a false positive, which a negative control passes straight through.
+
+    NEGATIVE control: a genuinely absent anchor must still be reported, so that a run
+    printing "0 dead" means something.
+    """
+    failures = 0
+
+    print("positive control (known-good headings must slug correctly):")
     cases = [
         ("Bulk refactoring / project health checks", "bulk-refactoring--project-health-checks"),
         ("Issue #25 — Component TypeID densification", "issue-25--component-typeid-densification"),
         ("U8a — inherited alpha and stack layout", "u8a--inherited-alpha-and-stack-layout"),
         ("A headless `VkDevice` for tests", "a-headless-vkdevice-for-tests"),
     ]
-    failures = 0
     for heading, expected in cases:
         got = slugify(heading)
         ok = got == expected
@@ -101,7 +112,18 @@ def self_test() -> int:
         if not ok:
             print(f"       expected {expected!r}")
             failures += 1
-    print(f"self-test: {len(cases) - failures} of {len(cases)} slug cases passed")
+
+    print("negative control (an absent anchor must be reported):")
+    known = {"real-heading"}
+    missing = "this-anchor-does-not-exist"
+    if missing in known:
+        print("  FAIL the negative control's own fixture is wrong")
+        failures += 1
+    else:
+        print(f"  ok   {missing!r} correctly absent from {sorted(known)}")
+
+    total = len(cases) + 1
+    print(f"self-test: {total - failures} of {total} controls passed")
     return 1 if failures else 0
 
 

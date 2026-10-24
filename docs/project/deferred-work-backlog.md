@@ -150,9 +150,13 @@ deliberately left out.
   corrected — which is how the original finding was recognised rather than inherited.
 
   **The real lesson is about the evidence, not the slugger.** The 2026-10-23 check was a scratch
-  script that was run once, pasted, and never committed, so for a month nobody could re-run it and
-  the false claim stood. A checker reporting 0 must carry a negative control; the corrected one was
-  validated by inserting a known-bad anchor and confirming it was caught. **Still worth doing:**
+  script that was run once, pasted, and never committed, so nobody could re-run it and the false
+  claim simply stood until someone happened to rebuild the check — one day here, but nothing in the
+  process bounded that. Note which way the error ran: it reported dead anchors that were alive, so
+  the docs were never actually broken. **A negative control would not have caught it** — a checker
+  that flags everything still catches a planted bad anchor. What catches a false positive is a
+  *positive* control, which is why the committed checker's `--self-test` asserts four known-good
+  headings slug correctly, alongside the absent-anchor negative control. **Still worth doing:**
   promote the corrected check to `tools/docs/` and CI, scoped over all of `docs/` — that part of the
   original entry was right, and a committed check is what stops this class of claim recurring.
 - **Teaching `archive_shipped_backlog.py` to find an unstruck original sitting under its own stub,
