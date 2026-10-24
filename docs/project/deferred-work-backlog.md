@@ -583,6 +583,69 @@ them as this list does.
 
 ## Rendering
 
+- **A headless `VkDevice` for tests, and offscreen pixel readback.** Raised by
+  the user 2026-10-24 ("we are limited from taking screenshots because of this
+  missing VkDevice, we should fix this soon") and **not deferred for lack of
+  value** — it is the single largest hole in the gate. Nothing in the suite
+  creates a `VkDevice`, so every renderer claim is checkable only by eye, and
+  three real defects in the bloom slice alone came from the one step that runs
+  real Vulkan rather than from 1404 tests.
+
+  **Two separate blockers are usually conflated here; only one is ours.**
+  (1) *The sandbox cannot screenshot a GUI window* — `hyprctl`/`grim` do not
+  work on this machine. That one is environmental and we cannot fix it.
+  (2) *Nothing constructs a device in the test binary* — that one is entirely
+  our own coupling. Fixing (2) makes (1) irrelevant rather than fixing it: an
+  offscreen render with a buffer readback produces pixels through the driver,
+  with no compositor and no window involved. **So the goal is not a
+  screenshot; it is a readback.** Framing it as "screenshot the editor" is what
+  made this look environmental and therefore hopeless.
+
+  **Feasibility probed 2026-10-24 and it is clear:** `vulkaninfo --summary`
+  reports an NVIDIA RTX 3080, `DRIVER_ID_NVIDIA_PROPRIETARY`, driver 610.57.04,
+  instance Vulkan 1.4.357, conformance 1.4.3.3, and
+  `VK_LAYER_KHRONOS_validation` is installed. A real GPU and the validation
+  layer are both present, so the environment was never the obstacle. Re-run
+  that command before believing any claim that this is impossible here.
+
+  **What actually blocks it, named precisely.** `VulkanRenderDevice`'s
+  constructor (`modules/render_vulkan/vulkan_render_device.cpp`) takes a
+  `GLFWwindow*` and immediately calls `glfwCreateWindowSurface`, and
+  `pick_physical_device` both requires the swapchain extension
+  (`device_supports_swapchain`) and queries `vkGetPhysicalDeviceSurfaceSupportKHR`
+  against that surface. The public factory
+  (`create_vulkan_render_device(GLFWwindow*)`) has no surfaceless form. So the
+  work is a *surfaceless construction path*, not new rendering code.
+
+  **Why this is cheaper than it sounds:** the offscreen machinery already
+  exists and is already exercised. `create_offscreen_render_pass` is the
+  editor's viewport target, the HDR and bloom passes already render to images
+  rather than the swapchain, and the editor already blits an offscreen target.
+  Nothing new has to learn to render off-screen; a headless path has to stop
+  *requiring* the swapchain.
+
+  **Decomposition (the first slice is the one with the gate).**
+  1. Surfaceless device creation: a second factory that skips the surface and
+     the swapchain extension, with device selection no longer surface-gated.
+     *Gate:* a test that constructs and destroys a device with the validation
+     layer enabled and zero validation errors — which is already more than the
+     suite can currently say.
+  2. Readback: render one known-colour triangle (or just a clear) to an
+     offscreen target, copy to a host-visible buffer, assert the pixel.
+     *Gate:* an asserted pixel value, the first in the project.
+  3. Only then: the regression targets that are currently eye-only — the
+     Y-flip/upside-down class, the per-frame buffer aliasing class (#275, #287),
+     the HUD underlay.
+
+  **The honest risks, recorded now rather than discovered later.** CI runners
+  have no GPU, so these tests must be *opt-in locally* and skipped (not
+  silently passed) in CI, or the step goes red on GitHub — a skip that reads as
+  a pass is exactly the failure `check_ctest_run.py`'s O2 exists to catch, so
+  this interacts with that guard and must not be made to "work" by loosening
+  it. The `~170 MB` test binary also already fails to link intermittently under
+  memory pressure; linking Vulkan into it will not help that. And a GPU test is
+  a new flake surface in a suite whose whole value is that it is trustworthy.
+
 - RenderGraph / multi-pass structure — deferred since the point-light
   slice, never picked up (two-pass submission chosen instead each time it
   came up). **Shadows (below, in scoping as of 2026-09-21) will bring the
@@ -1944,6 +2007,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. **BEFORE measured 2026-10-24: 171 TUs, 83.2 s at -j20** (see the bullet above); the AFTER half is what remains. | PR #271 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** | Slice (first of 3; see the decomposition in the entry). **Highest impact available on the gate**: it is the only item that converts "checkable by eye" into "checkable" for the whole renderer. Feasibility probed 2026-10-24 (RTX 3080 + validation layer present); the blocker is our own surface coupling, not the environment. | Slice 1: a device constructed and destroyed in-suite with the validation layer on and ZERO validation errors. Slice 2: one asserted pixel value. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
