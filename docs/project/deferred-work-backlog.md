@@ -1852,15 +1852,17 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   helps a local first build; a network cache is a different trust and operations problem.
 - **Cache housekeeping.** Deleting stale caches via the API from a scheduled job. Today the only
   lever against a bad cache is bumping the `v1` epoch in the key. Depends on needing it.
-- **Pin mutable FetchContent tags to commit SHAs.** Found while designing: 9 of 10 dependencies
-  are pinned by tag (box3d alone by SHA). A retagged upstream would change a build silently.
-  Unrelated to caching but it changes the trust model of any dependency cache; GIT_SHALLOW needs
-  a tag or branch, so pinning to SHAs would trade away shallow clones unless done per dependency.
-  **Sharpened by the shallow clones (Slice A):** if an upstream tag is ever moved, a developer with
-  an existing shallow `build/*/_deps` can hit a confusing fetch failure, because the shallow
-  history does not contain the new commit. CI is immune (it always clones fresh). Recovery is
-  `rm -rf build/*/_deps` and reconfigure; that is noted beside the declarations in `CMakeLists.txt`.
-  Documented rather than fixed in that slice. This strengthens the case for SHA pinning.
+- ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas).
+- **`GIT_SHALLOW TRUE` on `box3d`.** Measured and declined 2026-10-24 while pinning the other 9
+  `FetchContent` dependencies to commit SHAs. CMake 4.4.3's `gitclone.cmake.in` implements
+  `GIT_SHALLOW TRUE` via `git clone --no-checkout --depth 1 --no-single-branch` followed by
+  `git checkout <GIT_TAG> --`, which fetches depth-1 of every advertised branch and tag ref
+  (`refs/heads/*`, `refs/tags/*`). That works for all 9 tag-backed SHA pins, but `box3d`'s
+  `30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c` is an untagged mid-history commit (`main` has since
+  advanced to `f36d061b...`), so `--depth 1 --no-single-branch` does not fetch it and configure
+  fails with `fatal: unable to read tree (30c67b5e6d0a3a66f0f506c69ce9e9e0587e3b7c)`. The full
+  `box3d` clone is 40 commits total; revisit only if `box3d` is bumped to a tagged release or
+  branch tip.
 - **Reduce header fan-out / precompiled headers / unity builds.** `foundation/core/entity_id.hpp`
   is included by 171 of 254 first-party TUs (`ninja -t deps`); editing it costs 171 recompiles
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
@@ -1927,7 +1929,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | Order | Item | Effort / impact | Gate | Source |
 |---|---|---|---|---|
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
-| 2 | **Pin mutable FetchContent tags to commit SHAs.** | Slice. Reproducibility/supply chain: 9 of 10 dependencies are tag-pinned. `GIT_SHALLOW` needs a tag, so SHA pinning trades shallow clones away unless done per dependency. | A retagged upstream no longer changes a build silently. | PR #268 |
+| 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. | PR #271 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
