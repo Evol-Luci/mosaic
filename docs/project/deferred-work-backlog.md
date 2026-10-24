@@ -1881,10 +1881,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   `ctest --output-junit` and fails or annotates any case above a stated fraction of the timeout
   would catch the next one. Deferred: needs a threshold chosen from CI data, and a flaky budget is
   worse than none. The HUD-underlay case it would have tripped on day one is fixed (2026-10-21; slowest case is now ~1.1 s), so this is unblocked.
-- **`execution.jobs` in the `debug` test preset (local `ctest -j`).** The slice puts `-j` in the
-  workflow only. Putting it in `CMakePresets.json` would change every developer's default, on
-  machines with unknown memory and with the sandbox's slow cross-process loopback. Deferred:
-  CI-only was the goal, and a local default is a separate decision.
+- ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j).
 - **A CI job that runs `mosaic_unit_tests` as one process.** The full-suite-order SIGSEGV in the
   threaded `ScriptSystem` case (see the Physics-pillar `[script]` SIGSEGV entry on `catch_discover_tests` blindness) is
   invisible to ctest by construction. A second job running the binary directly would cover it, at
@@ -1924,7 +1921,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 |---|---|---|---|---|
 | 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
-| 3 | **`execution.jobs` in the `debug` test preset (local `ctest -j`).** | Hours, but **decision-gated**: it changes every developer's default on machines of unknown memory. Low impact (CI already parallel). | A human's yes/no; the edit is one preset field. | PR #273 |
+| 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
