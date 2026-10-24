@@ -1349,7 +1349,7 @@ them as this list does.
   label's true appearance. Deferred: passing as is; low priority.
   Depends on nothing. Note the human judged it on a look that was double-blended (see the
   batching entry in `next-steps.md`), so a re-check after that fix is owed.
-- ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape).
+- ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape).
 - **World labels are not depth-sorted for blending.** The world-text batch preserves
   `for_each` order, which is dense order over a sparse set and unstable across an unrelated
   entity's destruction. Overlapping labels in different fonts, or the same font, may blend in
@@ -1806,7 +1806,7 @@ anything shipped; they are capabilities that were never built.
 
 - ~~**Issue #25 — Component TypeID densification**~~ — SHIPPED 2026-09-20, see [record](../record/2026-09.md#issue-25--component-typeid-densification).
 - ~~**`LiveLinkServer` tests hard-code listen ports, and one flaked on CI**~~ — SHIPPED 2026-09-30, see [record](../record/2026-09.md#livelinkserver-tests-hard-code-listen-ports-and-one-flaked-on-ci).
-- ~~**`enet_transport_test.cpp` hard-codes six UDP ports too (34001-34006).**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet_transport_testcpp-hard-codes-six-udp-ports-too-34001-34006).
+- ~~**`enet_transport_test.cpp` hard-codes six UDP ports too (34001-34006).**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#enet_transport_testcpp-hard-codes-six-udp-ports-too-34001-34006).
 - ~~**Embedded-Python worker-thread flakiness (ScriptSystem/ScriptWorker)**~~ — FIXED 2026-09-30, see [record](../record/2026-09.md#embedded-python-worker-thread-flakiness-scriptsystemscriptworker).
 
 ## CI and build
@@ -1863,7 +1863,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   even with a perfect cache (233 s locally vs 285 s cold). Caching cannot help this; cutting the
   fan-out can, for cold and wide-header builds alike. Different kind of work.
 - ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~ — FIXED 2026-10-21, see [record](../record/2026-10.md#the-default-scene-hud-underlay-case-takes-165-s-locally-and-234-s-on-ci).
-- ~~**ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#enet-servers-take-a-fixed-port-the-structural-fix-is-bind-0-plus-a-port-accessor).
+- ~~**ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#enet-servers-take-a-fixed-port-the-structural-fix-is-bind-0-plus-a-port-accessor).
 - **`port reports an explicitly requested port verbatim` releases then rebinds** (LiveLink, and since 2026-10-23 the ENet case too).**
   It learns a free port from `start(0)`, `stop()`s, then binds that number; a concurrent
   `start(0)` or outgoing connection in that window could take it. **Accepted, not planned
@@ -1922,7 +1922,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 
 | Order | Item | Effort / impact | Gate | Source |
 |---|---|---|---|---|
-| 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-23, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
+| 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | **A per-test duration budget.** | Hours. `tools/ci/check_ctest_run.py --report` already reads per-case seconds from the JUnit file; this adds one threshold. Unblocked since #274 (slowest case ~1.1 s against `TIMEOUT 60`). | Red against a synthetic JUnit with one case over the budget. | PR #273, unblocked by #274 |
 | 3 | **`execution.jobs` in the `debug` test preset (local `ctest -j`).** | Hours, but **decision-gated**: it changes every developer's default on machines of unknown memory. Low impact (CI already parallel). | A human's yes/no; the edit is one preset field. | PR #273 |
 

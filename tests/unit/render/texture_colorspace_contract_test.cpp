@@ -362,7 +362,15 @@ TEST_CASE("every per-frame staging buffer is chunked per call", "[render]")
         INFO(std::string("method: ") + method);
         const std::size_t at = src.find(method);
         REQUIRE(at != std::string::npos);
-        const std::string body = src.substr(at, 900);
+        // Bound the window at the NEXT method, not at a fixed character count. Measured on
+        // the pre-change source, draw_ribbons sat 1319 normalised characters from
+        // draw_world_text, so a fixed 900 left only 419 characters of margin: shortening
+        // draw_ribbons would have slid world text's own chunking into the ribbon window and
+        // made this assertion pass on an unchunked ribbon path. A probe that cannot fail is
+        // worse than no probe, so the window ends where the method does.
+        const std::size_t next = src.find("void draw", at + 1);
+        const std::string body =
+            src.substr(at, (next == std::string::npos) ? std::string::npos : next - at);
         REQUIRE(body.find("chunks.emplace_back();") != std::string::npos);
         REQUIRE(body.find("_calls_[frame_]++]") != std::string::npos);
     }

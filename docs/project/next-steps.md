@@ -16,8 +16,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1461 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-23 |
-| Suite status | all passing (1461/1461, 3.0 s local) | `ctest --preset debug -j"$(nproc)"` | 2026-10-23 |
+| Suite size | 1462 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-24 |
+| Suite status | all passing (1462/1462, 2.7 s local) | `ctest --preset debug -j"$(nproc)"` | 2026-10-24 |
 | CI test step | ~12-17 s (#284: 14.2 s, #285: 13.8 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-23 |
 | Build | debug preset | `cmake --preset debug -G Ninja && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
