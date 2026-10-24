@@ -59,6 +59,16 @@ FetchContent_MakeAvailable(glfw)
 # `.git` 2.5 MB; and GitHub also permits `git fetch --depth 1 origin <bare SHA>` directly in 0.33 s).
 # Do not cite commit-SHA pinning as a reason to drop GIT_SHALLOW on tagged dependencies.
 #
+# KNOWN RISK, recorded deliberately: CMake DOCUMENTS this combination as unsupported.
+# ExternalProject.cmake's GIT_TAG docs state "If GIT_SHALLOW is enabled then GIT_TAG works only
+# with branch names and tags. A commit hash is not allowed." It nevertheless works here, for the
+# mechanical reason given below (depth-1 of every ref happens to include every tag-backed commit),
+# and every CI run re-proves it from a cold clone. So this is real behaviour, not luck -- but it
+# is behaviour CMake does not promise. If a future CMake makes the shallow clone single-branch,
+# configure will fail LOUDLY at the checkout step, not silently build the wrong source. The fix
+# then is to DROP `GIT_SHALLOW TRUE` from the affected dependencies and accept full clones --
+# NOT to unpin the SHAs back to mutable tags, which is the property this pinning exists to hold.
+#
 # Why box3d alone omits GIT_SHALLOW: CMake 4.4.3's `gitclone.cmake.in` implements `GIT_SHALLOW TRUE`
 # via `git clone --no-checkout --depth 1 --no-single-branch` followed by `git checkout <GIT_TAG> --`
 # (rather than `git fetch --depth 1 origin <SHA>`). That fetches depth-1 of every branch and tag ref,
