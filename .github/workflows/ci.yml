@@ -51,6 +51,9 @@ jobs:
       - name: CI ctest-run guard's own unit tests
         run: python3 -m unittest tools/ci/test_check_ctest_run.py
 
+      - name: next-steps claims checker's own unit tests
+        run: python3 -m unittest tools/docs/test_check_next_steps_claims.py
+
       - name: Install Vulkan SDK components (loader + headers + glslc)
         run: |
           wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc
@@ -161,6 +164,12 @@ jobs:
           python3 tools/ci/check_ctest_run.py --report "${JUNIT}"
           echo "ctest_rc=${ctest_rc} check_rc=${check_rc}"
           exit $(( ctest_rc != 0 || check_rc != 0 ))
+
+      - name: next-steps claims check
+        # Must run AFTER "Unit tests", not with the early lints: verifying Suite size and
+        # Suite status needs the built tree and the JUnit file produced above. `JUNIT` is a
+        # shell variable local to the "Unit tests" step, so its path is spelled out again here.
+        run: python3 tools/docs/check_next_steps_claims.py --junit "${RUNNER_TEMP}/ctest-junit.xml"
 
       - name: Headless smoke test (mosaic run --ticks, no window/GPU)
         run: |

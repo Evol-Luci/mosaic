@@ -23,13 +23,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-One candidate. The ranking behind it is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
-
-### 1. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
-- **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.
-- **Where:** new, under `tools/docs/`; wire it beside the other docs checks in `.github/workflows/ci.yml`.
-- **Gate:** it must go red against a deliberately wrong claim.
-- **Unverified:** how to make the CI-step and `main` rows machine-checkable.
+No single candidate is currently queued here. See the tier tables in [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact) (`🟡 Medium` and `🔴 Large`) for what is next.
 
 ## Landmines
 

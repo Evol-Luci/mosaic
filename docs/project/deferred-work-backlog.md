@@ -86,11 +86,14 @@ deliberately left out.
 
 **Non-goals of that design (2026-10-21), each deferred with its reason:**
 
-- **A checker for `next-steps.md`'s verifiable claims.** The design makes every claim
-  carry the command that regenerates it (`ctest --preset debug -N` beside a test count), so
-  a reader can check one by hand. A tool that runs them all and fails on drift is a real
-  follow-up — it would have caught the six-week-stale gate that misled a reader on
-  2026-10-21 — but the right time to build it is after the file's shape has settled.
+- ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims).
+- **Making the `CI test step` row in `next-steps.md` machine-checkable.** Needs `gh` and a
+  run id; deferred 2026-10-24 because it requires network access and an authenticated token
+  in the check's environment. Declared in `UNVERIFIABLE_CLAIMS` in
+  `tools/docs/check_next_steps_claims.py` and reported as skipped with that reason.
+- **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when
+  a `Value` changes without its `Checked` date being updated). Deferred 2026-10-24: needs git
+  history (`git log -S` / blame) per table cell, which is its own slice.
 - **Splitting the record by subsystem instead of by month.** Monthly matches the existing
   archive and needs no judgement call per entry; by-subsystem reads better when revisiting
   one area. Revisit only if reading the record by subsystem becomes a real need.
@@ -1923,7 +1926,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 
 | Order | Item | Effort / impact | Gate | Source |
 |---|---|---|---|---|
-| 1 | **A checker for `next-steps.md`'s verifiable claims.** | Slice. Medium impact: this very pass found the handoff's "twelve PRs" wrong at the time it was written (it is 16, or 18 counting #265-#284). | Must go red against a deliberately wrong claim. | PR #278 |
+| 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | **Pin mutable FetchContent tags to commit SHAs.** | Slice. Reproducibility/supply chain: 9 of 10 dependencies are tag-pinned. `GIT_SHALLOW` needs a tag, so SHA pinning trades shallow clones away unless done per dependency. | A retagged upstream no longer changes a build silently. | PR #268 |
 | 3 | **Reduce header fan-out / precompiled headers / unity builds.** | Slice, **measure first**. `entity_id.hpp` is in 171 of 254 TUs; a perfect cache still recompiles all of them (233 s vs 285 s cold). Caching cannot help; this can. Impact is on the developer loop, not CI. | A measured edit-one-header rebuild time before and after. | PR #271 |
 
@@ -1968,3 +1971,4 @@ question "did we already consider this?" answers here.
 | **Backfilling record entries for work predating the convention.** | Never planned: it would be speculative narrative. |
 | **Automating the archive split in the pre-commit hook** | The manual run is forgotten for more than a month or two. |
 | **The eight existing `docs/updates/*-summary.md` files stay as they are** | Deferred permanently unless the archive's nav reads badly. |
+| **Asserting the timing figures in `next-steps.md`'s State table.** | Deferred permanently unless a stable timing environment exists (asserting `2.7 s local` or `~12-17 s` on varying machines/runners would make the check a flaky guard). |
