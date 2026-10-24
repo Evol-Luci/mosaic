@@ -19,10 +19,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
 // NOTE: intentionally NO `namespace log = mosaic::foundation::log;` — a `log`
 // alias shadows the C `::log` builtin and trips a compiler warning. Every log
@@ -279,24 +281,33 @@ bool validation_layer_available(const char* name)
 class VulkanRenderDevice final : public RenderDevice
 {
 public:
-    explicit VulkanRenderDevice(GLFWwindow* window) : window_(window)
+    explicit VulkanRenderDevice(RenderTarget target) : target_(target)
     {
         create_instance();
 #ifndef NDEBUG
         setup_debug_messenger();
 #endif
-        vk_check(glfwCreateWindowSurface(instance_, window_, nullptr, &surface_),
-                 "glfwCreateWindowSurface");
+        if (const auto* wt = std::get_if<WindowTarget>(&target_))
+        {
+            vk_check(glfwCreateWindowSurface(instance_, wt->window, nullptr, &surface_),
+                     "glfwCreateWindowSurface");
+        }
         pick_physical_device();
         create_logical_device();
-        create_swapchain();
-        create_image_views();
+        if (std::holds_alternative<WindowTarget>(target_))
+        {
+            create_swapchain();
+            create_image_views();
+        }
         create_depth_resources();
         create_render_pass();
         create_offscreen_render_pass();
         create_hdr_render_pass();
         create_bloom_render_pass();
-        create_framebuffers();
+        if (std::holds_alternative<WindowTarget>(target_))
+        {
+            create_framebuffers();
+        }
         // SWAPCHAIN-SIZED: the scene renders once at full resolution and the editor samples
         // the resolved result into whatever panel size it has.
         create_hdr_target(extent_.width, extent_.height);
@@ -336,8 +347,11 @@ public:
         write_bloom_descriptors();
         create_sync_objects();
 
-        glfwSetWindowUserPointer(window_, this);
-        glfwSetFramebufferSizeCallback(window_, framebuffer_resize_callback);
+        if (const auto* wt = std::get_if<WindowTarget>(&target_))
+        {
+            glfwSetWindowUserPointer(wt->window, this);
+            glfwSetFramebufferSizeCallback(wt->window, framebuffer_resize_callback);
+        }
     }
 
     VulkanRenderDevice(const VulkanRenderDevice&) = delete;
@@ -2079,7 +2093,10 @@ public:
         }
         apply_ui_theme(theme);
 
-        ImGui_ImplGlfw_InitForVulkan(window_, true);
+        if (const auto* wt = std::get_if<WindowTarget>(&target_))
+        {
+            ImGui_ImplGlfw_InitForVulkan(wt->window, true);
+        }
 
         ImGui_ImplVulkan_InitInfo info{};
         info.Instance = instance_;
@@ -2489,14 +2506,18 @@ private:
         app.engineVersion = VK_MAKE_VERSION(0, 1, 0);
         app.apiVersion = VK_API_VERSION_1_2;
 
-        uint32_t glfw_count = 0;
-        const char** glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_count);
-        if (glfw_exts == nullptr)
+        std::vector<const char*> extensions;
+        if (std::holds_alternative<WindowTarget>(target_))
         {
-            throw std::runtime_error(
-                "glfwGetRequiredInstanceExtensions returned null (no Vulkan loader?)");
+            uint32_t glfw_count = 0;
+            const char** glfw_exts = glfwGetRequiredInstanceExtensions(&glfw_count);
+            if (glfw_exts == nullptr)
+            {
+                throw std::runtime_error(
+                    "glfwGetRequiredInstanceExtensions returned null (no Vulkan loader?)");
+            }
+            extensions.assign(glfw_exts, glfw_exts + glfw_count);
         }
-        std::vector<const char*> extensions(glfw_exts, glfw_exts + glfw_count);
 
         VkInstanceCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -2608,6 +2629,8 @@ private:
         std::vector<VkPhysicalDevice> devices(count);
         vkEnumeratePhysicalDevices(instance_, &count, devices.data());
 
+        const bool has_window = std::holds_alternative<WindowTarget>(target_);
+
         for (VkPhysicalDevice dev : devices)
         {
             uint32_t qcount = 0;
@@ -2615,29 +2638,55 @@ private:
             std::vector<VkQueueFamilyProperties> families(qcount);
             vkGetPhysicalDeviceQueueFamilyProperties(dev, &qcount, families.data());
 
-            std::vector<VkBool32> present_support(qcount, VK_FALSE);
-            for (uint32_t i = 0; i < qcount; ++i)
+            uint32_t selected_graphics = 0;
+            uint32_t selected_present = 0;
+            if (has_window)
             {
-                vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface_, &present_support[i]);
-            }
+                std::vector<VkBool32> present_support(qcount, VK_FALSE);
+                for (uint32_t i = 0; i < qcount; ++i)
+                {
+                    vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, surface_, &present_support[i]);
+                }
 
-            QueueFamilies q = pick_queue_families(families, present_support);
-            if (!q.complete())
-            {
-                continue;
-            }
-            if (!device_supports_swapchain(dev))
-            {
-                continue;
-            }
+                QueueFamilies q = pick_queue_families(families, present_support);
+                if (!q.complete())
+                {
+                    continue;
+                }
+                if (!device_supports_swapchain(dev))
+                {
+                    continue;
+                }
 
-            uint32_t fmt_count = 0;
-            vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface_, &fmt_count, nullptr);
-            uint32_t pm_count = 0;
-            vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface_, &pm_count, nullptr);
-            if (fmt_count == 0 || pm_count == 0)
+                uint32_t fmt_count = 0;
+                vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surface_, &fmt_count, nullptr);
+                uint32_t pm_count = 0;
+                vkGetPhysicalDeviceSurfacePresentModesKHR(dev, surface_, &pm_count, nullptr);
+                if (fmt_count == 0 || pm_count == 0)
+                {
+                    continue;
+                }
+
+                selected_graphics = *q.graphics;
+                selected_present = *q.present;
+            }
+            else
             {
-                continue;
+                std::optional<uint32_t> graphics;
+                for (uint32_t i = 0; i < qcount; ++i)
+                {
+                    if ((families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0u)
+                    {
+                        graphics = i;
+                        break;
+                    }
+                }
+                if (!graphics.has_value())
+                {
+                    continue;
+                }
+                selected_graphics = *graphics;
+                selected_present = *graphics;
             }
 
             // 256-byte push constants (mvp + lighting + shadow light-space matrix +
@@ -2653,8 +2702,8 @@ private:
             }
 
             physical_ = dev;
-            graphics_family_ = *q.graphics;
-            present_family_ = *q.present;
+            graphics_family_ = selected_graphics;
+            present_family_ = selected_present;
             return;
         }
 
@@ -2684,15 +2733,19 @@ private:
             queue_infos.push_back(qi);
         }
 
-        const char* device_ext = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        std::vector<const char*> device_exts;
+        if (std::holds_alternative<WindowTarget>(target_))
+        {
+            device_exts.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+        }
         VkPhysicalDeviceFeatures features{};
 
         VkDeviceCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
         ci.queueCreateInfoCount = static_cast<uint32_t>(queue_infos.size());
         ci.pQueueCreateInfos = queue_infos.data();
-        ci.enabledExtensionCount = 1;
-        ci.ppEnabledExtensionNames = &device_ext;
+        ci.enabledExtensionCount = static_cast<uint32_t>(device_exts.size());
+        ci.ppEnabledExtensionNames = device_exts.empty() ? nullptr : device_exts.data();
         ci.pEnabledFeatures = &features;
 
         vk_check(vkCreateDevice(physical_, &ci, nullptr, &device_), "vkCreateDevice");
@@ -2705,6 +2758,12 @@ private:
 
     void create_swapchain()
     {
+        const auto* wt = std::get_if<WindowTarget>(&target_);
+        if (wt == nullptr)
+        {
+            return;
+        }
+
         VkSurfaceCapabilitiesKHR caps{};
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_, surface_, &caps);
 
@@ -2723,7 +2782,7 @@ private:
         VkPresentModeKHR present_mode = choose_present_mode(present_modes);
 
         int fb_w = 0, fb_h = 0;
-        glfwGetFramebufferSize(window_, &fb_w, &fb_h);
+        glfwGetFramebufferSize(wt->window, &fb_w, &fb_h);
         VkExtent2D desired{static_cast<uint32_t>(fb_w), static_cast<uint32_t>(fb_h)};
         extent_ = clamp_extent(desired, caps);
 
@@ -5626,13 +5685,18 @@ private:
 
     void recreate_swapchain()
     {
+        const auto* wt = std::get_if<WindowTarget>(&target_);
+        if (wt == nullptr)
+        {
+            return;
+        }
         // Block while minimized (zero-sized framebuffer) — a 0x0 swapchain is invalid.
         int w = 0, h = 0;
-        glfwGetFramebufferSize(window_, &w, &h);
+        glfwGetFramebufferSize(wt->window, &w, &h);
         while (w == 0 || h == 0)
         {
             glfwWaitEvents();
-            glfwGetFramebufferSize(window_, &w, &h);
+            glfwGetFramebufferSize(wt->window, &w, &h);
         }
 
         vkDeviceWaitIdle(device_);
@@ -5663,7 +5727,7 @@ private:
 
     // --- members ----------------------------------------------------------
 
-    GLFWwindow* window_ = nullptr;
+    RenderTarget target_;
     VkDescriptorPool imgui_pool_ = VK_NULL_HANDLE;
     bool             ui_ready_ = false;
     std::string      imgui_ini_path_; // must outlive the ImGui context -- io.IniFilename is a raw pointer
@@ -5912,7 +5976,7 @@ private:
 std::unique_ptr<mosaic::engine::render::RenderDevice>
 create_vulkan_render_device(GLFWwindow* window)
 {
-    return std::make_unique<VulkanRenderDevice>(window);
+    return std::make_unique<VulkanRenderDevice>(RenderTarget{WindowTarget{window}});
 }
 
 } // namespace mosaic::render::vk

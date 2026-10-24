@@ -583,6 +583,26 @@ them as this list does.
 
 ## Rendering
 
+- **`VK_EXT_headless_surface` is NOT available here — probed 2026-10-24, do not burn time on it.**
+  It is the obvious shortcut for slice 3: a headless surface would let the EXISTING
+  `VulkanRenderDevice` work unchanged, surface and swapchain and all, with no refactor. It is not
+  offered. This machine's loader reports 25 instance extensions and that is not among them
+  (`DRIVER_ID_NVIDIA_PROPRIETARY` 610.57.04); re-check with
+  `vulkaninfo | sed -n '/Instance Extensions:/,/Layers/p' | grep -i headless`. **This is why slice
+  3 needs a real constructor refactor rather than a one-line surface swap.**
+
+- **Mesa lavapipe as a software ICD would let the GPU tests run in CI — worth investigating, and
+  it changes an assumption already written down.** Slice 1's entry records the trigger for making
+  the opt-in GPU tests standing as "a CI runner with a GPU". That framing is too narrow:
+  **lavapipe (`VK_ICD_FILENAMES=.../lvp_icd.x86_64.json`) is a software rasteriser that DOES
+  implement `VK_EXT_headless_surface`**, so GPU-less GitHub runners could in principle execute
+  them. Deferred, not declined, because three things need checking first and none is free: whether
+  lavapipe is conformant enough for the specific assertions (exact-pixel equality on a clear is
+  likely fine; anything involving filtering or precision may not be), how much it adds to a
+  ~1m20s CI job, and whether a second renderer implementation introduces failures that say nothing
+  about our code. **Worth it if it lands**, because it converts the pixel tests from a manual tool
+  into a standing guard, which is the whole point of slice 3.
+
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
   [record](../record/2026-10.md#a-headless-vkdevice-for-tests-slice-1-surfaceless-device-creation).
