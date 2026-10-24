@@ -10,6 +10,13 @@ protect nothing. This reads ctest's JUnit file and fails hard unless:
       *_tests.cmake when those are passed. N is never a literal here: it would rot on the
       first added test and teach people to edit the check.
   O2  every testcase passed: no failure, error, skip, or not-run, and the suite header agrees.
+  O3  no testcase exceeded MAX_CASE_SECONDS (10.0 s). `TIMEOUT 60` in `tests/CMakeLists.txt` is
+      a hang backstop, not a performance budget: a case that quietly grows 40x still passes it
+      (the HUD-underlay case reached 16.5 s locally / 23.4 s on CI and went unnoticed for weeks).
+      10.0 s is chosen against measurement (8.8x the 1.13 s worst observed local case, 9.0x the
+      1.11 s worst case measured on CI, and 1/6 of TIMEOUT 60), and fails the step rather than
+      annotating because CI already carries an expected yellow warning annotation (duplicate-key
+      ccache save) that would train a warning-only budget into noise.
 
 There is deliberately NO fallback for a missing or zero N, and no "|| true" in the caller: a
 fallback is where a silent failure hides, printing a complete-looking log that protects nothing.
@@ -23,6 +30,18 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+# Measured 2026-10-24 (nproc=20, suite 1462, machine otherwise idle, 4 runs alternating
+# -j20 and -j8, worst value per case taken):
+#   median per-case 0.019 s | p95 0.13 s | p99 0.37 s | max 1.13 s
+#   cases over 1 s: 1 ("PluginFileWatcher.poll detects a modified file's mtime", 1.13 s)
+#   cases over 2 s: 0 | cases over 5 s: 0
+# 10.0 s is 8.8x the worst observed local case (1.13 s) and 9.0x the worst case measured on CI
+# (1.11 s, read per-case out of PR #287's CI log), and 1/6 of the TIMEOUT 60 hang backstop -- so
+# a case that grows 9x trips the budget instead of needing 53x to trip the timeout. CI is NOT
+# slower per case here: the slowest case waits on an mtime change rather than burning CPU, so a
+# 2-core runner does not inflate it. Do not "restore" a safety margin for CI slowness.
+MAX_CASE_SECONDS = 10.0
 
 
 def parse_junit(path):
@@ -49,7 +68,7 @@ def count_add_test(cmake_paths):
     return total
 
 
-def check_run(junit_path, n_text, cmake_paths=()):
+def check_run(junit_path, n_text, cmake_paths=(), max_case_seconds=MAX_CASE_SECONDS):
     """Return a list of violation strings (empty == clean)."""
     problems = []
     try:
@@ -60,7 +79,7 @@ def check_run(junit_path, n_text, cmake_paths=()):
         return [f"N is {n}: no tests discovered, so this run protects nothing"]
     if not Path(junit_path).is_file():
         return [f"JUnit file not found: {junit_path} (ctest did not produce it)"]
-    outcomes, _, attrs, ncases = parse_junit(junit_path)
+    outcomes, secs, attrs, ncases = parse_junit(junit_path)
     if ncases != n:
         problems.append(f"O1: JUnit has {ncases} testcases but {n} tests were discovered")
     if len(outcomes) != ncases:
@@ -75,6 +94,15 @@ def check_run(junit_path, n_text, cmake_paths=()):
     for key in ("failures", "errors", "skipped", "disabled"):
         if int(attrs.get(key, "0") or 0) != 0:
             problems.append(f"O2: suite header {key}={attrs.get(key)}")
+    slow = sorted(
+        ((t, k) for k, t in secs.items() if t > max_case_seconds),
+        key=lambda x: (-x[0], x[1]),
+    )
+    for t, k in slow[:5]:
+        suffix = f" ({len(slow)} cases over budget in total)" if len(slow) > 1 else ""
+        problems.append(
+            f"O3: {k!r} took {t:.2f}s, over the {max_case_seconds:.1f}s per-case budget{suffix}"
+        )
     return problems
 
 

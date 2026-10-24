@@ -245,13 +245,17 @@ include(Catch)
 # scenario is observed, not hypothetical.
 #
 # Measured 2026-10-07 over a full run the slowest case was 1.11s and the suite took 24s, so 60s
-# was ~54x the slowest. THAT IS NO LONGER TRUE. Since #241 the slowest case is
-# `the default scene's HUD underlay image draws beneath the checker`: 16.5s locally and
-# 23.4s on CI (2026-10-21, image 20261012.334.1), so the real headroom is ~2.6x on CI, not 54x.
-# A comment whose job is "nothing is wrong here" must not predict the wrong margin. Do NOT
-# raise TIMEOUT to make room: under `ctest -j` a case nearing 60s is the regression to see.
-# The slice that made ctest parallel (docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md)
-# treats a longest case above 40s as a ship-blocker. Every other case is under ~1.2s.
+# was ~54x the slowest. A regression in #241 later took `the default scene's HUD underlay image
+# draws beneath the checker` to 16.5s locally and 23.4s on CI (2026-10-21, image 20261012.334.1,
+# ~2.6x headroom), and that was fixed in #274 (it now runs in 0.18s). Re-measured 2026-10-24,
+# the slowest case in the suite is `PluginFileWatcher.poll detects a modified file's mtime` at
+# 1.13s, so headroom against 60s is back to ~53x. The per-case performance budget added in
+# `tools/ci/check_ctest_run.py` (`MAX_CASE_SECONDS = 10.0`, observation O3) is what now catches
+# that regression class early instead of relying on someone noticing. A comment whose job is
+# "nothing is wrong here" must not predict the wrong margin. Do NOT raise TIMEOUT to make room:
+# under `ctest -j` a case nearing 60s is the regression to see. The slice that made ctest
+# parallel (docs/superpowers/specs/2026-10-21-ci-parallel-ctest-design.md) treats a longest
+# case above 40s as a ship-blocker.
 #
 # This does NOT replace the in-test watchdogs. A watchdog gives a named assertion in
 # seconds and works when running the test binary directly; a ctest property does neither.
