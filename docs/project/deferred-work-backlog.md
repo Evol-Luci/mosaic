@@ -1936,18 +1936,7 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
   increment. **Trigger to revisit:** an edit-one-header rebuild back above ~120 s, or a specific
   complaint about the developer loop from someone working on a low-core machine (the cost is
   roughly linear in core count, so a 4-core machine already pays minutes per header edit).
-- **A standing CI negative control for the PCH (no-PCH build).** The PCH's real risk is not
-  today's build, it is **include hygiene drifting**: a new file that omits `<vector>` now
-  compiles, because the PCH supplies it, and only breaks for whoever builds without the PCH.
-  Verified clean at ship time -- `cmake -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` builds the whole
-  repo with 0 errors (97.6 s), so nothing relies on the PCH as of 2026-10-24 -- but a control
-  that runs once is not a guard. **Deferred on cost, deliberately, and the cost is the reason:**
-  the guard is a SECOND FULL BUILD, and CI's whole build-and-test job is currently ~1m42s, so
-  this roughly doubles it. That trades a measured, every-PR cost for a latent, low-severity
-  risk (it only bites someone who disables the PCH). **Revisit if** anyone builds this repo with
-  PCH off for real (packaging, a different compiler, a consumer target), which converts the
-  severity from latent to actual. The command is recorded in `next-steps.md`'s landmines so it
-  is at least discoverable and runnable on demand.
+- ~~**A standing CI negative control for the PCH (no-PCH build).**~~ — SHIPPED 2026-10-24, and it cost nothing in the end: CI builds with `-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON` because the PCH destroyed ccache's hit rate, so the no-PCH build the guard wanted is now the build CI already does. See [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). The earlier ruling that declined this on cost was correct about the cost and wrong about the alternative.
 - ~~**The default-scene HUD-underlay case takes 16.5 s locally and 23.4 s on CI.**~~ — FIXED 2026-10-21, see [record](../record/2026-10.md#the-default-scene-hud-underlay-case-takes-165-s-locally-and-234-s-on-ci).
 - ~~**ENet servers take a fixed port; the structural fix is bind 0 plus a `port()` accessor.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#enet-servers-take-a-fixed-port-the-structural-fix-is-bind-0-plus-a-port-accessor).
 - **`port reports an explicitly requested port verbatim` releases then rebinds** (LiveLink, and since 2026-10-23 the ENet case too).**
