@@ -23,8 +23,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-One candidate.  The ranking behind them is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
-
+One candidate. The ranking behind it is the "Effort vs. impact" section of the backlog, re-derived 2026-10-23.
 
 ### 1. A checker for this file's verifiable claims (deferred non-goal of the docs-record spec)
 - **What:** run every command in the State table and fail on drift. It would have caught the gate that stayed stale for six weeks.

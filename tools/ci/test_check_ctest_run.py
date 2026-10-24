@@ -64,12 +64,12 @@ class CheckRunTest(unittest.TestCase):
         problems = check_run(p, "2")
         self.assertEqual(
             problems,
-            ["O3: 'slow case' took 12.30s, over the 10.0s per-case budget"],
+            ["O3: 'slow case' took 12.3s, over the 10.0s per-case budget"],
         )
         many = self.write(junit([(f"c{i}", "ok", 11.0 + i) for i in range(7)]))
         many_problems = check_run(many, "7")
         self.assertEqual(len(many_problems), 5)
-        self.assertIn("'c6' took 17.00s", many_problems[0])
+        self.assertIn("'c6' took 17s", many_problems[0])
         self.assertIn("7 cases over budget in total", many_problems[0])
 
     def test_case_at_budget_boundary_is_clean(self):
@@ -82,7 +82,7 @@ class CheckRunTest(unittest.TestCase):
         problems = check_run(p, "2", max_case_seconds=2.0)
         self.assertEqual(
             problems,
-            ["O3: 'a' took 2.50s, over the 2.0s per-case budget"],
+            ["O3: 'a' took 2.5s, over the 2.0s per-case budget"],
         )
 
 

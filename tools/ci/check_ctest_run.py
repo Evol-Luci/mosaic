@@ -98,10 +98,12 @@ def check_run(junit_path, n_text, cmake_paths=(), max_case_seconds=MAX_CASE_SECO
         ((t, k) for k, t in secs.items() if t > max_case_seconds),
         key=lambda x: (-x[0], x[1]),
     )
+    # {t:g} rather than a fixed precision: at 10.001s a .2f rendering reads "took 10.00s, over
+    # the 10.0s per-case budget", which looks self-contradictory to whoever has to act on it.
     for t, k in slow[:5]:
         suffix = f" ({len(slow)} cases over budget in total)" if len(slow) > 1 else ""
         problems.append(
-            f"O3: {k!r} took {t:.2f}s, over the {max_case_seconds:.1f}s per-case budget{suffix}"
+            f"O3: {k!r} took {t:g}s, over the {max_case_seconds:.1f}s per-case budget{suffix}"
         )
     return problems
 
