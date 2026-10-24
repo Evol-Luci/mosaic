@@ -278,11 +278,18 @@ bool validation_layer_available(const char* name)
 
 // Vulkan implementation of the neutral RenderDevice. Owns everything it creates
 // (except the window, owned by the app) and tears it down in reverse order.
-class VulkanRenderDevice final : public RenderDevice
+class VulkanRenderDevice final : public RenderDevice, public OffscreenReadback
 {
 public:
     explicit VulkanRenderDevice(RenderTarget target) : target_(target)
     {
+        if (const auto* ot = std::get_if<OffscreenTarget>(&target_))
+        {
+            if (ot->width == 0 || ot->height == 0)
+            {
+                throw std::runtime_error("OffscreenTarget extent must be non-zero");
+            }
+        }
         create_instance();
 #ifndef NDEBUG
         setup_debug_messenger();
@@ -299,15 +306,19 @@ public:
             create_swapchain();
             create_image_views();
         }
+        else
+        {
+            create_offscreen_images();
+            create_image_views();
+        }
         create_depth_resources();
         create_render_pass();
         create_offscreen_render_pass();
         create_hdr_render_pass();
         create_bloom_render_pass();
-        if (std::holds_alternative<WindowTarget>(target_))
-        {
-            create_framebuffers();
-        }
+        // Unconditional: the offscreen path creates swapchain-EQUIVALENT images and
+        // views above, so framebuffers are built the same way for both targets.
+        create_framebuffers();
         // SWAPCHAIN-SIZED: the scene renders once at full resolution and the editor samples
         // the resolved result into whatever panel size it has.
         create_hdr_target(extent_.width, extent_.height);
@@ -1921,18 +1932,25 @@ public:
         ribbon_calls_[frame_] = 0;
         world_text_calls_[frame_] = 0;
 
-        VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
-                                           image_available_[frame_], VK_NULL_HANDLE,
-                                           &image_index_);
-        if (r == VK_ERROR_OUT_OF_DATE_KHR)
+        if (std::holds_alternative<WindowTarget>(target_))
         {
-            recreate_swapchain();
-            frame_skipped_ = true; // end_frame will no-op this frame
-            return;
+            VkResult r = vkAcquireNextImageKHR(device_, swapchain_, UINT64_MAX,
+                                               image_available_[frame_], VK_NULL_HANDLE,
+                                               &image_index_);
+            if (r == VK_ERROR_OUT_OF_DATE_KHR)
+            {
+                recreate_swapchain();
+                frame_skipped_ = true; // end_frame will no-op this frame
+                return;
+            }
+            if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
+            {
+                vk_check(r, "vkAcquireNextImageKHR");
+            }
         }
-        if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
+        else
         {
-            vk_check(r, "vkAcquireNextImageKHR");
+            image_index_ = static_cast<uint32_t>(frame_);
         }
 
         // Only reset the fence once we know we will submit work this frame,
@@ -2024,42 +2042,267 @@ public:
 
         vk_check(vkEndCommandBuffer(cmd_[frame_]), "vkEndCommandBuffer");
 
-        VkSemaphore          wait_sems[]   = {image_available_[frame_]};
-        VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
-        VkSemaphore          signal_sems[] = {render_finished_[image_index_]};
-
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.waitSemaphoreCount = 1;
-        submit.pWaitSemaphores = wait_sems;
-        submit.pWaitDstStageMask = wait_stages;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd_[frame_];
-        submit.signalSemaphoreCount = 1;
-        submit.pSignalSemaphores = signal_sems;
-        vk_check(vkQueueSubmit(graphics_queue_, 1, &submit, in_flight_[frame_]),
-                 "vkQueueSubmit");
-
-        VkPresentInfoKHR present{};
-        present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        present.waitSemaphoreCount = 1;
-        present.pWaitSemaphores = signal_sems;
-        present.swapchainCount = 1;
-        present.pSwapchains = &swapchain_;
-        present.pImageIndices = &image_index_;
-
-        VkResult pr = vkQueuePresentKHR(present_queue_, &present);
-        if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR || framebuffer_resized_)
+        if (std::holds_alternative<WindowTarget>(target_))
         {
-            framebuffer_resized_ = false;
-            recreate_swapchain();
+            VkSemaphore          wait_sems[]   = {image_available_[frame_]};
+            VkPipelineStageFlags wait_stages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+            VkSemaphore          signal_sems[] = {render_finished_[image_index_]};
+
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.waitSemaphoreCount = 1;
+            submit.pWaitSemaphores = wait_sems;
+            submit.pWaitDstStageMask = wait_stages;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &cmd_[frame_];
+            submit.signalSemaphoreCount = 1;
+            submit.pSignalSemaphores = signal_sems;
+            vk_check(vkQueueSubmit(graphics_queue_, 1, &submit, in_flight_[frame_]),
+                     "vkQueueSubmit");
+
+            VkPresentInfoKHR present{};
+            present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            present.waitSemaphoreCount = 1;
+            present.pWaitSemaphores = signal_sems;
+            present.swapchainCount = 1;
+            present.pSwapchains = &swapchain_;
+            present.pImageIndices = &image_index_;
+
+            VkResult pr = vkQueuePresentKHR(present_queue_, &present);
+            if (pr == VK_ERROR_OUT_OF_DATE_KHR || pr == VK_SUBOPTIMAL_KHR || framebuffer_resized_)
+            {
+                framebuffer_resized_ = false;
+                recreate_swapchain();
+            }
+            else
+            {
+                vk_check(pr, "vkQueuePresentKHR");
+            }
         }
         else
         {
-            vk_check(pr, "vkQueuePresentKHR");
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.waitSemaphoreCount = 0;
+            submit.pWaitSemaphores = nullptr;
+            submit.pWaitDstStageMask = nullptr;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &cmd_[frame_];
+            submit.signalSemaphoreCount = 0;
+            submit.pSignalSemaphores = nullptr;
+            vk_check(vkQueueSubmit(graphics_queue_, 1, &submit, in_flight_[frame_]),
+                     "vkQueueSubmit");
         }
 
+        last_rendered_index_ = image_index_;
+        // The SLOT, not the image index. `in_flight_` is VkFence[kFramesInFlight] and
+        // every other use indexes it with `frame_`; read_pixels() must wait on the fence
+        // this submit actually signalled. Offscreen these two numbers happen to be equal
+        // (image_index_ = frame_), so indexing by image worked -- by coincidence, and it
+        // would read out of bounds the moment the offscreen image count stops matching
+        // kFramesInFlight.
+        last_rendered_frame_ = frame_;
+        has_rendered_frame_ = true;
         frame_ = (frame_ + 1) % kFramesInFlight;
+    }
+
+    std::vector<std::uint8_t> read_pixels() override
+    {
+        if (!std::holds_alternative<OffscreenTarget>(target_))
+        {
+            throw std::runtime_error(
+                "read_pixels() is only supported on an OffscreenTarget VulkanRenderDevice");
+        }
+        if (!has_rendered_frame_)
+        {
+            throw std::runtime_error(
+                "read_pixels() must be called after end_frame()");
+        }
+
+        // Wait for the last rendered frame's submission to finish so the image is in
+        // TRANSFER_SRC_OPTIMAL and its colour writes are complete.
+        vk_check(vkWaitForFences(device_, 1, &in_flight_[last_rendered_frame_], VK_TRUE, UINT64_MAX),
+                 "vkWaitForFences(frame)");
+
+        const std::size_t pixel_count =
+            static_cast<std::size_t>(extent_.width) * static_cast<std::size_t>(extent_.height);
+        const VkDeviceSize buffer_size = static_cast<VkDeviceSize>(pixel_count * 4u);
+
+        VkBuffer readback_buffer = VK_NULL_HANDLE;
+        VkDeviceMemory readback_memory = VK_NULL_HANDLE;
+        VkFence readback_fence = VK_NULL_HANDLE;
+        VkCommandBuffer cmd = VK_NULL_HANDLE;
+
+        auto cleanup = [&]() noexcept {
+            if (cmd != VK_NULL_HANDLE)
+            {
+                vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+                cmd = VK_NULL_HANDLE;
+            }
+            if (readback_fence != VK_NULL_HANDLE)
+            {
+                vkDestroyFence(device_, readback_fence, nullptr);
+                readback_fence = VK_NULL_HANDLE;
+            }
+            if (readback_buffer != VK_NULL_HANDLE)
+            {
+                vkDestroyBuffer(device_, readback_buffer, nullptr);
+                readback_buffer = VK_NULL_HANDLE;
+            }
+            if (readback_memory != VK_NULL_HANDLE)
+            {
+                vkFreeMemory(device_, readback_memory, nullptr);
+                readback_memory = VK_NULL_HANDLE;
+            }
+        };
+
+        try
+        {
+            VkBufferCreateInfo bci{};
+            bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            bci.size = buffer_size;
+            bci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+            bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            vk_check(vkCreateBuffer(device_, &bci, nullptr, &readback_buffer),
+                     "vkCreateBuffer(readback)");
+
+            VkMemoryRequirements req{};
+            vkGetBufferMemoryRequirements(device_, readback_buffer, &req);
+
+            VkMemoryPropertyFlags chosen_flags = 0;
+            uint32_t mem_type = 0;
+            VkPhysicalDeviceMemoryProperties props{};
+            vkGetPhysicalDeviceMemoryProperties(physical_, &props);
+            bool found_coherent = false;
+            constexpr VkMemoryPropertyFlags kPreferred =
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+            for (uint32_t i = 0; i < props.memoryTypeCount; ++i)
+            {
+                if ((req.memoryTypeBits & (1u << i)) != 0u &&
+                    (props.memoryTypes[i].propertyFlags & kPreferred) == kPreferred)
+                {
+                    mem_type = i;
+                    chosen_flags = props.memoryTypes[i].propertyFlags;
+                    found_coherent = true;
+                    break;
+                }
+            }
+            if (!found_coherent)
+            {
+                mem_type = find_memory_type(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+                chosen_flags = props.memoryTypes[mem_type].propertyFlags;
+            }
+            const bool host_coherent =
+                (chosen_flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0u;
+
+            VkMemoryAllocateInfo mai{};
+            mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            mai.allocationSize = req.size;
+            mai.memoryTypeIndex = mem_type;
+            vk_check(vkAllocateMemory(device_, &mai, nullptr, &readback_memory),
+                     "vkAllocateMemory(readback)");
+            vk_check(vkBindBufferMemory(device_, readback_buffer, readback_memory, 0),
+                     "vkBindBufferMemory(readback)");
+
+            VkFenceCreateInfo fci{};
+            fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+            vk_check(vkCreateFence(device_, &fci, nullptr, &readback_fence),
+                     "vkCreateFence(readback)");
+
+            VkCommandBufferAllocateInfo cai{};
+            cai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            cai.commandPool = command_pool_;
+            cai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cai.commandBufferCount = 1;
+            vk_check(vkAllocateCommandBuffers(device_, &cai, &cmd),
+                     "vkAllocateCommandBuffers(readback)");
+
+            VkCommandBufferBeginInfo bi{};
+            bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vk_check(vkBeginCommandBuffer(cmd, &bi), "vkBeginCommandBuffer(readback)");
+
+            VkBufferImageCopy region{};
+            region.bufferOffset = 0;
+            region.bufferRowLength = 0;
+            region.bufferImageHeight = 0;
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.mipLevel = 0;
+            region.imageSubresource.baseArrayLayer = 0;
+            region.imageSubresource.layerCount = 1;
+            region.imageOffset = {0, 0, 0};
+            region.imageExtent = {extent_.width, extent_.height, 1};
+
+            vkCmdCopyImageToBuffer(cmd,
+                                   images_[last_rendered_index_],
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   readback_buffer,
+                                   1,
+                                   &region);
+
+            VkBufferMemoryBarrier to_host{};
+            to_host.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+            to_host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            to_host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+            to_host.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            to_host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            to_host.buffer = readback_buffer;
+            to_host.offset = 0;
+            to_host.size = VK_WHOLE_SIZE;
+
+            vkCmdPipelineBarrier(cmd,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_HOST_BIT,
+                                 0,
+                                 0, nullptr,
+                                 1, &to_host,
+                                 0, nullptr);
+
+            vk_check(vkEndCommandBuffer(cmd), "vkEndCommandBuffer(readback)");
+
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &cmd;
+            vk_check(vkQueueSubmit(graphics_queue_, 1, &submit, readback_fence),
+                     "vkQueueSubmit(readback)");
+            vk_check(vkWaitForFences(device_, 1, &readback_fence, VK_TRUE, UINT64_MAX),
+                     "vkWaitForFences(readback)");
+
+            void* mapped = nullptr;
+            vk_check(vkMapMemory(device_, readback_memory, 0, buffer_size, 0, &mapped),
+                     "vkMapMemory(readback)");
+
+            if (!host_coherent)
+            {
+                VkMappedMemoryRange mapped_range{};
+                mapped_range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                mapped_range.memory = readback_memory;
+                mapped_range.offset = 0;
+                mapped_range.size = VK_WHOLE_SIZE;
+                vk_check(vkInvalidateMappedMemoryRanges(device_, 1, &mapped_range),
+                         "vkInvalidateMappedMemoryRanges(readback)");
+            }
+
+            const auto* src = static_cast<const std::uint8_t*>(mapped);
+            std::vector<std::uint8_t> rgba(pixel_count * 4u);
+            for (std::size_t i = 0; i < pixel_count; ++i)
+            {
+                rgba[i * 4u + 0u] = src[i * 4u + 2u]; // R <- B8G8R8A8 byte 2
+                rgba[i * 4u + 1u] = src[i * 4u + 1u]; // G <- B8G8R8A8 byte 1
+                rgba[i * 4u + 2u] = src[i * 4u + 0u]; // B <- B8G8R8A8 byte 0
+                rgba[i * 4u + 3u] = src[i * 4u + 3u]; // A <- B8G8R8A8 byte 3
+            }
+
+            vkUnmapMemory(device_, readback_memory);
+            cleanup();
+            return rgba;
+        }
+        catch (...)
+        {
+            cleanup();
+            throw;
+        }
     }
 
     // No default here -- a default on both the base and this override is a
@@ -2831,6 +3074,34 @@ private:
         vkGetSwapchainImagesKHR(device_, swapchain_, &actual, images_.data());
     }
 
+    void create_offscreen_images()
+    {
+        const auto& ot = std::get<OffscreenTarget>(target_);
+        extent_ = {ot.width, ot.height};
+        swapchain_format_ = VK_FORMAT_B8G8R8A8_SRGB;
+
+        images_.assign(kFramesInFlight, VK_NULL_HANDLE);
+        offscreen_image_memories_.assign(kFramesInFlight, VK_NULL_HANDLE);
+        for (int i = 0; i < kFramesInFlight; ++i)
+        {
+            VkImageCreateInfo ci{};
+            ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            ci.imageType = VK_IMAGE_TYPE_2D;
+            ci.extent = {extent_.width, extent_.height, 1};
+            ci.mipLevels = 1;
+            ci.arrayLayers = 1;
+            ci.format = swapchain_format_;
+            ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+            ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            ci.samples = VK_SAMPLE_COUNT_1_BIT;
+            ci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            vk_check(vkCreateImage(device_, &ci, nullptr, &images_[i]),
+                     "vkCreateImage(offscreen)");
+            bind_image_memory(images_[i], offscreen_image_memories_[i], "offscreen");
+        }
+    }
+
     void create_image_views()
     {
         views_.resize(images_.size());
@@ -3040,7 +3311,12 @@ private:
         color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
         color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR is provided by VK_KHR_swapchain, which is not
+        // enabled on the offscreen path; offscreen images transition directly to
+        // TRANSFER_SRC_OPTIMAL so read_pixels() can copy from them without an extra barrier.
+        color.finalLayout = std::holds_alternative<WindowTarget>(target_)
+                                ? VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+                                : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 
         VkAttachmentReference color_ref{};
         color_ref.attachment = 0;
@@ -5676,6 +5952,26 @@ private:
         }
         views_.clear();
 
+        if (std::holds_alternative<OffscreenTarget>(target_))
+        {
+            for (VkImage img : images_)
+            {
+                if (img != VK_NULL_HANDLE)
+                {
+                    vkDestroyImage(device_, img, nullptr);
+                }
+            }
+            images_.clear();
+            for (VkDeviceMemory mem : offscreen_image_memories_)
+            {
+                if (mem != VK_NULL_HANDLE)
+                {
+                    vkFreeMemory(device_, mem, nullptr);
+                }
+            }
+            offscreen_image_memories_.clear();
+        }
+
         if (swapchain_ != VK_NULL_HANDLE)
         {
             vkDestroySwapchainKHR(device_, swapchain_, nullptr);
@@ -5749,6 +6045,7 @@ private:
     VkFormat swapchain_format_ = VK_FORMAT_UNDEFINED;
     VkExtent2D extent_ = {0, 0};
     std::vector<VkImage> images_;
+    std::vector<VkDeviceMemory> offscreen_image_memories_;
     std::vector<VkImageView> views_;
 
     // Depth buffer — part of the recreatable swapchain group.
@@ -5860,6 +6157,9 @@ private:
 
     uint32_t frame_ = 0;
     uint32_t image_index_ = 0;
+    uint32_t last_rendered_index_ = 0;
+    uint32_t last_rendered_frame_ = 0;
+    bool has_rendered_frame_ = false;
     bool framebuffer_resized_ = false;
     bool frame_skipped_ = false;
 
@@ -5977,6 +6277,15 @@ std::unique_ptr<mosaic::engine::render::RenderDevice>
 create_vulkan_render_device(GLFWwindow* window)
 {
     return std::make_unique<VulkanRenderDevice>(RenderTarget{WindowTarget{window}});
+}
+
+OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
+                                                      std::uint32_t height)
+{
+    auto impl = std::make_unique<VulkanRenderDevice>(
+        RenderTarget{OffscreenTarget{width, height}});
+    OffscreenReadback* readback = impl.get();
+    return OffscreenDevice{std::move(impl), readback};
 }
 
 } // namespace mosaic::render::vk
