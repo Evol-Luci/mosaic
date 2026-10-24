@@ -234,6 +234,7 @@ target_compile_features(mosaic_unit_tests PRIVATE cxx_std_20)
 target_include_directories(mosaic_unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/unit/serialization)
 target_compile_definitions(mosaic_unit_tests PRIVATE
   MOSAIC_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+target_precompile_headers(mosaic_unit_tests PRIVATE ${MOSAIC_PCH_HEADERS})
 
 include(Catch)
 # TIMEOUT 60 is a BACKSTOP, not a performance budget, and the number is chosen against
