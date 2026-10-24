@@ -126,8 +126,19 @@ deliberately left out.
   subsystem: rank that subsystem's bullets then, from that work.
 - **Promoting the tier pass's checks to `tools/docs/` and CI.** The conservation check (live-bullet
   count and title multiset), the record-anchor check and the tier-row traceability check were
-  written for one pass and run by hand. A standing version wants the design the claims-checker item
-  above has. Depends on that item; do them together.
+  written for one pass and run by hand, as a scratch script that was NOT committed, so they are
+  currently **unreproducible**: the evidence for that pass exists only as pasted output. Whoever
+  picks this up is rebuilding them, not wiring up something that exists. A standing version wants
+  the design the claims-checker item above has. Depends on that item; do them together.
+- **Ten record anchors in this file are already dead, and a one-file check cannot see them.**
+  Found 2026-10-23 by a checker scanning all of `docs/` (80 record anchors); the tier pass's own
+  check scanned only this file and reported 0 dead, which was true of what it covered. The same 10
+  are dead on `main`, so they predate the tier pass. Most likely from #280's migration: the stubs
+  link to slugs the record headings do not produce (headings written with different text or
+  punctuation), e.g. `undated.md#bulk-refactoring--project-health-checks`,
+  `2026-09.md#issue-25--component-typeid-densification`, `2026-10.md#u8a--inherited-alpha-and-stack-layout`
+  and the U6, U7 and GLFW-`inside` stubs. Deferred: out of scope for the tier pass. This is the
+  concrete evidence that the anchor check should be promoted to CI and scoped over all of `docs/`.
 - **Teaching `archive_shipped_backlog.py` to find an unstruck original sitting under its own stub,
   and to collapse prose "Re-derived" blocks.** The 2026-10-23 pass found 14 live bullets directly
   under their own struck stubs (the tool classifies only entries that START with `~~`, so it
@@ -1896,7 +1907,7 @@ and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2
 **The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
 new work has landed since the last pass -- don't immediately re-run a fourth time expecting
 different material from the same unchanged source docs.* This pass's material is the live bullets
-and record entries that the 16 PRs themselves created (25 of the 128 live bullets, from the CI-caching, parallel
+and record entries that the 16 PRs themselves created (25 of the 131 live bullets, from the CI-caching, parallel
 `ctest`, world-text, ENet and docs-record slices), not a re-grep of the specs' Non-goals. The
 older live bullets in the subsystem sections are **not ranked here** and are not claimed to be:
 they carry no new evidence. Every row below names a live bullet above by its bold title, or a PR;
