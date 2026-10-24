@@ -133,15 +133,28 @@ deliberately left out.
   currently **unreproducible**: the evidence for that pass exists only as pasted output. Whoever
   picks this up is rebuilding them, not wiring up something that exists. A standing version wants
   the design the claims-checker item above has. Depends on that item; do them together.
-- **Ten record anchors in this file are already dead, and a one-file check cannot see them.**
-  Found 2026-10-23 by a checker scanning all of `docs/` (80 record anchors); the tier pass's own
-  check scanned only this file and reported 0 dead, which was true of what it covered. The same 10
-  are dead on `main`, so they predate the tier pass. Most likely from #280's migration: the stubs
-  link to slugs the record headings do not produce (headings written with different text or
-  punctuation), e.g. `undated.md#bulk-refactoring--project-health-checks`,
-  `2026-09.md#issue-25--component-typeid-densification`, `2026-10.md#u8a--inherited-alpha-and-stack-layout`
-  and the U6, U7 and GLFW-`inside` stubs. Deferred: out of scope for the tier pass. This is the
-  concrete evidence that the anchor check should be promoted to CI and scoped over all of `docs/`.
+- ~~**Ten record anchors in this file are already dead.**~~ — **RETRACTED 2026-10-24: they are not
+  dead, and the finding was an artefact of the checker, not of the docs.** Re-checked during the
+  supervision of #303/#304 with an independently rebuilt checker: **101 record anchors across all
+  of `docs/`, 0 dead**, and 0 dead on unmodified `main` as well. All three anchors the original
+  finding named as examples resolve — `undated.md` really does contain
+  `## Bulk refactoring / project health checks`, `2026-09.md` contains
+  `## Issue #25 — Component TypeID densification`, and `2026-10.md` contains
+  `## U8a — inherited alpha and stack layout`.
+
+  **The cause, because it will recur.** Every cited example contains a **double hyphen**, which is
+  the signature. GitHub's slugger deletes punctuation (`/`, `#`, an em dash) and *then* maps each
+  remaining space to one hyphen, so `a / b` becomes `a--b`. A checker that instead collapses runs
+  of whitespace (`re.sub(r'\s+', '-', t)`) produces `a-b` and declares every such anchor dead.
+  **The reviewer's own first checker had exactly this bug** and reported 14 dead before being
+  corrected — which is how the original finding was recognised rather than inherited.
+
+  **The real lesson is about the evidence, not the slugger.** The 2026-10-23 check was a scratch
+  script that was run once, pasted, and never committed, so for a month nobody could re-run it and
+  the false claim stood. A checker reporting 0 must carry a negative control; the corrected one was
+  validated by inserting a known-bad anchor and confirming it was caught. **Still worth doing:**
+  promote the corrected check to `tools/docs/` and CI, scoped over all of `docs/` — that part of the
+  original entry was right, and a committed check is what stops this class of claim recurring.
 - **Teaching `archive_shipped_backlog.py` to find an unstruck original sitting under its own stub,
   and to collapse prose "Re-derived" blocks.** The 2026-10-23 pass found 14 live bullets directly
   under their own struck stubs (the tool classifies only entries that START with `~~`, so it
@@ -596,14 +609,23 @@ them as this list does.
   **Trigger:** the first *asymmetric* screen effect (gradient, scanline, directional blur,
   off-centre vignette). At that point fix the shader and gate it; the orientation test above is the
   template and the assertion is a few lines. Deferred because an unobservable fix cannot be verified.
-- **Assert the per-frame buffer-aliasing class through the offscreen target — not yet done.**
-  The bug that bit twice (#275 world text, then `draw_particles`/`draw_ribbons`) is "a draw path
-  called once per entity reusing one per-frame buffer aliases itself", and it is still unasserted.
-  `draw_ui` could NOT cover it: it uses push constants per quad with no per-frame staging buffer,
-  so step 2b's two-call part is a composition check only. Catching this needs two
-  `draw_particles` (or `draw_ribbons`/`draw_world_text`) calls in one frame with different
-  contents, both asserted present in the readback. Depends on building meshes/textures and
-  staging uploads on the offscreen device, which step 2b did not need and did not do.
+- ~~**Assert the per-frame buffer-aliasing class through the offscreen target.**~~ — SHIPPED 2026-10-24 for `draw_particles` (PR #303), see [record](../record/2026-10.md#assert-the-per-frame-buffer-aliasing-class-through-the-offscreen-target). The sibling paths remain, below.
+- **`draw_ribbons` and `draw_world_text` aliasing are still unasserted, and the `begin_frame`
+  counter resets are not pixel-observable.** PR #303 covers `draw_particles`
+  (`particle_calls_[frame_]++`, `vulkan_render_device.cpp:1563`) as the representative of the
+  class. **Depends on:** for `draw_ribbons`, only constructing two pre-expanded `RibbonVertex`
+  batches; for `draw_world_text`, uploading a non-empty atlas via `create_texture` on the
+  offscreen device (it early-returns when `textures_.empty()`); for the `begin_frame` resets, an
+  inspection seam, because un-reset counters allocate *distinct* buffers per call rather than
+  aliasing, so the failure is unbounded memory growth and not a wrong pixel. Deferred 2026-10-24
+  to keep #303 scoped to one proven oracle.
+- **Ordering *within* one `draw_ui_image` call's quad vector is unasserted.** Found during review
+  of PR #304 while looking for a production-side mutation: reversing the per-quad loop at
+  `vulkan_render_device.cpp:1886` is a **no-op edit** against the current tests, because every
+  call in both the tests and the real image pass carries exactly one quad (the pass draws per
+  entity, each with its own texture handle, so it cannot batch). Low priority precisely because
+  nothing emits a multi-quad call today. **Trigger:** the first call site that batches more than
+  one quad into a single `draw_ui_image`.
 - **`VK_EXT_headless_surface` is NOT available here — probed 2026-10-24, do not burn time on it.**
   It is the obvious shortcut for slice 3: a headless surface would let the EXISTING
   `VulkanRenderDevice` work unchanged, surface and swapchain and all, with no refactor. It is not
@@ -612,17 +634,30 @@ them as this list does.
   `vulkaninfo | sed -n '/Instance Extensions:/,/Layers/p' | grep -i headless`. **This is why slice
   3 needs a real constructor refactor rather than a one-line surface swap.**
 
-- **Mesa lavapipe as a software ICD would let the GPU tests run in CI — worth investigating, and
-  it changes an assumption already written down.** Slice 1's entry records the trigger for making
-  the opt-in GPU tests standing as "a CI runner with a GPU". That framing is too narrow:
-  **lavapipe (`VK_ICD_FILENAMES=.../lvp_icd.x86_64.json`) is a software rasteriser that DOES
-  implement `VK_EXT_headless_surface`**, so GPU-less GitHub runners could in principle execute
-  them. Deferred, not declined, because three things need checking first and none is free: whether
-  lavapipe is conformant enough for the specific assertions (exact-pixel equality on a clear is
-  likely fine; anything involving filtering or precision may not be), how much it adds to a
-  ~1m20s CI job, and whether a second renderer implementation introduces failures that say nothing
-  about our code. **Worth it if it lands**, because it converts the pixel tests from a manual tool
-  into a standing guard, which is the whole point of slice 3.
+- ~~**Mesa lavapipe as a software ICD would let the GPU tests run in CI — worth investigating.**~~
+  — **PROBED 2026-10-24, all three unknowns cleared locally; the CI change itself is NOT done and is
+  the live item below.** Full evidence and reproduction steps: `lavapipe-probe-findings.md`.
+  Answers: conformance 4/4 then 6/6 cases pass, pixel-exact on clears and inside the existing ±1
+  tolerance on shader-drawn sRGB quads; cost is *negative* — lavapipe ran the tests **2.5x-9.2x
+  faster** than the NVIDIA driver on the same machine (these tests are dominated by device
+  bring-up, not fillrate), adding ~0.1-0.4s to a test step; false failures, zero, including under
+  `MOSAIC_VK_SYNC_VALIDATION=1`.
+
+- **Enable the GPU tests in CI under lavapipe — the actual change, not yet made.** Deferred
+  2026-10-24 to keep it off the back of the two test slices that shipped the same day; it is a
+  careful CI edit and deserves its own review. **Two traps, both confirmed by reading the
+  workflow, that will fail the build if missed:**
+  1. `.github/workflows/ci.yml:177` passes only `build/debug/tests/mosaic_unit_tests-*_tests.cmake`
+     to `check_ctest_run.py`. With GPU tests on, `ctest -N` discovers more tests than that glob has
+     `add_test` lines and **O1 fails**. Pass `mosaic_*_tests-*_tests.cmake` instead.
+  2. `tools/docs/check_next_steps_claims.py` verifies `next-steps.md`'s `Suite size` / `Suite status`
+     rows against the JUnit file, so those rows must move in **lockstep** or the next step fails.
+
+  Also needs `mesa-vulkan-drivers` and `vulkan-validationlayers` on the runner (the GPU tests
+  hard-assert `validation_enabled()`), and note Ubuntu names the manifest `lvp_icd.x86_64.json`
+  while Arch names it `lvp_icd.json`. **Unmeasured, and only a trial PR can measure it:** the
+  runner's older Mesa, and the `apt-get` wall-clock cost — likely ~3-10s, which would *exceed* the
+  test execution it buys. **Do not relax `check_ctest_run.py`'s O2 skip guard to make this work.**
 
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
@@ -643,10 +678,11 @@ them as this list does.
   tooling.
 
   **Still open — slice 3, and it is where the user-visible value is:** point the readback at the
-  classes that are currently eye-only. The Y-flip/upside-down class (`screen_effect.vert` does not
-  compensate for the negative-height viewport and nothing can see it), per-frame buffer aliasing
-  (#275, #287), the HUD underlay. This needs a graphics pipeline and real shaders, which slice 2
-  deliberately avoided, so it is a genuine slice rather than an extension.
+  classes that are currently eye-only. **Largely done as of 2026-10-24:** per-frame buffer
+  aliasing (#275, #287) is asserted for `draw_particles` by PR #303, and the HUD underlay by
+  PR #304. What remains of this paragraph is `draw_ribbons`/`draw_world_text` aliasing and the
+  Y-flip/upside-down class (`screen_effect.vert`, which is latent and deliberately not tested --
+  see its own entry above).
 
   **Three honest limitations of slice 1, none of them fixed by it.**
   1. *It is opt-in, so it guards nothing automatically.* The target is
@@ -2033,7 +2069,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **ALL THREE SLICES SHIPPED 2026-10-24.** The real `VulkanRenderDevice` renders with no window, reads back RGBA8, and `draw_ui` quad placement is asserted — `ui.vert`'s Y-flip compensation is now guarded by a mutation-proven test. | Remaining, as separate backlog entries: the per-frame buffer-aliasing class (`draw_particles`/`draw_ribbons`/`draw_world_text`), the HUD underlay, and `screen_effect.vert` (latent, see below). GPU tests stay opt-in until a software ICD or GPU runner exists. | Done: a Y-flip regression is now caught by machine instead of by eye. | User-raised 2026-10-24 |
+| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **ALL THREE SLICES SHIPPED 2026-10-24.** The real `VulkanRenderDevice` renders with no window, reads back RGBA8, and `draw_ui` quad placement is asserted — `ui.vert`'s Y-flip compensation is now guarded by a mutation-proven test. | **Two of the three named successors shipped 2026-10-24:** the per-frame buffer-aliasing class for `draw_particles` (PR #303) and the HUD underlay in pixels (PR #304). Remaining: `draw_ribbons`/`draw_world_text` aliasing, and `screen_effect.vert` (latent, see below). GPU tests stay opt-in; lavapipe has since been probed and **can** run them on a GPU-less runner (own entry in CI and build). | Done: a Y-flip regression is now caught by machine instead of by eye. | User-raised 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
