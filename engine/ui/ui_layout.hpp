@@ -76,7 +76,19 @@ inline std::vector<mosaic::foundation::EntityID> stack_children(
     return out;
 }
 
-// This child's slot within `parent_rect`, or nothing if its parent carries no UiStack.
+// This child's slot within `parent_rect`, or nothing if its parent carries no layout
+// container at all.
+//
+// THE ONE PLACE THE CONTAINER TYPE IS DISPATCHED. Nothing else in the engine switches on
+// UiStack/UiGrid/UiFlow -- the draw path, the hit path and the HUD text path all reach
+// layout only through resolve_parent_frame, which calls this. Adding a fourth container
+// means one more lookup here and one more pure function in ui_stack.hpp, and nothing else.
+//
+// FIXED PRECEDENCE -- UiStack, then UiGrid, then UiFlow -- rather than whichever component
+// happens to be found first. Authoring two containers on one entity is a mistake, but it has
+// to be a DETERMINISTIC mistake: the same scene must lay out the same way whatever order its
+// components were added in. Same discipline as child_layout_order above, and for the same
+// reason.
 //
 // TAKES THE PARENT'S RECT rather than resolving it, for two reasons. It breaks what would
 // otherwise be a circular include -- ui_hierarchy.hpp includes this header, so this header
@@ -90,15 +102,31 @@ inline std::optional<Rect> slot_for_child(mosaic::engine::World& world,
     const UiParent* up = world.get_component<UiParent>(child);
     if (up == nullptr || !world.is_valid(up->parent)) { return std::nullopt; }
     const UiStack* st = world.get_component<UiStack>(up->parent);
-    if (st == nullptr) { return std::nullopt; }
+    const UiGrid*  gr = world.get_component<UiGrid>(up->parent);
+    const UiFlow*  fl = world.get_component<UiFlow>(up->parent);
+    if (st == nullptr && gr == nullptr && fl == nullptr) { return std::nullopt; }
 
+    // The enumeration and the ordering are SHARED by all three containers, and that is the
+    // point -- a grid and a flow are a different slot function over the same children, not a
+    // different hierarchy.
     const std::vector<mosaic::foundation::EntityID> kids = stack_children(world, up->parent);
     for (std::size_t i = 0; i < kids.size(); ++i)
     {
         if (kids[i] == child)
         {
-            return layout_slot(parent_rect, st->axis, st->spacing, st->padding, i,
-                               kids.size());
+            if (st != nullptr)
+            {
+                return layout_slot(parent_rect, st->axis, st->spacing, st->padding, i,
+                                   kids.size());
+            }
+            if (gr != nullptr)
+            {
+                // No child count passed, deliberately: a grid's cells are authored.
+                return grid_slot(parent_rect, gr->cols, gr->rows, gr->spacing, gr->padding,
+                                 i);
+            }
+            return flow_slot(parent_rect, fl->axis, fl->per_line, fl->spacing, fl->padding,
+                             i, kids.size());
         }
     }
     // Unreachable in practice -- `child` carries the UiParent that stack_children matched

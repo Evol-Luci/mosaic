@@ -896,6 +896,105 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::engine::ui::UiParent{layout_only});
     }
 
+    // A UiGrid (U8c), bottom-right: THREE COLUMNS BY TWO ROWS, exactly full.
+    //
+    // Authored with CHECKABLE geometry rather than pleasing geometry, to U8a's own standard:
+    // `spacing` and `padding` are both 0 and each child's size is {1,1}, so the six children
+    // must EXACTLY TILE the container -- no seam, no overlap, at any window size.
+    //
+    // THE CONTAINER IS DELIBERATELY VISIBLE AND MAGENTA, and that is the whole instrument:
+    // nothing in the demo is magenta, so ANY magenta visible in this block is a seam -- the
+    // slot division leaving a gap the backdrop shows through. An overlap is the other
+    // failure and shows as a cell that is wider than its neighbours. This is a case where
+    // U8b's invisible container would have made the bug harder to see, not easier, so this
+    // one is drawn on purpose.
+    //
+    // Six distinct colours so a REORDERING is visible rather than merely wrong: they run
+    // red, orange, yellow across the top row and green, blue, violet across the bottom,
+    // following the authored `order`, which is what stack_children sorts by and what
+    // grid_slot walks ROW-MAJOR.
+    //
+    // No Transform and no ScriptComponent on any of these entities, so the default-scene
+    // Transform-count and script-count tests are unaffected.
+    const auto hud_grid = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(hud_grid,
+        mosaic::engine::ui::UiPanel{
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::BottomRight),
+            .pos     = mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.24f, 0.18f},
+            .color   = Vec3{1.0f, 0.0f, 1.0f},
+            // 1.0 is the identity of the inherited-alpha product, so the six children below
+            // render at their OWN authored alpha and the tiling can be judged on colour.
+            .alpha   = 1.0f,
+            .order   = 30,
+            .visible = true});
+    world.add_component<mosaic::engine::ui::UiGrid>(hud_grid,
+        mosaic::engine::ui::UiGrid{.cols = 3, .rows = 2, .spacing = 0.0f, .padding = 0.0f});
+
+    const Vec3 cell_colors[6] = {Vec3{0.90f, 0.20f, 0.20f}, Vec3{0.95f, 0.55f, 0.15f},
+                                 Vec3{0.95f, 0.90f, 0.25f}, Vec3{0.25f, 0.80f, 0.35f},
+                                 Vec3{0.25f, 0.45f, 0.95f}, Vec3{0.60f, 0.30f, 0.85f}};
+    for (int i = 0; i < 6; ++i)
+    {
+        const auto cell = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(cell,
+            mosaic::engine::ui::UiPanel{
+                .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos     = mosaic::foundation::math::Vec2{0.0f, 0.0f},
+                .size    = mosaic::foundation::math::Vec2{1.0f, 1.0f},
+                .color   = cell_colors[i],
+                .alpha   = 1.0f,
+                .order   = 31 + i,
+                .visible = true});
+        world.add_component<mosaic::engine::ui::UiParent>(cell,
+            mosaic::engine::ui::UiParent{hud_grid});
+    }
+
+    // A UiFlow (U8c), bottom-centre: FIVE children at THREE PER LINE, so the final line is
+    // PARTIAL. This exists to make the slice's one open decision checkable by eye.
+    //
+    // WHAT TO LOOK FOR: a row of three cells, and below it TWO cells plus an empty third
+    // showing the magenta backdrop. The two on the second line must be the SAME WIDTH as the
+    // three above them and flush with the first two columns.
+    //
+    // Two cells stretched to half the width each, filling the line, would mean the partial
+    // final line was divided among the children actually present -- the alternative that was
+    // considered and declined (see UiFlow in ui_stack.hpp: it would make a cell's size move
+    // whenever a child is created or destroyed, which is the same defect that got the
+    // cols-only UiGrid declined). The magenta gap is the evidence that it was not.
+    const auto hud_flow = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(hud_flow,
+        mosaic::engine::ui::UiPanel{
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::Bottom),
+            .pos     = mosaic::foundation::math::Vec2{0.0f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.24f, 0.18f},
+            .color   = Vec3{1.0f, 0.0f, 1.0f},
+            .alpha   = 1.0f,
+            .order   = 40,
+            .visible = true});
+    world.add_component<mosaic::engine::ui::UiFlow>(hud_flow,
+        mosaic::engine::ui::UiFlow{.axis = 1, .per_line = 3, .spacing = 0.0f,
+                                   .padding = 0.0f});
+
+    const Vec3 flow_colors[5] = {Vec3{0.20f, 0.85f, 0.85f}, Vec3{0.20f, 0.70f, 0.95f},
+                                 Vec3{0.35f, 0.55f, 0.95f}, Vec3{0.55f, 0.85f, 0.95f},
+                                 Vec3{0.75f, 0.95f, 0.95f}};
+    for (int i = 0; i < 5; ++i)
+    {
+        const auto item = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(item,
+            mosaic::engine::ui::UiPanel{
+                .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos     = mosaic::foundation::math::Vec2{0.0f, 0.0f},
+                .size    = mosaic::foundation::math::Vec2{1.0f, 1.0f},
+                .color   = flow_colors[i],
+                .alpha   = 1.0f,
+                .order   = 41 + i,
+                .visible = true});
+        world.add_component<mosaic::engine::ui::UiParent>(item,
+            mosaic::engine::ui::UiParent{hud_flow});
+    }
+
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/
         // fit_mode, and a positional init silently re-binds tint onto the first new field.

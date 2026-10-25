@@ -212,24 +212,65 @@ blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-ou
   until someone builds an inventory grid". The named mitigation is a per-frame
   memoised `parent -> children` map built once per render rather than per
   element. Measure first: the index is cheap, but confirming the cost is real
-  matters more than the shape of the fix. Depends on nothing *technically* -- but
+  matters more than the shape of the fix. **THE INSTRUMENT NOW EXISTS, built by U8c
+  2026-10-25 and deliberately uncached:** `tests/unit/ui/ui_grid_flow_test.cpp`'s case `a
+  grid of two hundred and fifty six children lays out from a test alone` drives the whole
+  layout path -- `stack_children`'s `for_each` over the world, the sort, `slot_for_child`,
+  the `resolve_parent_frame` hook -- at inventory-grid size from a fixture, with no demo
+  scene, no renderer and no window, so a before/after needs no GUI. It is O(N^2) by
+  construction (256 children is ~65k component visits and 256 heap allocations), and the
+  demo's authored 3x2 grid plus 5-item flow add 11 more parented elements to the shipped
+  scene. What makes U8d's measurement HARDER: nothing added a cache, which was the point.
+  Depends on nothing *technically* -- but
   **ordered after U8c** by the 2026-10-25 decomposition, because the trigger it names
   ("invisible until someone builds an inventory grid") is a thing U8c builds, and this is
   the only one of the three slices that trades a correctness guarantee (`slot_for_child`
   being pure and lazy, so the draw and hit-test paths agree by construction) for speed.
   That should be paid against a measured number, not the review's estimate.
 
-- **`UiGrid` and `UiFlow`** **(U8c)** — deferred 2026-10-17 from the U8a layout design,
-  which builds `UiStack` only. The three share all their machinery (enumerating a
-  parent's children, ordering them deterministically, narrowing the frame to a
-  slot) and differ only in slot arithmetic, so they are genuinely additive once a
-  stack exists. Deferred to keep the surface of the slice's one reserved decision
-  (what an authored `pos` means under a layout) as small as possible before
-  anyone has seen it work. Depends on U8a shipping -- **which it has, so that reason has
-  expired**: someone has now seen a stack work and the reserved decision was answered by
-  narrowing the frame. Second in the 2026-10-25 order, after U8b. Still to decide: grid's
-  second axis count (authored rows x columns, or one count plus a wrap) and flow's wrap rule
-  plus its partial final line.
+- ~~**`UiGrid` and `UiFlow`** (U8c)~~ — **SHIPPED 2026-10-25.** Narrative in
+  [record](../record/2026-10.md#u8c--uigrid-and-uiflow). Explicit `cols` + `rows`; flow wraps
+  at an authored `per_line` and sizes its partial final line as if the line were full.
+- **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
+  2026-10-25 **during U8c**. `spacing` is applied as a fraction of each axis's own inner
+  extent, so a square grid in a wide frame has a wider gap between columns than between
+  rows. That matches `layout_slot` (where spacing is a fraction of the main axis) and keeps
+  the arithmetic free of the screen's aspect ratio, which is what lets a grid nest inside a
+  stack unchanged. Deferred rather than fixed because the alternatives are both bigger than
+  they look: separate `spacing_x`/`spacing_y` is two more reflected fields on two components
+  and raises the same question for `UiStack`'s single `spacing`, and aspect-correcting it
+  would make slot arithmetic depend on the window, which nothing in the UI does today.
+  **Depends on** someone authoring a grid where the uneven gap is actually visible; the
+  demo's is 0, so nothing has felt it. Pinned by `grid padding insets all four sides within
+  the frame` and the axis-swap property test, so the current behaviour cannot drift silently.
+- **A grid's overflow children vanish, with no authored policy** — deferred 2026-10-25
+  **during U8c**. A child at index >= `cols * rows` gets a zero-extent rect and is simply not
+  placed (asserted by `a grid index past the last slot does not wrap onto the first`, which
+  rejects the `index % slots` simplification that would silently draw the 13th child on top
+  of the 1st). The useful alternatives are an authored enum -- clip, scroll, or grow the grid
+  -- and **all three depend on U9**: clip and scroll need the scissor hook on `RenderDevice`
+  and the widened `PointerState`, and "grow" is the cols-only variant the human already
+  declined for exactly the reason it would reintroduce. **Depends on** U9. Vanishing is the
+  only one of the four that needs nothing, which is why it is what shipped.
+- **`child_layout_order` does not consult `UiButton`** — deferred 2026-10-25 **during U8c**,
+  and surfaced BY it rather than by U8a: a grid of clickable inventory slots is the obvious
+  shape for this feature, and a child that is a bare `UiButton` with no visual falls through
+  `child_layout_order`'s UiPanel -> UiImage -> UiText chain to `return 0`, so it is ordered
+  only by the entity-index tiebreak, which an author cannot control. Deliberately not fixed:
+  `UiButton::order` is a **hit-resolution** z-order, a different concept from the draw order
+  layout sorts by, and `ui_order_check.hpp` exists precisely because those two already
+  disagree -- importing it into layout would turn the same authoring slip from a mis-routed
+  click into a RELOCATED element. In practice a slot carries a panel or an image for its
+  visual (`ui_button.hpp` says to overlay one), whose order does rank it, so the gap bites
+  only a child that draws nothing. **Depends on** a decision about whether layout order and
+  hit order are one concept or two; characterised by `a grid child carrying only a UiButton
+  has no authorable layout order` so the answer is not lost.
+- **Per-child cell spans (colspan / rowspan)** — deferred 2026-10-25 **during U8c**. Every
+  layout knob in U8 so far lives on the PARENT, which is what keeps `slot_for_child` a pure
+  function of (frame, index, count). A span is the first knob that would have to live on the
+  CHILD, so it changes the shape of the problem rather than the arithmetic: slot i would no
+  longer be derivable from i alone, and a packing pass over the siblings would be needed.
+  **Depends on** a real authored layout that needs a non-uniform cell; nothing does.
 - **Content-sized layout slots** — U8a divides a parent's padded rect **evenly**
   along the axis. Content-sized slots need content measurement, and `UiText` has
   no measured height until its font atlas is resolved, so layout would come to
@@ -273,7 +314,14 @@ blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-ou
   with a named **trigger to promote it**: if authoring U8c's grid by numbers proves painful.
   A grid has two axes of slot arithmetic to tune instead of one, so "the numbers are
   checkable meanwhile" is a weaker argument for a grid than it was for a stack. Note the
-  editor path is invisible to the existing gates.
+  editor path is invisible to the existing gates. **THE TRIGGER FIRED AND THE PREDICTION WAS
+  WRONG, 2026-10-25:** U8c authored the grid by numbers and it was not painful, because the
+  grid's container is authored in a colour nothing else in the demo uses -- so a seam shows
+  as magenta and needs no gizmo to see. The prediction assumed the author would be reading
+  `padding` and `spacing` values; what actually makes a grid checkable is a CONTRASTING
+  BACKDROP behind children that should tile it exactly. **Stays deferred, and the trigger is
+  now narrower:** promote it when someone authors a container whose children do NOT tile it,
+  where the backdrop trick says nothing.
 - **Tiling / repeat for `UiImage`** — deferred 2026-10-10 during the image-presentation
   design. Not a flag: with a sub-rect in play, repeating means either a separate atlas
   page (so the sampler's address mode can wrap the whole texture) or shader-side wrapping
@@ -2170,6 +2218,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
 | 5 | **`bool` fields are read-only in the Inspector (no `field_bool`).** | hours / Medium — one interface method, one `ImGui::Checkbox`, one dispatch branch and one dispatch test. Impact rose with U8b: 16 reflected `bool` fields now, 11 of them pre-existing, and `visible` is the first whose whole purpose is to be toggled while looking at the result. | A `bool` field renders as a checkbox that writes back and sets `changed_`; `field_visitor_test.cpp` asserts `bool` dispatches to `field_bool` rather than `field_readonly`. | Supervisor review of U8b, 2026-10-25 |
 | 5 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
+| 6 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
@@ -2194,7 +2243,7 @@ changed the premise its impact rested on. The others gained no new evidence and 
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
-| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool (**SHIPPED 2026-10-25**), **U8c** `UiGrid`/`UiFlow`, **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. **Next is U8c**, which can now author a container without meeting the invisible-container trap. U9-U11 remain in the UI section and unchanged. |
+| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool (**SHIPPED 2026-10-25**), **U8c** `UiGrid`/`UiFlow` (**SHIPPED 2026-10-25**), **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. **U8c SHIPPED 2026-10-25** (`UiGrid` with explicit `cols` + `rows`, `UiFlow` wrapping at an authored `per_line`), so **next is U8d**, whose instrument U8c built and deliberately left uncached. U9-U11 remain in the UI section and unchanged. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |

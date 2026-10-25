@@ -73,6 +73,8 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::ui::UiButton>(registry, "UiButton");
     types.register_component<mosaic::engine::ui::UiParent>(registry, "UiParent");
     types.register_component<mosaic::engine::ui::UiStack>(registry, "UiStack");
+    types.register_component<mosaic::engine::ui::UiGrid>(registry, "UiGrid");
+    types.register_component<mosaic::engine::ui::UiFlow>(registry, "UiFlow");
     types.register_component<mosaic::engine::ui::WorldLabel>(registry, "WorldLabel");
     types.register_component<mosaic::engine::ui::UiText>(registry, "UiText");
     types.register_component<mosaic::engine::net::NetReplicated>(registry, "NetReplicated");
