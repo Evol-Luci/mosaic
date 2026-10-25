@@ -170,7 +170,17 @@ deliberately left out.
 
 - ~~**U8a — inherited alpha and stack layout**~~ — SHIPPED 2026-10-17, see [record](../record/2026-10.md#u8a--inherited-alpha-and-stack-layout).
 
-- **`stack_children` scans the whole world once per laid-out element, per frame.**
+**The U8 remainder was decomposed 2026-10-25** — see
+[the decomposition spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md).
+The order is **U8b** the `visible` bool (a
+layout-only container), then **U8c** `UiGrid`/`UiFlow`, then **U8d** the `parent -> children`
+index — with content-sized slots and the editor gizmo left deferred behind their named
+blockers. The five entries below are the source material; the spec orders them and states
+each one's gate. Two things it found that those entries predate: the `visible` bool's stated
+blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-out that
+`ui_stack.hpp` still offers as an alternative was **declined** on 2026-10-20.
+
+- **`stack_children` scans the whole world once per laid-out element, per frame.** **(U8d)**
   Introduced by U8a 2026-10-17 and recorded by its author rather than found in
   review. `resolve_parent_frame` is called per UI element per frame — by the draw
   path AND the hit-test path — and now calls `slot_for_child`, which calls
@@ -201,22 +211,33 @@ deliberately left out.
   until someone builds an inventory grid". The named mitigation is a per-frame
   memoised `parent -> children` map built once per render rather than per
   element. Measure first: the index is cheap, but confirming the cost is real
-  matters more than the shape of the fix. Depends on nothing.
+  matters more than the shape of the fix. Depends on nothing *technically* -- but
+  **ordered after U8c** by the 2026-10-25 decomposition, because the trigger it names
+  ("invisible until someone builds an inventory grid") is a thing U8c builds, and this is
+  the only one of the three slices that trades a correctness guarantee (`slot_for_child`
+  being pure and lazy, so the draw and hit-test paths agree by construction) for speed.
+  That should be paid against a measured number, not the review's estimate.
 
-- **`UiGrid` and `UiFlow`** — deferred 2026-10-17 from the U8a layout design,
+- **`UiGrid` and `UiFlow`** **(U8c)** — deferred 2026-10-17 from the U8a layout design,
   which builds `UiStack` only. The three share all their machinery (enumerating a
   parent's children, ordering them deterministically, narrowing the frame to a
   slot) and differ only in slot arithmetic, so they are genuinely additive once a
   stack exists. Deferred to keep the surface of the slice's one reserved decision
   (what an authored `pos` means under a layout) as small as possible before
-  anyone has seen it work. Depends on U8a shipping.
+  anyone has seen it work. Depends on U8a shipping -- **which it has, so that reason has
+  expired**: someone has now seen a stack work and the reserved decision was answered by
+  narrowing the frame. Second in the 2026-10-25 order, after U8b. Still to decide: grid's
+  second axis count (authored rows x columns, or one count plus a wrap) and flow's wrap rule
+  plus its partial final line.
 - **Content-sized layout slots** — U8a divides a parent's padded rect **evenly**
   along the axis. Content-sized slots need content measurement, and `UiText` has
   no measured height until its font atlas is resolved, so layout would come to
   depend on asset loading — a dependency worth refusing deliberately rather than
   acquiring by accident. Deferred 2026-10-17. Depends on a decision about whether
-  layout may block on assets at all.
-- **A real `visible` bool on the UI components** — U8 asked for "inherited
+  layout may block on assets at all. **Left deferred by the 2026-10-25 decomposition**, which
+  fixes that it does **not** ride inside U8c: folding it in would acquire that dependency by
+  accident, which is the thing the original deferral was protecting.
+- **A real `visible` bool on the UI components** **(U8b — first in the 2026-10-25 order)** — U8 asked for "inherited
   visibility/alpha", and U8a delivers alpha only. **These are not the same
   feature:** `alpha = 0` hides an element but it still HIT-TESTS, so an invisible
   panel still eats clicks. Deferred 2026-10-17 for two reasons: the hit-test
@@ -224,12 +245,27 @@ deliberately left out.
   brace initialisers in `app/run/demo_scene.hpp` where the compiler would not
   necessarily catch it. Depends on deciding whether invisible means
   non-interactive.
+
+  **Updated 2026-10-25 by the remainder decomposition.** The hit-test blocker has
+  **cleared** -- it was U6, which shipped 2026-10-10/10-12 -- so only the decision remains.
+  Promoted to first because this is what makes a **layout-only container** possible at all:
+  a `UiStack` with no `UiPanel` lays nothing out (`resolve_parent_frame` returns the whole
+  screen), and the obvious `UiPanel{alpha = 0}` hides the whole subtree, so every container
+  authored by a later slice pays the trap documented in `ui_stack.hpp`. The alternative that
+  comment offers -- an opt-out on alpha propagation -- was **declined** 2026-10-20; correct
+  that comment when taking this. The positional-init landmine is now located exactly: there
+  is **one** site left, the camera HUD bar at `app/run/demo_scene.hpp:722`; convert it to
+  designated initialisers before adding the field.
 - **A layout-slot gizmo in the editor** — authoring a `UiStack` works through
   reflection with no editor work, but nothing *visualises* a slot, so an author
   tuning `padding` or `spacing` is reading numbers rather than seeing boxes.
   Deferred 2026-10-17: drawing a computed rect in the viewport is editor work
   with its own design, and the numbers are checkable meanwhile. Depends on
-  nothing.
+  nothing. **Left independent by the 2026-10-25 decomposition** -- takeable at any time --
+  with a named **trigger to promote it**: if authoring U8c's grid by numbers proves painful.
+  A grid has two axes of slot arithmetic to tune instead of one, so "the numbers are
+  checkable meanwhile" is a weaker argument for a grid than it was for a stack. Note the
+  editor path is invisible to the existing gates.
 - **Tiling / repeat for `UiImage`** — deferred 2026-10-10 during the image-presentation
   design. Not a flag: with a sub-rect in play, repeating means either a separate atlas
   page (so the sampler's address mode can wrap the whole texture) or shader-side wrapping
@@ -2117,7 +2153,7 @@ changed the premise its impact rested on. The others gained no new evidence and 
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
-| **U8 layout containers** | U8a shipped (#260); the remainder, and U9-U11, are in the UI section. High if interactive-game UI is a near-term goal, else Low; that is still the open question. |
+| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow`, **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. U9-U11 remain in the UI section and unchanged. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |
@@ -2131,6 +2167,7 @@ question "did we already consider this?" answers here.
 | Item | Trigger |
 |---|---|
 | **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). |
+| **An opt-out flag on inherited alpha propagation.** Declined by the 2026-10-20 human verification pass: fading a container *should* fade what is inside it, which is why the demo's "HP" label now renders at the bar's 0.6 rather than its own 1.0. Recorded in `demo_scene.hpp` beside the label and in [record](../record/2026-10.md), but it had never reached this table -- added 2026-10-25, because `ui_stack.hpp` still offers it as a live route out of the invisible-container trap and it is not one. The live route is the `visible` bool (U8b). | A concrete case where a child must keep its authored alpha under a faded container, which the `visible` bool does not already serve. |
 | **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
 | **Making `RenderSystem` issue one `draw_ribbons` call per `TrailRenderer`.** | A second caller of `draw_ribbons` appears in a frame. Declined 2026-10-25: batching every `TrailRenderer` into one vector per frame is the cheaper and correct shape, so the backend's per-call chunking is deliberately guarded at the `RenderDevice` level instead (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`) rather than by making the call site plural. |
 | **GitHub Actions Node.js 20 deprecation.** | The actions publish a Node 24 version. |
