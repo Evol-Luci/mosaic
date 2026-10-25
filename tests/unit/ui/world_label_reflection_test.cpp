@@ -21,6 +21,9 @@ TEST_CASE("WorldLabel round-trips through reflection", "[ui][reflection]")
     l.color  = Vec3{0.2f, 0.9f, 0.3f};
     l.alpha  = 0.8f;
     l.offset = Vec3{0.0f, 1.5f, 0.0f};
+    // Non-default: `visible` defaults to true, so a round-trip that dropped the field
+    // would come back true and assert nothing.
+    l.visible = false;
 
     const auto value = mosaic::foundation::serialization::to_value(l);
     WorldLabel back;
@@ -32,6 +35,7 @@ TEST_CASE("WorldLabel round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.color.y == Approx(0.9f));
     REQUIRE(back.alpha == Approx(0.8f));
     REQUIRE(back.offset.y == Approx(1.5f));
+    REQUIRE(back.visible == false);
 }
 
 TEST_CASE("WorldLabel is a registered built-in component", "[ui][reflection]")

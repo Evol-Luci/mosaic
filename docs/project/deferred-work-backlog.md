@@ -169,12 +169,13 @@ deliberately left out.
 ## UI pillar (declared "COMPLETE" at U5b, but with real gaps)
 
 - ~~**U8a — inherited alpha and stack layout**~~ — SHIPPED 2026-10-17, see [record](../record/2026-10.md#u8a--inherited-alpha-and-stack-layout).
+- ~~**U8b — a real `visible` bool on the UI components**~~ — SHIPPED 2026-10-25, see [record](../record/2026-10.md#u8b--a-real-visible-bool-on-the-ui-components). Per-component, drawing-only, no inheritance and no cross-component inference; `ui_stack.hpp`'s stale "today's workarounds" paragraph is gone with it.
 
 **The U8 remainder was decomposed 2026-10-25** — see
 [the decomposition spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md).
 The order is **U8b** the `visible` bool (a
-layout-only container), then **U8c** `UiGrid`/`UiFlow`, then **U8d** the `parent -> children`
-index — with content-sized slots and the editor gizmo left deferred behind their named
+layout-only container, **SHIPPED 2026-10-25**), then **U8c** `UiGrid`/`UiFlow`, then **U8d**
+the `parent -> children` index — with content-sized slots and the editor gizmo left deferred behind their named
 blockers. The five entries below are the source material; the spec orders them and states
 each one's gate. Two things it found that those entries predate: the `visible` bool's stated
 blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-out that
@@ -237,25 +238,32 @@ blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-ou
   layout may block on assets at all. **Left deferred by the 2026-10-25 decomposition**, which
   fixes that it does **not** ride inside U8c: folding it in would acquire that dependency by
   accident, which is the thing the original deferral was protecting.
-- **A real `visible` bool on the UI components** **(U8b — first in the 2026-10-25 order)** — U8 asked for "inherited
-  visibility/alpha", and U8a delivers alpha only. **These are not the same
-  feature:** `alpha = 0` hides an element but it still HIT-TESTS, so an invisible
-  panel still eats clicks. Deferred 2026-10-17 for two reasons: the hit-test
-  question belongs to U6, and adding a field to `UiPanel` re-binds the positional
-  brace initialisers in `app/run/demo_scene.hpp` where the compiler would not
-  necessarily catch it. Depends on deciding whether invisible means
-  non-interactive.
-
-  **Updated 2026-10-25 by the remainder decomposition.** The hit-test blocker has
-  **cleared** -- it was U6, which shipped 2026-10-10/10-12 -- so only the decision remains.
-  Promoted to first because this is what makes a **layout-only container** possible at all:
-  a `UiStack` with no `UiPanel` lays nothing out (`resolve_parent_frame` returns the whole
-  screen), and the obvious `UiPanel{alpha = 0}` hides the whole subtree, so every container
-  authored by a later slice pays the trap documented in `ui_stack.hpp`. The alternative that
-  comment offers -- an opt-out on alpha propagation -- was **declined** 2026-10-20; correct
-  that comment when taking this. The positional-init landmine is now located exactly: there
-  is **one** site left, the camera HUD bar at `app/run/demo_scene.hpp:722`; convert it to
-  designated initialisers before adding the field.
+- ~~**A real `visible` bool on the UI components** (U8b)~~ — **SHIPPED 2026-10-25.** Narrative
+  in [record](../record/2026-10.md#u8b--a-real-visible-bool-on-the-ui-components). Note for
+  anyone re-reading this section: the entry that stood here stated the mechanism **wrongly**
+  ("`alpha = 0` ... still HIT-TESTS, so an invisible panel still eats clicks"). A `UiPanel` is
+  never hit-tested at all; the real defect was the reverse pairing, a faded *visual* over a
+  fully clickable button. The decomposition spec records the correction.
+- **`find_order_disagreements` still lints a button that cannot be clicked** — deferred
+  2026-10-25 **during U8b**. `find_order_conflicts` got the `visible` filter for free, because
+  it draws its rects from `button_hit_candidates`; the per-entity lint reads
+  `for_each<UiButton>` directly and does not, so a `UiButton{visible = false}` whose `order`
+  disagrees with its own panel's still earns a Console line about a misroute that cannot
+  happen. Deferred rather than fixed because **the right answer depends on what the lint
+  means**, and that was not this slice's question: if it means "this will misroute a click"
+  the filter belongs there too, and if it means "these two authored numbers have drifted
+  apart" then the drift is real and worth reporting before the button is shown again. One
+  line of noise either way. **Depends on** nothing; it needs the one-sentence decision above.
+- **Hiding a whole widget still means setting `visible` on every component of it** — deferred
+  2026-10-25 **during U8b**, and deferred *by design* rather than by omission: the supervisor's
+  ruling forbids cross-component inference, because `app/run/demo_scene.hpp` piles the
+  unrelated "MOSAIC" title and the checker `UiImage` onto the `camera` entity, so "one entity
+  is one widget" is a convention the repository happens to keep and not an invariant the data
+  enforces. The honest cost is therefore two or three fields per widget hidden. If that cost
+  ever bites, the route is an **authored grouping** -- a component that names the components
+  it owns -- never inference from co-location. **Depends on** a scene where hiding widgets by
+  hand has actually proved error-prone; nothing has felt it yet, and building the grouping
+  first would be machinery defending a cost nobody has paid.
 - **A layout-slot gizmo in the editor** — authoring a `UiStack` works through
   reflection with no editor work, but nothing *visualises* a slot, so an author
   tuning `padding` or `spacing` is reading numbers rather than seeing boxes.
@@ -430,6 +438,11 @@ them as this list does.
   needs its own decision about **precedence when several apply at once** (hovered *and*
   pressed, disabled overriding both), and that ordering question is the actual work rather
   than the components. **Depends on** nothing; the hover slice establishes the pattern.
+  **Narrowed 2026-10-25 by U8b**, which shipped the *functional* half of "disabled":
+  `UiButton{visible = false}` produces no hit candidate, so it emits no click, hover or drag.
+  What is left here is purely the **visual** state, and the precedence question above is
+  **not** reopened by it -- `visible` gates whether the button exists to be hit, before any
+  styling question arises.
 - **Hover transitions or easing** — non-goal of the hover slice, 2026-10-10. Hover is
   instantaneous: the style applies on the frame the tag appears. Animating it needs a
   per-element clock the UI subsystem does not have, which is a larger addition than the fade
@@ -465,6 +478,32 @@ them as this list does.
   reframing item below.
 - ~~**The REAL `order` bug is pairwise and relative, not per-entity and absolute**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#the-real-order-bug-is-pairwise-and-relative-not-per-entity-and-absolute).
 - ~~**`UiImage::order` and `UiText::order` are ignored by the renderer entirely**~~ — FIXED 2026-10-11, see [record](../record/2026-10.md#uiimageorder-and-uitextorder-are-ignored-by-the-renderer-entirely).
+- **`bool` fields are read-only in the Inspector (no `field_bool`)** — found 2026-10-25 by the
+  supervisor while reviewing U8b, and **pre-existing rather than introduced by it**: the same
+  class as the `field_int` gap fixed on 2026-10-11, one type along. `FieldVisitor`
+  (`engine/reflection/field_visitor.hpp`) declares `field_float`, `field_int`, `field_string`,
+  `field_asset`, `field_handle_asset`, `field_entity` and `field_readonly` — **no
+  `field_bool`** — so `member()`'s `bool` branch routes to
+  `visitor.field_readonly(name, value ? "true" : "false")`. Every reflected `bool` therefore
+  renders as an uneditable label in `studio/inspector.hpp`.
+
+  **Scope, measured against the base commit rather than asserted.** 16 reflected `bool` fields
+  today; **11 of them exist on `main` before U8b** (`AnimationClip::step`,
+  `AnimationPlayer::playing`/`loop`, `AudioSource::looping`/`playing`/`spatial`,
+  `NavAgent::active`, `ParticleEmitter::emitting`, `RigidBody::dynamic`,
+  `Sequence::playing`/`loop`), and U8b adds the five `visible` flags. So this is **not U8b's
+  defect**, but U8b nearly doubled the count and is what makes it worth doing.
+
+  **Why it matters now, concretely:** a human cannot toggle `visible` in the editor to see the
+  feature work. The demo scene's authored layout-only container is the only by-eye path U8b
+  ships, and anything beyond it means hand-editing scene JSON. The same was true of every
+  `playing`/`emitting` flag already, which is presumably why nobody noticed.
+
+  **Effort:** one `field_bool` on the visitor interface, one `ImGui::Checkbox` in
+  `ImGuiFieldVisitor`, one branch in `member()` above the `int` branch, and a dispatch
+  assertion in `tests/unit/reflection/field_visitor_test.cpp` (which is where the `int`
+  ordering is already pinned). The widget itself stays untested for the reason the
+  `ImGuiFieldVisitor` entry below gives. **Depends on** nothing.
 - **Combo boxes for enum-as-int fields, instead of a bare `DragInt`** — the explicit non-goal
   of the `field_int` slice, 2026-10-11. `UiPanel`/`UiText`/`UiImage`'s `anchor`, `UiImage`'s
   `fit_mode`, `ParticleEmitter`'s three easing curves and `AudioSource::attenuation_model` are
@@ -2129,6 +2168,8 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 | 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
+| 5 | **`bool` fields are read-only in the Inspector (no `field_bool`).** | hours / Medium — one interface method, one `ImGui::Checkbox`, one dispatch branch and one dispatch test. Impact rose with U8b: 16 reflected `bool` fields now, 11 of them pre-existing, and `visible` is the first whose whole purpose is to be toggled while looking at the result. | A `bool` field renders as a checkbox that writes back and sets `changed_`; `field_visitor_test.cpp` asserts `bool` dispatches to `field_bool` rather than `field_readonly`. | Supervisor review of U8b, 2026-10-25 |
+| 5 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
@@ -2153,7 +2194,7 @@ changed the premise its impact rested on. The others gained no new evidence and 
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
-| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow`, **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. U9-U11 remain in the UI section and unchanged. |
+| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool (**SHIPPED 2026-10-25**), **U8c** `UiGrid`/`UiFlow`, **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. **Next is U8c**, which can now author a container without meeting the invisible-container trap. U9-U11 remain in the UI section and unchanged. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |

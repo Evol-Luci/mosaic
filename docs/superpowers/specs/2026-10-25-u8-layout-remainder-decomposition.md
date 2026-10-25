@@ -160,12 +160,35 @@ opposite of this slice's purpose and would silently break U8a's shipped demo sta
    hit-tests**, pinning the no-inference ruling. This is the assertion that fails if someone
    "helpfully" couples them.
 
-**Known landmine, now located exactly.** Adding a field to `UiPanel` re-binds positional
-brace initialisers in `app/run/demo_scene.hpp`, and gcc only catches it when the types
-differ. There is **exactly one** such site left: the camera's HUD-bar panel at
-`app/run/demo_scene.hpp:722`. The other two `UiPanel` inits (`hud_stack` and the three slot
-children) are already designated, as are `UiButton` and `UiImage`. **Convert line 722 to
-designated initialisers as the first commit of the slice**, before adding the field.
+**Known landmine. RETRACTED AND CORRECTED 2026-10-25 by the U8b implementation**, which
+audited it properly; the original claim here was wrong, and in a way worth recording because
+the error is reusable. Adding a field to a component re-binds positional brace initialisers
+in `app/run/demo_scene.hpp`, and gcc only catches it when the types differ.
+
+**What this document originally said:** *"There is exactly one such site left: the camera's
+HUD-bar panel at `app/run/demo_scene.hpp:722`."* **Both halves were wrong.**
+
+- **The line number was 723, not 722.** 722 is the `world.add_component<UiPanel>(camera,`
+  call; the brace init is the line after it. Off by one, from reading a `sed` range by eye.
+- **There were FIVE positional sites, not one.** A multi-line-aware brace scan over the base
+  commit finds `UiPanel` at **723**, `UiText` at **771** ("HP") and **871** ("MOSAIC"), and
+  `WorldLabel` at **893** ("Orbiter") and **1021** ("GLOW") — four of them on components this
+  slice also gives a field.
+
+**Why the original check was wrong, which is the part that generalises.** It grepped
+`UiPanel` alone and then stated a conclusion about *"a field on a component"*. **The check's
+denominator was narrower than the property it claimed to settle** — a single-component grep
+cannot support a claim about five components, and a line-oriented grep cannot see an
+initialiser that spans lines, which all four of the missed ones do. Re-running that grep
+would have returned "one site" forever. Note also which way the error ran: it **understated**
+the hazard, so following it would have left four live traps in place, with the compiler
+silent on every one (`UiText`'s and `WorldLabel`'s leading fields are same-typed).
+
+**What to do, corrected:** convert **every** positional UI-component brace init to designated
+initialisers as the slice's first commit, and audit with a scan that is multi-line-aware and
+covers every component the slice touches. U8b did this for all five. **`Bloom` at `:717`
+remains positional** (three `float`s, genuinely uncatchable by the compiler) and is
+deliberately out of scope, now named in `next-steps.md`.
 
 **Gate.** A `UiStack` container authored with no visible chrome, whose children render at
 their own authored alpha — and, per the decision, whose rect does or does not consume a

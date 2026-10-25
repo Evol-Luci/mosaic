@@ -20,6 +20,14 @@ struct WorldLabel
     Vec3  color  = Vec3{1.0f, 1.0f, 1.0f};
     float alpha  = 1.0f;
     Vec3  offset = Vec3{0.0f, 0.0f, 0.0f};
+    // Drawn or not, matching the three HUD components. IN SCOPE for the `visible` slice
+    // even though a WorldLabel is world-space and participates in no layout, because it is
+    // the FOURTH of the four draw paths that early-out on `alpha <= 0`: giving three of
+    // them a `visible` and not the fourth would make the field mean "present on some
+    // drawable components". Being outside the hierarchy, it carries none of the trap that
+    // UiPanel::visible documents -- there is nothing for it to be inherited by or inferred
+    // from.
+    bool  visible = true;
 };
 
 template <class V>
@@ -31,5 +39,6 @@ void reflect(V& visitor, WorldLabel& l)
     visitor.member("color", l.color);
     visitor.member("alpha", l.alpha);
     visitor.member("offset", l.offset);
+    visitor.member("visible", l.visible);
 }
 } // namespace mosaic::engine::ui

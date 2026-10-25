@@ -34,6 +34,10 @@ struct UiText
     // here will NOT push it behind one. It only ranks text elements against each other. A unified
     // z-order across all UI is recorded in the backlog as its own (larger) piece of work.
     int   order  = 0;
+    // Drawn or not. See UiPanel::visible for the four properties this flag has to keep;
+    // the short version is: drawing only, not in the alpha product, no inheritance, and no
+    // inference from or to any other component on the same entity.
+    bool  visible = true;
 };
 
 template <class V>
@@ -47,5 +51,6 @@ void reflect(V& visitor, UiText& t)
     visitor.member("color", t.color);
     visitor.member("alpha", t.alpha);
     visitor.member("order", t.order);
+    visitor.member("visible", t.visible);
 }
 } // namespace mosaic::engine::ui

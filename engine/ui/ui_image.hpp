@@ -43,6 +43,10 @@ struct UiImage
     // here will NOT push it behind one. It only ranks images against each other. A unified
     // z-order across all UI is recorded in the backlog as its own (larger) piece of work.
     int   order  = 0;
+    // Drawn or not. See UiPanel::visible for the four properties this flag has to keep;
+    // the short version is: drawing only, not in the alpha product, no inheritance, and no
+    // inference from or to any other component on the same entity.
+    bool  visible = true;
 };
 
 template <class V>
@@ -58,5 +62,6 @@ void reflect(V& visitor, UiImage& i)
     visitor.member("tint", i.tint);
     visitor.member("alpha", i.alpha);
     visitor.member("order", i.order);
+    visitor.member("visible", i.visible);
 }
 } // namespace mosaic::engine::ui

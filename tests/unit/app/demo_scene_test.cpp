@@ -28,6 +28,9 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_stack.hpp"
+#include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_layout.hpp"
+#include "engine/ui/ui_hierarchy.hpp"
 #include "engine/script/script_component.hpp"
 #include "engine/script/script_host.hpp"
 #include "engine/transform/transform.hpp"
@@ -672,23 +675,85 @@ TEST_CASE("the demo scene authors a stack with children", "[app][layout]")
     World world;
     build_default_scene(world);
 
-    int             stacks = 0;
-    World::EntityID stack_entity{};
+    // TWO stacks since U8b: U8a's visible top-right container, and the layout-only
+    // (`visible = false`) container bottom-left. Counted and then told apart by their
+    // container panel's own `visible`, rather than by position in iteration order, which is
+    // not stable across an unrelated entity's destruction.
+    std::vector<World::EntityID> stack_entities;
+    world.for_each<UiStack>([&](mosaic::foundation::EntityID e, UiStack&)
+                            { stack_entities.push_back(e); });
+    REQUIRE(stack_entities.size() == 2);
+
+    int shown_containers = 0;
+    int hidden_containers = 0;
+    for (const World::EntityID stack_entity : stack_entities)
+    {
+        // Every container must carry a UiPanel: resolve_parent_frame returns the whole
+        // SCREEN for a parent without one, so a UiStack alone lays nothing out.
+        const auto* panel = world.get_component<mosaic::engine::ui::UiPanel>(stack_entity);
+        REQUIRE(panel != nullptr);
+        if (panel->visible)
+        {
+            ++shown_containers;
+        }
+        else
+        {
+            ++hidden_containers;
+            // The layout-only recipe, asserted on the AUTHORED data: alpha 1 is the identity
+            // of the inherited-alpha product, so an invisible container authored below 1
+            // would fade three children nobody can see through.
+            REQUIRE(panel->alpha == Catch::Approx(1.0f));
+        }
+
+        int children = 0;
+        world.for_each<UiParent>(
+            [&](mosaic::foundation::EntityID, UiParent& up)
+            {
+                if (up.parent == stack_entity) { ++children; }
+            });
+        REQUIRE(children == 3);
+    }
+    REQUIRE(shown_containers == 1);
+    REQUIRE(hidden_containers == 1);
+}
+
+TEST_CASE("the demo's layout-only container lays out while drawing nothing", "[app][layout]")
+{
+    // The authored feature of U8b, asserted on the SHIPPED scene rather than on a fixture,
+    // because the thing that can rot is the authoring and not the arithmetic.
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    using mosaic::engine::ui::UiStack;
+    World world;
+    build_default_scene(world);
+
+    World::EntityID container{};
     world.for_each<UiStack>(
         [&](mosaic::foundation::EntityID e, UiStack&)
         {
-            ++stacks;
-            stack_entity = e;
+            const auto* p = world.get_component<UiPanel>(e);
+            if (p != nullptr && !p->visible) { container = e; }
         });
-    REQUIRE(stacks == 1);
+    REQUIRE(world.is_valid(container));
 
-    int children = 0;
-    world.for_each<UiParent>(
-        [&](mosaic::foundation::EntityID, UiParent& up)
-        {
-            if (up.parent == stack_entity) { ++children; }
-        });
-    REQUIRE(children == 3);
+    const auto kids = mosaic::engine::ui::stack_children(world, container);
+    REQUIRE(kids.size() == 3);
+
+    // Each child resolved into its OWN slot, and the slots partition the container along
+    // the authored axis. The failure this guards is the sharp one: if `visible = false` made
+    // resolve_parent_frame treat the container as absent, all three frames would be the
+    // whole screen {0,0,1,1} -- identical to each other and far wider than the container.
+    const auto* cp = world.get_component<UiPanel>(container);
+    REQUIRE(cp != nullptr);
+    float prev_x = -1.0f;
+    for (const auto kid : kids)
+    {
+        const auto frame = mosaic::engine::ui::resolve_parent_frame(world, kid);
+        REQUIRE(frame.w == Catch::Approx(cp->size.x / 3.0f)); // a third of the container
+        REQUIRE(frame.w < 1.0f);                              // NOT the screen
+        REQUIRE(frame.x > prev_x);                            // and strictly left to right
+        prev_x = frame.x;
+    }
 }
 
 TEST_CASE("the demo's stack container is not the camera", "[app][layout]")

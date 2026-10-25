@@ -16,8 +16,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1462 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-25 |
-| Suite status | all passing (1462/1462, 3.8 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-25 |
+| Suite size | 1478 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-25 |
+| Suite status | all passing (1478/1478, 4.0 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-25 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -27,11 +27,10 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**New capability — U8 (the `🔴` row) is decomposed** — interactive-game UI is near-term. Spec: [U8 remainder](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). Three slices, in order:
+**New capability — U8 (the `🔴` row) is decomposed** — interactive-game UI is near-term. Spec: [U8 remainder](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8b (`visible`) SHIPPED 2026-10-25**: a layout-only container is authored `alpha = 1, visible = false`. Two slices left:
 
-1. **U8b — a `visible` bool.** Gate: a `UiStack` container with no visible chrome whose children keep their own alpha. **Settled 2026-10-25:** invisible means not drawn AND non-interactive — one predicate both paths call, with a test on both halves.
-2. **U8c — `UiGrid` / `UiFlow`.** Explicit `cols` + `rows` (settled). Gate: slot arithmetic pinned as pure functions, plus an authored grid that exactly tiles its container at any size.
-3. **U8d — a per-frame `parent → children` index.** Gate: a measured before/after on U8c's grid, draw and hit paths still agreeing. Last on purpose: U8c builds what makes it measurable.
+1. **U8c — `UiGrid` / `UiFlow`.** Explicit `cols` + `rows` (settled). Gate: slot arithmetic pinned as pure functions, plus an authored grid that exactly tiles its container at any size.
+2. **U8d — a per-frame `parent → children` index.** Gate: a measured before/after on U8c's grid, draw and hit paths still agreeing. Last on purpose: U8c builds what makes it measurable.
 
 ## Landmines
 
@@ -45,9 +44,9 @@ Things that waste an hour and that reading the code will not reveal.
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
 - **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count** (the count comes from the discovery file, regenerated only after a successful link). This reads exactly like the State table being wrong. Build successfully first, then trust the count.
 - **The renderer HAS a regression gate, and it is not `ctest`.** `timeout 12 env MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor` must exit **124** (the timeout IS the pass), print three `[INFO]` lines and zero VUIDs/ERROR/WARN. Capture on unmodified `main`, `diff` after any renderer change: it catches a bad object graph or barrier, which the suite cannot. Full: [record](../record/2026-10.md#two-gates-defined-precisely-moved-out-of-the-handoff-2026-10-24).
-- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Opt-in locally must not be relaxed**; CI runs them anyway in a Mesa-lavapipe step, which is why the rows above still say 1462 (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
-- **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:56` and `:71`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component.
-- **Adding a field to a component silently re-binds `app/run/demo_scene.hpp`'s positional brace initialisers.** gcc only catches it when the types differ.
+- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Opt-in locally must not be relaxed**; CI runs them anyway in a Mesa-lavapipe step, which is why the rows above still say 1478 (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
+- **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:59` and `:74`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component. They count **Transforms**, so an entity with none is free.
+- **Adding a field to a component silently re-binds a positional brace initialiser;** gcc only catches it when the types differ. Every UI-component init in `app/run/demo_scene.hpp` is designated since U8b, but `Bloom` is not.
 - **`TEST_CASE` names:** must not start with `--`, must have balanced `[`, and a comma must be escaped `\,` when filtering from a script. CTest discovery breaks otherwise; CI lints it.
 - **The editor opens stopped.** No ticks, so lazily-created state (physics bodies, particles, trails) does not exist until Play. A trail records nothing for something that is not moving.
 - **A backend draw path called once per entity that reuses one per-frame buffer aliases itself.** All three staging paths allocate per call and reset in `begin_frame` (#275, #287); all three are now asserted in pixels by `tests/gpu/offscreen_{particle,ribbon,world_text}_aliasing_test.cpp`. Do not undo that.

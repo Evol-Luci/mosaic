@@ -2973,3 +2973,178 @@ TEST_CASE("a faded container fades child text", "[render][ui]")
     REQUIRE(device.ui_text_draws[0].quads.size() == 1);
     REQUIRE(device.ui_text_draws[0].quads[0].alpha == Catch::Approx(0.25f));
 }
+
+// ---------------------------------------------------------------------------
+// U8b: `visible = false` means NOT DRAWN. One case per draw path, because the four passes
+// are four separate early-outs and covering one would leave three able to survive deletion
+// with the suite green -- the same lesson the inherited-alpha cases above record.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("RenderSystem skips a UiPanel with visible false", "[render][ui]")
+{
+    using mosaic::engine::ui::UiPanel;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    // Alpha 1 on purpose: the existing `alpha <= 0` early-out must not be what hides this,
+    // or the case would pass against an unimplemented `visible`.
+    auto    hidden = world.create_entity();
+    UiPanel h;
+    h.alpha   = 1.0f;
+    h.visible = false;
+    h.order   = 0;
+    world.add_component<UiPanel>(hidden, h);
+
+    // A second, visible panel, so a pass has to show the filter is SELECTIVE rather than
+    // that the pass drew nothing at all.
+    auto    shown = world.create_entity();
+    UiPanel s;
+    s.alpha = 1.0f;
+    s.pos   = {0.5f, 0.5f};
+    s.order = 1;
+    world.add_component<UiPanel>(shown, s);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    REQUIRE(device.ui_draws[0].size() == 1);
+    REQUIRE(device.ui_draws[0][0].rect.x == Catch::Approx(0.5f));
+}
+
+TEST_CASE("RenderSystem skips a UiImage with visible false", "[render][ui]")
+{
+    using mosaic::engine::ui::UiImage;
+    AssetRegistry registry;
+    const auto    tex_id = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto    hidden = world.create_entity();
+    UiImage h;
+    h.texture = tex_id;
+    h.alpha   = 1.0f;
+    h.visible = false;
+    world.add_component<UiImage>(hidden, h);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.ui_image_draws.empty());
+}
+
+TEST_CASE("RenderSystem skips a UiText with visible false", "[render][ui]")
+{
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto   hidden = world.create_entity();
+    UiText h;
+    h.font    = font_id;
+    h.text    = "X";
+    h.alpha   = 1.0f;
+    h.visible = false;
+    world.add_component<UiText>(hidden, h);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.ui_text_draws.empty());
+}
+
+TEST_CASE("RenderSystem skips a WorldLabel with visible false", "[render][ui]")
+{
+    using mosaic::engine::ui::WorldLabel;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    auto e = world.create_entity();
+    world.add_component<WorldTransform>(e, WorldTransform{Mat4::translation(Vec3{0, 0, 0})});
+    WorldLabel l;
+    l.font    = font_id;
+    l.text    = "X";
+    l.alpha   = 1.0f;
+    l.visible = false;
+    world.add_component<WorldLabel>(e, l);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+    REQUIRE(device.world_text_draws.empty());
+}
+
+TEST_CASE("an invisible stack container draws nothing while its children fill its slots",
+          "[render][ui]")
+{
+    // GATE OBSERVATION 1, end to end and in one frame: the layout-only container this whole
+    // slice exists to make authorable.
+    //
+    // THE AUTHORED RECIPE IS `alpha = 1, visible = false`. Alpha 1 is the identity of the
+    // inherited-alpha product, so the children render at their OWN authored alpha; `visible`
+    // hides the container's own quad and nothing else. That is the discoverable answer that
+    // replaces ui_stack.hpp's two undiscoverable workarounds (a transparent colour, or an
+    // alpha low enough to look hidden but above zero).
+    //
+    // Geometry authored the way U8a's demo stack is: spacing and padding 0, each child
+    // {1,1}, so the three children must EXACTLY tile the container -- thirds of the screen,
+    // no seam and no overlap.
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    using mosaic::engine::ui::UiStack;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto container = world.create_entity();
+    UiPanel    outer;
+    outer.anchor  = 0;
+    outer.pos     = {0.0f, 0.0f};
+    outer.size    = {1.0f, 1.0f};
+    outer.alpha   = 1.0f;
+    outer.visible = false;
+    outer.order   = 0;
+    world.add_component<UiPanel>(container, outer);
+    world.add_component<UiStack>(container, UiStack{.axis = 0, .spacing = 0.0f, .padding = 0.0f});
+
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto child = world.create_entity();
+        UiPanel    inner;
+        inner.anchor = 0;
+        inner.pos    = {0.0f, 0.0f};
+        inner.size   = {1.0f, 1.0f};
+        inner.alpha  = 1.0f;
+        inner.order  = 11 + i;
+        world.add_component<UiPanel>(child, inner);
+        world.add_component<UiParent>(child, UiParent{container});
+    }
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    const auto& quads = device.ui_draws[0];
+    // THREE, not four: the container contributed no quad. This is the assertion that fails
+    // before the panel pass reads `visible`.
+    REQUIRE(quads.size() == 3);
+    for (std::size_t i = 0; i < 3; ++i)
+    {
+        // Each child landed in its SLOT, so `visible = false` did not make
+        // resolve_parent_frame treat the container as absent -- an absent parent resolves to
+        // the whole screen, which would put all three at y = 0 with h = 1.
+        REQUIRE(quads[i].rect.x == Catch::Approx(0.0f));
+        REQUIRE(quads[i].rect.y == Catch::Approx(static_cast<float>(i) / 3.0f));
+        REQUIRE(quads[i].rect.w == Catch::Approx(1.0f));
+        REQUIRE(quads[i].rect.h == Catch::Approx(1.0f / 3.0f));
+        // At their OWN authored alpha: the invisible container contributes 1, not 0.
+        REQUIRE(quads[i].alpha == Catch::Approx(1.0f));
+    }
+}

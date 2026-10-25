@@ -394,3 +394,23 @@ TEST_CASE("with no conflicts every per-entity finding survives", "[ui][conflict]
     REQUIRE(without_entities_in_conflict(disagreements, {}).size() == 2);
     REQUIRE(without_entities_in_conflict({}, {}).empty());
 }
+
+TEST_CASE("an invisible button raises no order conflict", "[ui][orderconflict]")
+{
+    // A FREE CONSEQUENCE, asserted so it stays free. find_order_conflicts draws its rects
+    // from button_hit_candidates precisely so that "a conflict it reports is a conflict the
+    // hit test will actually honour" -- and a button that produces no candidate can misroute
+    // no click, so it must raise no finding. Nothing in ui_order_check.hpp mentions
+    // `visible`; this case is what would notice if that sharing were ever broken by giving
+    // the diagnostic its own flatten.
+    World world;
+    const auto a = add_button(world, 0.0f, 0.0f, 0.2f, 0.2f, /*button*/ 1, /*panel*/ 0);
+    add_button(world, 0.1f, 0.1f, 0.2f, 0.2f, /*button*/ 0, /*panel*/ 1); // inverted pair
+
+    REQUIRE(find_order_conflicts(world).size() == 1); // the conflict is real while both show
+
+    UiButton* hb = world.get_component<UiButton>(a);
+    REQUIRE(hb != nullptr);
+    hb->visible = false;
+    REQUIRE(find_order_conflicts(world).empty());
+}

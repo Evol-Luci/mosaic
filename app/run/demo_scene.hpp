@@ -719,11 +719,20 @@ inline void build_default_scene(mosaic::engine::World& world)
         mosaic::engine::vfx::Bloom{0.35f, 1.0f, 0.5f});
 
     // Demo HUD: a translucent bar anchored top-left, over everything.
+    //
+    // Designated, for the reason the UiButton below states. This was the LAST positional
+    // UiPanel init in the file and it was converted before `visible` was added, because a
+    // positional init re-binds silently when a component grows a field and the compiler
+    // only catches it when the types differ -- which is exactly how adding fields to
+    // UiImage re-bound `tint` during U7.
     world.add_component<mosaic::engine::ui::UiPanel>(camera,
         mosaic::engine::ui::UiPanel{
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
-            Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.02f, 0.02f},
+            .size   = mosaic::foundation::math::Vec2{0.25f, 0.06f},
+            .color  = Vec3{0.1f, 0.6f, 0.9f},
+            .alpha  = 0.6f,
+            .order  = 0});
 
     // Hover feedback, now RENDERED BY THE ENGINE rather than scripted. The HUD bar's panel,
     // button and style all live on this one entity, which IS the ownership rule: a button
@@ -769,10 +778,14 @@ inline void build_default_scene(mosaic::engine::World& world)
     const auto hud_label = world.create_entity();
     world.add_component<mosaic::engine::ui::UiText>(hud_label,
         mosaic::engine::ui::UiText{
-            kBuiltinFontId, "HP",
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.05f, 0.15f}, 0.5f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 3});
+            .font   = kBuiltinFontId,
+            .text   = "HP",
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.05f, 0.15f},
+            .height = 0.5f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .order  = 3});
     world.add_component<mosaic::engine::ui::UiParent>(hud_label,
         mosaic::engine::ui::UiParent{camera});
 
@@ -825,6 +838,64 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::engine::ui::UiParent{hud_stack});
     }
 
+    // A LAYOUT-ONLY CONTAINER (U8b), bottom-left: a horizontal UiStack whose own UiPanel is
+    // `visible = false`, so it lays its children out while showing no chrome of its own.
+    // This is the authored answer to the trap ui_stack.hpp documents, and it is here so the
+    // feature is checkable BY EYE and not only by test.
+    //
+    // WHAT TO LOOK FOR, and the two mistakes it distinguishes between:
+    //   * THREE small squares in a row along the bottom-left, evenly spaced, with NO dark
+    //     bar behind them. A bar behind them means the container's own `visible` was
+    //     ignored.
+    //   * They are FULLY OPAQUE. If they look washed out, `visible` leaked into the
+    //     inherited-alpha product -- which is why this container is authored `alpha = 1.0`
+    //     and the children at 1.0 as well. Nothing here is translucent, so anything
+    //     translucent is a bug.
+    //   * They are SMALL and bottom-left, not three screen-wide stripes. Screen-wide means
+    //     the invisible container was treated as ABSENT by resolve_parent_frame, so each
+    //     child resolved against the whole screen instead of against its slot. That is the
+    //     sharp failure of this slice, and it is the one with no other symptom.
+    //
+    // `size = {0.5f, 0.5f}` on the children, not {1,1}: half-filling each slot leaves a
+    // visible gutter, so the three SLOTS can be told apart from the three children -- which
+    // is what makes "evenly spaced" readable at a glance.
+    //
+    // No Transform on any of these four entities, so the default-scene Transform-count
+    // tests are unaffected.
+    const auto layout_only = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(layout_only,
+        mosaic::engine::ui::UiPanel{
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::BottomLeft),
+            .pos     = mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.30f, 0.07f},
+            .color   = Vec3{0.0f, 0.0f, 0.0f},
+            // 1.0 is the identity of the inherited-alpha product, so the children below
+            // render at their OWN authored alpha. A lower value here would fade three
+            // children through a container nobody can see.
+            .alpha   = 1.0f,
+            .order   = 20,
+            .visible = false});
+    world.add_component<mosaic::engine::ui::UiStack>(layout_only,
+        mosaic::engine::ui::UiStack{.axis = 1, .spacing = 0.0f, .padding = 0.0f});
+
+    const Vec3 pip_colors[3] = {Vec3{0.95f, 0.85f, 0.2f}, Vec3{0.2f, 0.9f, 0.85f},
+                                Vec3{0.9f, 0.4f, 0.85f}};
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto pip = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(pip,
+            mosaic::engine::ui::UiPanel{
+                .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos     = mosaic::foundation::math::Vec2{0.25f, 0.25f},
+                .size    = mosaic::foundation::math::Vec2{0.5f, 0.5f},
+                .color   = pip_colors[i],
+                .alpha   = 1.0f,
+                .order   = 21 + i,
+                .visible = true});
+        world.add_component<mosaic::engine::ui::UiParent>(pip,
+            mosaic::engine::ui::UiParent{layout_only});
+    }
+
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/
         // fit_mode, and a positional init silently re-binds tint onto the first new field.
@@ -869,10 +940,14 @@ inline void build_default_scene(mosaic::engine::World& world)
 
     world.add_component<mosaic::engine::ui::UiText>(camera,
         mosaic::engine::ui::UiText{
-            kBuiltinFontId, "MOSAIC",
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.03f, 0.10f}, 0.06f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 1});
+            .font   = kBuiltinFontId,
+            .text   = "MOSAIC",
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.03f, 0.10f},
+            .height = 0.06f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .order  = 1});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();
@@ -891,9 +966,12 @@ inline void build_default_scene(mosaic::engine::World& world)
     // tracks the cube as it circles. No new entity -> default-scene counts unchanged.
     world.add_component<mosaic::engine::ui::WorldLabel>(orbiter,
         mosaic::engine::ui::WorldLabel{
-            kBuiltinFontId, "Orbiter", 0.4f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f,
-            mosaic::foundation::math::Vec3{0.0f, 0.8f, 0.0f}});
+            .font   = kBuiltinFontId,
+            .text   = "Orbiter",
+            .size   = 0.4f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .offset = mosaic::foundation::math::Vec3{0.0f, 0.8f, 0.0f}});
 
     // A continuous emitter on the moving orbiter: sub-frame spawn interpolation
     // spreads its trail smoothly along the orbit arc instead of clumping per tick.
@@ -1019,8 +1097,12 @@ inline void build_default_scene(mosaic::engine::World& world)
         transform::Transform{Vec3{0, 0.9f, 4.5f}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<mosaic::engine::ui::WorldLabel>(glow_label,
         mosaic::engine::ui::WorldLabel{
-            kBuiltinFontId, "GLOW", 0.5f,
-            Vec3{1.0f, 2.85f, 0.25f}, 1.0f, Vec3{0.0f, 0.0f, 0.0f}});
+            .font   = kBuiltinFontId,
+            .text   = "GLOW",
+            .size   = 0.5f,
+            .color  = Vec3{1.0f, 2.85f, 0.25f},
+            .alpha  = 1.0f,
+            .offset = Vec3{0.0f, 0.0f, 0.0f}});
 }
 
 } // namespace mosaic::app

@@ -864,3 +864,47 @@ TEST_CASE("resetting the press state does not disturb hover", "[ui][input]")
     REQUIRE(h.names_with_action("hover_enter").empty());
     REQUIRE(h.names_with_action("hover_exit").empty());
 }
+
+TEST_CASE("an invisible UiButton emits no click and no hover_enter", "[ui][input]")
+{
+    // GATE OBSERVATION 2, through the real UiSystem rather than through the flatten it
+    // consumes. BOTH actions are asserted because they travel different paths inside
+    // UiSystem -- the press path and the hover path -- and a filter applied to only one of
+    // them would leave an invisible button still highlighting under the cursor.
+    Harness h;
+    UiButton* b = h.world.get_component<UiButton>(h.button);
+    REQUIRE(b != nullptr);
+    b->visible = false;
+
+    h.ptr = {0.05f, 0.05f, false}; h.tick(); // pointer moves onto it -> would hover
+    h.ptr = {0.05f, 0.05f, true};  h.tick(); // press inside
+    h.ptr = {0.05f, 0.05f, false}; h.tick(); // release inside -> would click
+
+    REQUIRE(h.names_with_action("click").empty());
+    REQUIRE(h.names_with_action("hover_enter").empty());
+    // Nothing at all on the channel, so a future action cannot slip through unasserted.
+    REQUIRE(h.events.empty());
+    // And the press was not CONSUMED either: an invisible button must not swallow a click
+    // from whatever is behind it, which is the difference between "no event" and "no
+    // button". Checked separately because press_consumed() is what the camera controller
+    // reads to decide whether the click was the UI's.
+    REQUIRE(h.press_consumed_for_test() == false);
+}
+
+TEST_CASE("an invisible button does not block a visible button beneath it", "[ui][input]")
+{
+    // The consequence that makes `visible = false` mean ABSENT rather than merely SILENT.
+    // The invisible button is added SECOND and with a higher order, so it would win the
+    // topmost resolution on both tie-break rules -- which means a passing run cannot be
+    // explained by the harness's own button happening to be picked first.
+    Harness h;
+    const auto on_top = h.add_overlapping(5, "on_top");
+    UiButton*  t      = h.world.get_component<UiButton>(on_top);
+    REQUIRE(t != nullptr);
+    t->visible = false;
+
+    h.ptr = {0.05f, 0.05f, true};  h.tick();
+    h.ptr = {0.05f, 0.05f, false}; h.tick();
+
+    REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
+}
