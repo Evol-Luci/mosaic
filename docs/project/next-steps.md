@@ -25,7 +25,13 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **two** as of 2026-10-25, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
 
-**The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309). Nearest queued work, both maintenance: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). **For actual new capability, read the `🔴 Large` table** — that pass found the 🟢/🟡 rows are now all maintenance of what exists. Tables: [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact).
+**The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
+
+**New capability — U8 (the `🔴` row) is decomposed** — interactive-game UI is near-term. Spec: [U8 remainder](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). Three slices, in order:
+
+1. **U8b — a `visible` bool.** Gate: a `UiStack` container with no visible chrome whose children keep their own alpha. **Settled 2026-10-25:** invisible means not drawn AND non-interactive — one predicate both paths call, with a test on both halves.
+2. **U8c — `UiGrid` / `UiFlow`.** Explicit `cols` + `rows` (settled). Gate: slot arithmetic pinned as pure functions, plus an authored grid that exactly tiles its container at any size.
+3. **U8d — a per-frame `parent → children` index.** Gate: a measured before/after on U8c's grid, draw and hit paths still agreeing. Last on purpose: U8c builds what makes it measurable.
 
 ## Landmines
 
