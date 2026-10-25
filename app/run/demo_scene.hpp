@@ -838,6 +838,64 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::engine::ui::UiParent{hud_stack});
     }
 
+    // A LAYOUT-ONLY CONTAINER (U8b), bottom-left: a horizontal UiStack whose own UiPanel is
+    // `visible = false`, so it lays its children out while showing no chrome of its own.
+    // This is the authored answer to the trap ui_stack.hpp documents, and it is here so the
+    // feature is checkable BY EYE and not only by test.
+    //
+    // WHAT TO LOOK FOR, and the two mistakes it distinguishes between:
+    //   * THREE small squares in a row along the bottom-left, evenly spaced, with NO dark
+    //     bar behind them. A bar behind them means the container's own `visible` was
+    //     ignored.
+    //   * They are FULLY OPAQUE. If they look washed out, `visible` leaked into the
+    //     inherited-alpha product -- which is why this container is authored `alpha = 1.0`
+    //     and the children at 1.0 as well. Nothing here is translucent, so anything
+    //     translucent is a bug.
+    //   * They are SMALL and bottom-left, not three screen-wide stripes. Screen-wide means
+    //     the invisible container was treated as ABSENT by resolve_parent_frame, so each
+    //     child resolved against the whole screen instead of against its slot. That is the
+    //     sharp failure of this slice, and it is the one with no other symptom.
+    //
+    // `size = {0.5f, 0.5f}` on the children, not {1,1}: half-filling each slot leaves a
+    // visible gutter, so the three SLOTS can be told apart from the three children -- which
+    // is what makes "evenly spaced" readable at a glance.
+    //
+    // No Transform on any of these four entities, so the default-scene Transform-count
+    // tests are unaffected.
+    const auto layout_only = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(layout_only,
+        mosaic::engine::ui::UiPanel{
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::BottomLeft),
+            .pos     = mosaic::foundation::math::Vec2{0.03f, 0.03f},
+            .size    = mosaic::foundation::math::Vec2{0.30f, 0.07f},
+            .color   = Vec3{0.0f, 0.0f, 0.0f},
+            // 1.0 is the identity of the inherited-alpha product, so the children below
+            // render at their OWN authored alpha. A lower value here would fade three
+            // children through a container nobody can see.
+            .alpha   = 1.0f,
+            .order   = 20,
+            .visible = false});
+    world.add_component<mosaic::engine::ui::UiStack>(layout_only,
+        mosaic::engine::ui::UiStack{.axis = 1, .spacing = 0.0f, .padding = 0.0f});
+
+    const Vec3 pip_colors[3] = {Vec3{0.95f, 0.85f, 0.2f}, Vec3{0.2f, 0.9f, 0.85f},
+                                Vec3{0.9f, 0.4f, 0.85f}};
+    for (int i = 0; i < 3; ++i)
+    {
+        const auto pip = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(pip,
+            mosaic::engine::ui::UiPanel{
+                .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos     = mosaic::foundation::math::Vec2{0.25f, 0.25f},
+                .size    = mosaic::foundation::math::Vec2{0.5f, 0.5f},
+                .color   = pip_colors[i],
+                .alpha   = 1.0f,
+                .order   = 21 + i,
+                .visible = true});
+        world.add_component<mosaic::engine::ui::UiParent>(pip,
+            mosaic::engine::ui::UiParent{layout_only});
+    }
+
     world.add_component<mosaic::engine::ui::UiImage>(camera,
         // Designated rather than positional: UiImage gained sub_rect_pos/sub_rect_size/
         // fit_mode, and a positional init silently re-binds tint onto the first new field.

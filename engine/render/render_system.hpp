@@ -445,7 +445,7 @@ public:
             world.for_each<mosaic::engine::ui::WorldLabel>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::WorldLabel& l)
                 {
-                    if (l.alpha <= 0.0f || l.text.empty()) { return; }
+                    if (!l.visible || l.alpha <= 0.0f || l.text.empty()) { return; }
                     const auto* wt = world.get_component<transform::WorldTransform>(e);
                     if (wt == nullptr) { return; }
                     std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
@@ -503,7 +503,17 @@ public:
             world.for_each<mosaic::engine::ui::UiPanel>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiPanel& p)
                 {
-                    if (p.alpha <= 0.0f) { return; }
+                    // `visible` sits BESIDE the authored-alpha early-out, not inside
+                    // resolve_appearance and not in resolve_parent_frame. Beside it, because
+                    // it is the same kind of statement -- "this component is not drawn" --
+                    // and a hover style must no more reveal a hidden panel than it may
+                    // reveal an alpha-0 one. NOT in resolve_parent_frame, because that
+                    // returns the whole SCREEN for a parent with no UiPanel: treating an
+                    // invisible panel as absent there would resolve every child of a
+                    // layout-only container against the screen instead of its slot. That is
+                    // the trap this field exists to escape, so escaping it is a property of
+                    // WHERE this line is.
+                    if (!p.visible || p.alpha <= 0.0f) { return; }
                     const auto rect = mosaic::engine::ui::resolve_ui_rect(
                         world, e, mosaic::engine::ui::to_anchor(p.anchor), p.pos, p.size);
                     // Hover feedback is a render-time override: nothing writes to p.color,
@@ -543,7 +553,7 @@ public:
             world.for_each<mosaic::engine::ui::UiImage>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
                 {
-                    if (im.alpha <= 0.0f) { return; }
+                    if (!im.visible || im.alpha <= 0.0f) { return; }
                     // get_info rather than get: the aspect modes need the texture's pixel
                     // dimensions, and a non-zero handle guarantees they are non-zero.
                     const TextureInfo info = texture_cache_.get_info(im.texture, registry, device);
@@ -590,7 +600,7 @@ public:
             world.for_each<mosaic::engine::ui::UiText>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiText& t)
                 {
-                    if (t.alpha <= 0.0f || t.text.empty()) { return; }
+                    if (!t.visible || t.alpha <= 0.0f || t.text.empty()) { return; }
                     std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
                         registry.load<mosaic::engine::ui::FontAtlas>(t.font);
                     if (!font) { return; }

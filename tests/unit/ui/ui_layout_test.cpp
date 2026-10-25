@@ -496,3 +496,110 @@ TEST_CASE("a child anchors within its slot for every anchor band", "[ui][layout]
         REQUIRE(via_layout.y + via_layout.h <= Approx(slot.y + slot.h));
     }
 }
+
+// ---------------------------------------------------------------------------
+// U8b: `visible` affects DRAWING ONLY. These three cases pin the properties the
+// draw-path change must NOT acquire, so they live beside layout rather than beside the
+// renderer.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("an invisible container still narrows its children's frames", "[ui][layout]")
+{
+    // THE SHARP TRAP OF THIS SLICE, and the reason a layout-only container is possible at
+    // all. `visible = false` must NOT make resolve_parent_frame treat the panel as ABSENT:
+    // that function returns the whole SCREEN {0,0,1,1} for a parent with no UiPanel, so an
+    // invisible container treated as absent would resolve every child against the screen
+    // instead of against its slot. That is the exact opposite of what the flag is for, it
+    // would silently break U8a's shipped demo stack, and NOTHING ELSE IN THE SUITE WOULD
+    // NOTICE -- the children would still be drawn, just in the wrong places.
+    //
+    // Asserted as EQUALITY WITH THE VISIBLE CASE rather than against hand-computed numbers,
+    // so it cannot drift if layout_slot's arithmetic ever changes: the claim is "identical",
+    // and that is what is written down.
+    World      world;
+    const auto make = [](World& w, bool container_visible)
+    {
+        const auto p = w.create_entity();
+        UiPanel    parent_panel;
+        parent_panel.anchor  = 0;
+        parent_panel.pos     = {0.1f, 0.2f};
+        parent_panel.size    = {0.6f, 0.8f};
+        parent_panel.visible = container_visible;
+        w.add_component<UiPanel>(p, parent_panel);
+        w.add_component<UiStack>(p, UiStack{0, 0.05f, 0.02f});
+        std::vector<World::EntityID> kids;
+        for (int i = 0; i < 3; ++i) { kids.push_back(make_child(w, p, 10 * i)); }
+        return kids;
+    };
+
+    World                        shown_world;
+    const std::vector<World::EntityID> shown  = make(shown_world, true);
+    World                        hidden_world;
+    const std::vector<World::EntityID> hidden = make(hidden_world, false);
+
+    REQUIRE(shown.size() == 3);
+    REQUIRE(hidden.size() == 3);
+    for (std::size_t i = 0; i < 3; ++i)
+    {
+        const auto a = mosaic::engine::ui::resolve_parent_frame(shown_world, shown[i]);
+        const auto b = mosaic::engine::ui::resolve_parent_frame(hidden_world, hidden[i]);
+        // Guards against the degenerate pass where BOTH collapsed to the screen rect: a
+        // real slot of a 0.6x0.8 parent split three ways is never the full screen.
+        REQUIRE(a.h < 0.5f);
+        REQUIRE(b.x == Approx(a.x));
+        REQUIRE(b.y == Approx(a.y));
+        REQUIRE(b.w == Approx(a.w));
+        REQUIRE(b.h == Approx(a.h));
+    }
+}
+
+TEST_CASE("visible does not join the inherited-alpha product", "[ui][layout]")
+{
+    // Decision 4 of the slice, and the thing that makes a layout-only container usable: if
+    // `visible = false` contributed 0 to the product, every child of the container would be
+    // hidden too -- which is precisely the alpha-0 trap the flag exists to escape.
+    //
+    // So the AUTHORED WAY to write a layout-only container is `alpha = 1, visible = false`:
+    // alpha 1 is the product's identity, and `visible` hides only this one component.
+    World      world;
+    const auto container = world.create_entity();
+    UiPanel    outer;
+    outer.alpha   = 1.0f;
+    outer.visible = false;
+    world.add_component<UiPanel>(container, outer);
+
+    const auto child = make_child(world, container, 0);
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, child) == Approx(1.0f));
+
+    // And the other direction: an invisible container with an authored alpha below 1 STILL
+    // fades its children, because the two fields are independent.
+    UiPanel* mut = world.get_component<UiPanel>(container);
+    REQUIRE(mut != nullptr);
+    mut->alpha = 0.5f;
+    REQUIRE(mosaic::engine::ui::inherited_alpha(world, child) == Approx(0.5f));
+}
+
+TEST_CASE("an invisible child still occupies its slot", "[ui][layout]")
+{
+    // The companion to "a hidden child still occupies a slot" above, which made the same
+    // claim for alpha. Layout must not come to depend on a render-time property in EITHER
+    // spelling, or hiding one element would reflow all the others.
+    World      world;
+    const auto p = make_stack_parent(world);
+    const auto a = make_child(world, p, 10);
+    const auto b = make_child(world, p, 20);
+    UiPanel*   pa = world.get_component<UiPanel>(a);
+    REQUIRE(pa != nullptr);
+    pa->visible = false;
+
+    REQUIRE(stack_children(world, p).size() == 2);
+    // make_stack_parent gives the container a DEFAULT UiPanel, whose rect is {0,0,0.2,0.1}
+    // -- so two vertical slots are 0.05 tall and the second starts at y = 0.05. Expressed
+    // against the visible sibling's slot as well, so the numbers cannot be read as magic.
+    const auto fa = mosaic::engine::ui::resolve_parent_frame(world, a);
+    const auto fb = mosaic::engine::ui::resolve_parent_frame(world, b);
+    REQUIRE(fa.y == Approx(0.0f));
+    REQUIRE(fb.y == Approx(0.05f)); // still the SECOND of two slots, not promoted to the first
+    REQUIRE(fb.h == Approx(0.05f));
+    REQUIRE(fb.h == Approx(fa.h));  // and the two slots are still equal
+}

@@ -20,17 +20,35 @@ namespace mosaic::engine::ui
 // absolute screen units -- so a stack nests correctly and the arithmetic never refers to
 // the screen.
 //
-// A STACK NEEDS A UiPanel ON THE SAME ENTITY, and that has a trap worth knowing before
-// you meet it. resolve_parent_frame returns the whole SCREEN when a parent has no UiPanel,
-// so a UiStack alone lays nothing out. The obvious way to author a layout-only container
-// with no visible chrome is then UiPanel{alpha = 0} -- and that hides the whole subtree,
-// because a container's alpha multiplies down to its children.
+// A STACK NEEDS A UiPanel ON THE SAME ENTITY. resolve_parent_frame returns the whole SCREEN
+// when a parent has no UiPanel, so a UiStack alone lays nothing out -- there is no rect to
+// divide. A layout container must therefore carry a panel even when it should show no chrome
+// of its own.
 //
-// Today's workarounds are a fully transparent `color`, or an alpha low enough to be
-// invisible but above zero. Neither is discoverable, which is why this is written here
-// rather than left to be rediscovered. The real fix is the deferred `visible` bool (which
-// is NOT the same feature as alpha 0, because alpha 0 still hit-tests) or an opt-out on
-// alpha propagation; both are in the backlog.
+// THE AUTHORED WAY TO WRITE A LAYOUT-ONLY CONTAINER:
+//
+//     UiPanel{ ..., .alpha = 1.0f, .visible = false }
+//
+// Both halves are load-bearing, and each one is the answer to a thing that does not work:
+//
+//   .visible = false   hides THIS panel's own quad and nothing else. It does not inherit
+//                      down the chain and it does not reach any other component, so the
+//                      children render normally. It also does NOT make resolve_parent_frame
+//                      treat the panel as absent, which is what makes the layout survive --
+//                      see UiPanel::visible, property 1.
+//   .alpha = 1.0f      because inherited_alpha multiplies ANCESTOR alphas down, and 1 is
+//                      that product's identity. Author anything less and the children fade
+//                      with the container they cannot see.
+//
+// WHAT DOES NOT WORK, AND WHY IT IS WRITTEN DOWN: UiPanel{alpha = 0} is the obvious reach,
+// and it hides the whole subtree, because a container's alpha multiplies down to its
+// children. This comment previously offered two workarounds for that -- a fully transparent
+// `color`, or an alpha low enough to look invisible but above zero -- and named two possible
+// real fixes, the `visible` bool "or an opt-out on alpha propagation". The opt-out was
+// CONSIDERED AND DECLINED by the human verification pass of 2026-10-20 ("fading a container
+// should fade what is inside it"; recorded in app/run/demo_scene.hpp beside the "HP" label
+// and in docs/record/2026-10.md), so do not reach for it. `visible` shipped in U8b and is the
+// whole answer; the two workarounds are gone with the problem.
 struct UiStack
 {
     // 0 = vertical (children stack downward), 1 = horizontal. An int rather than an enum,
