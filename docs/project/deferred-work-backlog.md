@@ -653,9 +653,12 @@ them as this list does.
   ctest `LABELS gpu` tag (`-LE gpu` / `-L gpu`), so each keeps its own `check_ctest_run.py`
   denominator (1462 and 6) and the handoff's `Suite size` rows still read 1462, which is what a
   default local build still discovers. O2's skip guard was not relaxed. **Still open: the two
-  figures only the runner can give** — its `mesa-vulkan-drivers` version, and the `apt-get`
-  wall-clock cost (estimated ~3-10s, which would exceed the 0.11s of test execution it buys).
-  The revert condition is recorded with the entry.
+  figures only the runner could give, now measured:** `mesa-vulkan-drivers` **25.2.8** (not the
+  ~24.0/24.2 the probe guessed) and an `apt-get` cost of **~3.5s** on a ~1m20s job — inside the
+  probe's ~3-10s estimate, and still larger than the 0.11s of test execution it buys. The trial
+  also **disproved a claim the probe made without observing it**: Ubuntu names the manifest
+  `lvp_icd.json`, not `lvp_icd.x86_64.json`; the workflow globs `lvp_icd*.json`. The revert
+  condition is recorded with the entry.
 
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see

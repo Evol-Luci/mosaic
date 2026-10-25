@@ -222,12 +222,23 @@ jobs:
       # debug -N` still prints without -DMOSAIC_ENABLE_GPU_TESTS=ON.
       - name: Lavapipe device identity (the measurement this trial exists for)
         # Prove WHICH device the tests will use before trusting anything they report. The
-        # local probe's scratch ICD was Mesa 26.2.2 from Arch; the runner's is older and was
-        # never measured, so the version printed here is a finding, not boilerplate. Note
-        # Ubuntu names the manifest lvp_icd.x86_64.json where Arch names it lvp_icd.json.
+        # local probe's scratch ICD was Mesa 26.2.2 from Arch; the runner's was never
+        # measured, so the version printed by the install step is a finding, not boilerplate.
+        #
+        # The manifest name is GLOBBED, not hardcoded, and that is not defensive padding.
+        # Both the probe document and the backlog asserted that Ubuntu names this file
+        # `lvp_icd.x86_64.json` while Arch names it `lvp_icd.json`. The first run of this
+        # workflow disproved it: mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.4 on noble ships
+        # `/usr/share/vulkan/icd.d/lvp_icd.json`, same as Arch. A hardcoded name was wrong on
+        # the only runner it ever ran on, so match either and fail with the directory listing.
         run: |
-          ICD=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
-          test -f "$ICD" || { echo "::error::lavapipe ICD manifest not found at $ICD"; ls -1 /usr/share/vulkan/icd.d/; exit 1; }
+          ICD="$(ls -1 /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)"
+          if [ -z "$ICD" ]; then
+            echo "::error::no lavapipe ICD manifest (lvp_icd*.json) in /usr/share/vulkan/icd.d/"
+            ls -1 /usr/share/vulkan/icd.d/
+            exit 1
+          fi
+          echo "lavapipe ICD manifest: $ICD"
           echo "VK_ICD_FILENAMES=${ICD}" >> "$GITHUB_ENV"
           # Every selected device must be llvmpipe. A hardware or unexpected ICD here would
           # still go green in the step below while measuring something else entirely.
