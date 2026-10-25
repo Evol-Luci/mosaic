@@ -161,10 +161,22 @@ inline std::optional<Rect> slot_for_child(mosaic::engine::World& world,
     // and counting it is what turned the backlog's "non-stack scenes pay nothing" from a
     // claim into a measured number. They are O(1) sparse-set lookups and they do not scan,
     // so the answer is "nearly nothing, and now three times nearly nothing" -- but the
-    // counter is what makes a fourth container's cost visible instead of asserted.
-    layout_stats().container_probes += 3;
+    // counter is what keeps a fourth container's cost measured rather than asserted, which
+    // is only true because the increments below are per-probe. See the note there.
+    // ONE INCREMENT PER PROBE, NOT `+= 3`. The count has to be tied to the lookups
+    // structurally or it does not deliver the property stated above: a literal 3 would stay
+    // 3 when a fourth container type was added, the counter would silently under-report, and
+    // every assertion on it (48, 192, 768 in ui_layout_cost_test.cpp -- all exact multiples
+    // of the element count) would keep passing. A reader would then trust a number that had
+    // stopped measuring the thing it names. Three increments cost nothing measurable (the
+    // whole instrument was measured at +0.01 ms of 0.77 ms release, inside the spread) and
+    // they make adding a container without its probe visible right here.
+    LayoutStats& probe_stats = layout_stats();
+    ++probe_stats.container_probes;
     const UiStack* st = world.get_component<UiStack>(up->parent);
+    ++probe_stats.container_probes;
     const UiGrid*  gr = world.get_component<UiGrid>(up->parent);
+    ++probe_stats.container_probes;
     const UiFlow*  fl = world.get_component<UiFlow>(up->parent);
     if (st == nullptr && gr == nullptr && fl == nullptr) { return std::nullopt; }
 
