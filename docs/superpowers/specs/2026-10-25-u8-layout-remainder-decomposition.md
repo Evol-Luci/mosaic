@@ -81,20 +81,84 @@ enough to be invisible but above zero) are written into `ui_stack.hpp` precisely
 trap until it is fixed. U8c would author a grid container and meet it immediately.
 
 **The one decision, and it was the human's. SETTLED 2026-10-25: `visible = false` means
-NOT DRAWN AND NON-INTERACTIVE.** `alpha = 0` hides an element but it still **hit-tests**, so
-an invisible panel still eats clicks; the backlog had carried this question as the entry's
-stated dependency since 2026-10-17. The alternative considered was "not drawn only", which
-keeps `visible` purely a render property and leaves interactivity to a second concept later
-(an `enabled` bool on `UiButton`, say).
+NOT DRAWN AND NON-INTERACTIVE.** The alternative considered was "not drawn only", which keeps
+`visible` purely a render property and leaves interactivity to a second concept later (an
+`enabled` bool on `UiButton`, say).
 
-**Why the chosen answer, written down so it is not re-argued.** "Not drawn only" would have
-shipped the layout-only container *still eating clicks* — half of the recorded complaint, and
-the half that reads as an engine bug rather than as a styling choice. The accepted cost is
-real and should be stated plainly: this **couples the draw path and the hit path through one
-field**, which is the kind of coupling U6 spent a slice untangling. So the implementation
-must make that coupling explicit rather than incidental — one predicate both paths call, not
-two independent `if (!visible)` checks that can drift apart. **A test must assert both halves
-of the same field**: an invisible panel is not drawn *and* produces no hit candidate.
+### Correction: the backlog's stated mechanism for this entry is wrong
+
+**Checked against the code 2026-10-25, before briefing an implementer, and it does not hold.**
+The backlog entry says *"`alpha = 0` hides an element but it still HIT-TESTS, so an invisible
+panel still eats clicks."* That sentence has the right instinct and the wrong mechanism, and
+this document repeated it in its first draft. What the code actually does:
+
+- **A `UiPanel` is never hit-tested at all.** `button_hit_candidates`
+  (`engine/ui/ui_button_rects.hpp`) iterates `for_each<UiButton>` and nothing else. It is the
+  single shared flatten used by the press path, the hover path and the order-conflict
+  diagnostic, and it consults no alpha anywhere.
+- **`UiButton` has no `alpha`, and no appearance.** Its own header calls it *"a non-visual
+  rectangular hit region ... overlay a UiPanel/UiImage/UiText for the visual."* It was
+  therefore never "visible" or "invisible" to begin with.
+- **The four draw paths early-out on `alpha <= 0`** (`render_system.hpp:448, 506, 546, 593`),
+  so a faded panel, image, text or world label is genuinely not drawn.
+
+**So a `UiPanel{alpha = 0}` eats nothing today**, and a layout-only container carrying no
+`UiButton` already swallows no clicks. The real defect the entry was reaching for is the
+reverse pairing: **fading a button's *visual* leaves the button fully clickable**, because the
+alpha lives on the co-located `UiPanel` and the hit region does not read it.
+
+**What this changes, and what it does not.** It does **not** change the human's answer: both
+halves are still worth having, and "not drawn only" would still have left an invisible-looking
+button clickable. It changes two things in the implementation:
+
+1. **There is no single predicate, and no draw/hit coupling to pay.** The two paths read
+   *different components* — the draw passes read `UiPanel`/`UiImage`/`UiText`, and the hit
+   path reads `UiButton`. So `visible` is a **per-component field**, each path consulting its
+   own component's. The cost this document previously warned about (coupling the draw and hit
+   paths through one field, the kind U6 spent a slice untangling) **is not incurred**. That is
+   a better outcome than the decision was taken under, not a worse one.
+2. **The non-interactive half is a new capability on `UiButton`, not a fix to an existing
+   one.** `visible = false` on a `UiButton` makes it produce no hit candidate — which is
+   functionally a *disabled* flag. The adjacent deferred item **"Pressed and disabled visual
+   states"** is therefore closer to this slice than the backlog suggests, and its recorded
+   open question (precedence when several states apply at once) is **not** reopened here:
+   `visible` gates whether the button exists to be hit, before any styling question.
+
+### The ruling that follows, and it is the supervisor's
+
+**`visible` does NOT propagate across components on the same entity, and does NOT inherit
+down the parent chain.** Ruled 2026-10-25.
+
+- **No cross-component inference.** Hiding a `UiPanel` must not disable a `UiButton` that
+  happens to sit on the same entity. The backlog records exactly why: *"Co-location is not
+  always ownership"* — `app/run/demo_scene.hpp` piles the unrelated "MOSAIC" title and the
+  checker `UiImage` onto the `camera` entity purely for convenience, so the ownership rule is
+  *"a convention the repository happens to follow, not an invariant the data enforces."*
+  Inferring across components would build a feature on that convention and break the first
+  time someone authored against it. Hiding a button and its visual therefore means setting two
+  fields, and that is the honest cost.
+- **No inheritance down the chain**, unlike `alpha`. `inherited_alpha` deliberately multiplies
+  down so fading a container fades its contents; `visible` must stay a local property, because
+  the whole point of U8b is a container that is itself undrawn while its children render
+  normally. **`visible` must not participate in the alpha product at all.**
+
+**THE SHARP TRAP, and the one most likely to be got wrong.** `visible = false` affects
+**drawing only** — it must NOT make `resolve_parent_frame` skip the panel. That function
+returns the whole screen when a parent has no `UiPanel`
+(`ui_hierarchy.hpp`), so treating an invisible panel as absent would make every child of a
+layout-only container resolve against the screen instead of its slot, which is the exact
+opposite of this slice's purpose and would silently break U8a's shipped demo stack.
+
+**Gate, restated for the corrected mechanism.** Three observations, not two:
+
+1. A `UiStack` container with `visible = false` lays its children out **unchanged** — same
+   slots as with `visible = true` — while the container itself is not drawn and its children
+   render at their own authored alpha.
+2. A `UiButton` with `visible = false` produces **no hit candidate**, so it emits no `click`
+   and no `hover_enter`.
+3. A `UiPanel{visible = false}` on an entity whose `UiButton` is `visible = true` **still
+   hit-tests**, pinning the no-inference ruling. This is the assertion that fails if someone
+   "helpfully" couples them.
 
 **Known landmine, now located exactly.** Adding a field to `UiPanel` re-binds positional
 brace initialisers in `app/run/demo_scene.hpp`, and gcc only catches it when the types
@@ -223,9 +287,12 @@ number, not an estimate.
 
 ## Decisions fixed by this decomposition
 
-- **`visible = false` means not drawn AND non-interactive** (the human's call, 2026-10-25).
-  One predicate, called by both paths; a test asserts both halves. See U8b above for the
-  accepted cost.
+- **`visible = false` means not drawn AND non-interactive** (the human's call, 2026-10-25),
+  as a **per-component** field: the draw passes read `UiPanel`/`UiImage`/`UiText`, the hit path
+  reads `UiButton`. It does **not** propagate across components on one entity and does **not**
+  inherit down the parent chain (the supervisor's ruling, 2026-10-25 — see U8b, which also
+  corrects the mechanism the backlog entry stated). It affects drawing only and must never
+  make `resolve_parent_frame` treat a panel as absent.
 - **`UiGrid` is authored with explicit `cols` and `rows`** (the human's call, 2026-10-25),
   which is also what keeps `UiGrid` and `UiFlow` distinct features. See U8c above.
 - **U8d may legitimately ship a measurement and no cache.** Ruled by the supervisor,
