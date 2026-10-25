@@ -173,60 +173,60 @@ deliberately left out.
 
 **The U8 remainder was decomposed 2026-10-25** — see
 [the decomposition spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md).
-The order is **U8b** the `visible` bool (a
-layout-only container, **SHIPPED 2026-10-25**), then **U8c** `UiGrid`/`UiFlow`, then **U8d**
-the `parent -> children` index — with content-sized slots and the editor gizmo left deferred behind their named
-blockers. The five entries below are the source material; the spec orders them and states
-each one's gate. Two things it found that those entries predate: the `visible` bool's stated
-blocker has cleared (it was U6, which shipped), and the alpha-propagation opt-out that
-`ui_stack.hpp` still offers as an alternative was **declined** on 2026-10-20.
+**U8 IS COMPLETE as of 2026-10-25**: **U8b**
+the `visible` bool (**SHIPPED**), **U8c** `UiGrid`/`UiFlow` (**SHIPPED**) and **U8d** the
+`parent -> children` index (**RESOLVED with a measurement and no cache** — the cost is real
+only at a scale nothing has authored, and the trigger is now a number in a committed counter
+rather than an estimate). What remains deferred is what the spec left deferred behind named
+blockers: **content-sized layout slots** (blocked on "may layout block on asset loading?") and
+**a layout-slot gizmo in the editor** (independent, and its promotion trigger was retired by
+U8c — authoring a grid by numbers did not hurt). The entries below are the source material;
+the spec orders them and states each one's gate. Two things it found that those entries
+predate: the `visible` bool's stated blocker has cleared (it was U6, which shipped), and the
+alpha-propagation opt-out that `ui_stack.hpp` still offers as an alternative was **declined**
+on 2026-10-20. Three of its stated premises were checked by U8d and only one held in full —
+see the record.
 
-- **`stack_children` scans the whole world once per laid-out element, per frame.** **(U8d)**
-  Introduced by U8a 2026-10-17 and recorded by its author rather than found in
-  review. `resolve_parent_frame` is called per UI element per frame — by the draw
-  path AND the hit-test path — and now calls `slot_for_child`, which calls
-  `stack_children`, which is a full `for_each<UiParent>` over the world plus a
-  sort. So the cost is roughly **O(E × d × P)** per frame: E elements drawn, d
-  the depth of each one's parent chain, P the number of entities carrying
-  `UiParent`. That is quadratic in the size of a parented UI.
+- ~~**`stack_children` scans the whole world once per laid-out element, per frame** (U8d)~~ —
+  **RESOLVED 2026-10-25 with a MEASUREMENT AND NO CACHE**, the outcome the decomposition
+  pre-authorised. Narrative, numbers and the premise corrections in
+  [record](../record/2026-10.md#u8d--the-parent---children-index-measured-and-deliberately-not-built).
+  Measured: a 256-child grid's whole layout pass is 65,536 component visits and **~0.7 ms per
+  frame in a RELEASE build** (~17 ms in debug — a 25x gap, which is why the ruling needed an
+  optimised build); the shipped demo scene pays 306 visits a frame. **The trigger to build the
+  index, in the committed counter's own units:** a real authored scene measuring **>~200,000
+  `visits`** or **>~500 `scans`** per frame. `engine/ui/ui_layout_stats.hpp` and
+  `tests/unit/ui/ui_layout_cost_test.cpp` are how to check a candidate scene.
 
-  **Not a problem at today's scale and deliberately not optimised:** the demo has
-  four parented elements, so this is a handful of comparisons a frame, and the
-  obvious fixes (build a parent→children index once per frame, or memoise per
-  resolution pass) both add a cache whose invalidation is a new correctness
-  surface — in a function whose *whole value* is being pure and lazy, which is
-  what makes the draw and hit-test paths agree by construction. Paying that
-  complexity before anything is slow would be trading a guarantee for a guess.
-
-  **Sharpened by the whole-branch review**, which put real numbers on it: the
-  resolve happens in the panel pass, the image pass, the text pass AND
-  `button_hit_candidates`, so 4-5 times a frame, and each `resolve_parent_frame`
-  also allocates `2D` vectors. A 30-child stack in a world of 100 `UiParent`
-  entities is roughly 12,000 visits, 120 sorts and 240 heap allocations per
-  frame; a 200-child stack with 500 parents is ~400,000 visits and ~4,000
-  allocations per frame, which would dominate the UI's cost. Non-stack scenes
-  pay nothing -- the `UiStack` lookup short-circuits before the scan.
-
-  **The trigger to fix it** is a UI of a few hundred elements, which nothing here
-  has yet; the review's phrase for it is "a real scaling cliff that is invisible
-  until someone builds an inventory grid". The named mitigation is a per-frame
-  memoised `parent -> children` map built once per render rather than per
-  element. Measure first: the index is cheap, but confirming the cost is real
-  matters more than the shape of the fix. **THE INSTRUMENT NOW EXISTS, built by U8c
-  2026-10-25 and deliberately uncached:** `tests/unit/ui/ui_grid_flow_test.cpp`'s case `a
-  grid of two hundred and fifty six children lays out from a test alone` drives the whole
-  layout path -- `stack_children`'s `for_each` over the world, the sort, `slot_for_child`,
-  the `resolve_parent_frame` hook -- at inventory-grid size from a fixture, with no demo
-  scene, no renderer and no window, so a before/after needs no GUI. It is O(N^2) by
-  construction (256 children is ~65k component visits and 256 heap allocations), and the
-  demo's authored 3x2 grid plus 5-item flow add 11 more parented elements to the shipped
-  scene. What makes U8d's measurement HARDER: nothing added a cache, which was the point.
-  Depends on nothing *technically* -- but
-  **ordered after U8c** by the 2026-10-25 decomposition, because the trigger it names
-  ("invisible until someone builds an inventory grid") is a thing U8c builds, and this is
-  the only one of the three slices that trades a correctness guarantee (`slot_for_child`
-  being pure and lazy, so the draw and hit-test paths agree by construction) for speed.
-  That should be paid against a measured number, not the review's estimate.
+- **The layout counters are unconditional in the engine, and non-thread-safe.** Deferred
+  2026-10-25 **during U8d**. `engine/ui/ui_layout_stats.hpp` increments six plain
+  `std::uint64_t`s on the layout path; `visits` is the only one inside a loop. Measured cost on
+  a 256-child grid: **+0.01 ms of 0.77 ms in release, +0.11 ms of 17.16 ms in debug**, both
+  inside the run-to-run spread — so not shown to cost anything, and not shown to be free
+  either, because the noise floor cannot resolve a 1% effect. Left unconditional rather than
+  macro-gated because a counter compiled out of the default build is a counter nobody can read
+  when they need it, and the alternative (a separate instrumented test binary) is CMake surface
+  and a second CI denominator for an effect nothing has measured. **Depends on** a release-build
+  profile that actually shows the increment, or a caller that parallelises UI layout — at which
+  point the right move is to stop using the numbers, not to make them atomic. **Trigger:** either
+  of those.
+- **`inherited_alpha` and `active_hover_style` walk the parent chain per element per pass, and
+  nothing counts them.** Deferred 2026-10-25 **during U8d**, and surfaced BY it: at the demo
+  scene's scale these `get_component` walks are the same order of magnitude as the scan U8d
+  measured (306 visits against 54 container probes plus two chain walks per drawn element), so
+  "is `stack_children` the hot part?" is true at 256 children and **not clearly true at 20**.
+  Deferred because neither is quadratic — both are O(d) with `d <= 16` — so there is no cliff to
+  find, and the honest next step is a counter on them rather than a fix. **Depends on** a reason
+  to care: a scene where the UI's layout cost is measurable at all. Today nothing's is.
+- **`slot_for_child`'s container-probe count grows with the number of container types.** Deferred
+  2026-10-25 **during U8d**. Three `get_component` calls per parented element per resolve today
+  (`UiStack`, `UiGrid`, `UiFlow`), where U8a had one — U8c tripled it and nobody measured it.
+  Each is an O(1) sparse-set lookup and the short-circuit before the scan still works, so the
+  backlog's "non-stack scenes pay nothing" holds in spirit and is now asserted by `a parented
+  element with no container scans nothing but still probes three times`. The fix, if one is ever
+  wanted, is a single `UiContainer`-kind discriminator or a bitmask on `UiParent`, which is a
+  component-model change, not a performance change. **Depends on** a fourth container type, which
+  is the point at which the constant stops being noise.
 
 - ~~**`UiGrid` and `UiFlow`** (U8c)~~ — **SHIPPED 2026-10-25.** Narrative in
   [record](../record/2026-10.md#u8c--uigrid-and-uiflow). Explicit `cols` + `rows`; flow wraps
@@ -2243,7 +2243,7 @@ changed the premise its impact rested on. The others gained no new evidence and 
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
-| **U8 layout containers** | **The open question is answered, 2026-10-25: interactive-game UI IS near-term, so High.** U8a shipped (#260) and the remainder is now decomposed -- [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md) -- into **U8b** `visible` bool (**SHIPPED 2026-10-25**), **U8c** `UiGrid`/`UiFlow` (**SHIPPED 2026-10-25**), **U8d** `parent -> children` index, with content-sized slots and the editor gizmo deferred behind named blockers. **U8c SHIPPED 2026-10-25** (`UiGrid` with explicit `cols` + `rows`, `UiFlow` wrapping at an authored `per_line`), so **next is U8d**, whose instrument U8c built and deliberately left uncached. U9-U11 remain in the UI section and unchanged. |
+| **U8 layout containers** | **COMPLETE 2026-10-25, and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **So U8 is no longer the answer to "what is next"** — U9-U11 remain in the UI section and unchanged. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |
