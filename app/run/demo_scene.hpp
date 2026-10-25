@@ -719,11 +719,20 @@ inline void build_default_scene(mosaic::engine::World& world)
         mosaic::engine::vfx::Bloom{0.35f, 1.0f, 0.5f});
 
     // Demo HUD: a translucent bar anchored top-left, over everything.
+    //
+    // Designated, for the reason the UiButton below states. This was the LAST positional
+    // UiPanel init in the file and it was converted before `visible` was added, because a
+    // positional init re-binds silently when a component grows a field and the compiler
+    // only catches it when the types differ -- which is exactly how adding fields to
+    // UiImage re-bound `tint` during U7.
     world.add_component<mosaic::engine::ui::UiPanel>(camera,
         mosaic::engine::ui::UiPanel{
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.02f, 0.02f}, mosaic::foundation::math::Vec2{0.25f, 0.06f},
-            Vec3{0.1f, 0.6f, 0.9f}, 0.6f, 0});
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.02f, 0.02f},
+            .size   = mosaic::foundation::math::Vec2{0.25f, 0.06f},
+            .color  = Vec3{0.1f, 0.6f, 0.9f},
+            .alpha  = 0.6f,
+            .order  = 0});
 
     // Hover feedback, now RENDERED BY THE ENGINE rather than scripted. The HUD bar's panel,
     // button and style all live on this one entity, which IS the ownership rule: a button
@@ -769,10 +778,14 @@ inline void build_default_scene(mosaic::engine::World& world)
     const auto hud_label = world.create_entity();
     world.add_component<mosaic::engine::ui::UiText>(hud_label,
         mosaic::engine::ui::UiText{
-            kBuiltinFontId, "HP",
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.05f, 0.15f}, 0.5f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 3});
+            .font   = kBuiltinFontId,
+            .text   = "HP",
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.05f, 0.15f},
+            .height = 0.5f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .order  = 3});
     world.add_component<mosaic::engine::ui::UiParent>(hud_label,
         mosaic::engine::ui::UiParent{camera});
 
@@ -869,10 +882,14 @@ inline void build_default_scene(mosaic::engine::World& world)
 
     world.add_component<mosaic::engine::ui::UiText>(camera,
         mosaic::engine::ui::UiText{
-            kBuiltinFontId, "MOSAIC",
-            static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            mosaic::foundation::math::Vec2{0.03f, 0.10f}, 0.06f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f, 1});
+            .font   = kBuiltinFontId,
+            .text   = "MOSAIC",
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.03f, 0.10f},
+            .height = 0.06f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .order  = 1});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();
@@ -891,9 +908,12 @@ inline void build_default_scene(mosaic::engine::World& world)
     // tracks the cube as it circles. No new entity -> default-scene counts unchanged.
     world.add_component<mosaic::engine::ui::WorldLabel>(orbiter,
         mosaic::engine::ui::WorldLabel{
-            kBuiltinFontId, "Orbiter", 0.4f,
-            mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f}, 1.0f,
-            mosaic::foundation::math::Vec3{0.0f, 0.8f, 0.0f}});
+            .font   = kBuiltinFontId,
+            .text   = "Orbiter",
+            .size   = 0.4f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .offset = mosaic::foundation::math::Vec3{0.0f, 0.8f, 0.0f}});
 
     // A continuous emitter on the moving orbiter: sub-frame spawn interpolation
     // spreads its trail smoothly along the orbit arc instead of clumping per tick.
@@ -1019,8 +1039,12 @@ inline void build_default_scene(mosaic::engine::World& world)
         transform::Transform{Vec3{0, 0.9f, 4.5f}, Quat::identity(), Vec3{1, 1, 1}, {}});
     world.add_component<mosaic::engine::ui::WorldLabel>(glow_label,
         mosaic::engine::ui::WorldLabel{
-            kBuiltinFontId, "GLOW", 0.5f,
-            Vec3{1.0f, 2.85f, 0.25f}, 1.0f, Vec3{0.0f, 0.0f, 0.0f}});
+            .font   = kBuiltinFontId,
+            .text   = "GLOW",
+            .size   = 0.5f,
+            .color  = Vec3{1.0f, 2.85f, 0.25f},
+            .alpha  = 1.0f,
+            .offset = Vec3{0.0f, 0.0f, 0.0f}});
 }
 
 } // namespace mosaic::app
