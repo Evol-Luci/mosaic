@@ -24,7 +24,7 @@
 
 The host did not have `/usr/share/vulkan/icd.d/lvp_icd*.json` installed system-wide (`pacman` package `vulkan-swrast` was not installed in `/usr`). However, every shared-library dependency of `vulkan-swrast 1:26.2.2-1` (`mesa 1:26.2.2-1`, `llvm-libs 22.1.8-2`, `spirv-tools 1:1.4.357.0-1`, etc.) was already installed on the host. We fetched `vulkan-swrast-1:26.2.2-1-x86_64.pkg.tar.zst` from the official Arch Linux archive into a user-space scratch directory without root privileges and pointed `VK_ICD_FILENAMES` at a user-local ICD manifest referencing the extracted `libvulkan_lvp.so`.
 
-*Note on ICD filename:* Mesa 26 on Arch installs `/usr/share/vulkan/icd.d/lvp_icd.json` (without the `.x86_64` architecture infix), whereas Ubuntu's `mesa-vulkan-drivers` package installs `/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`.
+*Note on ICD filename:* Mesa 26 on Arch installs `/usr/share/vulkan/icd.d/lvp_icd.json` (without the `.x86_64` architecture infix). ~~whereas Ubuntu's `mesa-vulkan-drivers` package installs `/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`~~ — **WRONG, retracted 2026-10-24 by the CI trial (#307).** This was asserted without ever being observed on a runner. `mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.4` on `ubuntu-latest` (noble) ships `lvp_icd.json`, with no architecture infix, exactly as Arch does. The first run of the trial workflow failed on `test -f .../lvp_icd.x86_64.json` and printed the directory listing, which is how this was caught; the workflow now globs `lvp_icd*.json`.
 
 ### Proof That Tests Executed on Lavapipe (Not Falling Back to NVIDIA)
 
@@ -198,7 +198,7 @@ Running on this workstation's user-space `vulkan-swrast 1:26.2.2-1` is a **local
 
 ## Recommendation
 
-**Proceed to a CI trial PR** enabling `mosaic_gpu_tests` under Mesa lavapipe (`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json`).
+**Proceed to a CI trial PR** enabling `mosaic_gpu_tests` under Mesa lavapipe (`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd*.json` — glob it; see the retraction above).
 
 ### Why
 
@@ -258,7 +258,8 @@ the same binary on the NVIDIA driver — a 4.2x speedup, inside the 2.5x–9.2x 
 above. The conformance and zero-false-failure findings reproduce.
 
 **A caveat the headline numbers should carry:** the Arch package used here is Mesa 26.2.2.
-`ubuntu-latest` ships an older `mesa-vulkan-drivers`, and the manifest is named
-`lvp_icd.x86_64.json` there rather than `lvp_icd.json`. This probe is therefore evidence
+`ubuntu-latest` ships an older `mesa-vulkan-drivers` (**measured by the trial: 25.2.8**, not
+the ~24.0/24.2 guessed above), and the manifest is named `lvp_icd.json` there too, **not**
+`lvp_icd.x86_64.json` as this document originally claimed. This probe is therefore evidence
 about *lavapipe as an approach*, not a measurement of the runner. The runner's Mesa version
 and its `apt-get` cost remain unmeasured, which is exactly what the trial PR is for.

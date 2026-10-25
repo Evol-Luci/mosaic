@@ -84,6 +84,22 @@ jobs:
             libgl-dev \
             pkg-config
 
+      # --- TRIAL (2026-10-24): software Vulkan, so the opt-in GPU tests can run here ------
+      # Deliberately its OWN step, so the GitHub step timer reports the apt cost on its own.
+      # That number is the one thing the lavapipe probe could not measure locally
+      # (docs/project/lavapipe-probe-findings.md, "What Could Not Be Determined Locally"),
+      # and it is the figure that decides whether this trial stays. If it is large, delete
+      # this step and the two below; nothing else depends on them.
+      #
+      # vulkan-validationlayers is NOT optional: the GPU tests hard-assert
+      # `validation_enabled()`, so without it they fail rather than silently run unvalidated.
+      - name: Install Mesa lavapipe (software Vulkan ICD) + validation layers
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-validationlayers
+          dpkg-query -W -f='mesa-vulkan-drivers ${Version}\n' mesa-vulkan-drivers
+          dpkg-query -W -f='vulkan-validationlayers ${Version}\n' vulkan-validationlayers
+          ls -1 /usr/share/vulkan/icd.d/ /usr/share/vulkan/explicit_layer.d/
+
       # --- ccache (design: docs/superpowers/specs/2026-10-20-ci-build-caching-design.md) -------
       # ccache's own content hash is what makes a hit valid (preprocessed source + compiler +
       # flags). The actions/cache key below only chooses WHICH bucket of that store to restore,
@@ -141,6 +157,7 @@ jobs:
         run: >
           cmake --preset debug -G Ninja
           -DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON
+          -DMOSAIC_ENABLE_GPU_TESTS=ON
           -DCMAKE_C_COMPILER_LAUNCHER=ccache
           -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
@@ -167,12 +184,19 @@ jobs:
         # exactly N testcases, all passed. There is deliberately no fallback for an empty or zero
         # N and no `|| true`: the check script fails hard on both. ctest's own failure and the
         # check's failure are both reported before the step exits.
+        #
+        # `-LE gpu` EXCLUDES the opt-in GPU tests, which this job also builds since the
+        # lavapipe trial. It is a label, not a name match: tests/CMakeLists.txt tags them
+        # via catch_discover_tests(... LABELS gpu). Both the `ctest -N` denominator and the
+        # run carry the same filter, so N stays 1462 against the 1462 `add_test` lines in
+        # mosaic_unit_tests-*_tests.cmake and O1 still means what it meant. The GPU tests
+        # get their own step, with their own N and their own generated file.
         run: |
-          N="$(ctest --preset debug -N | sed -n 's/^Total Tests: *//p')"
+          N="$(ctest --preset debug -N -LE gpu | sed -n 's/^Total Tests: *//p')"
           echo "discovered N=${N}"
           JUNIT="${RUNNER_TEMP}/ctest-junit.xml"
           set +e
-          ctest --preset debug --output-on-failure --no-tests=error -j"$(nproc)" --output-junit "${JUNIT}"
+          ctest --preset debug -LE gpu --output-on-failure --no-tests=error -j"$(nproc)" --output-junit "${JUNIT}"
           ctest_rc=$?
           python3 tools/ci/check_ctest_run.py "${JUNIT}" "${N}" build/debug/tests/mosaic_unit_tests-*_tests.cmake
           check_rc=$?
@@ -187,6 +211,64 @@ jobs:
         # Suite status needs the built tree and the JUnit file produced above. `JUNIT` is a
         # shell variable local to the "Unit tests" step, so its path is spelled out again here.
         run: python3 tools/docs/check_next_steps_claims.py --junit "${RUNNER_TEMP}/ctest-junit.xml"
+
+      # --- TRIAL (2026-10-24) ------------------------------------------------------------
+      # The GPU tests run SEPARATELY from the suite above, and that is the whole design.
+      # Folding them into the main ctest invocation would have broken two standing guards at
+      # once: check_ctest_run.py's O1 (one glob, 1462 add_test lines, vs. a discovered 1468)
+      # and check_next_steps_claims.py's Suite size / Suite status rows, which would then
+      # have to track a number no local default build produces. Split, each suite keeps an
+      # exact denominator and the handoff keeps saying 1462, which is what `ctest --preset
+      # debug -N` still prints without -DMOSAIC_ENABLE_GPU_TESTS=ON.
+      - name: Lavapipe device identity (the measurement this trial exists for)
+        # Prove WHICH device the tests will use before trusting anything they report. The
+        # local probe's scratch ICD was Mesa 26.2.2 from Arch; the runner's was never
+        # measured, so the version printed by the install step is a finding, not boilerplate.
+        #
+        # The manifest name is GLOBBED, not hardcoded, and that is not defensive padding.
+        # Both the probe document and the backlog asserted that Ubuntu names this file
+        # `lvp_icd.x86_64.json` while Arch names it `lvp_icd.json`. The first run of this
+        # workflow disproved it: mesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.4 on noble ships
+        # `/usr/share/vulkan/icd.d/lvp_icd.json`, same as Arch. A hardcoded name was wrong on
+        # the only runner it ever ran on, so match either and fail with the directory listing.
+        run: |
+          ICD="$(ls -1 /usr/share/vulkan/icd.d/lvp_icd*.json 2>/dev/null | head -1)"
+          if [ -z "$ICD" ]; then
+            echo "::error::no lavapipe ICD manifest (lvp_icd*.json) in /usr/share/vulkan/icd.d/"
+            ls -1 /usr/share/vulkan/icd.d/
+            exit 1
+          fi
+          echo "lavapipe ICD manifest: $ICD"
+          echo "VK_ICD_FILENAMES=${ICD}" >> "$GITHUB_ENV"
+          # Every selected device must be llvmpipe. A hardware or unexpected ICD here would
+          # still go green in the step below while measuring something else entirely.
+          VK_ICD_FILENAMES="$ICD" VK_LOADER_DEBUG=driver \
+            ./build/debug/tests/mosaic_gpu_tests "gpu headless Vulkan device creates and destroys cleanly twice in one process" \
+            > /tmp/lvp-trace.txt 2>&1 || { echo "::error::the lavapipe identity probe could not run the headless device test"; tail -40 /tmp/lvp-trace.txt; exit 1; }
+          grep -o 'Using "[^"]*"' /tmp/lvp-trace.txt | sort | uniq -c
+          if grep -o 'Using "[^"]*"' /tmp/lvp-trace.txt | grep -qv llvmpipe; then
+            echo "::error::a non-llvmpipe device was selected; the timings below would not be a lavapipe measurement"
+            exit 1
+          fi
+
+      - name: GPU tests under lavapipe
+        # Same standing guard as the suite above, with its own denominator: N from `ctest -N
+        # -L gpu` in THIS job, matched against the add_test lines in the GPU target's own
+        # generated file. No `|| true`, and O2's skip guard is NOT relaxed -- a GPU test that
+        # cannot reach a device fails (measured locally: a missing ICD fails 6 of 6 on
+        # vkCreateInstance), it does not skip, and that is what keeps this step honest.
+        run: |
+          N="$(ctest --preset debug -N -L gpu | sed -n 's/^Total Tests: *//p')"
+          echo "discovered gpu N=${N}"
+          JUNIT="${RUNNER_TEMP}/ctest-gpu-junit.xml"
+          set +e
+          ctest --preset debug -L gpu --output-on-failure --no-tests=error -j"$(nproc)" --output-junit "${JUNIT}"
+          ctest_rc=$?
+          python3 tools/ci/check_ctest_run.py "${JUNIT}" "${N}" build/debug/tests/mosaic_gpu_tests-*_tests.cmake
+          check_rc=$?
+          python3 tools/ci/check_ctest_run.py --report "${JUNIT}"
+          echo "ctest_rc=${ctest_rc} check_rc=${check_rc}"
+          exit $(( ctest_rc != 0 || check_rc != 0 ))
 
       - name: Headless smoke test (mosaic run --ticks, no window/GPU)
         run: |
