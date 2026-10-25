@@ -25,9 +25,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **two** as of 2026-10-25, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
 
-**One claim awaiting its first observation.** The two aliasing tests added 2026-10-25 have only ever run on real hardware (an NVIDIA GPU). Their thresholds are tolerance-based, not exact values, so they should hold under lavapipe — but the first `main` run of the `gpu` step is what proves it. If either is flaky on a software ICD, that is where it appears.
-
-Nothing else is queued. See the tier tables in [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact) (`🟡 Medium` and `🔴 Large`) for what is next.
+**The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309). Nearest queued work, both maintenance: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). **For actual new capability, read the `🔴 Large` table** — that pass found the 🟢/🟡 rows are now all maintenance of what exists. Tables: [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact).
 
 ## Landmines
 
