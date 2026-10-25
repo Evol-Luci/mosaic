@@ -756,6 +756,147 @@ TEST_CASE("the demo's layout-only container lays out while drawing nothing", "[a
     }
 }
 
+TEST_CASE("the demo's grid exactly tiles its container", "[app][layout]")
+{
+    // THE GATE OF U8c, on the SHIPPED scene rather than on a fixture, because the thing that
+    // can rot is the authoring and not the arithmetic. U8a's own standard: `spacing` and
+    // `padding` are authored 0 and each child's size is {1,1}, so the six children must
+    // exactly tile the container -- a SEAM means the slot division leaves a gap, an OVERLAP
+    // means it double-counts spacing.
+    //
+    // Asserted in NORMALIZED space, which is where the tiling claim actually lives: nothing
+    // in resolve_parent_frame or grid_slot refers to pixels or to the window, so "at any
+    // window size" follows from the arithmetic being window-independent rather than from
+    // sampling two sizes.
+    using mosaic::engine::ui::UiGrid;
+    using mosaic::engine::ui::UiPanel;
+    World world;
+    build_default_scene(world);
+
+    std::vector<World::EntityID> grids;
+    world.for_each<UiGrid>([&](mosaic::foundation::EntityID e, UiGrid&)
+                           { grids.push_back(e); });
+    REQUIRE(grids.size() == 1);
+    const World::EntityID container = grids[0];
+
+    // A grid NEEDS a UiPanel: resolve_parent_frame returns the whole SCREEN for a parent
+    // without one, so a UiGrid alone would divide the screen and promote every child to a
+    // top-level element.
+    const auto* cp = world.get_component<UiPanel>(container);
+    REQUIRE(cp != nullptr);
+    const auto* cg = world.get_component<UiGrid>(container);
+    REQUIRE(cg != nullptr);
+    REQUIRE(cg->cols == 3);
+    REQUIRE(cg->rows == 2);
+    REQUIRE(cg->spacing == Catch::Approx(0.0f));
+    REQUIRE(cg->padding == Catch::Approx(0.0f));
+
+    const auto kids = mosaic::engine::ui::stack_children(world, container);
+    REQUIRE(kids.size() == 6); // exactly full, so no cell is empty and no child is dropped
+
+    std::vector<mosaic::engine::ui::Rect> cells;
+    for (const auto kid : kids)
+    {
+        // The child's own size is {1,1}, so its rect IS its slot -- which is what makes the
+        // tiling judgeable on the resolved frames.
+        const auto* kp = world.get_component<UiPanel>(kid);
+        REQUIRE(kp != nullptr);
+        REQUIRE(kp->size.x == Catch::Approx(1.0f));
+        REQUIRE(kp->size.y == Catch::Approx(1.0f));
+        cells.push_back(mosaic::engine::ui::resolve_parent_frame(world, kid));
+    }
+
+    const float cell_w = cp->size.x / 3.0f;
+    const float cell_h = cp->size.y / 2.0f;
+    for (std::size_t i = 0; i < 6; ++i)
+    {
+        INFO("cell " << i);
+        REQUIRE(cells[i].w == Catch::Approx(cell_w));
+        REQUIRE(cells[i].h == Catch::Approx(cell_h));
+        REQUIRE(cells[i].w < 1.0f); // NOT the screen, which is the degenerate pass
+    }
+    // No seam and no overlap: within each row the cells' edges MEET, and down each column
+    // likewise. Written as an edge match rather than as six hand-computed rects, because a
+    // seam and an overlap are the same assertion with opposite signs.
+    for (std::size_t row = 0; row < 2; ++row)
+    {
+        for (std::size_t col = 0; col + 1 < 3; ++col)
+        {
+            const auto& left  = cells[row * 3 + col];
+            const auto& right = cells[row * 3 + col + 1];
+            INFO("row " << row << " columns " << col << " and " << col + 1);
+            REQUIRE(left.x + left.w == Catch::Approx(right.x));
+            REQUIRE(left.y == Catch::Approx(right.y));
+        }
+    }
+    for (std::size_t col = 0; col < 3; ++col)
+    {
+        const auto& top    = cells[col];
+        const auto& bottom = cells[3 + col];
+        INFO("column " << col);
+        REQUIRE(top.y + top.h == Catch::Approx(bottom.y));
+        REQUIRE(top.x == Catch::Approx(bottom.x));
+    }
+    // And together they cover the container exactly, which is the claim in one line.
+    REQUIRE(cells[0].x + 3.0f * cell_w == Catch::Approx(cells[2].x + cells[2].w));
+    REQUIRE(cells[0].y + 2.0f * cell_h == Catch::Approx(cells[5].y + cells[5].h));
+}
+
+TEST_CASE("the demo's flow keeps its partial final line at full-line size",
+          "[app][layout]")
+{
+    // The settled decision of this slice, authored so it is checkable by eye and asserted so
+    // it cannot be undone silently. Five children at three per line: the two on the second
+    // line must be a THIRD of the container wide and flush with the two cells above them.
+    //
+    // If this slice's choice were ever flipped to "divide the final line among the children
+    // present", the two cells would be a HALF wide each and `REQUIRE(w == cell_w)` is the
+    // assertion that fires, reporting 0.12 against 0.08.
+    using mosaic::engine::ui::UiFlow;
+    using mosaic::engine::ui::UiPanel;
+    World world;
+    build_default_scene(world);
+
+    std::vector<World::EntityID> flows;
+    world.for_each<UiFlow>([&](mosaic::foundation::EntityID e, UiFlow&)
+                           { flows.push_back(e); });
+    REQUIRE(flows.size() == 1);
+    const World::EntityID container = flows[0];
+    const auto*           cp        = world.get_component<UiPanel>(container);
+    REQUIRE(cp != nullptr);
+    const auto* cf = world.get_component<UiFlow>(container);
+    REQUIRE(cf != nullptr);
+    REQUIRE(cf->per_line == 3);
+    REQUIRE(cf->axis == 1); // horizontal, so lines are rows
+
+    const auto kids = mosaic::engine::ui::stack_children(world, container);
+    REQUIRE(kids.size() == 5); // FIVE, so the final line is partial -- that is the point
+
+    std::vector<mosaic::engine::ui::Rect> slots;
+    for (const auto kid : kids)
+    {
+        slots.push_back(mosaic::engine::ui::resolve_parent_frame(world, kid));
+    }
+    const float cell_w = cp->size.x / 3.0f;
+    const float cell_h = cp->size.y / 2.0f; // ceil(5 / 3) == 2 lines
+    for (std::size_t i = 0; i < 5; ++i)
+    {
+        INFO("item " << i);
+        REQUIRE(slots[i].w == Catch::Approx(cell_w));
+        REQUIRE(slots[i].h == Catch::Approx(cell_h));
+    }
+    // The two on the partial line line up with the two above them, and the third column of
+    // that line is EMPTY -- the container's own colour shows through, which is the by-eye
+    // evidence the comment in demo_scene.hpp points at.
+    REQUIRE(slots[3].x == Catch::Approx(slots[0].x));
+    REQUIRE(slots[4].x == Catch::Approx(slots[1].x));
+    REQUIRE(slots[3].y == Catch::Approx(slots[0].y + cell_h));
+    REQUIRE(slots[4].y == Catch::Approx(slots[3].y));
+    // Nothing occupies the sixth slot: the line is sized as if full, not divided.
+    REQUIRE(slots[4].x + slots[4].w == Catch::Approx(cp->size.x * (2.0f / 3.0f)
+                                                     + slots[0].x));
+}
+
 TEST_CASE("the demo's stack container is not the camera", "[app][layout]")
 {
     // The camera already parents the "HP" label (U5a hierarchy), so a UiStack on the camera
