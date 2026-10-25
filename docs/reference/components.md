@@ -231,6 +231,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `y`: 0.100000
 - `event`: ui_click
 - `order`: 0
+- `visible`: true
 
 ## UiHoverStyle
 
@@ -263,6 +264,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `z`: 1.000000
 - `alpha`: 1.000000
 - `order`: 0
+- `visible`: true
 
 ## UiPanel
 
@@ -279,6 +281,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `z`: 1.000000
 - `alpha`: 1.000000
 - `order`: 0
+- `visible`: true
 
 ## UiParent
 
@@ -305,6 +308,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `z`: 1.000000
 - `alpha`: 1.000000
 - `order`: 0
+- `visible`: true
 
 ## WorldLabel
 
@@ -320,4 +324,5 @@ Every built-in engine component, with its fields and their default values. Field
   - `x`: 0.000000
   - `y`: 0.000000
   - `z`: 0.000000
+- `visible`: true
 

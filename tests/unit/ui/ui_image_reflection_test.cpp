@@ -28,6 +28,9 @@ TEST_CASE("UiImage round-trips through reflection", "[ui][reflection]")
     im.sub_rect_pos  = Vec2{32.0f, 64.0f};
     im.sub_rect_size = Vec2{16.0f, 8.0f};
     im.fit_mode      = 2; // Fill
+    // Non-default: `visible` defaults to true, so a round-trip that dropped the field
+    // would come back true and assert nothing.
+    im.visible       = false;
 
     const auto value = mosaic::foundation::serialization::to_value(im);
     UiImage back;
@@ -45,6 +48,7 @@ TEST_CASE("UiImage round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.sub_rect_size.x == Approx(16.0f));
     REQUIRE(back.sub_rect_size.y == Approx(8.0f));
     REQUIRE(back.fit_mode == 2);
+    REQUIRE(back.visible == false);
 }
 
 TEST_CASE("UiImage is a registered built-in component", "[ui][reflection]")

@@ -24,6 +24,9 @@ TEST_CASE("UiText round-trips through reflection", "[ui][reflection]")
     t.color  = Vec3{0.9f, 0.8f, 0.1f};
     t.alpha  = 0.75f;
     t.order  = 3;
+    // Non-default: `visible` defaults to true, so a round-trip that dropped the field
+    // would come back true and assert nothing.
+    t.visible = false;
 
     const auto value = mosaic::foundation::serialization::to_value(t);
     UiText back;
@@ -37,6 +40,7 @@ TEST_CASE("UiText round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.color.x == Approx(0.9f));
     REQUIRE(back.alpha == Approx(0.75f));
     REQUIRE(back.order == 3);
+    REQUIRE(back.visible == false);
 }
 
 TEST_CASE("UiText is a registered built-in component", "[ui][reflection]")

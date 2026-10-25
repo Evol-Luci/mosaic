@@ -85,6 +85,21 @@ struct UiButton
     // image and text passes are separate and always above panels; UiImage::order cannot be
     // compared with a button's at all.
     int         order  = 0;
+    // Drawn or not -- which for a non-visual hit region means HIT-TESTED or not. `false`
+    // makes this button produce no hit candidate at all, so it emits no click, no hover and
+    // no drag. The name is shared with the three HUD components on purpose: one authored
+    // concept, "this component is not participating", spelled the same everywhere.
+    //
+    // THIS IS THE HALF THAT IS NOT INFERRED. A UiPanel{visible = false} on this entity does
+    // NOT turn this off, and turning this off does not hide that panel. See
+    // UiPanel::visible, property 4, for why -- co-location is a convention here, not an
+    // invariant.
+    //
+    // Functionally this is a `disabled` flag, and the deferred "pressed and disabled visual
+    // states" item is therefore nearer this field than the backlog suggested. Its open
+    // question (precedence when several states apply at once) is NOT reopened: `visible`
+    // gates whether the button exists to be hit, before any styling question arises.
+    bool        visible = true;
 };
 
 template <class V>
@@ -95,5 +110,6 @@ void reflect(V& visitor, UiButton& b)
     visitor.member("size", b.size);
     visitor.member("event", b.event);
     visitor.member("order", b.order);
+    visitor.member("visible", b.visible);
 }
 } // namespace mosaic::engine::ui
