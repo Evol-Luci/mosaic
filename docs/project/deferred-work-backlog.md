@@ -614,15 +614,20 @@ them as this list does.
   off-centre vignette). At that point fix the shader and gate it; the orientation test above is the
   template and the assertion is a few lines. Deferred because an unobservable fix cannot be verified.
 - ~~**Assert the per-frame buffer-aliasing class through the offscreen target.**~~ — SHIPPED 2026-10-24 for `draw_particles` (PR #303), see [record](../record/2026-10.md#assert-the-per-frame-buffer-aliasing-class-through-the-offscreen-target). The sibling paths remain, below.
-- **`draw_ribbons` and `draw_world_text` aliasing are still unasserted, and the `begin_frame`
-  counter resets are not pixel-observable.** PR #303 covers `draw_particles`
-  (`particle_calls_[frame_]++`, `vulkan_render_device.cpp:1563`) as the representative of the
-  class. **Depends on:** for `draw_ribbons`, only constructing two pre-expanded `RibbonVertex`
-  batches; for `draw_world_text`, uploading a non-empty atlas via `create_texture` on the
-  offscreen device (it early-returns when `textures_.empty()`); for the `begin_frame` resets, an
-  inspection seam, because un-reset counters allocate *distinct* buffers per call rather than
-  aliasing, so the failure is unbounded memory growth and not a wrong pixel. Deferred 2026-10-24
-  to keep #303 scoped to one proven oracle.
+- ~~**`draw_ribbons` and `draw_world_text` aliasing are still unasserted**~~ — SHIPPED 2026-10-25 (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`, `tests/gpu/offscreen_world_text_aliasing_test.cpp`), see [record](../record/2026-10.md#draw_ribbons-and-draw_world_text-per-call-buffer-aliasing-asserted-in-pixels-2026-10-25). The cross-frame `begin_frame` counter resets remain below.
+- **The `begin_frame` per-call counter resets (`particle_calls_`, `ribbon_calls_`,
+  `world_text_calls_` at `vulkan_render_device.cpp:1931-1933`) have only a source-text contract
+  test, not a behavioural one.** Un-reset counters allocate *distinct* buffers per call across
+  frames rather than aliasing intra-frame, so omitting a reset causes unbounded vector/buffer
+  growth rather than a wrong pixel. **Depends on:** a chunk-count inspection seam on
+  `VulkanRenderDevice` or `OffscreenDevice`. Deferred 2026-10-24 (re-confirmed 2026-10-25).
+- **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared
+  header.** `ValidationCaptureSink`, `format_pixel`, `require_pixel_near`, and
+  `require_pixel_differs_from_background` are duplicated across the anonymous namespaces of
+  `offscreen_particle_aliasing_test.cpp`, `offscreen_ribbon_aliasing_test.cpp`,
+  `offscreen_world_text_aliasing_test.cpp`, and `offscreen_hud_underlay_test.cpp`. Deferred
+  2026-10-25 as a non-goal of the ribbon/world-text aliasing slice to keep that diff scoped strictly
+  to the two new tests. **Depends on:** nothing.
 - **Ordering *within* one `draw_ui_image` call's quad vector is unasserted.** Found during review
   of PR #304 while looking for a production-side mutation: reversing the per-quad loop at
   `vulkan_render_device.cpp:1886` is a **no-op edit** against the current tests, because every
@@ -702,11 +707,11 @@ them as this list does.
   tooling.
 
   **Still open — slice 3, and it is where the user-visible value is:** point the readback at the
-  classes that are currently eye-only. **Largely done as of 2026-10-24:** per-frame buffer
-  aliasing (#275, #287) is asserted for `draw_particles` by PR #303, and the HUD underlay by
-  PR #304. What remains of this paragraph is `draw_ribbons`/`draw_world_text` aliasing and the
-  Y-flip/upside-down class (`screen_effect.vert`, which is latent and deliberately not tested --
-  see its own entry above).
+  classes that are currently eye-only. **Done for all pixel-observable targets as of 2026-10-25:**
+  per-frame buffer aliasing (#275, #287) is asserted across all three staging paths (`draw_particles`
+  in PR #303, `draw_ribbons` and `draw_world_text` on 2026-10-25), and the HUD underlay in PR #304.
+  What remains of this paragraph is the Y-flip/upside-down class (`screen_effect.vert`, which is
+  latent and deliberately not tested -- see its own entry above).
 
   **Three honest limitations of slice 1, none of them fixed by it.**
   1. *It is opt-in, so it guards nothing automatically.* The target is
@@ -1500,19 +1505,12 @@ them as this list does.
   entity's destruction. Overlapping labels in different fonts, or the same font, may blend in
   a different order after such a change. Back-to-front by camera distance would make it
   deterministic. Deferred: no scene overlaps two labels; the existing behaviour was the same.
-- **Offscreen pixel-readback aliasing tests for `draw_ribbons` and `draw_world_text`, and a
-  cross-frame `begin_frame()` counter-reset check.** `tests/gpu/offscreen_particle_aliasing_test.cpp`
-  covers `draw_particles` (`particle_calls_[frame_]++` at `vulkan_render_device.cpp:1563`) as the
-  representative of the per-frame buffer-aliasing class (#275, #287). The sibling paths
-  (`ribbon_calls_[frame_]++` at `:1613` and `world_text_calls_[frame_]++` at `:1662`) and the
-  `begin_frame()` counter resets (`:1931-1933`, whose omission grows `particle_instances_[frame_]`
-  unboundedly across frames rather than aliasing intra-frame) were considered and deferred to keep
-  this slice scoped to the `draw_particles` oracle. **Depends on:** for `draw_ribbons`, nothing
-  beyond constructing two pre-expanded `RibbonVertex` triangle batches; for `draw_world_text`,
-  uploading a non-empty atlas texture via `create_texture` on the offscreen device
-  (`draw_world_text` early-returns when `textures_.empty()`); for the `begin_frame()` reset, a
-  chunk-count inspection seam (un-reset counters still allocate distinct buffers per call, so the
-  leak is not pixel-observable).
+- ~~**Offscreen pixel-readback aliasing tests for `draw_ribbons` and `draw_world_text`, and a
+  cross-frame `begin_frame()` counter-reset check.**~~ — `draw_ribbons` and `draw_world_text`
+  aliasing SHIPPED 2026-10-25, see
+  [record](../record/2026-10.md#draw_ribbons-and-draw_world_text-per-call-buffer-aliasing-asserted-in-pixels-2026-10-25);
+  the cross-frame `begin_frame()` counter-reset check remains tracked in the Rendering section
+  above.
 
 ## Project templates
 
@@ -2054,19 +2052,28 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
 ## Effort vs. impact
 
 The cross-cutting view: of the live work above, **what is worth doing next**. Last derived
-**2026-10-23**, from the 16 PRs merged after the previous pass's own PR (#266): #267, #268,
-#271-#284. Six earlier passes (2026-09-19 to 2026-10-20) and the tier tables they edited are in
-the record: [2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21)
+**2026-10-25**, from the 24 PRs merged after the previous pass's own PR (#285): #286-#309 --
+the offscreen-render arc (#296-#304, #309), the PCH (#295), the lavapipe CI trial (#307) and the
+docs-tooling slices (#289-#293, #302, #305, #306, #308). Seven earlier passes (2026-09-19 to
+2026-10-23) and the tier tables they edited are in the record: [2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21)
 and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2026-10-04-to-2026-10-20-and-the-tier-tables-they-edited).
 
 **The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
 new work has landed since the last pass -- don't immediately re-run a fourth time expecting
 different material from the same unchanged source docs.* This pass's material is the live bullets
-and record entries that the 16 PRs themselves created (25 live bullets, against roughly 130 live overall, from the CI-caching, parallel
-`ctest`, world-text, ENet and docs-record slices), not a re-grep of the specs' Non-goals. The
-older live bullets in the subsystem sections are **not ranked here** and are not claimed to be:
-they carry no new evidence. Every row below names a live bullet above by its bold title, or a PR;
-a row that matched nothing was cut.
+and record entries that the 24 PRs themselves created (15 live bullets carried new evidence,
+against roughly 120 live overall), not a re-grep of the specs' Non-goals. The older live bullets
+in the subsystem sections are **not ranked here** and are not claimed to be: they carry no new
+evidence. Every row below names a live bullet above by its bold title, or a PR; a row that matched
+nothing was cut.
+
+*Of those 15, only 3 were rankable work.* The rest were notes, probes and declines that the
+render arc produced on its way past (`VK_EXT_headless_surface` is unavailable here; unity builds
+declined; `GIT_SHALLOW` on `box3d` declined; `screen_effect.vert` latent and deliberately
+untested). **That ratio is the finding, not a shortfall:** a slice that closes its own successors
+as it goes leaves declines behind rather than a queue, which is why this pass adds three rows and
+strikes one rather than reshuffling a backlog. It is also why the 🔴 table below is still the real
+answer to "what is next" -- the 🟢/🟡 rows are all maintenance of what already exists.
 
 *The overall figure is deliberately approximate ("roughly 130"), not exact.* It was written as an
 exact number twice during this pass and was stale both times, because every backlog edit changes
@@ -2085,6 +2092,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
+| 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
@@ -2093,15 +2101,19 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**A checker for `next-steps.md`'s verifiable claims.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-checker-for-next-stepsmds-verifiable-claims). | — | — | PR #278 |
 | 2 | ~~**Pin mutable FetchContent tags to commit SHAs.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#pin-mutable-fetchcontent-tags-to-commit-shas). | — | — | PR #268 |
 | 3 | ~~**Reduce header fan-out / precompiled headers / unity builds.**~~ — PCH SHIPPED 2026-10-24, see [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds). Unity builds declined with a trigger. | — | — | PR #271 |
-| 4 | **A headless `VkDevice` for tests, and offscreen pixel readback.** — **ALL THREE SLICES SHIPPED 2026-10-24.** The real `VulkanRenderDevice` renders with no window, reads back RGBA8, and `draw_ui` quad placement is asserted — `ui.vert`'s Y-flip compensation is now guarded by a mutation-proven test. | **Two of the three named successors shipped 2026-10-24:** the per-frame buffer-aliasing class for `draw_particles` (PR #303) and the HUD underlay in pixels (PR #304). Remaining: `draw_ribbons`/`draw_world_text` aliasing, and `screen_effect.vert` (latent, see below). GPU tests stay opt-in; lavapipe has since been probed and **can** run them on a GPU-less runner (own entry in CI and build). | Done: a Y-flip regression is now caught by machine instead of by eye. | User-raised 2026-10-24 |
+| 4 | ~~**A headless `VkDevice` for tests, and offscreen pixel readback.**~~ — **COMPLETE 2026-10-25: all three slices and every pixel-observable successor shipped.** The real `VulkanRenderDevice` renders with no window, reads back RGBA8, and `draw_ui` quad placement is asserted — `ui.vert`'s Y-flip compensation is now guarded by a mutation-proven test. | **All named pixel-observable successors shipped (2026-10-24..25):** the per-frame buffer-aliasing class across all three staging paths (`draw_particles` PR #303, `draw_ribbons` and `draw_world_text` 2026-10-25) and the HUD underlay in pixels (PR #304). Remaining: `screen_effect.vert` (latent, not pixel-observable, see above) and the cross-frame `begin_frame()` counter resets (unbounded memory growth, needs a chunk-count inspection seam). GPU tests stay opt-in locally and run in CI under lavapipe as a trial (#307). | Done: a Y-flip or per-call buffer-aliasing regression is now caught by machine instead of by eye. | User-raised 2026-10-24 |
+| 5 | **The `begin_frame` per-call counter resets have only a source-text contract test, not a behavioural one.** The last non-latent gap in the per-frame buffer-aliasing class. | slice / Medium — it is the one remaining way to reintroduce the #275/#287 bug class and have every test stay green. Needs a **chunk-count inspection seam**, not pixel readback: omitting a reset allocates *distinct* buffers per call across frames, so the failure is unbounded memory growth and no pixel is ever wrong. | Removing any one of the three `*_calls_[frame_] = 0` lines at `vulkan_render_device.cpp:1931-1933` turns a test red. Today it does not. | PR #309 |
+| 6 | **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when a `Value` changes without its `Checked` date being updated). | slice / Medium — #290 made the *values* machine-checked but left the freshness claim on the honour system, which is the half that rotted for six weeks before. | A commit that edits a `Value` cell without bumping that row's `Checked` date fails CI; one that bumps both passes. | #290, deferred 2026-10-24 |
+| 7 | **Making the `CI test step` row in `next-steps.md` machine-checkable.** | slice / Low-Medium — the only State row still declared `UNVERIFIABLE`, so it is the one that can drift silently. Blocked on environment, not difficulty: the check needs `gh`, a run id, network and an authenticated token. | `check_next_steps_claims` reports 4 of 4 rows verified and 0 skipped. | #290, deferred 2026-10-24 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
-Carried from the previous pass; none gained new evidence from the 16 PRs, so none is re-rated.
+Carried from the previous pass. **One is re-rated this time** (test selection, below): the 24 PRs
+changed the premise its impact rested on. The others gained no new evidence and are not re-rated.
 
 | Item | Impact |
 |---|---|
-| **Test selection / caching test results.** | Needs change-impact analysis; low priority. |
+| **Test selection / caching test results.** | **Re-rated 2026-10-25: Low, and now close to pointless.** Its impact assumed a slow suite. Parallel `ctest` (#273, #288) and the IBL-bake fix took the local suite to 3.8 s and the CI step to ~11-18 s, so the entire addressable saving is now seconds, against change-impact analysis as the cost. Reopen only if the suite's wall time becomes a complaint again. |
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
@@ -2120,6 +2132,7 @@ question "did we already consider this?" answers here.
 |---|---|
 | **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). |
 | **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
+| **Making `RenderSystem` issue one `draw_ribbons` call per `TrailRenderer`.** | A second caller of `draw_ribbons` appears in a frame. Declined 2026-10-25: batching every `TrailRenderer` into one vector per frame is the cheaper and correct shape, so the backend's per-call chunking is deliberately guarded at the `RenderDevice` level instead (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`) rather than by making the call site plural. |
 | **GitHub Actions Node.js 20 deprecation.** | The actions publish a Node 24 version. |
 | **Release-preset build caching.** | A release CI job exists. |
 | **Caching the apt layer.** | Apt becomes a large share of a run once the build is cached. |
