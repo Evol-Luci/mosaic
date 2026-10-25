@@ -23,7 +23,9 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-No single candidate is currently queued here. See the tier tables in [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact) (`🟡 Medium` and `🔴 Large`) for what is next.
+**One time-sensitive item.** The GPU tests joined CI as an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. After ~10-20 `main` runs, decide to keep or revert: check `gh run list --branch main --workflow ci.yml --limit 20` for any red in the two lavapipe steps, then judge the ~4s apt cost **on the principle** — runner variance is an order of magnitude larger, so a job total cannot settle it. Full criteria in the backlog.
+
+Nothing else is queued. See the tier tables in [`deferred-work-backlog.md`](deferred-work-backlog.md#effort-vs-impact) (`🟡 Medium` and `🔴 Large`) for what is next.
 
 ## Landmines
 

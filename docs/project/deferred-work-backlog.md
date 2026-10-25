@@ -661,6 +661,28 @@ them as this list does.
   `lvp_icd.json`, not `lvp_icd.x86_64.json`; the workflow globs `lvp_icd*.json`. The revert
   condition is recorded with the entry.
 
+- **Decide whether the lavapipe CI trial stays, or revert it.** Deferred 2026-10-25: #307
+  shipped deliberately as a *trial*, and a trial with no scheduled decision quietly becomes
+  permanent — which is the one outcome the word was meant to prevent. **Nothing is wrong
+  today**; this is a decision to make on evidence, not a known defect. Depends on nothing but
+  elapsed time: let ~10-20 `main` runs accumulate, then check the two things the single
+  green run could not establish.
+  1. **Flakiness.** One run proves conformance, not stability. `gh run list --branch main
+     --workflow ci.yml --limit 20` and look for any red in the `GPU tests under lavapipe` or
+     `Lavapipe device identity` steps. Software rasterisation is deterministic, so a flake
+     here would be a genuine surprise worth investigating rather than retrying.
+  2. **Cost, judged on the principle.** Do *not* try to read the ~4s out of a job total —
+     [the record](../record/2026-10.md#the-gpu-tests-join-ci-on-a-software-icd-as-a-trial-2026-10-24)
+     measured a 3m22s run against an 83-121s norm with every step inflated 3-4x, so runner
+     variance is an order of magnitude larger than the change and a job total cannot resolve
+     it either way. The question is whether ~4s of apt is worth 6 pixel assertions on every
+     PR, answered as a judgement.
+
+  Also re-check the pin: `ubuntu-latest` moves to Ubuntu 26, which changes the Mesa version
+  and may change the ICD manifest name again (the workflow globs `lvp_icd*.json`, so it
+  should survive, but that is untested on 26). Revert is cheap and documented with the
+  record entry.
+
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
   [record](../record/2026-10.md#a-headless-vkdevice-for-tests-slice-1-surfaceless-device-creation).
