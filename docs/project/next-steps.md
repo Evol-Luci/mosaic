@@ -16,8 +16,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1517 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-26 |
-| Suite status | all passing (1517/1517, 4.4 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-26 |
+| Suite size | 1520 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-26 |
+| Suite status | all passing (1520/1520, 4.5 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-26 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -29,7 +29,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **U8 layout containers is COMPLETE** (U8a-U8e; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms against ~0.7 ms release, 256-element grid); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
 
-**The 2026-10-26 verification pass: 6 of 7 pass.** U8e flipped `UiFlow`'s default `axis` to 1 and moved the flow block off "GLOW" ([record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion)); **`field_bool` is the one action still open**, plus three eye items.
+**The 2026-10-26 verification pass: 6 of 7 pass.** U8e flipped `UiFlow`'s default `axis` to 1 and moved the flow block off "GLOW" ([record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion)); **`field_bool` shipped too** (#316); the rest is eye-only.
 
 ## Landmines
 
