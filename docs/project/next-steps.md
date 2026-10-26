@@ -23,7 +23,7 @@ not re-add it.
 
 ## Next work
 
-**One time-sensitive item, NOW DUE.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate was ~10-20 `main` runs: **10 as of 2026-10-26, and both lavapipe steps were green in all ten** (`git log 35a6f1e..main`; `gh run view <id> --json jobs`). So flakiness is answered and only the judgement is left — is ~4 s of apt worth 6 pixel assertions per PR? Decide **on the principle**: runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
+**No time-sensitive item is open.** The CI GPU-test trial (#307) was **decided 2026-10-26: it stays** — zero flakes in 10 `main` runs, ~4 s of apt judged worth 6 pixel assertions per PR. The two lavapipe steps are ordinary CI now, so a red one is a finding. The `ubuntu-latest`/Ubuntu-26 ICD pin re-check survives that decision: backlog.
 
 **The tiers were re-derived 2026-10-26** (#310-#317); the 🟢/🟡 rows are all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
