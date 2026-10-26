@@ -235,7 +235,7 @@ Every built-in engine component, with its fields and their default values. Field
 
 ## UiFlow
 
-- `axis`: 0
+- `axis`: 1
 - `per_line`: 1
 - `spacing`: 0.000000
 - `padding`: 0.000000

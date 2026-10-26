@@ -231,15 +231,22 @@ see the record.
 - ~~**`UiGrid` and `UiFlow`** (U8c)~~ — **SHIPPED 2026-10-25.** Narrative in
   [record](../record/2026-10.md#u8c--uigrid-and-uiflow). Explicit `cols` + `rows`; flow wraps
   at an authored `per_line` and sizes its partial final line as if the line were full.
-- **`UiFlow`'s default `axis` should be HORIZONTAL, not vertical** — **DECIDED 2026-10-26 by
-  the human verification pass, overruling the supervisor's review ruling.** `UiFlow{}` with
-  nothing authored currently packs down a column and wraps rightward, because `axis = 0` means
-  vertical in `UiStack`, `to_anchor` and `layout_slot`. The review kept that for cross-container
-  consistency; the human chose the common case (a toolbar, an inventory row, a row of buttons)
-  instead. No reasoning was captured with the verdict. **Do it soon rather than later:** it is a
-  one-line default change while the demo is the only thing authoring a `UiFlow`, and a breaking
-  change to every authored scene afterwards. The demo sets `axis = 1` explicitly, so the change
-  moves nothing on screen and invalidates no verification verdict. **Depends on** nothing.
+- ~~**`UiFlow`'s default `axis` should be HORIZONTAL, not vertical**~~ — **SHIPPED 2026-10-26
+  (U8e).** `UiFlow::axis` defaults to 1; the field keeps one meaning across all three
+  containers and only the default differs. Narrative in
+  [record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion).
+- **A HUD block and a `WorldLabel` can only be kept apart by hand** — noticed 2026-10-26
+  **during U8e**, and it is the generalisation of the occlusion that slice fixed. The UI passes
+  run unconditionally after the `WorldLabel` pass, so nothing warns when an authored HUD rect
+  lands on top of a world label; U8e's fix is two authored numbers in `demo_scene.hpp` and a
+  test with hand-derived probe points, because a label's screen rect is a projection of a world
+  Transform through the camera and the font atlas and is not an authored constant. Deferred
+  because the two candidate fixes are both larger than the problem: a unified z-order across
+  the pass boundary is the separate architectural item already in the Rendering section, and a
+  "does any HUD rect cover a world label?" editor warning needs the projection at edit time.
+  **Depends on** either of those, or on a second occurrence — one instance is a composition
+  mistake, two is a missing guard.
+- **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
 - **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
   2026-10-25 **during U8c**. `spacing` is applied as a fraction of each axis's own inner
   extent, so a square grid in a wide frame has a wider gap between columns than between
@@ -1634,6 +1641,33 @@ them as this list does.
   label's true appearance. Deferred: passing as is; low priority.
   Depends on nothing. Note the human judged it on a look that was double-blended (see the
   batching entry in `next-steps.md`), so a re-check after that fix is owed.
+  **2026-10-26, U8e: the "different position" remedy was SPENT, and on the HUD rather than on
+  this label.** The occlusion that fired the trigger is fixed by moving U8c's flow block to
+  upper-centre; this label's Transform and colour are untouched, so the 2026-10-21 verdict
+  still rests on the evidence it was given on. See
+  [record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion).
+  **What is now owed is an EYE CHECK, listed below.**
+- **NEXT VERIFICATION PASS — nobody has seen the uncovered "GLOW" label, or the flow block in
+  its new place.** Added 2026-10-26 **during U8e**, because the sandbox cannot screenshot the
+  GUI and the slice's own gate (ctest + zero validation errors) is structurally blind to both.
+  Three things for a human at the window (`mosaic run --window`, or `mosaic editor` and press
+  Play):
+  1. **The whole word "GLOW" is visible**, not cut off along a horizontal line. Its lower half
+     was covered before this change; nothing has ever looked at it.
+  2. **Whether the full word still READS** against the light-grey lit ground. The 2026-10-21
+     "legible, though the contrast is pretty low" verdict was given on the upper half plus
+     whatever was then visible, so the lower half is new evidence for a decision that is
+     otherwise closed. If it does not read, the options are unchanged (a different colour, a
+     different position, or outline/shadow engine work) and this is the trigger to reopen it.
+  3. **The flow block at upper-centre covers nothing**, and in particular no world-space
+     content worth seeing: it now resolves to x [0.38, 0.62], y [0.20, 0.38], which is sky in
+     the demo's framing but that is a prediction, not an observation. Its own U8c property is
+     unchanged and still checkable in the new place — a row of three cells, then two plus an
+     empty magenta third, all the same width.
+  **Depends on** a human at the window. Non-overlap against every other HUD element is already
+  asserted (`the demo's flow block is clear of the GLOW label's screen band and of every other
+  HUD element`); what no test can reach is whether the label is legible and whether the block
+  sits somewhere a person would accept.
 - ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape).
 - **World labels are not depth-sorted for blending.** The world-text batch preserves
   `for_each` order, which is dense order over a sparse set and unstable across an unrelated
@@ -2268,7 +2302,7 @@ question "did we already consider this?" answers here.
 
 | Item | Trigger |
 |---|---|
-| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). **THE TRIGGER FIRED 2026-10-26 — on occlusion, not contrast.** U8c's flow block is the first bottom-centre HUD content the demo has had, and it covers the LOWER HALF of the label: the `WorldLabel` pass runs at `render_system.hpp:445` and the `UiPanel` pass at `:503`, so panels draw over world labels unconditionally, and the flow block's top edge is `y = 0.79`, exactly where the text is cut. Not an engine bug — a demo-scene composition problem, found in the screenshot attached to the third verification pass rather than by any item on it. The 2026-10-21 decision already named **"a different position"** as one of its three remedies; moving the flow block or the label is the cheap fix, and moving the flow block would not invalidate that pass's verdict on it (the property asserted is equal cell widths and magenta in the empty slot, not where the block sits). |
+| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). **THE TRIGGER FIRED 2026-10-26 — on occlusion, not contrast.** U8c's flow block is the first bottom-centre HUD content the demo has had, and it covers the LOWER HALF of the label: the `WorldLabel` pass runs at `render_system.hpp:445` and the `UiPanel` pass at `:503`, so panels draw over world labels unconditionally, and the flow block's top edge is `y = 0.79`, exactly where the text is cut. Not an engine bug — a demo-scene composition problem, found in the screenshot attached to the third verification pass rather than by any item on it. The 2026-10-21 decision already named **"a different position"** as one of its three remedies. **RESOLVED the same day by U8e: the FLOW BLOCK moved**, to upper-centre (x [0.38, 0.62], y [0.20, 0.38]), not the label — the label's verdict was given against the background it sits on, and relocating it in world space would have changed that background and reopened a closed question. U8c's verdict carries, as predicted. **What is left of this row is the contrast decision, unchanged, plus one new eye check:** nobody has ever seen the label's uncovered lower half. |
 | **An opt-out flag on inherited alpha propagation.** Declined by the 2026-10-20 human verification pass: fading a container *should* fade what is inside it, which is why the demo's "HP" label now renders at the bar's 0.6 rather than its own 1.0. Recorded in `demo_scene.hpp` beside the label and in [record](../record/2026-10.md), but it had never reached this table -- added 2026-10-25, because `ui_stack.hpp` still offers it as a live route out of the invisible-container trap and it is not one. The live route is the `visible` bool (U8b). | A concrete case where a child must keep its authored alpha under a faded container, which the `visible` bool does not already serve. |
 | **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
 | **Making `RenderSystem` issue one `draw_ribbons` call per `TrailRenderer`.** | A second caller of `draw_ribbons` appears in a frame. Declined 2026-10-25: batching every `TrailRenderer` into one vector per frame is the cheaper and correct shape, so the backend's per-call chunking is deliberately guarded at the `RenderDevice` level instead (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`) rather than by making the call site plural. |

@@ -73,7 +73,12 @@ TEST_CASE("UiGrid and UiFlow defaults are a single slot filling the frame", "[ui
     REQUIRE(g.padding == Approx(0.0f));
 
     const UiFlow f;
-    REQUIRE(f.axis == 0);
+    // 1, NOT 0, and deliberately not the same as UiStack's default -- the human
+    // verification pass of 2026-10-26 decided a flow should default to a ROW (a toolbar, an
+    // inventory row, a row of buttons). This line pins only the STORED value, which is what
+    // a scene file and the Inspector carry; the behavioural half of the claim is the case
+    // immediately below, and it is the one that fails for the right reason.
+    REQUIRE(f.axis == 1);
     REQUIRE(f.per_line == 1);
     REQUIRE(f.spacing == Approx(0.0f));
     REQUIRE(f.padding == Approx(0.0f));
@@ -83,6 +88,43 @@ TEST_CASE("UiGrid and UiFlow defaults are a single slot filling the frame", "[ui
     REQUIRE(only.y == Approx(0.0f));
     REQUIRE(only.w == Approx(1.0f));
     REQUIRE(only.h == Approx(1.0f));
+}
+
+TEST_CASE("a default-constructed UiFlow flows along a ROW and wraps DOWNWARD",
+          "[ui][layout]")
+{
+    // MUTATION GUARD for the 2026-10-26 decision, and the only case in the suite that can
+    // fail if `UiFlow::axis`'s default goes back to 0. Everything else about flows is
+    // asserted with `axis` authored explicitly -- including the demo scene's flow and the
+    // wrap/reflow cases below -- so the DEFAULT had no behavioural coverage at all before
+    // this case, which is precisely why the one-line change could be reverted silently.
+    //
+    // `axis` is READ FROM THE DEFAULT-CONSTRUCTED COMPONENT rather than passed as a
+    // literal. A test that wrote `flow_slot(kFull, 1, ...)` would assert what horizontal
+    // means, which is covered; this one asserts what the default IS.
+    const UiFlow f; // nothing authored: the subject of this case is f.axis
+    const auto   slot = [&](std::size_t i)
+    { return flow_slot(kFull, f.axis, 3, 0.0f, 0.0f, i, 4); };
+
+    // Four children at three per line: a full line of three, then a partial line of one.
+    const Rect a = slot(0);
+    const Rect b = slot(1);
+    const Rect d = slot(3);
+
+    // A ROW: the first two slots sit at the SAME y and advance along x, each a THIRD of the
+    // frame wide and a HALF of it high (ceil(4/3) == 2 lines across the cross axis).
+    REQUIRE(a.x == Approx(0.0f));
+    REQUIRE(a.y == Approx(0.0f));
+    REQUIRE(a.w == Approx(1.0f / 3.0f));
+    REQUIRE(a.h == Approx(0.5f));
+    REQUIRE(b.y == Approx(a.y));
+    REQUIRE(b.x == Approx(a.x + a.w));
+
+    // WRAPPING DOWNWARD: the fourth child starts the second line, back at the left edge and
+    // one line down. Under the old default of 0 this same index lands at x = 0.5, y = 0,
+    // i.e. a second COLUMN to the right, which is the layout the human rejected.
+    REQUIRE(d.x == Approx(0.0f));
+    REQUIRE(d.y == Approx(0.5f));
 }
 
 TEST_CASE("a grid's cells exactly tile its frame", "[ui][layout]")

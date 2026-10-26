@@ -28,7 +28,9 @@
 #include "engine/vfx/decal.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_stack.hpp"
+#include "engine/ui/ui_image.hpp"
 #include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_layout.hpp"
 #include "engine/ui/ui_hierarchy.hpp"
 #include "engine/script/script_component.hpp"
@@ -895,6 +897,121 @@ TEST_CASE("the demo's flow keeps its partial final line at full-line size",
     // Nothing occupies the sixth slot: the line is sized as if full, not divided.
     REQUIRE(slots[4].x + slots[4].w == Catch::Approx(cp->size.x * (2.0f / 3.0f)
                                                      + slots[0].x));
+}
+
+TEST_CASE("the demo's flow block is clear of the GLOW label's screen band and of every "
+          "other HUD element", "[app][layout]")
+{
+    // MUTATION GUARD for the 2026-10-26 composition fix. The 2026-10-26 verification pass's
+    // screenshot showed U8c's flow block covering the lower half of the lime "GLOW"
+    // WorldLabel: render_system.hpp draws the WorldLabel pass at :445 and the UiPanel pass
+    // at :503, so a panel covers a world label unconditionally. That is composition, not a
+    // renderer bug, and the fix moved the flow block off bottom-centre.
+    //
+    // WHERE THE PROBE POINTS COME FROM, because this is the part that must not be a number
+    // somebody eyeballed:
+    //
+    //   x = 0.5 is DERIVED. build_world_text centres the glyph run horizontally on the
+    //   label's anchor; the label's Transform is at world x = 0 and the camera's Transform
+    //   is at world x = 0 with an identity rotation, so cam_right is +X and the run's centre
+    //   projects to the horizontal middle of the screen. Both of those are authored
+    //   constants in demo_scene.hpp, and the two x probes either side are inside the band
+    //   the old flow covered whatever the label's width turns out to be.
+    //
+    //   y = 0.80 and 0.90 are inside the band the OLD AUTHORING covered, and that band is
+    //   authored arithmetic too: Anchor::Bottom with pos.y = 0.03 and size.y = 0.18 resolves
+    //   to y = 1 - 0.18 - 0.03 = 0.79 through 0.97, which is exactly the height at which the
+    //   screenshot showed the glyphs cut. So these points are "screen positions a HUD panel
+    //   used to occupy and where the label demonstrably is", not a measured label rect.
+    //
+    // WHAT THIS CASE CANNOT DO, stated rather than implied: it does not compute the label's
+    // own screen rect, because that is a projection of a world Transform through the camera
+    // and the font atlas, none of which is an authored normalized constant. It therefore
+    // proves that no HUD panel covers the points where the label was seen to be cut; it does
+    // not prove the whole word is now unobstructed. That remains an eye check.
+    //
+    // THE MUTATION: restore `.anchor = Anchor::Bottom` and `.pos = {0.0f, 0.03f}` on
+    // hud_flow. The flow then resolves to x [0.38, 0.62] y [0.79, 0.97], which contains
+    // (0.5, 0.80) and (0.5, 0.90), and both REQUIREs in the probe loop fire.
+    using mosaic::engine::ui::Rect;
+    using mosaic::engine::ui::UiFlow;
+    using mosaic::engine::ui::UiImage;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    World world;
+    build_default_scene(world);
+
+    std::vector<World::EntityID> flows;
+    world.for_each<UiFlow>([&](mosaic::foundation::EntityID e, UiFlow&)
+                           { flows.push_back(e); });
+    REQUIRE(flows.size() == 1);
+    const World::EntityID flow_entity = flows[0];
+
+    const auto* fp = world.get_component<UiPanel>(flow_entity);
+    REQUIRE(fp != nullptr);
+    // Top-level: if the flow block were ever parented, its rect would be a slot of something
+    // else and every clearance below would be measuring the wrong rectangle.
+    REQUIRE_FALSE(world.has_component<UiParent>(flow_entity));
+    const Rect flow = mosaic::engine::ui::resolve_ui_rect(
+        world, flow_entity, mosaic::engine::ui::to_anchor(fp->anchor), fp->pos, fp->size);
+
+    // Half-open containment: a rect's own far edge is not inside it, so two blocks whose
+    // edges merely MEET are not reported as overlapping.
+    const auto contains = [](const Rect& r, float px, float py)
+    { return px >= r.x && px < r.x + r.w && py >= r.y && py < r.y + r.h; };
+    const auto overlaps = [](const Rect& a, const Rect& b)
+    {
+        return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+    };
+
+    // (1) The flow block covers neither point on the label's band.
+    const float probe_y[2] = {0.80f, 0.90f};
+    const float probe_x[3] = {0.46f, 0.50f, 0.54f};
+    for (const float py : probe_y)
+    {
+        for (const float px : probe_x)
+        {
+            INFO("probe (" << px << ", " << py << ") on the GLOW label's screen band");
+            REQUIRE_FALSE(contains(flow, px, py));
+        }
+    }
+
+    // (2) And it has not landed on anything else. Gathered from the scene rather than from a
+    // list written here, so a HUD element added later is included automatically and a future
+    // move cannot be checked against a stale inventory.
+    //
+    // Scoped to the flow block specifically, NOT asserted pairwise over all of them: the two
+    // checker sprites overlap EACH OTHER on purpose (the image pass's `order` sort is only
+    // checkable by eye if they do) and both sit over the top-right stack's panel, so
+    // whole-HUD disjointness is false and would have been a wrong property to assert.
+    std::size_t compared = 0;
+    world.for_each<UiPanel>(
+        [&](mosaic::foundation::EntityID e, UiPanel& p)
+        {
+            if (e == flow_entity || world.has_component<UiParent>(e)) { return; }
+            const Rect r = mosaic::engine::ui::resolve_ui_rect(
+                world, e, mosaic::engine::ui::to_anchor(p.anchor), p.pos, p.size);
+            INFO("top-level UiPanel on entity " << e.index() << " at " << r.x << "," << r.y
+                                                << " " << r.w << "x" << r.h);
+            REQUIRE_FALSE(overlaps(flow, r));
+            ++compared;
+        });
+    world.for_each<UiImage>(
+        [&](mosaic::foundation::EntityID e, UiImage& im)
+        {
+            if (world.has_component<UiParent>(e)) { return; }
+            const Rect r = mosaic::engine::ui::resolve_ui_rect(
+                world, e, mosaic::engine::ui::to_anchor(im.anchor), im.pos, im.size);
+            INFO("top-level UiImage on entity " << e.index() << " at " << r.x << "," << r.y
+                                                << " " << r.w << "x" << r.h);
+            REQUIRE_FALSE(overlaps(flow, r));
+            ++compared;
+        });
+    // The HUD bar, the top-right stack container, the bottom-left layout-only container, the
+    // bottom-right grid container, the checker sprite and its underlay: six. Asserted so a
+    // scene reorganisation that drops one cannot make this case silently vacuous -- which is
+    // the failure mode of every "assert over whatever we find" test.
+    REQUIRE(compared == 6);
 }
 
 TEST_CASE("the demo's stack container is not the camera", "[app][layout]")
