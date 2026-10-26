@@ -25,11 +25,13 @@ not re-add it.
 
 **No time-sensitive item is open.** The CI GPU-test trial (#307) was **decided 2026-10-26: it stays** — zero flakes in 10 `main` runs, ~4 s of apt judged worth 6 pixel assertions per PR. The two lavapipe steps are ordinary CI now, so a red one is a finding. The `ubuntu-latest`/Ubuntu-26 ICD pin re-check survives that decision: backlog.
 
-**The tiers were re-derived 2026-10-26** (#310-#317); the 🟢/🟡 rows are all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
+**The tiers were re-derived 2026-10-26** (#310-#318); the 🟢/🟡 rows are all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and the duplicated `tests/gpu/` helpers (`🟢` row 4). [Tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**U8 layout containers is COMPLETE** (U8a-U8e; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)), and it was the 🔴 table's only UI row, so **"what is next" is an open choice**: **U9** clipping/scroll (enabling; no scissor hook exists) or **U11** text quality (unblocked; `layout_text` drops every codepoint outside 32-126). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms against ~0.7 ms release, 256-element grid); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
+**U8 layout containers is COMPLETE** (U8a-U8e, [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms vs ~0.7 ms release); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
 
-**Owed: three eye checks, in ONE pass** — the uncovered "GLOW", the flow block at upper-centre (U8e), the `field_bool` checkbox (#316). Sharpest is toggling `visible` on a selected `UiPanel`; no gate reaches it (the editor opens with nothing selected).
+**NEXT: U9 clipping and scroll regions**, chosen 2026-10-26 over U11 and decomposed into four ordered slices ([spec](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md)): **U9a** a clip rect on `RenderDevice` (pixel-asserted), **U9b** `UiClip` intersected down the hierarchy for draw AND hit-test, **U9c** a wheel delta on `PointerState`, **U9d** `UiScroll`. **U11 follows directly** once U9 is green — `layout_text` drops every codepoint outside the atlas's 32-126. Two of U9's backlog premises were stale; the spec corrects them.
+
+**Owed: three eye checks, in ONE pass** — the uncovered "GLOW", the flow block at upper-centre (U8e), the `field_bool` checkbox. Sharpest: toggle `visible` on a selected `UiPanel`; no gate reaches it.
 
 ## Landmines
 
@@ -38,7 +40,6 @@ Things that waste an hour and that reading the code will not reveal.
 - **`git commit --amend` after a pre-commit abort.** The hook aborts to regenerate docs. `git add -A`, re-run the FULL commit. `--amend` silently rewrites the previous commit; `--no-verify --amend` hides that it did.
 - **A GUI run under `timeout` passes with exit 124**, not 0. `mosaic run --window` has no natural exit.
 - **A wrong CLI subcommand exits non-zero with ZERO validation errors**, which looks exactly like a clean run. Verify the subcommand exists before trusting a quiet failure.
-- **The presets pin `Ninja` since 2026-10-24.** A `build/debug` left over from before that (Unix Makefiles) makes `cmake --preset debug` fail with "does not match the generator used previously". Delete `build/debug` once.
 - **Four targets use a stdlib-only PCH; CI deliberately builds WITHOUT it** (`-DCMAKE_DISABLE_PRECOMPILE_HEADERS=ON`). Never remove that flag (ccache cannot cache a PCH-consuming compile) and never put a project header in `MOSAIC_PCH_HEADERS`. A missing `#include` can compile locally and fail in CI; that is intended. Measurements: [record](../record/2026-10.md#reduce-header-fan-out--precompiled-headers--unity-builds).
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
 - **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count** (the count comes from the discovery file, regenerated only after a successful link). This reads exactly like the State table being wrong. Build successfully first, then trust the count.
