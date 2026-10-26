@@ -802,35 +802,28 @@ them as this list does.
   `lvp_icd.json`, not `lvp_icd.x86_64.json`; the workflow globs `lvp_icd*.json`. The revert
   condition is recorded with the entry.
 
-- **Decide whether the lavapipe CI trial stays, or revert it.** Deferred 2026-10-25: #307
-  shipped deliberately as a *trial*, and a trial with no scheduled decision quietly becomes
-  permanent — which is the one outcome the word was meant to prevent. **Nothing is wrong
-  today**; this is a decision to make on evidence, not a known defect. Depends on nothing but
-  elapsed time: let ~10-20 `main` runs accumulate, then check the two things the single
-  green run could not establish.
+- ~~**Decide whether the lavapipe CI trial stays, or revert it.**~~ — **DECIDED 2026-10-26: IT
+  STAYS.** The human's call, on the principle, in their words: *"Leave the pixel assertions, 4
+  seconds is nothing."* Both halves of the gate were answered first, so this is a decision on
+  evidence and not on patience running out:
+  1. **Flakiness: zero in ten.** `git log 35a6f1e..main` is 10 commits since #307 merged, and in
+     all ten runs BOTH `Lavapipe device identity` and `GPU tests under lavapipe` concluded
+     `success` — checked per run with `gh run view <id> --json jobs` rather than from the run's
+     rolled-up conclusion, and the workflow has no `continue-on-error`, so a step failure could
+     not have been masked.
+  2. **Cost: ~4s of apt (3s apt, 1s identity, <1s for the 6 tests), judged against 6 pixel
+     assertions on every PR.** Not read out of a job total, which cannot resolve it — `main`'s
+     own run-to-run spread is 83-121s.
 
-  **THE ELAPSED-TIME CONDITION IS MET, 2026-10-26, and half the question is answered.**
-  `git log 35a6f1e..main` is **10 commits** since #307 merged, and in all ten runs BOTH
-  `Lavapipe device identity` and `GPU tests under lavapipe` concluded `success` (checked
-  per run with `gh run view <id> --json jobs`, not from the run's overall conclusion; the
-  workflow has no `continue-on-error`, so a step failure could not have been masked). **So
-  point 1 below is answered: zero flakes in ten runs.** What is left is point 2, which is a
-  judgement and therefore the human's, plus the `ubuntu-latest` pin re-check below.
-  1. **Flakiness.** One run proves conformance, not stability. `gh run list --branch main
-     --workflow ci.yml --limit 20` and look for any red in the `GPU tests under lavapipe` or
-     `Lavapipe device identity` steps. Software rasterisation is deterministic, so a flake
-     here would be a genuine surprise worth investigating rather than retrying.
-  2. **Cost, judged on the principle.** Do *not* try to read the ~4s out of a job total —
-     [the record](../record/2026-10.md#the-gpu-tests-join-ci-on-a-software-icd-as-a-trial-2026-10-24)
-     measured a 3m22s run against an 83-121s norm with every step inflated 3-4x, so runner
-     variance is an order of magnitude larger than the change and a job total cannot resolve
-     it either way. The question is whether ~4s of apt is worth 6 pixel assertions on every
-     PR, answered as a judgement.
+  **What this closes, and what it does not.** The trial framing is spent: the two lavapipe
+  steps are now ordinary CI, and a red one is a finding rather than a trial result. It is
+  **not** a commitment to the ICD pin — the `ubuntu-latest` re-check below survives this
+  decision, because it is about the environment moving, not about whether the tests belong in
+  CI. Revert stays cheap and is documented with the record entry.
 
-  Also re-check the pin: `ubuntu-latest` moves to Ubuntu 26, which changes the Mesa version
-  and may change the ICD manifest name again (the workflow globs `lvp_icd*.json`, so it
-  should survive, but that is untested on 26). Revert is cheap and documented with the
-  record entry.
+  The pin re-check, kept live: `ubuntu-latest` moves to Ubuntu 26, which changes the Mesa
+  version and may change the ICD manifest name again (the workflow globs `lvp_icd*.json`, so it
+  should survive, but that is untested on 26).
 
 - **A headless `VkDevice` for tests, and offscreen pixel readback — SLICES 1 AND 2 OF 3
   SHIPPED 2026-10-24.** Slice 1 (surfaceless device creation, testable, validation-clean) is done; see
