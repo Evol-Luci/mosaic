@@ -16,8 +16,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1508 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-25 |
-| Suite status | all passing (1508/1508, 4.5 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-25 |
+| Suite size | 1515 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-25 |
+| Suite status | all passing (1515/1515, 4.0-4.5 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-25 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -27,9 +27,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**New capability — U8 (the `🔴` row) is decomposed** — interactive-game UI is near-term. Spec: [U8 remainder](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8b (`visible`) and U8c (`UiGrid`/`UiFlow`) both SHIPPED 2026-10-25.** One slice left:
-
-1. **U8d — a per-frame `parent → children` index.** Gate: a measured before/after, draw and hit paths still agreeing. Drive it from the 256-child fixture in `tests/unit/ui/ui_grid_flow_test.cpp` (no window needed). U8c built the instrument; add no cache before the number.
+**U8 layout containers is COMPLETE** (U8a-U8d, 2026-10-25; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d resolved with a measurement and NO cache:** a 256-element grid's whole layout pass is ~0.7 ms/frame in a **release** build (~17 ms in debug — never rule on a debug timing), and the shipped scene pays 306 component visits, so the trigger is a committed counter (`engine/ui/ui_layout_stats.hpp`, `tests/unit/ui/ui_layout_cost_test.cpp`: build the index above ~200k `visits`/frame). **So the tiers above, not U8, are the answer to "what is next".**
 
 ## Landmines
 
@@ -43,7 +41,7 @@ Things that waste an hour and that reading the code will not reveal.
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
 - **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count** (the count comes from the discovery file, regenerated only after a successful link). This reads exactly like the State table being wrong. Build successfully first, then trust the count.
 - **The renderer HAS a regression gate, and it is not `ctest`.** `timeout 12 env MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor` must exit **124** (the timeout IS the pass), print three `[INFO]` lines and zero VUIDs/ERROR/WARN. Capture on unmodified `main`, `diff` after any renderer change: it catches a bad object graph or barrier, which the suite cannot. Full: [record](../record/2026-10.md#two-gates-defined-precisely-moved-out-of-the-handoff-2026-10-24).
-- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Opt-in locally must not be relaxed**; CI runs them anyway in a Mesa-lavapipe step, which is why the rows above still say 1478 (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
+- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Opt-in locally must not be relaxed**; CI runs them anyway in a Mesa-lavapipe step, which is why the rows above exclude them (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
 - **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:59` and `:74`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component. Three count **Transforms** (a Transform-less entity is free); `:74` counts **scripts** — this line said all four counted Transforms until U8c checked it.
 - **Adding a field to a component silently re-binds a positional brace initialiser;** gcc only catches it when the types differ. Every UI-component init in `app/run/demo_scene.hpp` is designated since U8b, but `Bloom` is not.
 - **`TEST_CASE` names:** must not start with `--`, must have balanced `[`, and a comma must be escaped `\,` when filtering from a script. CTest discovery breaks otherwise; CI lints it.

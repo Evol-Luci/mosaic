@@ -1,6 +1,7 @@
 #pragma once
 
 #include "engine/ui/ui_layout.hpp"
+#include "engine/ui/ui_layout_stats.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
@@ -16,6 +17,10 @@ inline Rect resolve_parent_frame(mosaic::engine::World& world,
 {
     constexpr int kMaxDepth = 16;
     const Rect kScreen{0.0f, 0.0f, 1.0f, 1.0f};
+    // Counted INCLUDING the recursive entries, because the cost model the backlog states is
+    // O(E x d x P) and `d` is exactly the recursion depth: a per-call counter is the only one
+    // that can tell those two factors apart. See ui_layout_stats.hpp.
+    ++layout_stats().resolves;
     if (depth >= kMaxDepth) { return kScreen; }
     UiParent* up = world.get_component<UiParent>(e);
     if (up == nullptr || !world.is_valid(up->parent)) { return kScreen; }
