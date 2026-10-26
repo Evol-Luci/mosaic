@@ -1,6 +1,7 @@
 add_library(mosaic_render_vulkan STATIC
   vulkan_swapchain_support.cpp
   vulkan_bloom_levels.cpp
+  vulkan_ui_clip.cpp
   vulkan_headless_device.cpp
   vulkan_headless_readback.cpp
   vulkan_render_device.cpp
