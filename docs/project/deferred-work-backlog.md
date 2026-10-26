@@ -542,36 +542,31 @@ them as this list does.
   reframing item below.
 - ~~**The REAL `order` bug is pairwise and relative, not per-entity and absolute**~~ — SHIPPED 2026-10-12, see [record](../record/2026-10.md#the-real-order-bug-is-pairwise-and-relative-not-per-entity-and-absolute).
 - ~~**`UiImage::order` and `UiText::order` are ignored by the renderer entirely**~~ — FIXED 2026-10-11, see [record](../record/2026-10.md#uiimageorder-and-uitextorder-are-ignored-by-the-renderer-entirely).
-- **`bool` fields are read-only in the Inspector (no `field_bool`)** — found 2026-10-25 by the
-  supervisor while reviewing U8b, and **pre-existing rather than introduced by it**: the same
-  class as the `field_int` gap fixed on 2026-10-11, one type along. `FieldVisitor`
-  (`engine/reflection/field_visitor.hpp`) declares `field_float`, `field_int`, `field_string`,
-  `field_asset`, `field_handle_asset`, `field_entity` and `field_readonly` — **no
-  `field_bool`** — so `member()`'s `bool` branch routes to
-  `visitor.field_readonly(name, value ? "true" : "false")`. Every reflected `bool` therefore
-  renders as an uneditable label in `studio/inspector.hpp`.
-
-  **Scope, measured against the base commit rather than asserted.** 16 reflected `bool` fields
-  today; **11 of them exist on `main` before U8b** (`AnimationClip::step`,
-  `AnimationPlayer::playing`/`loop`, `AudioSource::looping`/`playing`/`spatial`,
-  `NavAgent::active`, `ParticleEmitter::emitting`, `RigidBody::dynamic`,
-  `Sequence::playing`/`loop`), and U8b adds the five `visible` flags. So this is **not U8b's
-  defect**, but U8b nearly doubled the count and is what makes it worth doing.
-
-  **Why it matters now, concretely:** a human cannot toggle `visible` in the editor to see the
-  feature work. The demo scene's authored layout-only container is the only by-eye path U8b
-  ships, and anything beyond it means hand-editing scene JSON. The same was true of every
-  `playing`/`emitting` flag already, which is presumably why nobody noticed.
-
-  **Effort:** one `field_bool` on the visitor interface, one `ImGui::Checkbox` in
-  `ImGuiFieldVisitor`, one branch in `member()` above the `int` branch, and a dispatch
-  assertion in `tests/unit/reflection/field_visitor_test.cpp` (which is where the `int`
-  ordering is already pinned). The widget itself stays untested for the reason the
-  `ImGuiFieldVisitor` entry below gives. **Depends on** nothing.
-
-  **DECIDED 2026-10-26 (human verification pass): BUILD IT.** No reasoning was recorded
-  with the verdict, so what stands is the case as it was put: `visible` is the first bool
-  whose whole purpose is to be switched while you watch the result, and it cannot be.
+- ~~**`bool` fields are read-only in the Inspector (no `field_bool`)**~~ — SHIPPED 2026-10-26, see [record](../record/2026-10.md#bool-fields-are-read-only-in-the-inspector-no-field_bool).
+- **The `field_bool` checkbox has never been seen by a human** — recorded 2026-10-26 by the
+  `field_bool` slice itself, because this sandbox cannot screenshot the GUI and the renderer
+  gate cannot reach the widget (the editor opens with nothing selected, so `draw_inspector`
+  returns at `"(nothing selected)"` before any field is visited). **For the next verification
+  pass, in this order:** (1) does a checkbox *exist at all* beside `visible` on a selected
+  `UiPanel`, where a `true`/`false` label used to be — existence before appearance; (2) does
+  clicking it change the viewport (a panel disappearing is the sharpest signal, and is exactly
+  what U8b shipped and could not be driven); (3) does the title bar / save state go dirty,
+  i.e. did `changed_` get set; (4) do the `playing`/`emitting`/`active` bools behave sanely —
+  **the editor opens STOPPED**, so the systems those flags govern have not lazily created
+  their state, and toggling `AudioSource::playing` or `ParticleEmitter::emitting` before Play
+  is the one place a surprise is plausible. **Depends on** a human at a machine with a display;
+  nothing in code.
+- **`MarkdownFieldVisitor` could now label `bool` fields, and `component_reference.hpp`'s
+  header text is on the edge of being stale** — noticed 2026-10-26 while shipping `field_bool`.
+  The generated page's preamble explains that `bool` and non-`float` numerics share
+  `field_readonly` because "the underlying type isn't distinguishable from the callback alone".
+  That is still literally true *of that visitor*, which does not override `field_bool` — but
+  the type now **is** distinguishable, so the sentence explains a choice rather than a
+  limitation. Overriding `field_bool` there to emit a `(bool)` suffix, the way
+  `field_entity`/`field_handle_asset` already do, would make `docs/reference/components.md`
+  self-describing. **Deferred because it rewrites a generated file** for a cosmetic gain, which
+  belongs in a docs-tooling change where that churn is the point rather than a side effect of a
+  reflection slice. **Depends on** nothing.
 - **Combo boxes for enum-as-int fields, instead of a bare `DragInt`** — the explicit non-goal
   of the `field_int` slice, 2026-10-11. `UiPanel`/`UiText`/`UiImage`'s `anchor`, `UiImage`'s
   `fit_mode`, `ParticleEmitter`'s three easing curves and `AudioSource::attenuation_model` are
@@ -594,8 +589,8 @@ them as this list does.
   ("the widget does not crash", "`changed_` stays false when idle") for real effort. So this
   item is really **"adopt `imgui_test_engine`"** — a new third-party dependency, and therefore
   a decision for a human rather than something to pick up unattended. Original entry: There is no
-  `tests/unit/studio/inspector_test.cpp`: `field_float`, `field_string`, `field_asset` and now
-  `field_int` are each one `ImGui::` call that no test executes, because ImGui needs a live
+  `tests/unit/studio/inspector_test.cpp`: `field_float`, `field_string`, `field_asset`, `field_int` and now
+  `field_bool` (a `Checkbox`, added 2026-10-26) are each one `ImGui::` call that no test executes, because ImGui needs a live
   context. The adapter *dispatch* is well covered in
   `tests/unit/reflection/field_visitor_test.cpp`, so what is untested is narrow — "does this
   widget write back and set `changed_`" — but it is exactly where a typo would land silently.
@@ -2262,7 +2257,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 | 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
-| 5 | **`bool` fields are read-only in the Inspector (no `field_bool`).** **DECIDED 2026-10-26: build it.** | hours / Medium — one interface method, one `ImGui::Checkbox`, one dispatch branch and one dispatch test. Impact rose with U8b: 16 reflected `bool` fields now, 11 of them pre-existing, and `visible` is the first whose whole purpose is to be toggled while looking at the result. | A `bool` field renders as a checkbox that writes back and sets `changed_`; `field_visitor_test.cpp` asserts `bool` dispatches to `field_bool` rather than `field_readonly`. | Supervisor review of U8b, 2026-10-25 |
+| 5 | ~~**`bool` fields are read-only in the Inspector (no `field_bool`).**~~ — SHIPPED 2026-10-26, see [record](../record/2026-10.md#bool-fields-are-read-only-in-the-inspector-no-field_bool). | — | — | PR pending |
 | 5 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
 | 6 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
 

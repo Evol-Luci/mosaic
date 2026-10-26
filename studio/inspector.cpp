@@ -28,6 +28,14 @@ void ImGuiFieldVisitor::field_int(std::string_view name, int& value)
     if (ImGui::DragInt(std::string(name).c_str(), &value, 1.0f)) { changed_ = true; }
 }
 
+void ImGuiFieldVisitor::field_bool(std::string_view name, bool& value)
+{
+    // Checkbox writes straight into `value`, so the edit lands in the live component the
+    // same frame -- no re-seeded scratch buffer as field_string needs, because there is no
+    // multi-frame editing state for a checkbox to own.
+    if (ImGui::Checkbox(std::string(name).c_str(), &value)) { changed_ = true; }
+}
+
 void ImGuiFieldVisitor::field_readonly(std::string_view name, const std::string& display)
 {
     ImGui::LabelText(std::string(name).c_str(), "%s", display.c_str());

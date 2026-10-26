@@ -11,8 +11,9 @@
 namespace mosaic::engine::reflection
 {
 
-// A visitor over a reflected object's fields. `field_float` gets a mutable reference (the
-// one editable leaf); everything else is presented read-only via a formatted string.
+// A visitor over a reflected object's fields. The editable leaves (`field_float`,
+// `field_int`, `field_bool`, `field_string`, `field_asset`) get a mutable reference;
+// everything else is presented read-only via a formatted string.
 // Nested reflectables (Vec3, Quat, ...) are bracketed by begin_group/end_group. No ImGui,
 // no studio dependency — this is the shared reflected-property surface.
 class FieldVisitor
@@ -52,6 +53,22 @@ public:
     virtual void field_int(std::string_view name, int& value)
     {
         field_readonly(name, std::to_string(value));
+    }
+
+    // An editable boolean field. The visitor may reassign it (e.g. from a checkbox).
+    //
+    // Default-implemented rather than pure virtual, deliberately. There are five other
+    // FieldVisitor implementations in this repository (MarkdownFieldVisitor in
+    // app/docs/component_reference.hpp, and AssetRefCollector / ReferencedAssetGatherer /
+    // AssetReferenceCollector in app/mcp/mcp_tools.cpp) plus a dozen in the test suite, and
+    // a pure virtual would force every one of them to answer a question only the Inspector
+    // has a use for. The fallback renders `true`/`false` -- byte-identical to what the
+    // adapter's bool branch emitted directly before this method existed -- so
+    // docs/reference/components.md and every MCP tool's output are unchanged, and only
+    // ImGuiFieldVisitor opts in.
+    virtual void field_bool(std::string_view name, bool& value)
+    {
+        field_readonly(name, value ? "true" : "false");
     }
 
     // A reference-to-entity field. Read-only (unlike field_asset/field_string, there is
@@ -110,7 +127,13 @@ struct FieldVisitorAdapter
         }
         else if constexpr (std::is_same_v<U, bool>)
         {
-            visitor.field_readonly(name, value ? "true" : "false");
+            // MUST stay above the generic `is_arithmetic_v` branch at the bottom of this
+            // ladder: `bool` IS arithmetic, so if this branch were removed or demoted below
+            // it, a bool would silently render as `std::to_string(value)` -- "1"/"0" rather
+            // than "true"/"false" -- and would stop being editable, with nothing failing to
+            // compile. That is the one ordering constraint here that the compiler cannot
+            // enforce, and it is what `ro:flag=true` in field_visitor_test.cpp pins.
+            visitor.field_bool(name, value);
         }
         else if constexpr (std::is_same_v<U, std::string>)
         {
@@ -118,13 +141,13 @@ struct FieldVisitorAdapter
         }
         else if constexpr (std::is_same_v<U, int>)
         {
-            // Below the bool branch, which keeps its own true/false rendering. Worth being
-            // precise about why that ordering is safe rather than merely conventional: a
-            // branch broad enough to catch bool (is_integral_v, say) would NOT compile, let
-            // alone misbehave, because field_int takes `int&` and a `bool&` cannot bind to
-            // it. Verified with a mutation probe -- the mutant failed to build. So the
-            // compiler enforces this, and the ro:flag assertion in field_visitor_test.cpp is
-            // a cheap guard rather than the thing holding the line.
+            // Below the bool branch, which now has its own `field_bool` rather than
+            // falling through to field_readonly. The bool/int separation is still enforced
+            // by the compiler rather than by this ordering: a branch broad enough to catch
+            // bool (is_integral_v, say) would NOT compile, let alone misbehave, because
+            // field_int takes `int&` and a `bool&` cannot bind to it. Verified with a
+            // mutation probe -- the mutant failed to build. The ordering that DOES need
+            // guarding is bool-above-`is_arithmetic_v`; see the bool branch.
             visitor.field_int(name, value);
         }
         else if constexpr (std::is_arithmetic_v<U>)

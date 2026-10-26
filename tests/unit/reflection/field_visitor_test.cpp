@@ -136,6 +136,43 @@ struct IntWritingVisitor : FieldVisitor
     void begin_group(std::string_view) override {}
     void end_group() override {}
 };
+
+// Overrides field_bool and writes back, the way ImGuiFieldVisitor's Checkbox-backed override
+// does. Deliberately does NOT override field_int, so the same visitor shows both halves of
+// the dispatch: the `int` member must NOT arrive at field_bool, and the `bool` member must.
+struct BoolWritingVisitor : FieldVisitor
+{
+    bool                     new_value;
+    std::vector<std::string> seen;
+    explicit BoolWritingVisitor(bool v) : new_value(v) {}
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view n, const std::string& d) override
+    {
+        seen.push_back("ro:" + std::string(n) + "=" + d);
+    }
+    void field_bool(std::string_view n, bool& value) override
+    {
+        seen.push_back("bool:" + std::string(n));
+        value = new_value;
+    }
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
+
+// Does NOT override field_bool, to prove the default falls back to field_readonly with the
+// same `true`/`false` rendering the adapter emitted inline before field_bool existed -- the
+// migration guarantee for the five other FieldVisitor implementations in this repository.
+struct NoBoolOverrideVisitor : FieldVisitor
+{
+    std::vector<std::string> events;
+    void field_float(std::string_view, float&) override {}
+    void field_readonly(std::string_view n, const std::string& d) override
+    {
+        events.push_back("ro:" + std::string(n) + "=" + d);
+    }
+    void begin_group(std::string_view) override {}
+    void end_group() override {}
+};
 } // namespace
 
 TEST_CASE("FieldVisitorAdapter visits a Transform as groups, floats, and a readonly parent", "[reflection]")
@@ -233,10 +270,11 @@ TEST_CASE("FieldVisitorAdapter routes an int field to field_int when overridden"
 
     REQUIRE(vis.seen.size() == 2);
     REQUIRE(vis.seen[0] == "int:order");
-    // The bool did NOT become an int: it keeps its own readonly branch, above the int one in
-    // the adapter's ladder. This is belt-and-braces rather than the real defence -- a probe
-    // confirmed that a branch broad enough to swallow bool does not compile at all, since
-    // field_int takes `int&` and a `bool&` cannot bind to it.
+    // The bool did NOT become an int: it goes to field_bool, which this visitor does not
+    // override, so it falls back to field_readonly with the true/false rendering. This is
+    // belt-and-braces rather than the real defence -- a probe confirmed that a branch broad
+    // enough to swallow bool does not compile at all, since field_int takes `int&` and a
+    // `bool&` cannot bind to it.
     REQUIRE(vis.seen[1] == "ro:flag=true");
 }
 
@@ -261,6 +299,51 @@ TEST_CASE("FieldVisitorAdapter falls back an int field to field_readonly when fi
     IntHolder            h;
     NoIntOverrideVisitor vis;
     FieldVisitorAdapter  adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(vis.events.size() == 2);
+    REQUIRE(vis.events[0] == "ro:order=3");
+    REQUIRE(vis.events[1] == "ro:flag=true");
+}
+
+TEST_CASE("FieldVisitorAdapter routes a bool field to field_bool when overridden, and leaves the int alone",
+          "[reflection]")
+{
+    // MUTATION GUARD. Replacing the adapter's bool branch body with its pre-field_bool form,
+    //     visitor.field_readonly(name, value ? "true" : "false");
+    // turns this red: seen[1] becomes "ro:flag=true" instead of "bool:flag".
+    IntHolder           h;
+    BoolWritingVisitor  vis(false);
+    FieldVisitorAdapter adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(vis.seen.size() == 2);
+    REQUIRE(vis.seen[0] == "ro:order=3"); // the int did NOT arrive at field_bool
+    REQUIRE(vis.seen[1] == "bool:flag");
+}
+
+TEST_CASE("FieldVisitorAdapter writes bool edits into the live object", "[reflection]")
+{
+    IntHolder           h; // flag defaults true
+    BoolWritingVisitor  vis(false);
+    FieldVisitorAdapter adapter{vis};
+    reflect(adapter, h);
+
+    REQUIRE(h.flag == false); // the edit reached the component, not a copy
+    REQUIRE(h.order == 3);    // and nothing else moved
+}
+
+TEST_CASE("FieldVisitorAdapter falls back a bool field to field_readonly when field_bool is not overridden",
+          "[reflection]")
+{
+    // The migration guarantee, AND the ordering pin. `bool` is arithmetic, so if the bool
+    // branch were deleted or demoted below the adapter's generic is_arithmetic_v branch, this
+    // would read "ro:flag=1" -- which no compiler would object to. Five other FieldVisitor
+    // implementations rely on this exact rendering, including the MarkdownFieldVisitor that
+    // generates docs/reference/components.md.
+    IntHolder             h;
+    NoBoolOverrideVisitor vis;
+    FieldVisitorAdapter   adapter{vis};
     reflect(adapter, h);
 
     REQUIRE(vis.events.size() == 2);
