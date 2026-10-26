@@ -36,6 +36,12 @@ struct ClipPixelRect
 // render. Returning a zero extent for an empty clip is relied on by that case, so it is
 // not merely a safe fallback either.
 //
+// A NON-FINITE edge collapses the rect the same way, including a positive infinity: it
+// draws NOTHING rather than meaning "the whole surface". That is the safe direction (an
+// infinity reaching here came from arithmetic nobody intended, and drawing nothing is
+// visible while a silently full-surface draw is not), but it is the opposite of what a
+// reader expecting "infinite clip = unclipped" would guess, so it is said here.
+//
 // Edges are rounded to the nearest pixel (not floored/ceiled outward) so the clip
 // boundary lands where the quad's own rasterized edge lands -- both resolve against
 // pixel centres. A caller wanting an exact boundary should place it on a whole pixel.
