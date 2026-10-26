@@ -177,29 +177,41 @@ public:
     }
 
     std::vector<std::vector<mosaic::engine::render::UiQuad>> ui_draws;
-    void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
+    // The clip each UI call arrived with, recorded alongside the quads. U9a adds the
+    // parameter and RenderSystem passes nothing, so these must all be nullopt; U9b is
+    // what starts filling them in.
+    std::vector<mosaic::engine::render::RenderDevice::UiClip> ui_clips;
+    void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads,
+                 mosaic::engine::render::RenderDevice::UiClip clip) override
     {
         ui_draws.push_back(quads);
+        ui_clips.push_back(clip);
         ordered_calls.push_back("ui");
     }
 
     struct UiImageDrawCall { std::vector<mosaic::engine::render::UiImageQuad> quads;
                              mosaic::engine::render::TextureHandle texture; };
     std::vector<UiImageDrawCall> ui_image_draws;
+    std::vector<mosaic::engine::render::RenderDevice::UiClip> ui_image_clips;
     void draw_ui_image(const std::vector<mosaic::engine::render::UiImageQuad>& quads,
-                       mosaic::engine::render::TextureHandle texture) override
+                       mosaic::engine::render::TextureHandle texture,
+                       mosaic::engine::render::RenderDevice::UiClip clip) override
     {
         ui_image_draws.push_back({quads, texture});
+        ui_image_clips.push_back(clip);
         ordered_calls.push_back("ui_image");
     }
 
     struct UiTextDrawCall { std::vector<mosaic::engine::render::UiGlyphQuad> quads;
                             mosaic::engine::render::TextureHandle atlas; };
     std::vector<UiTextDrawCall> ui_text_draws;
+    std::vector<mosaic::engine::render::RenderDevice::UiClip> ui_text_clips;
     void draw_ui_text(const std::vector<mosaic::engine::render::UiGlyphQuad>& quads,
-                      mosaic::engine::render::TextureHandle atlas) override
+                      mosaic::engine::render::TextureHandle atlas,
+                      mosaic::engine::render::RenderDevice::UiClip clip) override
     {
         ui_text_draws.push_back({quads, atlas});
+        ui_text_clips.push_back(clip);
         ordered_calls.push_back("ui_text");
     }
 
@@ -2972,6 +2984,57 @@ TEST_CASE("a faded container fades child text", "[render][ui]")
     REQUIRE(device.ui_text_draws.size() == 1);
     REQUIRE(device.ui_text_draws[0].quads.size() == 1);
     REQUIRE(device.ui_text_draws[0].quads[0].alpha == Catch::Approx(0.25f));
+}
+
+TEST_CASE("RenderSystem passes no clip on any of the three UI draws", "[render][ui]")
+{
+    // U9a adds the clip parameter to the device interface and NOTHING else: resolving a
+    // clip from the hierarchy and grouping quads by it is U9b. This pins the boundary in
+    // both directions.
+    //
+    // It is worth a case because "default to the full surface" is the claim that makes
+    // U9a safe to merge on its own, and the parameter is defaulted -- so a stray clip
+    // introduced at a call site would compile, draw a subtly cropped HUD, and be caught
+    // by no existing assertion. All three passes are covered because they are three
+    // independent call sites (render_system.hpp :541, :588, :634).
+    using mosaic::engine::ui::UiImage;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    const auto    tex = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    world.add_component<UiPanel>(world.create_entity(), UiPanel{});
+
+    const auto image = world.create_entity();
+    UiImage    im;
+    im.texture = tex;
+    world.add_component<UiImage>(image, im);
+
+    const auto text = world.create_entity();
+    UiText     t;
+    t.font   = font_id;
+    t.text   = "A";
+    t.height = 0.1f;
+    world.add_component<UiText>(text, t);
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // Each pass ran, so the nullopt assertions below are not vacuous.
+    REQUIRE(device.ui_draws.size() == 1);
+    REQUIRE(device.ui_image_draws.size() == 1);
+    REQUIRE(device.ui_text_draws.size() == 1);
+
+    REQUIRE(device.ui_clips.size() == 1);
+    REQUIRE(device.ui_image_clips.size() == 1);
+    REQUIRE(device.ui_text_clips.size() == 1);
+    REQUIRE_FALSE(device.ui_clips[0].has_value());
+    REQUIRE_FALSE(device.ui_image_clips[0].has_value());
+    REQUIRE_FALSE(device.ui_text_clips[0].has_value());
 }
 
 // ---------------------------------------------------------------------------

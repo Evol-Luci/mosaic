@@ -11,6 +11,7 @@
 #include "modules/render_vulkan/vulkan_render_device.hpp"
 #include "modules/render_vulkan/vulkan_bloom_levels.hpp"
 #include "modules/render_vulkan/vulkan_swapchain_support.hpp"
+#include "modules/render_vulkan/vulkan_ui_clip.hpp"
 #include "foundation/logging/log.hpp"
 
 #include <array>
@@ -1847,7 +1848,47 @@ public:
         vkCmdDraw(cmd_[frame_], 3, 1, 0, 0);
     }
 
-    void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads) override
+    // The extent the UI draws are landing in. The SAME selector draw_hdr_resolve uses for
+    // its inv_dest push constant below, deliberately: the UI pipelines come in a
+    // swapchain and an offscreen-viewport variant chosen on viewport_pass_open_, and the
+    // destination those two render into differs in the editor (swapchain-sized target
+    // against whatever size the user dragged the panel to). One question answered once.
+    VkExtent2D ui_destination_extent() const
+    {
+        return viewport_pass_open_ ? vp_extent_ : extent_;
+    }
+
+    // Narrow the scissor to `clip` for the draws that follow. No clip records NOTHING, so
+    // an unclipped call's command stream is byte-identical to the one it recorded before
+    // the clip parameter existed.
+    void set_ui_clip(const UiClip& clip)
+    {
+        if (!clip) { return; }
+        const VkExtent2D dest = ui_destination_extent();
+        const mosaic::render::vk::ClipPixelRect px =
+            mosaic::render::vk::clip_to_pixel_rect(*clip, dest.width, dest.height);
+        VkRect2D scissor{};
+        scissor.offset = {px.x, px.y};
+        scissor.extent = {px.width, px.height};
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+    }
+
+    // Put the scissor back to the full destination extent, which is what the pass set when
+    // it opened. Paired with set_ui_clip around EVERY clipped draw, because the clip is a
+    // per-call parameter and not device state: leaving it set would silently narrow the
+    // next draw in the same frame -- including an unclipped one, which passes nullopt and
+    // therefore records no scissor of its own to overwrite it with.
+    void restore_ui_clip(const UiClip& clip)
+    {
+        if (!clip) { return; }
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = ui_destination_extent();
+        vkCmdSetScissor(cmd_[frame_], 0, 1, &scissor);
+    }
+
+    void draw_ui(const std::vector<mosaic::engine::render::UiQuad>& quads,
+                 UiClip clip) override
     {
         if (quads.empty()) { return; }
         ensure_destination_pass();
@@ -1855,6 +1896,7 @@ public:
 
         VkPipeline pipe = viewport_pass_open_ ? vp_ui_pipeline_ : ui_pipeline_;
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        set_ui_clip(clip);
         for (const auto& q : quads)
         {
             UiPush pc{};
@@ -1867,10 +1909,12 @@ public:
                                0, sizeof(UiPush), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0); // 6 verts = one quad
         }
+        restore_ui_clip(clip);
     }
 
     void draw_ui_image(const std::vector<mosaic::engine::render::UiImageQuad>& quads,
-                       mosaic::engine::render::TextureHandle texture) override
+                       mosaic::engine::render::TextureHandle texture,
+                       UiClip clip) override
     {
         if (quads.empty()) { return; }
         ensure_destination_pass();
@@ -1882,6 +1926,7 @@ public:
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 ui_image_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0, nullptr);
+        set_ui_clip(clip);
         for (const auto& q : quads)
         {
             UiImagePush pc{};
@@ -1893,10 +1938,12 @@ public:
                                0, sizeof(UiImagePush), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
         }
+        restore_ui_clip(clip);
     }
 
     void draw_ui_text(const std::vector<mosaic::engine::render::UiGlyphQuad>& quads,
-                      mosaic::engine::render::TextureHandle atlas) override
+                      mosaic::engine::render::TextureHandle atlas,
+                      UiClip clip) override
     {
         if (quads.empty()) { return; }
         ensure_destination_pass();
@@ -1908,6 +1955,7 @@ public:
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 ui_text_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0, nullptr);
+        set_ui_clip(clip);
         for (const auto& q : quads)
         {
             UiTextPush pc{};
@@ -1919,6 +1967,7 @@ public:
                                0, sizeof(UiTextPush), &pc);
             vkCmdDraw(cmd_[frame_], 6, 1, 0, 0);
         }
+        restore_ui_clip(clip);
     }
 
     void begin_frame() override

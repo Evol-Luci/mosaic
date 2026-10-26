@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -308,17 +309,43 @@ public:
 
     virtual void draw_screen_effect(const ScreenEffectParams& /*params*/) {}
 
+    // An optional clip sub-rect for the three UI draws below, in the SAME space as
+    // UiQuad::rect: normalized, top-left origin, x/y/w/h in [0,1]. Pixels outside it are
+    // left untouched; pixels inside it are identical to an unclipped draw. A clip changes
+    // NEITHER the position nor the size of a quad -- only which of its pixels survive.
+    // That is what distinguishes it from resolve_parent_frame (ui_hierarchy.hpp), which
+    // relocates and resizes a child instead.
+    //
+    // `std::nullopt` means the full surface, so every call site that passes nothing
+    // records exactly the command stream it recorded before this parameter existed.
+    // An empty clip (w or h <= 0) draws nothing, which is the case a fully-clipped-away
+    // subtree resolves to.
+    //
+    // It is a PARAMETER, deliberately, and there is no set_clip/push_clip counterpart:
+    // a clip stored on the device is per-frame state that must be reset, and this project
+    // has paid for that shape twice (the per-frame staging aliasing of #275 and #287). A
+    // clip left set from the previous frame would draw this frame's HUD into a stale rect
+    // and no test would see it. Pass it; do not store it.
+    //
+    // The clip is per CALL, not per quad: RenderSystem already groups HUD quads by texture
+    // and a clip is one more grouping key. One vkCmdSetScissor per quad would destroy the
+    // batching the HUD pass was built around.
+    using UiClip = std::optional<mosaic::engine::ui::Rect>;
+
     // Draw alpha-blended screen-space HUD quads (topmost). Default no-op (like draw_decals).
-    virtual void draw_ui(const std::vector<UiQuad>& /*quads*/) {}
+    virtual void draw_ui(const std::vector<UiQuad>& /*quads*/,
+                         UiClip /*clip*/ = std::nullopt) {}
 
     // Draw alpha-blended textured HUD quads (full RGBA × tint) sampling `texture`.
     // Default no-op (like draw_ui). Called after draw_ui (panels), so images sit over panels.
     virtual void draw_ui_image(const std::vector<UiImageQuad>& /*quads*/,
-                               TextureHandle /*texture*/) {}
+                               TextureHandle /*texture*/,
+                               UiClip /*clip*/ = std::nullopt) {}
     // Draw alpha-blended textured glyph quads sampling `atlas` (coverage in alpha).
     // Default no-op (like draw_ui). Called in the HUD pass after draw_ui.
     virtual void draw_ui_text(const std::vector<UiGlyphQuad>& /*quads*/,
-                              TextureHandle /*atlas*/) {}
+                              TextureHandle /*atlas*/,
+                              UiClip /*clip*/ = std::nullopt) {}
 
     // Offscreen viewport hooks. Default no-ops so headless devices and test fakes
     // need not implement them. The editor renders the scene into a panel-sized

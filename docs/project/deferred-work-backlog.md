@@ -843,9 +843,36 @@ them as this list does.
   header.** `ValidationCaptureSink`, `format_pixel`, `require_pixel_near`, and
   `require_pixel_differs_from_background` are duplicated across the anonymous namespaces of
   `offscreen_particle_aliasing_test.cpp`, `offscreen_ribbon_aliasing_test.cpp`,
-  `offscreen_world_text_aliasing_test.cpp`, and `offscreen_hud_underlay_test.cpp`. Deferred
+  `offscreen_world_text_aliasing_test.cpp`, `offscreen_hud_underlay_test.cpp`, and (since
+  2026-10-26) `offscreen_ui_clip_test.cpp`. Deferred
   2026-10-25 as a non-goal of the ribbon/world-text aliasing slice to keep that diff scoped strictly
-  to the two new tests. **Depends on:** nothing.
+  to the two new tests; re-confirmed 2026-10-26 by U9a, which duplicated them a fifth time rather
+  than widen its own diff into a shared-header refactor. **Depends on:** nothing.
+- **`tests/gpu/`'s `REQUIRE(validation_messages.empty())` is conditional on the validation layer
+  being PRESENT, and no test can assert that it was.** Found 2026-10-26 during U9a. The backend
+  enables `VK_LAYER_KHRONOS_validation` only `#ifndef NDEBUG` *and* only when
+  `validation_layer_available()` returns true (`vulkan_render_device.cpp:2845`); when the layer is
+  absent the capture sink stays empty for the trivial reason and every such assertion passes
+  vacuously. This is the "asserting zero validation messages is vacuous unless you also assert the
+  layer was on" rule, unmet in all five GPU tests that make the assertion — so a scissor outside
+  the render area could in principle reach CI's lavapipe step undetected, and only the renderer
+  gate (a manual read of a log) would catch it. **Depends on:** an inspection seam reporting
+  whether the layer was enabled — either a field on `OffscreenDevice` or an unconditional
+  `[INFO]` line at instance creation naming the layers actually enabled (the sync-validation line
+  is the precedent, and it logs only for the opt-in feature). Deferred because that is new
+  interface surface on the device, not a renderer change, and U9a was scoped to the clip
+  parameter.
+- **The clip's pixel-edge rounding policy is round-to-nearest, and no authored UI rect has tested
+  it.** `clip_to_pixel_rect` (`modules/render_vulkan/vulkan_ui_clip.hpp`, added by U9a 2026-10-26)
+  rounds each normalized edge to the nearest pixel, so the clip boundary resolves the same way the
+  quad's own rasterized edge does. The alternative is rounding *outward* (floor the low edge, ceil
+  the high one), which never crops a partially covered pixel. U9a's gate cannot tell them apart:
+  its clip edges are placed on whole pixels (0.5 x 128 = 64) deliberately, so the assertions do not
+  depend on the choice. The difference is a one-pixel seam, visible as a hairline at a scroll
+  region's edge or a half-pixel of a clipped glyph being dropped. **Depends on:** U9d — judging it
+  needs a real authored scroll region on screen, which is the first time a clip edge will land on a
+  fractional pixel at all. Deferred because choosing now would be choosing without the observation
+  that decides it.
 - **Ordering *within* one `draw_ui_image` call's quad vector is unasserted.** Found during review
   of PR #304 while looking for a production-side mutation: reversing the per-quad loop at
   `vulkan_render_device.cpp:1886` is a **no-op edit** against the current tests, because every
@@ -2363,11 +2390,12 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
-| 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
+| 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **five** files and grows with every pixel test, so the cost is monotonic. | All five GPU test files stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 10 and passes. | PR #309 (deferred there as an explicit non-goal); count refreshed by U9a 2026-10-26 |
 | 5 | ~~**`bool` fields are read-only in the Inspector (no `field_bool`).**~~ — SHIPPED 2026-10-26, see [record](../record/2026-10.md#bool-fields-are-read-only-in-the-inspector-no-field_bool). | — | — | PR #316 |
 | 6 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
 | 7 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
 | 8 | **Override `field_bool` in `MarkdownFieldVisitor`, and re-check `component_reference.hpp`'s preamble.** | hours / Low — cosmetic, but it is the one place the `field_bool` slice left a sentence that now explains a *choice* as though it were a *limitation*: the generated page says `bool` and non-`float` numerics share `field_readonly` because "the underlying type isn't distinguishable from the callback alone", which stopped being true for `bool` on 2026-10-26. | `docs/reference/components.md` labels `bool` fields `(bool)` the way `field_entity`/`field_handle_asset` are already labelled, and the preamble sentence either goes or is rewritten as a choice. | #316, deferred 2026-10-26 |
+| 9 | **Decide the clip's pixel-edge rounding policy (round-to-nearest against round-outward).** | hours / Low-Medium — one `llround` against a `floor`/`ceil` pair in `clip_to_pixel_rect`; the work is the decision, and the symptom is a one-pixel seam at a scroll region's edge or half a clipped glyph. | A clip edge landing on a fractional pixel either keeps or drops the partially covered pixel, and a unit case in `ui_clip_pixel_rect_test.cpp` asserts whichever was chosen. | U9a, deferred 2026-10-26; depends on U9d for the observation |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
@@ -2381,6 +2409,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 6 | **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when a `Value` changes without its `Checked` date being updated). | slice / Medium — #290 made the *values* machine-checked but left the freshness claim on the honour system, which is the half that rotted for six weeks before. | A commit that edits a `Value` cell without bumping that row's `Checked` date fails CI; one that bumps both passes. | #290, deferred 2026-10-24 |
 | 7 | **Making the `CI test step` row in `next-steps.md` machine-checkable.** | slice / Low-Medium — the only State row still declared `UNVERIFIABLE`, so it is the one that can drift silently. Blocked on environment, not difficulty: the check needs `gh`, a run id, network and an authenticated token. | `check_next_steps_claims` reports 4 of 4 rows verified and 0 skipped. | #290, deferred 2026-10-24 |
 | 8 | **Decide whether to adopt `imgui_test_engine`** — the four Inspector write-back widgets are executed by nothing. | slice / Low-Medium, and the work is a DEPENDENCY DECISION, not code. `tests/unit/studio/` holds 19 test files and **no `inspector_test.cpp`**: `DragFloat`, `DragInt`, `InputText` and (since 2026-10-26) `Checkbox` each write back and set `changed_` with no test on the path. Exercising one needs a simulated multi-frame drag against ImGui's active-item state, which is what `imgui_test_engine` is for and which is **not vendored** (ImGui 1.91.5 arrives via `FetchContent`). The count grows by one with every new reflected field type, so the cost is monotonic — the same shape as 🟢 row 4. | Either the dep is vendored and deleting any one of those four `ImGui::` calls turns a test red, or the item moves to "Decided: no action" with a trigger. Today neither has happened and it reads as un-got-to. | #316, raised 2026-10-26 on a bullet that predates it |
+| 9 | **Make `tests/gpu/`'s zero-validation-messages assertion non-vacuous.** | slice / Medium — five GPU tests assert `validation_messages.empty()` while the layer is enabled only `#ifndef NDEBUG` *and* only if `validation_layer_available()` says so, so all five pass for free wherever the layer is absent. A scissor outside the render area — exactly what U9a's clip could regress into — is a validation ERROR rather than a wrong pixel, and today only the renderer gate's manual log read would see it. | The GPU tests assert the layer was ACTUALLY enabled before asserting no messages, and deliberately disabling the layer makes them fail rather than pass. | U9a, deferred 2026-10-26 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 

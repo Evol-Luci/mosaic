@@ -111,7 +111,8 @@ public:
     {
     }
     void draw_ui_image(const std::vector<mosaic::engine::render::UiImageQuad>& quads,
-                       mosaic::engine::render::TextureHandle texture) override
+                       mosaic::engine::render::TextureHandle texture,
+                       mosaic::engine::render::RenderDevice::UiClip) override
     {
         ui_image_draws.push_back({quads, texture});
     }

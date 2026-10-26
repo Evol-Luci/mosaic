@@ -92,6 +92,7 @@ add_executable(mosaic_unit_tests
   unit/jobs/thread_pool_test.cpp
   unit/render/swapchain_support_test.cpp
   unit/render/bloom_levels_test.cpp
+  unit/render/ui_clip_pixel_rect_test.cpp
   unit/render/vulkan_validation_contract_test.cpp
   unit/render/bloom_shader_contract_test.cpp
   unit/render/bloom_backend_contract_test.cpp
@@ -276,6 +277,7 @@ if(MOSAIC_ENABLE_GPU_TESTS)
     gpu/offscreen_readback_test.cpp
     gpu/offscreen_render_device_test.cpp
     gpu/offscreen_ui_orientation_test.cpp
+    gpu/offscreen_ui_clip_test.cpp
     gpu/offscreen_particle_aliasing_test.cpp
     gpu/offscreen_ribbon_aliasing_test.cpp
     gpu/offscreen_world_text_aliasing_test.cpp
