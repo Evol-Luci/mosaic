@@ -679,8 +679,7 @@ them as this list does.
   Worth revisiting before any feature leans harder on "the components on a button's entity".
 - ~~**`int` fields are read-only in the Inspector (no `field_int`)**~~ — FIXED 2026-10-11, see [record](../record/2026-10.md#int-fields-are-read-only-in-the-inspector-no-field_int).
 - ~~**U7 image presentation — aspect-preserving fit/fill, 9-slice scaling, texture atlas sub-rects. Independent of everything else and the cheapest real group.**~~ — SHIPPED 2026-10-10, see [record](../record/2026-10.md#u7-image-presentation--aspect-preserving-fitfill-9-slice-scaling-texture-atlas-sub-rects-independent-of-everything-else-and-the-cheapest-real-group).
-- **U8 layout containers** — inherited visibility/alpha, flow/grid/stack
-  auto-layout. Needs nothing from the renderer.
+- ~~**U8 layout containers** — inherited visibility/alpha, flow/grid/stack auto-layout. Needs nothing from the renderer.~~ — **COMPLETE 2026-10-25**, across four slices: U8a [stack + inherited alpha](../record/2026-10.md#u8a--inherited-alpha-and-stack-layout), U8b [the `visible` bool](../record/2026-10.md#u8b--a-real-visible-bool-on-the-ui-components), U8c [`UiGrid`/`UiFlow`](../record/2026-10.md#u8c--uigrid-and-uiflow) and U8d [the `parent -> children` index, measured and deliberately not built](../record/2026-10.md#u8d--the-parent---children-index-measured-and-deliberately-not-built). Struck 2026-10-26: this bullet is from the original six-group list, where U6 and U7 were struck as they shipped and this one was missed, so it still read as live work. Content-sized slots and the editor gizmo remain deferred under their own entries above, behind named blockers.
 - **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
   first; scroll additionally needs wheel input, i.e. the deferred `PointerState`
   widening.

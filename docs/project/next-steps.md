@@ -23,7 +23,7 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-**One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **two** as of 2026-10-25, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
+**One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **six** as of 2026-10-26, none red, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
 
 **The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
