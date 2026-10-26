@@ -862,6 +862,22 @@ them as this list does.
   is the precedent, and it logs only for the opt-in feature). Deferred because that is new
   interface surface on the device, not a renderer change, and U9a was scoped to the clip
   parameter.
+- **The UI clip's EDITOR-VIEWPORT branch is covered by no test.** Found 2026-10-26 while
+  implementing U9a. `ui_destination_extent()` resolves the clip against
+  `viewport_pass_open_ ? vp_extent_ : extent_`, because the three UI draws run in the viewport
+  pass when the editor requests one and the swapchain pass otherwise, and those two extents differ
+  in the editor (scene target swapchain-sized, panel whatever the user dragged it to). **Only the
+  `extent_` branch is exercised.** `tests/gpu/offscreen_ui_clip_test.cpp` never opens a viewport
+  pass, and it could not assert one if it did: `read_pixels()` reads the offscreen colour target,
+  while a viewport pass renders into the viewport texture. So writing `extent_` unconditionally
+  would leave the whole suite AND `ctest -L gpu` green while every clip in the editor's viewport
+  panel was computed against the wrong extent — mis-scaled, and out-of-range enough to be a
+  validation error once the panel is smaller than the swapchain. This is the standing "the editor
+  path is invisible to the gate" gap, now with a specific line behind it. **Depends on:** a
+  readback seam for the viewport texture on `OffscreenDevice` (the same class of inspection seam
+  the `begin_frame` counter row above asks for). Deferred because adding one is harness work, not
+  a renderer change, and U9a was scoped to the clip parameter. Mitigation today is the renderer
+  gate, which exercises the editor but can only report validation silence, not placement.
 - **The clip's pixel-edge rounding policy is round-to-nearest, and no authored UI rect has tested
   it.** `clip_to_pixel_rect` (`modules/render_vulkan/vulkan_ui_clip.hpp`, added by U9a 2026-10-26)
   rounds each normalized edge to the nearest pixel, so the clip boundary resolves the same way the
@@ -2410,6 +2426,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 7 | **Making the `CI test step` row in `next-steps.md` machine-checkable.** | slice / Low-Medium — the only State row still declared `UNVERIFIABLE`, so it is the one that can drift silently. Blocked on environment, not difficulty: the check needs `gh`, a run id, network and an authenticated token. | `check_next_steps_claims` reports 4 of 4 rows verified and 0 skipped. | #290, deferred 2026-10-24 |
 | 8 | **Decide whether to adopt `imgui_test_engine`** — the four Inspector write-back widgets are executed by nothing. | slice / Low-Medium, and the work is a DEPENDENCY DECISION, not code. `tests/unit/studio/` holds 19 test files and **no `inspector_test.cpp`**: `DragFloat`, `DragInt`, `InputText` and (since 2026-10-26) `Checkbox` each write back and set `changed_` with no test on the path. Exercising one needs a simulated multi-frame drag against ImGui's active-item state, which is what `imgui_test_engine` is for and which is **not vendored** (ImGui 1.91.5 arrives via `FetchContent`). The count grows by one with every new reflected field type, so the cost is monotonic — the same shape as 🟢 row 4. | Either the dep is vendored and deleting any one of those four `ImGui::` calls turns a test red, or the item moves to "Decided: no action" with a trigger. Today neither has happened and it reads as un-got-to. | #316, raised 2026-10-26 on a bullet that predates it |
 | 9 | **Make `tests/gpu/`'s zero-validation-messages assertion non-vacuous.** | slice / Medium — five GPU tests assert `validation_messages.empty()` while the layer is enabled only `#ifndef NDEBUG` *and* only if `validation_layer_available()` says so, so all five pass for free wherever the layer is absent. A scissor outside the render area — exactly what U9a's clip could regress into — is a validation ERROR rather than a wrong pixel, and today only the renderer gate's manual log read would see it. | The GPU tests assert the layer was ACTUALLY enabled before asserting no messages, and deliberately disabling the layer makes them fail rather than pass. | U9a, deferred 2026-10-26 |
+| 10 | **A viewport-texture readback seam, so the editor's UI path can be asserted in pixels.** | slice / Medium-High — it is the only way any test reaches the `vp_extent_` half of the UI passes, which today includes U9a's clip selector and every future per-viewport UI behaviour. The suite cannot currently tell a correct editor HUD from one scaled against the wrong extent. | A GPU test opens a viewport pass, draws a clipped quad into it, and reads those pixels back; writing `extent_` unconditionally in `ui_destination_extent()` turns it red. | U9a, deferred 2026-10-26 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
