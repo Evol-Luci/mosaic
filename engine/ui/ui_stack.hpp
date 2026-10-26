@@ -263,7 +263,25 @@ struct UiFlow
     // and wrap into new rows downward. The same meaning `axis` has on UiStack, and the same
     // posture: anything that is not 1 is vertical, so a scene file holding a stray int gets
     // a real layout rather than an invisible UI.
-    int   axis     = 0;
+    //
+    // THE DEFAULT IS 1 WHILE UiStack'S IS 0, DELIBERATELY -- so read this before "fixing" it.
+    // Human verification pass, 2026-10-26: a flow's common case is a toolbar, an inventory
+    // row, a row of buttons, so `UiFlow{.per_line = N}` with no axis authored should give a
+    // ROW. The supervisor had ruled the other way during review, for consistency with
+    // UiStack, to_anchor and layout_slot, all of which treat 0 as vertical; the human
+    // overruled that, and this is their answer.
+    //
+    // WHAT WAS NOT DONE, because it is the trap rather than the fix: giving THIS component
+    // the opposite convention so its default could stay 0. That would make `axis == 1` mean
+    // horizontal on UiStack and vertical on UiFlow -- one reflected int, shown as "axis" in
+    // the Inspector and written as "axis" in every scene file, meaning opposite things on two
+    // components declared in this one header and sharing detail::cell_slot. What the human
+    // was fixing is a DEFAULT that differs between two components, which a reader meets once
+    // per component; that would be a MEANING that differs, which they meet on every scene
+    // file and every inspector row forever. So the field keeps ONE meaning everywhere and
+    // only the default moves -- flow_slot's own `axis == 1` test and its comment below are
+    // unchanged, and still describe what the arithmetic does.
+    int   axis     = 1;
     // Slots per line along the main axis. A zero or negative value means NO SLOTS, the same
     // rule UiGrid's cols takes -- it is also the modulus, so it is the division flow_slot
     // would otherwise do by zero.

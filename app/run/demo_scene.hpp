@@ -950,7 +950,7 @@ inline void build_default_scene(mosaic::engine::World& world)
             mosaic::engine::ui::UiParent{hud_grid});
     }
 
-    // A UiFlow (U8c), bottom-centre: FIVE children at THREE PER LINE, so the final line is
+    // A UiFlow (U8c), UPPER-CENTRE: FIVE children at THREE PER LINE, so the final line is
     // PARTIAL. This exists to make the slice's one open decision checkable by eye.
     //
     // WHAT TO LOOK FOR: a row of three cells, and below it TWO cells plus an empty third
@@ -962,11 +962,37 @@ inline void build_default_scene(mosaic::engine::World& world)
     // considered and declined (see UiFlow in ui_stack.hpp: it would make a cell's size move
     // whenever a child is created or destroyed, which is the same defect that got the
     // cols-only UiGrid declined). The magenta gap is the evidence that it was not.
+    //
+    // MOVED OFF BOTTOM-CENTRE ON 2026-10-26, and the move is the whole point of the change
+    // -- see the "GLOW" WorldLabel at the end of this file. Authored at Anchor::Bottom with
+    // pos {0, 0.03} this block resolved to x [0.38, 0.62] y [0.79, 0.97], and the 2026-10-26
+    // verification pass's screenshot showed the lime "GLOW" label cut off exactly at y =
+    // 0.79: the UiPanel pass (render_system.hpp:503) runs after the WorldLabel pass (:445),
+    // so panels cover world labels unconditionally. That is COMPOSITION, not a renderer bug,
+    // and a unified z-order across that pass boundary is a separate architectural item.
+    //
+    // THE FLOW MOVED RATHER THAN THE LABEL, deliberately. The label's 2026-10-21 decision
+    // names "a different position" as one of its remedies, so moving it was allowed -- but
+    // its verdict ("legible, though the contrast is pretty low") was given against the
+    // background it currently sits on, and moving it in WORLD space changes that background,
+    // reopening a contrast question that was explicitly closed. This block is HUD chrome at
+    // an authored normalized rect, so moving it is checkable arithmetic and changes nothing
+    // about the label.
+    //
+    // WHY UPPER-CENTRE AND NOT FLUSH WITH THE TOP EDGE: pos.y = 0.20 puts the block at
+    // y [0.20, 0.38], which clears the "MOSAIC" UiText band (y [0.10, 0.16]) on the Y axis
+    // alone. A text element's WIDTH is total glyph advance / aspect, so it is not an authored
+    // constant and grows as the window narrows -- clearing it on X would have been a claim
+    // that fails at some window size. Every other clearance here is a pure normalized-rect
+    // disjointness, and so is this one. x [0.38, 0.62] clears the HUD bar (ends 0.27) and the
+    // top-right stack and both checker sprites (start 0.76 / 0.85 / 0.79); y [0.20, 0.38]
+    // clears the bottom-left layout-only container (starts 0.90) and the bottom-right grid
+    // (starts 0.79) on both axes. The whole set is asserted in demo_scene_test.cpp.
     const auto hud_flow = world.create_entity();
     world.add_component<mosaic::engine::ui::UiPanel>(hud_flow,
         mosaic::engine::ui::UiPanel{
-            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::Bottom),
-            .pos     = mosaic::foundation::math::Vec2{0.0f, 0.03f},
+            .anchor  = static_cast<int>(mosaic::engine::ui::Anchor::Top),
+            .pos     = mosaic::foundation::math::Vec2{0.0f, 0.20f},
             .size    = mosaic::foundation::math::Vec2{0.24f, 0.18f},
             .color   = Vec3{1.0f, 0.0f, 1.0f},
             .alpha   = 1.0f,
@@ -1191,6 +1217,23 @@ inline void build_default_scene(mosaic::engine::World& world)
     // Seen on screen: the interior is the predicted (0.80, 0.95, 0.37). Note the label was
     // drawn TWICE until the world-text batching fix (the "Orbiter" label's draw read the
     // first four glyphs from this label's vertices), so it looked brighter than authored.
+    //
+    // 2026-10-26: THE "DIFFERENT POSITION" REMEDY ABOVE FIRED, AND IT WAS SPENT ON THE HUD
+    // RATHER THAN ON THIS TRANSFORM. The 2026-10-26 verification pass's screenshot showed
+    // this label's lower half covered by U8c's flow block -- the first bottom-centre HUD
+    // content the demo has ever had -- cut exactly at the flow's authored top edge, y = 0.79.
+    // The trigger was OCCLUSION, not the contrast the 2026-10-21 note was about. The flow
+    // block moved to upper-centre instead of this Transform moving, because this label's
+    // "legible, though the contrast is pretty low" verdict was given against the background
+    // it sits on, and relocating it in world space would change that background and reopen
+    // the very question the note closes. So the colour decision above stands untouched and on
+    // the same evidence; what is now stale in it is only the ordering of its three remedies
+    // -- "a different position" has been used once, on the thing in front, and a future
+    // occlusion should look at the HUD first for the same reason.
+    //
+    // STILL UNSEEN BY ANYONE: the uncovered label. Nobody has looked at this label's lower
+    // half since the flow block was added, so whether the full word reads well against the
+    // lit ground is an eye question again (see deferred-work-backlog.md, UI).
     const auto glow_label = world.create_entity();
     world.add_component<transform::Transform>(glow_label,
         transform::Transform{Vec3{0, 0.9f, 4.5f}, Quat::identity(), Vec3{1, 1, 1}, {}});

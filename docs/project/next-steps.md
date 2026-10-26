@@ -16,8 +16,8 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1515 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-25 |
-| Suite status | all passing (1515/1515, 4.0-4.5 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-25 |
+| Suite size | 1517 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-26 |
+| Suite status | all passing (1517/1517, 4.4 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-26 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -25,11 +25,11 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **six** as of 2026-10-26, none red, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
 
-**The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
+**The tiers were re-derived 2026-10-25** (#286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**U8 layout containers is COMPLETE** (U8a-U8d, 2026-10-25; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** ~0.7 ms/frame for a 256-element grid in **release** (~17 ms debug — never rule on a debug timing); the trigger is a committed counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
+**U8 layout containers is COMPLETE** (U8a-U8e; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms against ~0.7 ms release, 256-element grid); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
 
-**The 2026-10-26 verification pass: 6 of 7 pass.** Two decided actions, both in the backlog: **flip `UiFlow`'s default `axis` to horizontal** (one line now, breaking later) and **build `field_bool`**.
+**The 2026-10-26 verification pass: 6 of 7 pass.** U8e flipped `UiFlow`'s default `axis` to 1 and moved the flow block off "GLOW" ([record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion)); **`field_bool` is the one action still open**, plus three eye items.
 
 ## Landmines
 
