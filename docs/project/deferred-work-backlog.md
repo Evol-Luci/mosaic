@@ -231,6 +231,15 @@ see the record.
 - ~~**`UiGrid` and `UiFlow`** (U8c)~~ — **SHIPPED 2026-10-25.** Narrative in
   [record](../record/2026-10.md#u8c--uigrid-and-uiflow). Explicit `cols` + `rows`; flow wraps
   at an authored `per_line` and sizes its partial final line as if the line were full.
+- **`UiFlow`'s default `axis` should be HORIZONTAL, not vertical** — **DECIDED 2026-10-26 by
+  the human verification pass, overruling the supervisor's review ruling.** `UiFlow{}` with
+  nothing authored currently packs down a column and wraps rightward, because `axis = 0` means
+  vertical in `UiStack`, `to_anchor` and `layout_slot`. The review kept that for cross-container
+  consistency; the human chose the common case (a toolbar, an inventory row, a row of buttons)
+  instead. No reasoning was captured with the verdict. **Do it soon rather than later:** it is a
+  one-line default change while the demo is the only thing authoring a `UiFlow`, and a breaking
+  change to every authored scene afterwards. The demo sets `axis = 1` explicitly, so the change
+  moves nothing on screen and invalidates no verification verdict. **Depends on** nothing.
 - **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
   2026-10-25 **during U8c**. `spacing` is applied as a fraction of each axis's own inner
   extent, so a square grid in a wide frame has a wider gap between columns than between
@@ -552,6 +561,10 @@ them as this list does.
   assertion in `tests/unit/reflection/field_visitor_test.cpp` (which is where the `int`
   ordering is already pinned). The widget itself stays untested for the reason the
   `ImGuiFieldVisitor` entry below gives. **Depends on** nothing.
+
+  **DECIDED 2026-10-26 (human verification pass): BUILD IT.** No reasoning was recorded
+  with the verdict, so what stands is the case as it was put: `visible` is the first bool
+  whose whole purpose is to be switched while you watch the result, and it cannot be.
 - **Combo boxes for enum-as-int fields, instead of a bare `DragInt`** — the explicit non-goal
   of the `field_int` slice, 2026-10-11. `UiPanel`/`UiText`/`UiImage`'s `anchor`, `UiImage`'s
   `fit_mode`, `ParticleEmitter`'s three easing curves and `AudioSource::attenuation_model` are
@@ -2215,7 +2228,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 | 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
-| 5 | **`bool` fields are read-only in the Inspector (no `field_bool`).** | hours / Medium — one interface method, one `ImGui::Checkbox`, one dispatch branch and one dispatch test. Impact rose with U8b: 16 reflected `bool` fields now, 11 of them pre-existing, and `visible` is the first whose whole purpose is to be toggled while looking at the result. | A `bool` field renders as a checkbox that writes back and sets `changed_`; `field_visitor_test.cpp` asserts `bool` dispatches to `field_bool` rather than `field_readonly`. | Supervisor review of U8b, 2026-10-25 |
+| 5 | **`bool` fields are read-only in the Inspector (no `field_bool`).** **DECIDED 2026-10-26: build it.** | hours / Medium — one interface method, one `ImGui::Checkbox`, one dispatch branch and one dispatch test. Impact rose with U8b: 16 reflected `bool` fields now, 11 of them pre-existing, and `visible` is the first whose whole purpose is to be toggled while looking at the result. | A `bool` field renders as a checkbox that writes back and sets `changed_`; `field_visitor_test.cpp` asserts `bool` dispatches to `field_bool` rather than `field_readonly`. | Supervisor review of U8b, 2026-10-25 |
 | 5 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
 | 6 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
 
@@ -2255,7 +2268,7 @@ question "did we already consider this?" answers here.
 
 | Item | Trigger |
 |---|---|
-| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). |
+| **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). **THE TRIGGER FIRED 2026-10-26 — on occlusion, not contrast.** U8c's flow block is the first bottom-centre HUD content the demo has had, and it covers the LOWER HALF of the label: the `WorldLabel` pass runs at `render_system.hpp:445` and the `UiPanel` pass at `:503`, so panels draw over world labels unconditionally, and the flow block's top edge is `y = 0.79`, exactly where the text is cut. Not an engine bug — a demo-scene composition problem, found in the screenshot attached to the third verification pass rather than by any item on it. The 2026-10-21 decision already named **"a different position"** as one of its three remedies; moving the flow block or the label is the cheap fix, and moving the flow block would not invalidate that pass's verdict on it (the property asserted is equal cell widths and magenta in the empty slot, not where the block sits). |
 | **An opt-out flag on inherited alpha propagation.** Declined by the 2026-10-20 human verification pass: fading a container *should* fade what is inside it, which is why the demo's "HP" label now renders at the bar's 0.6 rather than its own 1.0. Recorded in `demo_scene.hpp` beside the label and in [record](../record/2026-10.md), but it had never reached this table -- added 2026-10-25, because `ui_stack.hpp` still offers it as a live route out of the invisible-container trap and it is not one. The live route is the `visible` bool (U8b). | A concrete case where a child must keep its authored alpha under a faded container, which the `visible` bool does not already serve. |
 | **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
 | **Making `RenderSystem` issue one `draw_ribbons` call per `TrailRenderer`.** | A second caller of `draw_ribbons` appears in a frame. Declined 2026-10-25: batching every `TrailRenderer` into one vector per frame is the cheaper and correct shape, so the backend's per-call chunking is deliberately guarded at the `RenderDevice` level instead (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`) rather than by making the call site plural. |

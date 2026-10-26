@@ -27,7 +27,9 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 **The tiers were re-derived 2026-10-25** (24 PRs of new evidence, #286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**U8 layout containers is COMPLETE** (U8a-U8d, 2026-10-25; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d resolved with a measurement and NO cache:** a 256-element grid's whole layout pass is ~0.7 ms/frame in a **release** build (~17 ms in debug — never rule on a debug timing), and the shipped scene pays 306 component visits, so the trigger is a committed counter (`engine/ui/ui_layout_stats.hpp`, `tests/unit/ui/ui_layout_cost_test.cpp`: build the index above ~200k `visits`/frame). **So the tiers above, not U8, are the answer to "what is next".**
+**U8 layout containers is COMPLETE** (U8a-U8d, 2026-10-25; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** ~0.7 ms/frame for a 256-element grid in **release** (~17 ms debug — never rule on a debug timing); the trigger is a committed counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
+
+**The 2026-10-26 verification pass: 6 of 7 pass.** Two decided actions, both in the backlog: **flip `UiFlow`'s default `axis` to horizontal** (one line now, breaking later) and **build `field_bool`**.
 
 ## Landmines
 
