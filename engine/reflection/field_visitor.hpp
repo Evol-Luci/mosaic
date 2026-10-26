@@ -57,8 +57,9 @@ public:
 
     // An editable boolean field. The visitor may reassign it (e.g. from a checkbox).
     //
-    // Default-implemented rather than pure virtual, deliberately. There are five other
-    // FieldVisitor implementations in this repository (MarkdownFieldVisitor in
+    // Default-implemented rather than pure virtual, deliberately. Besides the Inspector's
+    // own ImGuiFieldVisitor there are four other production FieldVisitor
+    // implementations in this repository (MarkdownFieldVisitor in
     // app/docs/component_reference.hpp, and AssetRefCollector / ReferencedAssetGatherer /
     // AssetReferenceCollector in app/mcp/mcp_tools.cpp) plus a dozen in the test suite, and
     // a pure virtual would force every one of them to answer a question only the Inspector
