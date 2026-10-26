@@ -247,7 +247,6 @@ see the record.
   **Depends on** either of those, or on a second occurrence — one instance is a composition
   mistake, two is a missing guard.
 - **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
-- **`UiGrid`/`UiFlow` spacing is one fraction read against each axis separately** — deferred
   2026-10-25 **during U8c**. `spacing` is applied as a fraction of each axis's own inner
   extent, so a square grid in a wide frame has a wider gap between columns than between
   rows. That matches `layout_slot` (where spacing is a fraction of the main axis) and keeps
@@ -809,6 +808,14 @@ them as this list does.
   today**; this is a decision to make on evidence, not a known defect. Depends on nothing but
   elapsed time: let ~10-20 `main` runs accumulate, then check the two things the single
   green run could not establish.
+
+  **THE ELAPSED-TIME CONDITION IS MET, 2026-10-26, and half the question is answered.**
+  `git log 35a6f1e..main` is **10 commits** since #307 merged, and in all ten runs BOTH
+  `Lavapipe device identity` and `GPU tests under lavapipe` concluded `success` (checked
+  per run with `gh run view <id> --json jobs`, not from the run's overall conclusion; the
+  workflow has no `continue-on-error`, so a step failure could not have been masked). **So
+  point 1 below is answered: zero flakes in ten runs.** What is left is point 2, which is a
+  judgement and therefore the human's, plus the `ubuntu-latest` pin re-check below.
   1. **Flakiness.** One run proves conformance, not stability. `gh run list --branch main
      --workflow ci.yml --limit 20` and look for any red in the `GPU tests under lavapipe` or
      `Lavapipe device identity` steps. Software rasterisation is deterministic, so a flake
@@ -2216,35 +2223,60 @@ from that spec; `ctest` and wide-header figures are local or inferred where mark
 ## Effort vs. impact
 
 The cross-cutting view: of the live work above, **what is worth doing next**. Last derived
-**2026-10-25**, from the 24 PRs merged after the previous pass's own PR (#285): #286-#309 --
-the offscreen-render arc (#296-#304, #309), the PCH (#295), the lavapipe CI trial (#307) and the
-docs-tooling slices (#289-#293, #302, #305, #306, #308). Seven earlier passes (2026-09-19 to
-2026-10-23) and the tier tables they edited are in the record: [2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21)
-and [2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2026-10-04-to-2026-10-20-and-the-tier-tables-they-edited).
+**2026-10-26**, from the 8 PRs merged after the previous pass rode in (#309): #310-#317 -- the
+U8 remainder arc (#310 the decomposition, #311 U8b, #312 U8c, #313 U8d, #317 U8e), the
+`field_bool` slice (#316) and two docs slices (#314, #315). Eight earlier passes (2026-09-19 to
+2026-10-25) and the tier tables they edited are in the record:
+[2026-09](../record/2026-09.md#effort-vs-impact-the-tier-tables-and-re-derivation-notes-2026-09-19-to-2026-09-21),
+[2026-10](../record/2026-10.md#effort-vs-impact-the-re-derivation-notes-of-2026-10-04-to-2026-10-20-and-the-tier-tables-they-edited)
+and [the 2026-10-25 pass](../record/2026-10.md#the-2026-10-25-tier-re-derivation-a-pass-whose-finding-was-how-little-it-found).
+This pass's own notes: [record](../record/2026-10.md#the-2026-10-26-tier-re-derivation-the-ui-pillars-next-group-is-the-question).
 
 **The standing rule for re-deriving (set 2026-09-20, obeyed here).** *Re-derive again once real
-new work has landed since the last pass -- don't immediately re-run a fourth time expecting
-different material from the same unchanged source docs.* This pass's material is the live bullets
-and record entries that the 24 PRs themselves created (15 live bullets carried new evidence,
-against roughly 120 live overall), not a re-grep of the specs' Non-goals. The older live bullets
-in the subsystem sections are **not ranked here** and are not claimed to be: they carry no new
-evidence. Every row below names a live bullet above by its bold title, or a PR; a row that matched
-nothing was cut.
+new work has landed since the last pass -- don't immediately re-run expecting different material
+from the same unchanged source docs.* This pass's material is the **13 live bullets the 8 PRs
+themselves created** plus the 7 they struck, against 133 live overall. Every row below names a
+live bullet above by its bold title, or a PR; a row that matched nothing was cut. The older live
+bullets in the subsystem sections are **not ranked here** and are not claimed to be: they carry
+no new evidence.
 
-*Of those 15, only 3 were rankable work.* The rest were notes, probes and declines that the
-render arc produced on its way past (`VK_EXT_headless_surface` is unavailable here; unity builds
-declined; `GIT_SHALLOW` on `box3d` declined; `screen_effect.vert` latent and deliberately
-untested). **That ratio is the finding, not a shortfall:** a slice that closes its own successors
-as it goes leaves declines behind rather than a queue, which is why this pass adds three rows and
-strikes one rather than reshuffling a backlog. It is also why the 🔴 table below is still the real
-answer to "what is next" -- the 🟢/🟡 rows are all maintenance of what already exists.
+*Of those 13, two were rankable agent work; nine are trigger-gated and two need a human at a
+display.* The two rankable ones are both small and both about a generated or untested surface
+(🟢 row 8, 🟡 row 8). The nine declines are the U8 arc naming and closing its own successors:
+the layout counters left unconditional and non-atomic, the uncounted parent-chain walks, the
+container-probe constant, the per-axis `spacing` fraction, per-child cell spans, the
+hide-a-whole-widget cost, the HUD-over-`WorldLabel` composition hazard, the grid's vanishing
+overflow children, and `child_layout_order`'s silence about `UiButton`. **That ratio repeats
+the previous pass's finding** (15 bullets, 3 rankable) for a second consecutive window, which
+makes it the normal shape of this project's backlog growth rather than an artefact of one large
+arc.
+
+**What changed about "what is next", which is the point of this pass.** The previous pass ended
+"the 🔴 table is the real answer, and U8 is the near-term row in it". U8 is now complete
+(U8a-U8e), so that answer is spent and the 🔴 table had **no UI row left** -- the UI pillar's
+remaining groups U9-U11 had never been given rows of their own, because U8 stood for the whole
+pillar. Two are added below. They are **not** a re-rating of rows that gained no evidence; they
+are a gap this pass's own completion opened. Ranking them against each other is the decision
+this pass hands back, and the two candidates pull in different directions: U9 is **enabling**
+and has three UI items queued behind it, U11 is **unblocked** and contains a live correctness
+defect. Both arguments are stated in their rows.
 
 *The overall figure is deliberately approximate ("roughly 130"), not exact.* It was written as an
-exact number twice during this pass and was stale both times, because every backlog edit changes
-it. It is the same failure that got the `main` SHA row removed from `next-steps.md`'s State table
-(#283): a figure that is wrong more often than right teaches a reader to distrust the stable ones.
-Do not "fix" it back into an exact count; if you need the exact one, derive it (top-level `- `
-bullets not starting `- ~~`) on the day you need it.
+exact number twice during the 2026-10-25 pass and was stale both times, because every backlog
+edit changes it. It is the same failure that got the `main` SHA row removed from `next-steps.md`'s
+State table (#283): a figure that is wrong more often than right teaches a reader to distrust the
+stable ones. Do not "fix" it back into an exact count; if you need the exact one, derive it
+(top-level `- ` bullets not starting `- ~~`) on the day you need it.
+
+**One thing in this pass is human time, not agent work, and it is the largest pending item.**
+Three separate bullets above now ask for the same thing -- a person at a window -- and they
+should be spent in **one** pass rather than three: the uncovered "GLOW" label, U8c's flow block
+in its new upper-centre place, and the `field_bool` checkbox (which no test and no gate can
+reach, because the editor opens with nothing selected). The sharpest single check in the three
+is **toggling `visible` on a selected `UiPanel` and watching it vanish** -- that is what U8b
+shipped and could not drive, and it would be the feature's first execution of any kind. Ordered
+existence-before-appearance in each bullet. Not given a tier row: the tiers rank work to
+schedule, and this is a request for the scarcest resource in the project.
 
 **Reading a row.** *Effort*: hours (one focused change with a gate) / slice (a spec-plan-implement
 cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that would show it done.
@@ -2258,8 +2290,9 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
 | 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **four** files and grows with every pixel test, so the cost is monotonic. | All four GPU tests stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 8 and passes. | PR #309 (deferred there as an explicit non-goal) |
 | 5 | ~~**`bool` fields are read-only in the Inspector (no `field_bool`).**~~ — SHIPPED 2026-10-26, see [record](../record/2026-10.md#bool-fields-are-read-only-in-the-inspector-no-field_bool). | — | — | PR #316 |
-| 5 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
-| 6 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
+| 6 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
+| 7 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
+| 8 | **Override `field_bool` in `MarkdownFieldVisitor`, and re-check `component_reference.hpp`'s preamble.** | hours / Low — cosmetic, but it is the one place the `field_bool` slice left a sentence that now explains a *choice* as though it were a *limitation*: the generated page says `bool` and non-`float` numerics share `field_readonly` because "the underlying type isn't distinguishable from the callback alone", which stopped being true for `bool` on 2026-10-26. | `docs/reference/components.md` labels `bool` fields `(bool)` the way `field_entity`/`field_handle_asset` are already labelled, and the preamble sentence either goes or is rewritten as a choice. | #316, deferred 2026-10-26 |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
@@ -2272,11 +2305,17 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 5 | **The `begin_frame` per-call counter resets have only a source-text contract test, not a behavioural one.** The last non-latent gap in the per-frame buffer-aliasing class. | slice / Medium — it is the one remaining way to reintroduce the #275/#287 bug class and have every test stay green. Needs a **chunk-count inspection seam**, not pixel readback: omitting a reset allocates *distinct* buffers per call across frames, so the failure is unbounded memory growth and no pixel is ever wrong. | Removing any one of the three `*_calls_[frame_] = 0` lines at `vulkan_render_device.cpp:1931-1933` turns a test red. Today it does not. | PR #309 |
 | 6 | **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when a `Value` changes without its `Checked` date being updated). | slice / Medium — #290 made the *values* machine-checked but left the freshness claim on the honour system, which is the half that rotted for six weeks before. | A commit that edits a `Value` cell without bumping that row's `Checked` date fails CI; one that bumps both passes. | #290, deferred 2026-10-24 |
 | 7 | **Making the `CI test step` row in `next-steps.md` machine-checkable.** | slice / Low-Medium — the only State row still declared `UNVERIFIABLE`, so it is the one that can drift silently. Blocked on environment, not difficulty: the check needs `gh`, a run id, network and an authenticated token. | `check_next_steps_claims` reports 4 of 4 rows verified and 0 skipped. | #290, deferred 2026-10-24 |
+| 8 | **Decide whether to adopt `imgui_test_engine`** — the four Inspector write-back widgets are executed by nothing. | slice / Low-Medium, and the work is a DEPENDENCY DECISION, not code. `tests/unit/studio/` holds 19 test files and **no `inspector_test.cpp`**: `DragFloat`, `DragInt`, `InputText` and (since 2026-10-26) `Checkbox` each write back and set `changed_` with no test on the path. Exercising one needs a simulated multi-frame drag against ImGui's active-item state, which is what `imgui_test_engine` is for and which is **not vendored** (ImGui 1.91.5 arrives via `FetchContent`). The count grows by one with every new reflected field type, so the cost is monotonic — the same shape as 🟢 row 4. | Either the dep is vendored and deleting any one of those four `ImGui::` calls turns a test red, or the item moves to "Decided: no action" with a trigger. Today neither has happened and it reads as un-got-to. | #316, raised 2026-10-26 on a bullet that predates it |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 
-Carried from the previous pass. **One is re-rated this time** (test selection, below): the 24 PRs
-changed the premise its impact rested on. The others gained no new evidence and are not re-rated.
+Carried from the previous pass, with **two rows added 2026-10-26** (U9 and U11) and the U8 row
+finalised. Nothing is re-rated this pass: the 8 PRs in the window were all U8, `field_bool` and docs,
+so no other row gained evidence. The two additions are not a re-rating either -- the U8 row stood for
+the whole UI pillar, and completing it left the table with no UI row. **U10 (keyboard, gamepad, text
+input) is deliberately NOT added:** it is blocked on an editor input provider, and starting it would
+ship navigation nobody can drive, which is the mistake pointer input just fixed. The last row of the
+previous pass's re-rating (test selection) stands as written.
 
 | Item | Impact |
 |---|---|
@@ -2284,7 +2323,9 @@ changed the premise its impact rested on. The others gained no new evidence and 
 | **Mesh/geometry sync (currently transform-only).** | Medium-High: the difference between a preview and a real DCC tool. |
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
-| **U8 layout containers** | **COMPLETE 2026-10-25, and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **So U8 is no longer the answer to "what is next"** — U9-U11 remain in the UI section and unchanged. |
+| **U8 layout containers** | **COMPLETE 2026-10-26 (five slices), and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **U8e (#317, 2026-10-26) closed it:** `UiFlow`'s default `axis` flipped to 1 and the flow block moved off the "GLOW" label, so the arc is **five slices, COMPLETE 2026-10-26**, not four. **So U8 is no longer the answer to "what is next"** — and because this row stood for the whole UI pillar, its completion left the table with no UI row at all. U9 and U11 are now rows of their own, below. |
+| **U9 clipping and scroll regions** (UI pillar) | **Added 2026-10-26 as the enabling candidate.** Medium-High, and it is a **renderer change before it is a UI change**: `grep -ri scissor engine/render/` returns nothing, so the neutral `RenderDevice` has no scissor hook to clip against. Three live UI items are queued behind it — a grid's overflow children, which can only vanish today because clip and scroll both need the hook; and the `PointerState` "inside the window" widening, which U9 needs anyway for wheel and multi-button, so it should be done once. Multi-slice: the hook, the provider widening, then the UI. **The argument against taking it first:** nothing in the demo overflows yet, so it would ship a capability before a need. |
+| **U11 text quality** (UI pillar) | **Added 2026-10-26 as the unblocked candidate, and it contains a live defect.** Medium. Needs no prerequisite — unlike U9 and U10. `layout_text` iterates the string as `unsigned char` and `continue`s on any codepoint the atlas lacks (`engine/ui/text_layout.hpp:54`), and the atlas is cooked for **codepoints 32-126 only** (`app/asset/font_cook.cpp:25`). Both the measure pass and the place pass skip alike, so a UTF-8 character arrives as separate bytes and is **silently dropped** — a label reading "Café" renders as "Caf" with the centring quietly recomputed to match, and no warning anywhere. Word-wrap is the other cheap half; SDF and multi-size atlases want their own decomposition rather than riding beside it. **The argument against taking it first:** nothing has authored a non-ASCII label, so the defect is latent. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |
@@ -2300,6 +2341,7 @@ question "did we already consider this?" answers here.
 | **Lime "GLOW" world label: legible but low-contrast; revisit only if it becomes a problem** | The human's call (2026-10-21, re-confirmed after #275). **THE TRIGGER FIRED 2026-10-26 — on occlusion, not contrast.** U8c's flow block is the first bottom-centre HUD content the demo has had, and it covers the LOWER HALF of the label: the `WorldLabel` pass runs at `render_system.hpp:445` and the `UiPanel` pass at `:503`, so panels draw over world labels unconditionally, and the flow block's top edge is `y = 0.79`, exactly where the text is cut. Not an engine bug — a demo-scene composition problem, found in the screenshot attached to the third verification pass rather than by any item on it. The 2026-10-21 decision already named **"a different position"** as one of its three remedies. **RESOLVED the same day by U8e: the FLOW BLOCK moved**, to upper-centre (x [0.38, 0.62], y [0.20, 0.38]), not the label — the label's verdict was given against the background it sits on, and relocating it in world space would have changed that background and reopened a closed question. U8c's verdict carries, as predicted. **What is left of this row is the contrast decision, unchanged, plus one new eye check:** nobody has ever seen the label's uncovered lower half. |
 | **An opt-out flag on inherited alpha propagation.** Declined by the 2026-10-20 human verification pass: fading a container *should* fade what is inside it, which is why the demo's "HP" label now renders at the bar's 0.6 rather than its own 1.0. Recorded in `demo_scene.hpp` beside the label and in [record](../record/2026-10.md), but it had never reached this table -- added 2026-10-25, because `ui_stack.hpp` still offers it as a live route out of the invisible-container trap and it is not one. The live route is the `visible` bool (U8b). | A concrete case where a child must keep its authored alpha under a faded container, which the `visible` bool does not already serve. |
 | **World labels are not depth-sorted for blending.** | Two labels ever overlap in a scene. |
+| **The UI layout counters are unconditional in the engine, and not atomic.** Weighed during U8d (2026-10-25) and left as they are: a counter compiled out of the default build is a counter nobody can read when they need it, and the alternative (a separate instrumented test binary) is CMake surface plus a second CI denominator for an effect nothing has measured. Cost on a 256-child grid is **+0.01 ms of 0.77 ms release, +0.11 ms of 17.16 ms debug** — inside the run-to-run spread, so not shown to cost anything and not shown to be free either. | A release profile that actually resolves the increment, or a caller that parallelises UI layout — at which point the right move is to stop using the numbers, not to make them atomic. |
 | **Making `RenderSystem` issue one `draw_ribbons` call per `TrailRenderer`.** | A second caller of `draw_ribbons` appears in a frame. Declined 2026-10-25: batching every `TrailRenderer` into one vector per frame is the cheaper and correct shape, so the backend's per-call chunking is deliberately guarded at the `RenderDevice` level instead (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`) rather than by making the call site plural. |
 | **GitHub Actions Node.js 20 deprecation.** | The actions publish a Node 24 version. |
 | **Release-preset build caching.** | A release CI job exists. |

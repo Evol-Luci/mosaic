@@ -10,9 +10,9 @@ Pending work is in [`deferred-work-backlog.md`](deferred-work-backlog.md).
 Every claim carries the command that regenerates it. If a command disagrees with
 the text, trust the command and fix the text.
 
-Rows here must be slow-moving. A `main` SHA row was tried and removed the same day:
-it rots on every commit, `git log` already answers it, and a row that is wrong more
-often than right teaches a reader to distrust the ones that are stable. Do not re-add it.
+Rows here must be slow-moving. A `main` SHA row was tried and removed the same day (#283):
+a row that is wrong more often than right teaches a reader to distrust the stable ones. Do
+not re-add it.
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
@@ -23,13 +23,13 @@ often than right teaches a reader to distrust the ones that are stable. Do not r
 
 ## Next work
 
-**One time-sensitive item, NOT yet due.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate: ~10-20 `main` runs; **six** as of 2026-10-26, none red, so do not decide yet. When due, check `gh run list --branch main --workflow ci.yml --limit 20` for red in the two lavapipe steps, then judge the ~4 s apt cost **on the principle** — runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
+**One time-sensitive item, NOW DUE.** The CI GPU tests are an explicit *trial* (#307), and a trial nobody revisits becomes permanent by default. Gate was ~10-20 `main` runs: **10 as of 2026-10-26, and both lavapipe steps were green in all ten** (`git log 35a6f1e..main`; `gh run view <id> --json jobs`). So flakiness is answered and only the judgement is left — is ~4 s of apt worth 6 pixel assertions per PR? Decide **on the principle**: runner variance dwarfs it, so a job total cannot settle it. Criteria: backlog.
 
-**The tiers were re-derived 2026-10-25** (#286-#309); the 🟢/🟡 rows are now all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and extracting the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
+**The tiers were re-derived 2026-10-26** (#310-#317); the 🟢/🟡 rows are all maintenance. Queued: the `begin_frame` counter-reset seam (`🟡` row 5 — the last non-latent way to reintroduce the aliasing class with every test green) and the duplicated `tests/gpu/` helpers (`🟢` row 4). Tables: [tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**U8 layout containers is COMPLETE** (U8a-U8e; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms against ~0.7 ms release, 256-element grid); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
+**U8 layout containers is COMPLETE** (U8a-U8e; [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)), and it was the 🔴 table's only UI row, so **"what is next" is an open choice**: **U9** clipping/scroll (enabling; no scissor hook exists) or **U11** text quality (unblocked; `layout_text` drops every codepoint outside 32-126). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms against ~0.7 ms release, 256-element grid); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
 
-**The 2026-10-26 verification pass: 6 of 7 pass.** U8e flipped `UiFlow`'s default `axis` to 1 and moved the flow block off "GLOW" ([record](../record/2026-10.md#u8e--uiflows-default-axis-and-the-glow-labels-occlusion)); **`field_bool` shipped too** (#316); the rest is eye-only.
+**Owed: three eye checks, in ONE pass** — the uncovered "GLOW", the flow block at upper-centre (U8e), the `field_bool` checkbox (#316). Sharpest is toggling `visible` on a selected `UiPanel`; no gate reaches it (the editor opens with nothing selected).
 
 ## Landmines
 
@@ -43,8 +43,8 @@ Things that waste an hour and that reading the code will not reveal.
 - **`mosaic_unit_tests` (~170 MB) intermittently fails at the LINK step** under memory pressure. Grep for a real compiler error; if there is none, re-run the build.
 - **A failed link leaves `ctest -N` reporting the PREVIOUS build's test count** (the count comes from the discovery file, regenerated only after a successful link). This reads exactly like the State table being wrong. Build successfully first, then trust the count.
 - **The renderer HAS a regression gate, and it is not `ctest`.** `timeout 12 env MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor` must exit **124** (the timeout IS the pass), print three `[INFO]` lines and zero VUIDs/ERROR/WARN. Capture on unmodified `main`, `diff` after any renderer change: it catches a bad object graph or barrier, which the suite cannot. Full: [record](../record/2026-10.md#two-gates-defined-precisely-moved-out-of-the-handoff-2026-10-24).
-- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Opt-in locally must not be relaxed**; CI runs them anyway in a Mesa-lavapipe step, which is why the rows above exclude them (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
-- **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:59` and `:74`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component. Three count **Transforms** (a Transform-less entity is free); `:74` counts **scripts** — this line said all four counted Transforms until U8c checked it.
+- **The default suite creates no `VkDevice`,** so pixels are eye-only and a green suite says nothing about them; sync validation is off unless `MOSAIC_VK_SYNC_VALIDATION` is set. Opt-in GPU tests DO cover the real `VulkanRenderDevice` offscreen: `-DMOSAIC_ENABLE_GPU_TESTS=ON`, then `ctest --test-dir <dir> -L gpu` (8 tests). **Do not relax the local opt-in**; CI runs them in a Mesa-lavapipe step, so the rows above exclude them (its unit step filters `-LE gpu`). What is and is not asserted in pixels: [record](../record/2026-10.md#gpu-pixel-assertion-inventory-2026-10-25).
+- **Editing `build_default_scene` breaks four app tests asserting entity counts:** `demo_scene_test.cpp:59` and `:74`, `populate_world_test.cpp:52`, `scene_save_roundtrip_test.cpp:40`. Fix all four and register any new component. Three count **Transforms** (a Transform-less entity is free); `:74` counts **scripts**.
 - **Adding a field to a component silently re-binds a positional brace initialiser;** gcc only catches it when the types differ. Every UI-component init in `app/run/demo_scene.hpp` is designated since U8b, but `Bloom` is not.
 - **`TEST_CASE` names:** must not start with `--`, must have balanced `[`, and a comma must be escaped `\,` when filtering from a script. CTest discovery breaks otherwise; CI lints it.
 - **The editor opens stopped.** No ticks, so lazily-created state (physics bodies, particles, trails) does not exist until Play. A trail records nothing for something that is not moving.
@@ -58,4 +58,3 @@ Things that waste an hour and that reading the code will not reveal.
 - Record of what happened: [`docs/record/`](../record/) (one file per month)
 - Pending work and tiers: [`deferred-work-backlog.md`](deferred-work-backlog.md)
 - Designs: [`docs/superpowers/specs/`](../superpowers/specs/); plans: [`docs/superpowers/plans/`](../superpowers/plans/)
-- `next-steps.md` is a rewritten-in-place pointer, not a log. Put narrative in the record.
