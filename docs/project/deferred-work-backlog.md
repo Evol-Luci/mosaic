@@ -757,6 +757,20 @@ them as this list does.
   closing it means committing a second binary TTF fixture chosen for a glyph nothing yet
   renders, which is a bigger decision than the gap. **Depends on** either that fixture, or
   the wider codepoint range below making a non-ASCII font the normal case anyway.
+- **Whether `'?'` is the right replacement mark, or whether `.notdef` would be better** —
+  raised 2026-10-26 **during U11a**, by its own measurement rather than by design. The bundled
+  font has no `U+FFFD`, so the fallback resolves to `'?'` — which is **indistinguishable from
+  an authored `'?'`**, the accepted v1 cost. But the measurement found something the spec did
+  not anticipate: `stbtt_FindGlyphIndex(U+FFFD)` returns 0 while stb still reports a **24x30
+  bbox with a 32.22 advance**, because it falls back to glyph 0, and this font's `.notdef` is a
+  DRAWN BOX. A box is the conventional "missing character" mark and is unmistakable, which is
+  exactly what `'?'` is not. U11a deliberately did **not** take it: gating the cook on "does it
+  rasterise to something?" would have baked `.notdef` under the name `U+FFFD`, reported that the
+  font provides it, and silently disabled the `'?'` leg forever — so the gate is
+  `FindGlyphIndex != 0` and the question is recorded instead of smuggled. **Depends on** an eye
+  check: a human looking at a label with a missing character and saying whether `'?'` reads as
+  an error or as content. Taking it means cooking glyph 0 under its own name, not under
+  `U+FFFD`'s.
 - **Bidirectional text and RTL scripts** — non-goal of the 2026-10-26 U11 decomposition.
   `layout_text` advances a single pen left to right; RTL needs a direction pass over runs
   before any placement. **Depends on** a project that needs it; this is a feature, not a gap.

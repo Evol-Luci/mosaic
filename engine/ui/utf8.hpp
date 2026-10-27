@@ -21,6 +21,19 @@ constexpr std::uint32_t kReplacementCodepoint = 0xFFFDu;
 //
 // Every path advances the cursor by at least one byte and never reads past `text.size()`,
 // which is what makes a truncated trailing sequence terminate instead of hanging.
+//
+// THE NUMBER OF REPLACEMENT MARKS PER ILL-FORMED SEQUENCE IS NOT UNIFORM, deliberately, and
+// a reader comparing two bad inputs will notice. `0xC0 0xAF` (an overlong 2-byte 'A') yields
+// TWO: 0xC0 can only ever be overlong, so it is rejected as a lead byte and its 0xAF is then
+// an orphaned continuation. `0xED 0xA0 0x80` (a surrogate) yields ONE: nothing is wrong until
+// the three bytes have been decoded and the VALUE is seen to be in the surrogate range.
+//
+// That makes this implementation emit fewer marks than Unicode 3.9's "maximal subpart"
+// recommendation, which would reject the surrogate at its second byte and give three. One
+// mark per ill-formed character reads better in a HUD label and is what the U11a spec asked
+// for; it is recorded here so nobody later reports the difference as a bug. If strict
+// maximal-subpart behaviour is ever wanted, the change is a per-lead-byte range on the FIRST
+// continuation (0xE0 -> 0xA0-0xBF, 0xED -> 0x80-0x9F, 0xF0 -> 0x90-0xBF, 0xF4 -> 0x80-0x8F).
 inline std::vector<std::uint32_t> decode_utf8(const std::string& text)
 {
     std::vector<std::uint32_t> out;

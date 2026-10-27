@@ -217,3 +217,46 @@ TEST_CASE("layout_text offsets glyph quads into a non-screen frame", "[ui][text]
     REQUIRE(inset[0].rect.x > full[0].rect.x);
     REQUIRE(inset[0].rect.w == Approx(full[0].rect.w * 0.5f));
 }
+
+// Added in review, not by the slice. The resolution order's FIRST leg -- U+FFFD when the
+// atlas has it -- was unexecuted by every test above, because the only font available here
+// (and the only one the engine ships) has no U+FFFD glyph, so both the cook and every layout
+// test take the '?' branch. The slice reported that honestly and deferred closing it behind a
+// second binary TTF fixture. A fixture is not needed: resolve_glyph takes a FontAtlas, and a
+// FontAtlas is a plain struct, so the branch is reachable by building one by hand.
+TEST_CASE("resolve_glyph prefers U+FFFD over '?' when the atlas has it", "[ui][text]")
+{
+    FontAtlas font;
+    font.line_height = 10.0f;
+    font.ascent      = 8.0f;
+    mosaic::engine::ui::Glyph q{};   q.advance   = 5.0f; q.width   = 4.0f; q.height   = 6.0f;
+    mosaic::engine::ui::Glyph rep{}; rep.advance = 7.0f; rep.width = 6.0f; rep.height = 6.0f;
+    mosaic::engine::ui::Glyph a{};   a.advance   = 3.0f; a.width   = 2.0f; a.height   = 6.0f;
+    font.glyphs.emplace(static_cast<std::uint32_t>('?'), q);
+    font.glyphs.emplace(static_cast<std::uint32_t>('A'), a);
+
+    // Without U+FFFD: the second leg, which is what this repo's font actually takes.
+    const mosaic::engine::ui::Glyph* before =
+        mosaic::engine::ui::resolve_glyph(font, 0x00E9u);
+    REQUIRE(before != nullptr);
+    REQUIRE(before->advance == 5.0f); // '?'
+
+    // With it: the first leg. The advances differ, so this cannot pass by accident.
+    font.glyphs.emplace(mosaic::engine::ui::kReplacementCodepoint, rep);
+    const mosaic::engine::ui::Glyph* after =
+        mosaic::engine::ui::resolve_glyph(font, 0x00E9u);
+    REQUIRE(after != nullptr);
+    REQUIRE(after->advance == 7.0f); // U+FFFD wins
+
+    // A present codepoint is still itself, and a control character still draws nothing --
+    // adding U+FFFD must not turn the C0 skip into a replacement.
+    REQUIRE(mosaic::engine::ui::resolve_glyph(font, static_cast<std::uint32_t>('A'))->advance == 3.0f);
+    REQUIRE(mosaic::engine::ui::resolve_glyph(font, 0x09u) == nullptr);
+    REQUIRE(mosaic::engine::ui::resolve_glyph(font, 0x7Fu) == nullptr);
+
+    // The third leg: an atlas with neither U+FFFD nor '?' draws nothing rather than crashing.
+    FontAtlas bare;
+    bare.line_height = 10.0f;
+    bare.glyphs.emplace(static_cast<std::uint32_t>('A'), a);
+    REQUIRE(mosaic::engine::ui::resolve_glyph(bare, 0x00E9u) == nullptr);
+}
