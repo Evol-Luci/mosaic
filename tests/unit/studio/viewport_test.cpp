@@ -470,3 +470,141 @@ TEST_CASE("the viewport provider reports no pointer when the panel is not hovere
     panel.set_pointer_sample(mosaic::studio::ViewportPointerSample{}, /*play_active=*/true);
     REQUIRE_FALSE(panel.pointer_state(true).inside);
 }
+
+TEST_CASE("the viewport provider reports the wheel only while the panel is hovered",
+          "[studio][viewport][wheel]")
+{
+    // The editor's half of U9c, and pinned for the reason PointerState::wheel states: a
+    // defaulted field needs every provider that sets it pinned, because nothing reads it
+    // until U9d and a provider that silently never set it would look exactly like "the user
+    // did not scroll".
+    //
+    // ImGui's io.MouseWheel belongs to the whole ImGui frame, not to the hovered window, so
+    // without the `hovered` gate every scroll anywhere in the editor -- over the Inspector,
+    // over the Hierarchy -- would reach the game's UI, and x/y are clamped to the panel, so
+    // it would land on whatever region sits under the clamped position. Same rule `inside`
+    // and `down` already follow.
+    mosaic::studio::ViewportPanel panel;
+    panel.set_measured_size(100.0f, 100.0f);
+
+    mosaic::studio::ViewportPointerSample s;
+    s.mouse_x = 50.0f; s.mouse_y = 50.0f;
+    s.wheel   = 2.0f;
+
+    s.hovered = true;
+    panel.set_pointer_sample(s, /*play_active=*/true);
+    REQUIRE(panel.pointer_state(true).wheel == Approx(2.0f));
+    // NOT gated on play_active, matching `inside` and unlike `down`: a stopped editor still
+    // has a wheel, and conflating "no scroll" with "not playing" is the very distinction
+    // `inside` was added to keep.
+    REQUIRE(panel.pointer_state(false).wheel == Approx(2.0f));
+
+    s.hovered = false; // cursor moved onto another panel
+    panel.set_pointer_sample(s, /*play_active=*/true);
+    REQUIRE(panel.pointer_state(true).wheel == Approx(0.0f));
+
+    // The default sample -- what StudioApp pushes when the Viewport is closed, collapsed or
+    // has no texture -- carries no wheel either.
+    panel.set_pointer_sample(mosaic::studio::ViewportPointerSample{}, /*play_active=*/true);
+    REQUIRE(panel.pointer_state(true).wheel == Approx(0.0f));
+}
+
+TEST_CASE("the viewport provider does not consume the wheel, and the next sample ends it",
+          "[studio][viewport][wheel]")
+{
+    // The same oracle as the standalone runtime's, on the editor's path. pointer_state is
+    // called TWICE PER TICK (UiSystem and ClickNudgeSystem) and they must agree; and the only
+    // thing that may end a delta is the frame loop pushing the next sample, never a read.
+    mosaic::studio::ViewportPanel panel;
+    panel.set_measured_size(100.0f, 100.0f);
+
+    mosaic::studio::ViewportPointerSample s;
+    s.mouse_x = 50.0f; s.mouse_y = 50.0f;
+    s.hovered = true;
+    s.wheel   = 1.5f;
+    panel.set_pointer_sample(s, /*play_active=*/true);
+
+    // Sixteen reads: RuntimeLoop::advance can run eight fixed ticks before the editor's
+    // on_frame pushes the next sample, and each tick reads the provider twice.
+    for (int i = 0; i < 16; ++i)
+    {
+        REQUIRE(panel.pointer_state(true).wheel == Approx(1.5f));
+    }
+
+    // The next frame's sample is what ends it -- ImGui has already reset io.MouseWheel in
+    // NewFrame, so a frame with no scroll pushes 0 here.
+    s.wheel = 0.0f;
+    panel.set_pointer_sample(s, /*play_active=*/true);
+    REQUIRE(panel.pointer_state(true).wheel == Approx(0.0f));
+}
+
+TEST_CASE("the editor samples the wheel from ImGui's frame-snapshotted io",
+          "[studio][wiring][wheel]")
+{
+    // The five-read block in studio_app.cpp is unreachable headlessly, so it is pinned
+    // textually, exactly as the position/hover reads above it are. A GLFW scroll callback
+    // here would not be frame-snapshotted and could hand UiSystem and ClickNudgeSystem
+    // different wheel values inside one tick.
+    const std::string src = read_repo_source("studio/studio_app.cpp");
+    // Single-spaced: read_repo_source normalises whitespace, so the aligned `=` in the
+    // source collapses. A pin written with the source's own alignment would never match.
+    REQUIRE(src.find("sample.wheel = ImGui::GetIO().MouseWheel;") != std::string::npos);
+    INFO("studio_app.cpp must not install a GLFW scroll callback of its own");
+    REQUIRE(src.find("glfwSetScrollCallback") == std::string::npos);
+}
+
+TEST_CASE("the standalone runtime clears the wheel accumulator before it polls, gated on a tick",
+          "[app][wiring][wheel]")
+{
+    // app/main.cpp's on_frame and scroll callback are the one part of U9c no headless test
+    // can execute, and two properties of that block are the whole design.
+    //
+    // ORDER: the clear must come before glfwPollEvents. Clear after the poll and every scroll
+    // event is discarded -- the wheel simply never works, with the suite fully green, because
+    // nothing reads the field yet. Pinned as an ORDER, not as two independent substrings,
+    // because both lines being present is exactly what a swapped pair also satisfies.
+    //
+    // GATE: the clear must be passed the loop's tick count. An ungated clear drops the delta
+    // on any frame that ran no tick, which jitter produces at the default 60/60 and which
+    // `--fps` above `--fixed-hz` makes the common case.
+    const std::string src = read_repo_source("app/main.cpp");
+    const std::size_t clear = src.find("wheel.drop_observed(loop.tick_count());");
+    const std::size_t poll  = src.find("glfwPollEvents();");
+    INFO("main.cpp's on_frame must call wheel.drop_observed(loop.tick_count())");
+    REQUIRE(clear != std::string::npos);
+    REQUIRE(poll != std::string::npos);
+    INFO("the clear must come BEFORE glfwPollEvents(), or every scroll event is dropped");
+    REQUIRE(clear < poll);
+
+    // And the accumulator must actually be fed, from the scroll callback rather than polled:
+    // GLFW has no glfwGetScroll, so a provider that read the wheel directly cannot exist.
+    REQUIRE(src.find("glfwSetScrollCallback") != std::string::npos);
+    // Read, never taken: the provider is called twice per tick.
+    REQUIRE(src.find("wheel.value()") != std::string::npos);
+}
+
+TEST_CASE("main.cpp must not touch the GLFW window user pointer", "[app][wiring][wheel]")
+{
+    // A REAL BUG THIS SLICE SHIPPED AND THEN FIXED, pinned so it cannot come back.
+    //
+    // The scroll callback is a plain C function pointer with no captures, so the obvious way
+    // to reach a stack-local accumulator is glfwSetWindowUserPointer. That slot is ALREADY
+    // OWNED: VulkanRenderDevice writes `this` into it
+    // (modules/render_vulkan/vulkan_render_device.cpp:364) and its framebuffer_resize_callback
+    // casts it straight back and dereferences it with NO null check (`:2785`). Writing a
+    // WheelAccumulator* there made the first window resize of `mosaic run --window` write a
+    // bool through a pointer to the wrong type, and left the swapchain never recreating.
+    //
+    // NOTHING IN THIS REPO COULD SEE IT, which is why it needs a pin rather than a test:
+    // `ctest` creates no VkDevice; the renderer gate runs `mosaic editor`, a different code
+    // path that installs no scroll callback; and a windowed smoke run under `timeout` never
+    // resizes the window. It was found by reading, not by a red test.
+    //
+    // The fix is a file-scope g_wheel, like the existing g_stop. Comments are stripped before
+    // this search, so main.cpp may keep explaining the hazard.
+    const std::string src = read_repo_source("app/main.cpp");
+    INFO("VulkanRenderDevice owns the window user pointer; use a file-scope pointer instead");
+    REQUIRE(src.find("glfwSetWindowUserPointer") == std::string::npos);
+    REQUIRE(src.find("glfwGetWindowUserPointer") == std::string::npos);
+    REQUIRE(src.find("g_wheel") != std::string::npos);
+}
