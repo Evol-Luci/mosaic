@@ -1009,10 +1009,12 @@ TEST_CASE("the demo's flow block is clear of the GLOW label's screen band and of
             ++compared;
         });
     // The HUD bar, the top-right stack container, the bottom-left layout-only container, the
-    // bottom-right grid container, the checker sprite and its underlay: six. Asserted so a
-    // scene reorganisation that drops one cannot make this case silently vacuous -- which is
-    // the failure mode of every "assert over whatever we find" test.
-    REQUIRE(compared == 6);
+    // bottom-right grid container, the checker sprite, its underlay, and (since U9d) the
+    // mid-right scroll region: SEVEN. Asserted so a scene reorganisation that drops one
+    // cannot make this case silently vacuous -- which is the failure mode of every "assert
+    // over whatever we find" test, and which is why adding the scroll region had to come
+    // through here rather than being absorbed silently.
+    REQUIRE(compared == 7);
 }
 
 TEST_CASE("the demo's stack container is not the camera", "[app][layout]")

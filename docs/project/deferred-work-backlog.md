@@ -795,9 +795,11 @@ them as this list does.
   counter on a second walk would be instrumentation for an effect nothing can resolve.
   **Depends on** a scene where UI layout cost is measurable at all — the same named condition
   as the `inherited_alpha` chain-walk entry above, and it should be answered once for both.
-- **U9 clipping and scroll regions** — **needs a scissor hook on `RenderDevice`**
-  first; scroll additionally needs wheel input, i.e. the deferred `PointerState`
-  widening.
+- ~~**U9 clipping and scroll regions**~~ — **COMPLETE 2026-10-27** across four slices
+  (U9a device clip rect, U9b `UiClipRect` down the hierarchy for draw AND hit-test, U9c the
+  `PointerState` wheel delta, U9d `UiScroll` + the first authored clip region), see
+  [record](../record/2026-10.md#u9d--uiscroll-and-the-renderer-gate-turns-out-never-to-reach-a-ui-draw-2026-10-27).
+  Its own non-goals keep their entries below.
 - **U10 keyboard, gamepad, and text input** — **blocked** on an editor input
   provider (recorded separately above). Starting it sooner would ship navigation
   nobody can drive, which is the mistake pointer input just fixed.
@@ -905,6 +907,65 @@ them as this list does.
   considered and rejected — pinning arithmetic already known to be wrong makes it harder to
   fix. **Depends on** that centring decision; the wrapping half additionally depends on a
   `WorldLabel` long enough to want it.
+- **Pixel-snapping the scroll offset** — deferred during **U9d** (2026-10-27) as the
+  supervisor's ruling 1, with its trigger named. Nothing in the UI path snaps content to
+  pixels (verified: no rounding in `engine/ui/`, and `ui.vert` maps a normalized float rect
+  straight to clip space), so a scrolled child lands on sub-pixel positions — and the font is
+  a **bitmap** atlas, not SDF, so the predicted symptom is soft or shimmering glyphs while
+  scrolling. Snapping needs the destination extent inside a deliberately
+  resolution-independent layout pass (`ui_destination_extent()` lives in the backend), and
+  buying that coupling on a *prediction* about appearance is the error U8d recorded. **Depends
+  on** the eye pass: if a human sees shimmer, that observation is the trigger and the coupling
+  is then justified by evidence rather than guesswork.
+- **Measuring a scroll region's content extent instead of authoring it** — deferred during
+  **U9d** (2026-10-27). `UiScroll::content` is authored in container-heights. Measuring it is
+  a **dependency cycle**, not merely work: a child's rect needs its frame, the frame needs the
+  scroll bound, the bound needs the content extent, and the extent needs the children's rects.
+  Breaking it means a second parent-chain walk resolving every sibling at offset 0, plus font
+  metrics for any text child, neither of which the layout path has where the frame is
+  computed. `UiGrid` took the same posture for its cell counts. **Depends on** a measurement
+  seam that can run before frames are resolved.
+- **Horizontal and two-axis scrolling** — deferred during **U9d** (2026-10-27). One axis
+  shipped. A second is a new axis field, and `UiFlow`'s rule applies (one meaning everywhere, a
+  differing default at most); carrying an axis with no authored user is a second default to get
+  wrong, which is the same reason U9c declined the horizontal wheel. **Depends on** an authored
+  region that needs it.
+- **Scrollbar visuals, and any affordance showing content continues** — deferred during
+  **U9d** (2026-10-27). A scrolled region currently gives no hint that there is more; a human
+  has to try the wheel. **Depends on** nothing technical; it is its own authored-chrome design.
+- **Nested scroll regions and scroll chaining** — deferred during **U9d** (2026-10-27).
+  `apply_wheel_scroll` gives the delta to **every** region containing the pointer, which is
+  unambiguous with one authored region and wrong with two nested ones. **Depends on** deciding
+  which region consumes a delta and when it passes one on.
+- **Smooth or inertial scrolling** — deferred during **U9d** (2026-10-27). The wheel delta is
+  discrete and `kScrollNotch` applies it in one step. Easing has its own frame-timing
+  questions, and it interacts with the already-backlogged fact that one delta can be observed
+  by up to eight ticks of a single `advance`. **Depends on** that interaction being settled.
+- **Keyboard and drag scrolling** — deferred during **U9d** (2026-10-27). The wheel is the
+  only driver. Keyboard needs U10's input provider; drag needs a decision about how a drag
+  inside a scroll region is told apart from a drag of a button inside it. **Depends on** U10
+  for the keyboard half.
+- **A per-region scroll step** — deferred during **U9d** (2026-10-27). `kScrollNotch = 0.1f`
+  container-heights is a single derived constant (one notch == one line of the demo region's
+  authored `height = 0.1` text). **Depends on** a second region wanting a different feel, which
+  is the trigger that would justify the field.
+- **THE RENDERER GATE DOES NOT REACH A UI DRAW, AND CANNOT TELL THAT FROM PASSING** — found
+  2026-10-27 during **U9d**, and this is the highest-value item in this section.
+  `timeout 12 env MOSAIC_VK_SYNC_VALIDATION=1 ./build/debug/app/mosaic editor` exits **124**
+  with zero UI panel passes executed: measured 0 at 12 s, 0 at 15 s, 4872 at 18 s. Startup
+  (asset cook, pipelines, the IBL bake) consumes the entire 12-second window before the first
+  HUD frame. Not sync-validation-specific — `timeout 12` without it, and `run --window`, also
+  reach zero. Proven by making it fail: a scissor forced 100000 px outside the render area left
+  the gate **green**, and so did a *negative* offset, which Vulkan forbids. **So every
+  "renderer gate identical" claim in the U9 and U11 record entries is scoped to startup, not to
+  any UI draw.** The fix is **not** merely a bigger timeout: the gate must **assert it reached a
+  UI frame**, because a green gate is currently indistinguishable from one that timed out during
+  startup — the same defect already recorded for validation counts, where asserting zero
+  messages is vacuous unless you also assert the layer was on. Raising the timeout alone would
+  make the gate slower and still silent about the precondition. **Depends on** nothing; it needs
+  a log line or counter on first UI draw plus a gate that greps for it. Clipping itself is NOT
+  unverified — `tests/gpu/` covers it on a real `VulkanRenderDevice` with pixel assertions
+  (12 tests, all passing); it was the gate that was being over-credited.
 - **Line-spacing and per-line vertical alignment control** — deferred during **U11b**
   (2026-10-27). A line's vertical step is hard-wired to `font.line_height * scale`, i.e.
   exactly one em box, and a block is laid out top-down from its anchored box with no leading.
@@ -2575,7 +2636,7 @@ previous pass's re-rating (test selection) stands as written.
 | **Native `.so`/`.dll` dynamic-library plugins** | High, but reopens the native-code security surface. |
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
 | **U8 layout containers** | **COMPLETE 2026-10-26 (five slices), and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **U8e (#317, 2026-10-26) closed it:** `UiFlow`'s default `axis` flipped to 1 and the flow block moved off the "GLOW" label, so the arc is **five slices, COMPLETE 2026-10-26**, not four. **So U8 is no longer the answer to "what is next"** — and because this row stood for the whole UI pillar, its completion left the table with no UI row at all. U9 and U11 are now rows of their own, below. |
-| **U9 clipping and scroll regions** (UI pillar) | **Added 2026-10-26 as the enabling candidate; CHOSEN by the human the same day and decomposed** — [U9 decomposition](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md), four slices U9a-U9d. Medium, and it is a **renderer change before it is a UI change**: `engine/render/` contains no `scissor`, so the neutral `RenderDevice` has no hook to clip against. **Two claims in this row were wrong when first written, and the decomposition corrected both.** (1) The scissor is absent from the *interface*, not from the backend: `modules/render_vulkan/vulkan_render_device.cpp` has **four** full-extent dynamic `vkCmdSetScissor` sites (`:1999`, `:2445`, `:2533`, `:2634`) plus static pipeline scissor for the shadow map (`:4271`) — so the dynamic state exists and U9a is interface surface plus a per-draw set, which makes this **smaller** than the pillar spec's "most under-estimated item". The cited `grep -ri scissor engine/render/` had a denominator narrower than the claim: `modules/` is a separate tree. (2) "Three live UI items queued behind it" is **one** — a grid's overflow children, whose three candidate policies all need the hook; the `PointerState` "inside the window" widening **already shipped** (2026-10-12, `pointer.hpp:25`, both providers). What U9 needs from `PointerState` is a **wheel delta**, and multi-button is not in scope. **Progress: U9a, U9b and U9c SHIPPED (2026-10-26/27); only U9d remains.** U9c's own premise check strengthened a stated one rather than breaking it: the pointer provider is called not once but **twice per tick** and, because `RuntimeLoop::advance` runs up to eight fixed ticks before `on_frame` polls, up to **sixteen times per frame** — so the wheel accumulator's reset had to be frame-loop-driven and `value()` is `const`. Two consequences of that are U9d's to settle and have rows above (one delta seen by up to eight ticks; a zero-tick frame dropping its delta). |
+| ~~**U9 clipping and scroll regions**~~ (UI pillar) | **COMPLETE 2026-10-27 — all four decomposed slices shipped** ([U9 decomposition](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md)). **U9a** (#323) an optional clip sub-rect on the three UI draw calls, pixel-asserted; **U9b** (#324) `UiClipRect` intersecting down the hierarchy for drawing **and** hit-testing; **U9c** (#325) the `PointerState` wheel delta and both providers; **U9d** (2026-10-27) `UiScroll` plus **the first authored clip region in the project**. **Two claims in this row were wrong when first written and the decomposition corrected both** — the scissor was absent from the *interface*, not the backend (four dynamic `vkCmdSetScissor` sites already existed in `modules/render_vulkan/`, a tree the cited `grep -ri scissor engine/render/` never searched), and the `PointerState` "inside the window" widening had already shipped 2026-10-12, so what U9 actually needed was a **wheel delta**. **U9d found something that outlives U9:** the renderer gate `timeout 12 ... mosaic editor` **never reaches a UI draw at all** (0 UI panel passes at 12 s and at 15 s; 4872 at 18 s), so every "gate identical" claim across this arc is scoped to startup — it has its own row above and it is the one to action. Non-goals keep their own entries in the UI pillar section: pixel-snapping the offset, measuring the content extent, horizontal/two-axis, scrollbar chrome, nesting and chaining, easing, keyboard/drag, and a per-region step. |
 | ~~**U11 text quality**~~ (UI pillar) | **COMPLETE 2026-10-27 — both decomposed slices shipped** ([U11 decomposition](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md)). **U11a** (#322) replaced the per-byte iteration with a UTF-8 decode and a fallback glyph for a missing printable codepoint, so "Café" is four glyphs rather than three; **U11b** (2026-10-27, [plan](../superpowers/specs/2026-10-27-u11b-wrap-plan.md)) added `\n` and word-wrap at an authored `UiText::wrap_width`, with anchoring resolved **per line**. The live defect this row was added for is fixed. Non-goals keep their own entries in the UI pillar section above — SDF, kerning, the wider codepoint range, UAX #14, tab stops, bidi, grapheme clusters, world-label wrapping, and the overflow policy U11b declined. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |

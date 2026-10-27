@@ -189,6 +189,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_hierarchy_test.cpp
   unit/ui/ui_stack_test.cpp
   unit/ui/ui_clip_rect_test.cpp
+  unit/ui/ui_scroll_test.cpp
   unit/ui/ui_grid_flow_test.cpp
   unit/ui/ui_layout_cost_test.cpp
   unit/ui/ui_layout_test.cpp

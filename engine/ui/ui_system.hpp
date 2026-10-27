@@ -13,6 +13,7 @@
 #include "engine/ui/ui_hit.hpp"
 #include "engine/ui/ui_hover_style.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_scroll_input.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
 #include "foundation/serialization/value.hpp"
@@ -49,6 +50,13 @@ public:
             return;
         }
         const PointerState p = pointer_();
+
+        // SCROLL FIRST, before hover and before the press paths, and the order is the point:
+        // a scroll changes where every element in the region IS, so resolving hover against
+        // pre-scroll rects would hover whatever used to be under the cursor for one tick.
+        // Applying it here means the whole tick -- hover, capture, hit-testing, and the
+        // draw passes that follow -- sees one consistent set of positions.
+        apply_wheel_scroll(world, p);
 
         // A CAPTURED ENTITY CAN DIE MID-PRESS -- destroyed, or merely stripped of its
         // UiButton by a script or an interactivity toggle. Drop the capture, silently: the
