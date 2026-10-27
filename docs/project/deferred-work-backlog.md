@@ -816,10 +816,68 @@ them as this list does.
 - **UAX #14 line breaking** — non-goal of the 2026-10-26 U11 decomposition. U11b breaks on
   spaces. Proper breaking needs the Unicode line-breaking property table, which is a data
   dependency. **Depends on** text in a language where space-breaking is wrong (CJK, Thai).
-- **U11 text quality** — word-wrap and Unicode are reachable now (note
-  `layout_text` currently *skips* unknown codepoints, so a non-atlas character
-  silently shortens the string); SDF/multi-size atlases want their own
-  decomposition rather than riding beside the cheap half.
+- **Tab stops** — non-goal of the 2026-10-26 U11 decomposition and unchanged by U11b. `\t`
+  keeps the silent control-character skip `resolve_glyph` gives it, so a tab draws and
+  advances nothing. Real tab stops need a per-line column grid, which is a layout concept
+  `layout_text` does not have (it advances one pen). Deferred because a fallback glyph or a
+  fixed-width advance would both be *wrong* rather than merely incomplete — a visible mark
+  where the author meant whitespace, or an indent that lines up with nothing. **Depends on**
+  a reason to align columns in a HUD label, which nothing has yet.
+- **An author-selectable overflow policy for a word longer than the wrap width** — raised and
+  **decided** during U11b (2026-10-27), which had to pick one behaviour and did: a **forced
+  break between codepoints**, never an overflow. The rejected alternative is CSS's default
+  (`overflow-wrap: normal`), which lets the long word spill past the box. It was rejected
+  because U9b shipped `UiClipRect` two commits earlier, so an overflowing label is now
+  **masked** rather than merely ugly — overflow would make an authored wrap width silently
+  lose text. Making it selectable (a `wrap_mode` enum on `UiText`) is a real follow-up, not a
+  gap: both behaviours are defensible for different content. Deferred because a second mode
+  needs a second set of gates and nothing has asked for it. **Depends on** a case where a
+  broken long word reads worse than a clipped one — a hash, a URL or a file path is the likely
+  one.
+- **Hyphenation at a forced break, and ellipsis truncation** — declined in U11b (2026-10-27)
+  in the same breath as the policy above. A forced break today is silent: "ABCDEFGH" becomes
+  "ABC" / "DEF" / "GH" with no hyphen and no mark. A hyphen needs a dictionary (or at least
+  the language) to land anywhere defensible; an ellipsis is a *different feature* — it drops
+  text rather than reflowing it, so it needs its own decision about which end is dropped.
+  **Depends on** the policy decision above being reopened; neither is worth doing while the
+  only mode is "break and keep everything".
+- **World-space labels (`build_world_text`) are MULTI-LINE AS OF U11b, and their vertical
+  centring is wrong for it** — deferred 2026-10-27, with the reason corrected the same day
+  after supervision disproved the first one.
+  **DO NOT CITE THIS ENTRY AS "the billboard path is single-line". It is not, any more.**
+  `break_lines` splits at `'\n'` **unconditionally** — the wrap flag gates only the
+  *width-based* break — so a `WorldLabel` whose text contains a newline renders as two lines
+  **today**, with no `wrap_width` anywhere in the picture. Measured, not read:
+  `build_world_text` over `"AB"` gives 2 distinct vertex Y rows and over `"A\nB"` gives 4
+  (`tests/unit/ui/world_text_test.cpp` pins exactly that fact and deliberately nothing more).
+  **This is a behaviour change U11b introduced, not a pre-existing wart:** before U11b `'\n'`
+  was `< 0x20`, so `resolve_glyph` returned `nullptr` and the place loop's `continue` dropped
+  it — genuinely one line. It reached this caller through a *trailing defaulted parameter*, so
+  `world_text.hpp` is untouched in U11b's diff **and** its behaviour changed. That is the
+  characteristic risk of defaulting a parameter instead of touching the caller, and the diff
+  cannot show it to you.
+  **What is actually broken:** `cy0 = 0.5f` centres against "a local box ~1 line tall"
+  (`world_text.hpp:33`), so a multi-line block hangs below its anchor by half the extra block
+  height; `max_x * 0.5f` likewise takes the widest line and is fine. **Unobservable only
+  because no authored `WorldLabel` contains a newline** — not because it cannot happen.
+  Automatic wrapping on this path is a separate, smaller want: `world_text.hpp:25` passes the
+  default `wrap_width` of 0, so there is no width-based break and no parameter to set it with.
+  Deferred because U11b's gates are all screen-space, and because the fix needs a **design
+  decision, not just arithmetic**: does the billboard centre on the whole block, or keep the
+  first line on the anchor and grow downward? Pinning the current centring with a test was
+  considered and rejected — pinning arithmetic already known to be wrong makes it harder to
+  fix. **Depends on** that centring decision; the wrapping half additionally depends on a
+  `WorldLabel` long enough to want it.
+- **Line-spacing and per-line vertical alignment control** — deferred during **U11b**
+  (2026-10-27). A line's vertical step is hard-wired to `font.line_height * scale`, i.e.
+  exactly one em box, and a block is laid out top-down from its anchored box with no leading.
+  There is no way to author 1.5x line spacing, and no way to ask for the *last* line to sit on
+  the anchor rather than the first. Deferred because neither is observable until a label is
+  routinely multi-line. **Depends on** multi-line labels actually being authored.
+- ~~**U11 text quality**~~ — the two decomposed slices SHIPPED: U11a the UTF-8 decode and
+  replacement glyph (#322), U11b multi-line and word-wrap (2026-10-27). SDF/multi-size
+  atlases remain a non-goal with their own entry above. See
+  [record](../record/2026-10.md#u11b--multi-line-and-word-wrap).
 - **World-space interactive UI** (non-billboard labels, occlusion testing, distance
   fade) — deliberately left OUT of all six groups. It shares almost nothing with
   screen-space UI: it needs depth testing and a world-space hit path, not rect
@@ -2480,7 +2538,7 @@ previous pass's re-rating (test selection) stands as written.
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
 | **U8 layout containers** | **COMPLETE 2026-10-26 (five slices), and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **U8e (#317, 2026-10-26) closed it:** `UiFlow`'s default `axis` flipped to 1 and the flow block moved off the "GLOW" label, so the arc is **five slices, COMPLETE 2026-10-26**, not four. **So U8 is no longer the answer to "what is next"** — and because this row stood for the whole UI pillar, its completion left the table with no UI row at all. U9 and U11 are now rows of their own, below. |
 | **U9 clipping and scroll regions** (UI pillar) | **Added 2026-10-26 as the enabling candidate; CHOSEN by the human the same day and decomposed** — [U9 decomposition](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md), four slices U9a-U9d. Medium, and it is a **renderer change before it is a UI change**: `engine/render/` contains no `scissor`, so the neutral `RenderDevice` has no hook to clip against. **Two claims in this row were wrong when first written, and the decomposition corrected both.** (1) The scissor is absent from the *interface*, not from the backend: `modules/render_vulkan/vulkan_render_device.cpp` has **four** full-extent dynamic `vkCmdSetScissor` sites (`:1999`, `:2445`, `:2533`, `:2634`) plus static pipeline scissor for the shadow map (`:4271`) — so the dynamic state exists and U9a is interface surface plus a per-draw set, which makes this **smaller** than the pillar spec's "most under-estimated item". The cited `grep -ri scissor engine/render/` had a denominator narrower than the claim: `modules/` is a separate tree. (2) "Three live UI items queued behind it" is **one** — a grid's overflow children, whose three candidate policies all need the hook; the `PointerState` "inside the window" widening **already shipped** (2026-10-12, `pointer.hpp:25`, both providers). What U9 needs from `PointerState` is a **wheel delta**, and multi-button is not in scope. |
-| **U11 text quality** (UI pillar) | **Added 2026-10-26 as the unblocked candidate; DECOMPOSED the same day** ([U11 decomposition](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md), two slices U11a-U11b, taken in parallel with U9 because they share no files). **It contains a live defect.** Medium. Needs no prerequisite — unlike U9 and U10. `layout_text` iterates the string as `unsigned char` and `continue`s on any codepoint the atlas lacks (`engine/ui/text_layout.hpp:54`), and the atlas is cooked for **codepoints 32-126 only** (`app/asset/font_cook.cpp:25`). Both the measure pass and the place pass skip alike, so a UTF-8 character arrives as separate bytes and is **silently dropped** — a label reading "Café" renders as "Caf" with the centring quietly recomputed to match, and no warning anywhere. Word-wrap is the other cheap half; SDF and multi-size atlases want their own decomposition rather than riding beside it. **The argument against taking it first:** nothing has authored a non-ASCII label, so the defect is latent. |
+| ~~**U11 text quality**~~ (UI pillar) | **COMPLETE 2026-10-27 — both decomposed slices shipped** ([U11 decomposition](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md)). **U11a** (#322) replaced the per-byte iteration with a UTF-8 decode and a fallback glyph for a missing printable codepoint, so "Café" is four glyphs rather than three; **U11b** (2026-10-27, [plan](../superpowers/specs/2026-10-27-u11b-wrap-plan.md)) added `\n` and word-wrap at an authored `UiText::wrap_width`, with anchoring resolved **per line**. The live defect this row was added for is fixed. Non-goals keep their own entries in the UI pillar section above — SDF, kerning, the wider codepoint range, UAX #14, tab stops, bidi, grapheme clusters, world-label wrapping, and the overflow policy U11b declined. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |
