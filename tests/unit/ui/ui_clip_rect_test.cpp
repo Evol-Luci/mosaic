@@ -389,7 +389,7 @@ TEST_CASE("a clipping container's rect is its LAYOUT SLOT when its own parent la
     REQUIRE(clip->w == Approx(1.0f));
 }
 
-TEST_CASE("a UiParent cycle terminates instead of recursing forever", "[ui][clip]")
+TEST_CASE("resolve_clip terminates on a UiParent cycle instead of recursing forever", "[ui][clip]")
 {
     // Same kMaxDepth guard as resolve_parent_frame and inherited_alpha, and for the same
     // reason: UiParent is authored data and can name an ancestor.
