@@ -4,6 +4,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "engine/ui/ui_button.hpp"
+#include "engine/ui/ui_clip_rect.hpp"
+#include "engine/ui/ui_hit.hpp"
+#include "engine/ui/pointer.hpp"
 #include "engine/ui/ui_button_rects.hpp"
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
@@ -161,4 +164,235 @@ TEST_CASE("an invisible UiButton does not disable the UiPanel on its entity",
     const UiPanel* back = world.get_component<UiPanel>(e);
     REQUIRE(back != nullptr);
     REQUIRE(back->visible == true);
+}
+
+// ---------------------------------------------------------------------------
+// U9b: an ancestor's UiClipRect reaches the hit test, in the same slice that it reaches the
+// draw. These cases are the HIT half of the slice's evidence and they can regress
+// independently of the draw half -- which is the whole reason the two halves ship together:
+// a clip that hid a button's pixels but left it clickable is the U8b bug class, a dead-
+// looking control that still answers, and that one was found by a human looking at a
+// screenshot rather than by a test.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("a button wholly outside its clip produces NO hit candidate", "[ui][buttonrects][clip]")
+{
+    // ABSENT, not merely smaller. The distinction is the one this file already makes for
+    // `visible`: a candidate that exists can win topmost_hit and swallow a press that
+    // belongs to whatever is beneath it.
+    World      world;
+    const auto parent = world.create_entity();
+    UiPanel    p;
+    p.anchor = static_cast<int>(Anchor::TopLeft);
+    p.pos    = {0.0f, 0.0f};
+    p.size   = {0.5f, 1.0f};        // the left half of the screen
+    world.add_component<UiPanel>(parent, p);
+    world.add_component<mosaic::engine::ui::UiClipRect>(parent,
+                                                        mosaic::engine::ui::UiClipRect{});
+
+    const auto child = world.create_entity();
+    UiButton   b;
+    b.anchor = static_cast<int>(Anchor::TopLeft);
+    b.pos    = {1.2f, 0.0f};        // 1.2 of a half-screen frame -> x starts at 0.6
+    b.size   = {0.2f, 0.2f};        // entirely right of the clip's x = 0.5 edge
+    world.add_component<UiButton>(child, b);
+    world.add_component<UiParent>(child, UiParent{parent});
+
+    // The rect it WOULD have had, so "absent" is not confused with "never resolved".
+    const auto unclipped =
+        mosaic::engine::ui::resolve_ui_rect(world, child, Anchor::TopLeft, b.pos, b.size);
+    REQUIRE(unclipped.x == Approx(0.6f));
+    REQUIRE(unclipped.w == Approx(0.1f));
+
+    REQUIRE(button_hit_candidates(world).empty());
+}
+
+TEST_CASE("a button partly outside its clip reports only the surviving rect",
+          "[ui][buttonrects][clip]")
+{
+    World      world;
+    const auto parent = world.create_entity();
+    UiPanel    p;
+    p.anchor = static_cast<int>(Anchor::TopLeft);
+    p.pos    = {0.0f, 0.0f};
+    p.size   = {0.5f, 1.0f};        // clip: x in [0.0, 0.5)
+    world.add_component<UiPanel>(parent, p);
+    world.add_component<mosaic::engine::ui::UiClipRect>(parent,
+                                                        mosaic::engine::ui::UiClipRect{});
+
+    const auto child = world.create_entity();
+    UiButton   b;
+    b.anchor = static_cast<int>(Anchor::TopLeft);
+    b.pos    = {0.8f, 0.0f};        // -> x from 0.4
+    b.size   = {0.8f, 0.5f};        // -> w 0.4, so x in [0.4, 0.8): half of it is outside
+    world.add_component<UiButton>(child, b);
+    world.add_component<UiParent>(child, UiParent{parent});
+
+    const auto cands = button_hit_candidates(world);
+    REQUIRE(cands.size() == 1);
+    REQUIRE(cands[0].rect.x == Approx(0.4f));
+    REQUIRE(cands[0].rect.w == Approx(0.1f));  // trimmed at the clip edge, not 0.4
+    REQUIRE(cands[0].rect.h == Approx(0.5f));  // the unclipped axis is untouched
+}
+
+TEST_CASE("a button fully inside its clip keeps exactly its unclipped rect",
+          "[ui][buttonrects][clip]")
+{
+    // The no-op direction. A clip must change NEITHER position nor size of what survives
+    // it, so a contained button's rect has to come back bit-identical -- otherwise every
+    // button in a clipped region would shift by whatever the intersection rounded to.
+    World      world;
+    const auto parent = world.create_entity();
+    UiPanel    p;
+    p.anchor = static_cast<int>(Anchor::TopLeft);
+    p.pos    = {0.1f, 0.1f};
+    p.size   = {0.8f, 0.8f};
+    world.add_component<UiPanel>(parent, p);
+    world.add_component<mosaic::engine::ui::UiClipRect>(parent,
+                                                        mosaic::engine::ui::UiClipRect{});
+
+    const auto child = world.create_entity();
+    UiButton   b;
+    b.anchor = static_cast<int>(Anchor::TopLeft);
+    b.pos    = {0.25f, 0.25f};
+    b.size   = {0.25f, 0.25f};
+    world.add_component<UiButton>(child, b);
+    world.add_component<UiParent>(child, UiParent{parent});
+
+    const auto expected =
+        mosaic::engine::ui::resolve_ui_rect(world, child, Anchor::TopLeft, b.pos, b.size);
+    const auto cands = button_hit_candidates(world);
+    REQUIRE(cands.size() == 1);
+    REQUIRE(cands[0].rect.x == expected.x);
+    REQUIRE(cands[0].rect.y == expected.y);
+    REQUIRE(cands[0].rect.w == expected.w);
+    REQUIRE(cands[0].rect.h == expected.h);
+}
+
+TEST_CASE("the hit test intersects NESTED clips rather than taking the innermost",
+          "[ui][buttonrects][clip]")
+{
+    // The hit half of U9b's decisive case, asserted here and not only through resolve_clip,
+    // because the draw path and the hit path are separate call sites and can regress
+    // independently.
+    //
+    // outer clips to the left half, x in [0.0, 0.5). inner is a child of outer authored to
+    // reach past it: pos {0.5,0} size {1,1} of outer's frame -> x in [0.25, 0.75). The
+    // intersection is x in [0.25, 0.5).
+    //
+    // The button sits at x in [0.5, 0.625) -- INSIDE inner's own rect but OUTSIDE the
+    // intersection. "Use the innermost clip" keeps it as a candidate; intersecting drops it.
+    World      world;
+    const auto outer = world.create_entity();
+    UiPanel    op;
+    op.anchor = static_cast<int>(Anchor::TopLeft);
+    op.pos    = {0.0f, 0.0f};
+    op.size   = {0.5f, 1.0f};
+    world.add_component<UiPanel>(outer, op);
+    world.add_component<mosaic::engine::ui::UiClipRect>(outer,
+                                                         mosaic::engine::ui::UiClipRect{});
+
+    const auto inner = world.create_entity();
+    UiPanel    ip;
+    ip.anchor = static_cast<int>(Anchor::TopLeft);
+    ip.pos    = {0.5f, 0.0f};
+    ip.size   = {1.0f, 1.0f};
+    world.add_component<UiPanel>(inner, ip);
+    world.add_component<UiParent>(inner, UiParent{outer});
+    world.add_component<mosaic::engine::ui::UiClipRect>(inner,
+                                                         mosaic::engine::ui::UiClipRect{});
+
+    const auto child = world.create_entity();
+    UiButton   b;
+    b.anchor = static_cast<int>(Anchor::TopLeft);
+    b.pos    = {0.5f, 0.0f};        // inner's frame is x in [0.25,0.75) w 0.5 -> x = 0.5
+    b.size   = {0.25f, 0.5f};       // -> w 0.125, so x in [0.5, 0.625)
+    world.add_component<UiButton>(child, b);
+    world.add_component<UiParent>(child, UiParent{inner});
+
+    // The button is where the comment says, so the drop below is for the stated reason.
+    const auto unclipped =
+        mosaic::engine::ui::resolve_ui_rect(world, child, Anchor::TopLeft, b.pos, b.size);
+    REQUIRE(unclipped.x == Approx(0.5f));
+    REQUIRE(unclipped.w == Approx(0.125f));
+    // ...and it IS inside inner's own rect, so the innermost-only rule would keep it.
+    REQUIRE(unclipped.x >= 0.25f);
+    REQUIRE(unclipped.x + unclipped.w <= 0.75f);
+
+    REQUIRE(button_hit_candidates(world).empty());
+}
+
+TEST_CASE("a clipped-away button lets the press reach what is beneath it",
+          "[ui][buttonrects][clip]")
+{
+    // ABSENT, not silent, demonstrated through the thing that consumes the list. The
+    // clipped-away button has the HIGHER order, so if it were still a candidate it would win
+    // topmost_hit and swallow the press. Emitting no candidate is what makes the click pass
+    // through.
+    World      world;
+
+    const auto under = world.create_entity();
+    UiButton   u;
+    u.anchor = static_cast<int>(Anchor::TopLeft);
+    u.pos    = {0.6f, 0.0f};
+    u.size   = {0.2f, 0.2f};
+    u.order  = 0;
+    world.add_component<UiButton>(under, u);
+
+    const auto parent = world.create_entity();
+    UiPanel    p;
+    p.anchor = static_cast<int>(Anchor::TopLeft);
+    p.pos    = {0.0f, 0.0f};
+    p.size   = {0.5f, 1.0f};        // clip: the left half
+    world.add_component<UiPanel>(parent, p);
+    world.add_component<mosaic::engine::ui::UiClipRect>(parent,
+                                                        mosaic::engine::ui::UiClipRect{});
+
+    const auto over = world.create_entity();
+    UiButton   o;
+    o.anchor = static_cast<int>(Anchor::TopLeft);
+    o.pos    = {1.3f, 0.0f};        // 1.3 of a half-screen frame -> x = 0.65
+    o.size   = {0.2f, 0.4f};        // -> w 0.1, so x in [0.65, 0.75): over `under`
+    o.order  = 5;                   // and ON TOP of it
+    world.add_component<UiButton>(over, o);
+    world.add_component<UiParent>(over, UiParent{parent});
+
+    const auto cands = button_hit_candidates(world);
+    REQUIRE(cands.size() == 1);
+    REQUIRE(cands[0].e == under);
+
+    mosaic::engine::ui::PointerState pointer;
+    pointer.inside = true;
+    pointer.x      = 0.7f;
+    pointer.y      = 0.1f;
+    REQUIRE(mosaic::engine::ui::topmost_hit(cands, pointer) == under);
+}
+
+TEST_CASE("an unclipped button is untouched by a clip elsewhere in the world",
+          "[ui][buttonrects][clip]")
+{
+    // The containment claim: UiClipRect clips its SUBTREE, so a button that is not a
+    // descendant of it must come back exactly as before. Without this, a single authored
+    // clip region could quietly crop the whole HUD.
+    World      world;
+    const auto clipper = world.create_entity();
+    UiPanel    p;
+    p.anchor = static_cast<int>(Anchor::TopLeft);
+    p.pos    = {0.0f, 0.0f};
+    p.size   = {0.1f, 0.1f};
+    world.add_component<UiPanel>(clipper, p);
+    world.add_component<mosaic::engine::ui::UiClipRect>(clipper,
+                                                         mosaic::engine::ui::UiClipRect{});
+
+    const auto loose = world.create_entity();
+    UiButton   b;
+    b.anchor = static_cast<int>(Anchor::TopLeft);
+    b.pos    = {0.8f, 0.8f};
+    b.size   = {0.1f, 0.1f};
+    world.add_component<UiButton>(loose, b);
+
+    const auto cands = button_hit_candidates(world);
+    REQUIRE(cands.size() == 1);
+    REQUIRE(cands[0].rect.x == Approx(0.8f));
+    REQUIRE(cands[0].rect.w == Approx(0.1f));
 }

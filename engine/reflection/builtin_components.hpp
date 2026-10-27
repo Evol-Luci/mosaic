@@ -27,6 +27,7 @@
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
+#include "engine/ui/ui_clip_rect.hpp"
 #include "engine/ui/ui_stack.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/net/net_replicated.hpp"
@@ -73,6 +74,11 @@ inline void register_builtin_components(
     types.register_component<mosaic::engine::ui::UiButton>(registry, "UiButton");
     types.register_component<mosaic::engine::ui::UiParent>(registry, "UiParent");
     types.register_component<mosaic::engine::ui::UiStack>(registry, "UiStack");
+    // A fieldless marker, like AudioListener: its reflect() visits nothing, so it
+    // round-trips as a bare component name. Registered because it is AUTHORED -- a
+    // scene file must be able to say "this container clips its children", and an
+    // unregistered component would be silently dropped on save.
+    types.register_component<mosaic::engine::ui::UiClipRect>(registry, "UiClipRect");
     types.register_component<mosaic::engine::ui::UiGrid>(registry, "UiGrid");
     types.register_component<mosaic::engine::ui::UiFlow>(registry, "UiFlow");
     types.register_component<mosaic::engine::ui::WorldLabel>(registry, "WorldLabel");

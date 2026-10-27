@@ -233,6 +233,9 @@ Every built-in engine component, with its fields and their default values. Field
 - `order`: 0
 - `visible`: true
 
+## UiClipRect
+
+
 ## UiFlow
 
 - `axis`: 1

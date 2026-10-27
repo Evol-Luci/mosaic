@@ -188,6 +188,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_hover_style_reflection_test.cpp
   unit/ui/ui_hierarchy_test.cpp
   unit/ui/ui_stack_test.cpp
+  unit/ui/ui_clip_rect_test.cpp
   unit/ui/ui_grid_flow_test.cpp
   unit/ui/ui_layout_cost_test.cpp
   unit/ui/ui_layout_test.cpp
@@ -278,6 +279,7 @@ if(MOSAIC_ENABLE_GPU_TESTS)
     gpu/offscreen_render_device_test.cpp
     gpu/offscreen_ui_orientation_test.cpp
     gpu/offscreen_ui_clip_test.cpp
+    gpu/offscreen_ui_clip_hierarchy_test.cpp
     gpu/offscreen_particle_aliasing_test.cpp
     gpu/offscreen_ribbon_aliasing_test.cpp
     gpu/offscreen_world_text_aliasing_test.cpp
@@ -285,6 +287,12 @@ if(MOSAIC_ENABLE_GPU_TESTS)
   )
   target_link_libraries(mosaic_gpu_tests PRIVATE
     mosaic_render_vulkan
+    # mosaic_engine is here for U9b's clip-hierarchy test, which resolves a clip out of a
+    # real World rather than writing one down -- that is the whole point of it, since the
+    # device-level clip is already covered by offscreen_ui_clip_test.cpp. mosaic_engine is
+    # three translation units and links only mosaic_foundation, so this costs the GPU suite
+    # nothing it was not already linking.
+    mosaic_engine
     mosaic_foundation
     Vulkan::Vulkan
     Catch2::Catch2WithMain

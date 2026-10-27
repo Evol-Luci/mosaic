@@ -40,6 +40,7 @@
 #include "engine/ui/font_atlas.hpp"
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
+#include "engine/ui/ui_clip_rect.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "engine/ui/ui_hover_style.hpp"
@@ -3210,4 +3211,345 @@ TEST_CASE("an invisible stack container draws nothing while its children fill it
         // At their OWN authored alpha: the invisible container contributes 1, not 0.
         REQUIRE(quads[i].alpha == Catch::Approx(1.0f));
     }
+}
+
+// ---------------------------------------------------------------------------
+// U9b: the HUD passes resolve a clip from the hierarchy and carry it to the device.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+// A TopLeft panel at an explicit rect of its frame, so each expectation below is a number a
+// reader can check rather than an anchor to re-derive.
+mosaic::engine::ui::UiPanel clip_panel_at(float x, float y, float w, float h, int order)
+{
+    mosaic::engine::ui::UiPanel p;
+    p.anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft);
+    p.pos    = {x, y};
+    p.size   = {w, h};
+    p.order  = order;
+    return p;
+}
+} // namespace
+
+TEST_CASE("RenderSystem carries an ancestor's clip to draw_ui", "[render][ui][clip]")
+{
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto parent = world.create_entity();
+    world.add_component<UiPanel>(parent, clip_panel_at(0.1f, 0.2f, 0.4f, 0.3f, 0));
+    world.add_component<UiClipRect>(parent, UiClipRect{});
+
+    const auto child = world.create_entity();
+    world.add_component<UiPanel>(child, clip_panel_at(0.0f, 0.0f, 1.0f, 1.0f, 1));
+    world.add_component<UiParent>(child, UiParent{parent});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // The clipping parent draws its own chrome UNCLIPPED and the child is clipped, so the
+    // two cannot share a call: two draws, in ascending order.
+    REQUIRE(device.ui_draws.size() == 2);
+    REQUIRE(device.ui_clips.size() == 2);
+    REQUIRE_FALSE(device.ui_clips[0].has_value());   // the container itself
+    REQUIRE(device.ui_clips[1].has_value());         // its child
+    REQUIRE(device.ui_clips[1]->x == Approx(0.1f));
+    REQUIRE(device.ui_clips[1]->y == Approx(0.2f));
+    REQUIRE(device.ui_clips[1]->w == Approx(0.4f));
+    REQUIRE(device.ui_clips[1]->h == Approx(0.3f));
+
+    // And the clip did NOT move or resize the quad: the child still covers its parent's
+    // whole rect, which is what distinguishes a clip from frame narrowing.
+    REQUIRE(device.ui_draws[1].size() == 1);
+    REQUIRE(device.ui_draws[1][0].rect.x == Approx(0.1f));
+    REQUIRE(device.ui_draws[1][0].rect.w == Approx(0.4f));
+}
+
+TEST_CASE("RenderSystem batches two panels that share a clip into ONE draw_ui",
+          "[render][ui][clip]")
+{
+    // Grouping by clip must not cost a call per element. Two siblings under one clipping
+    // container are consecutive in the sorted sequence and share a clip, so they are one
+    // call carrying two quads.
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto parent = world.create_entity();
+    UiPanel    pp = clip_panel_at(0.0f, 0.0f, 0.5f, 0.5f, 0);
+    pp.visible = false;   // a layout-only container: it draws nothing of its own
+    world.add_component<UiPanel>(parent, pp);
+    world.add_component<UiClipRect>(parent, UiClipRect{});
+
+    const auto a = world.create_entity();
+    world.add_component<UiPanel>(a, clip_panel_at(0.0f, 0.0f, 0.5f, 1.0f, 1));
+    world.add_component<UiParent>(a, UiParent{parent});
+    const auto b = world.create_entity();
+    world.add_component<UiPanel>(b, clip_panel_at(0.5f, 0.0f, 0.5f, 1.0f, 2));
+    world.add_component<UiParent>(b, UiParent{parent});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.size() == 1);
+    REQUIRE(device.ui_draws[0].size() == 2);
+    REQUIRE(device.ui_clips[0].has_value());
+    REQUIRE(device.ui_clips[0]->w == Approx(0.5f));
+}
+
+TEST_CASE("RenderSystem preserves draw order when two clips INTERLEAVE in the sort",
+          "[render][ui][clip]")
+{
+    // THE SUBTLE CASE OF U9b, and the one a naive implementation fails while passing every
+    // other assertion in this file.
+    //
+    // Three panels with authored orders 1, 2, 3, whose clips alternate X, Y, X. Grouping by
+    // clip into buckets and drawing bucket by bucket -- the obvious implementation -- emits
+    // [A, C] then [B], which draws C BEFORE B although C has the higher order, so B ends up
+    // on top of C. The run-length form emits [A], [B], [C]: three calls, ascending order,
+    // the authored z-order intact.
+    //
+    // Asserted on the SEQUENCE of calls rather than on their count alone, because a wrong
+    // implementation gets the count wrong in the other direction (two calls, not three) and
+    // a count-only assertion would read as a performance detail rather than a reordering.
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    // Two invisible clipping containers, so the only draws are the three children.
+    const auto cx = world.create_entity();
+    UiPanel    cxp = clip_panel_at(0.0f, 0.0f, 0.5f, 1.0f, -100);
+    cxp.visible = false;
+    world.add_component<UiPanel>(cx, cxp);
+    world.add_component<UiClipRect>(cx, UiClipRect{});
+
+    const auto cy = world.create_entity();
+    UiPanel    cyp = clip_panel_at(0.5f, 0.0f, 0.5f, 1.0f, -100);
+    cyp.visible = false;
+    world.add_component<UiPanel>(cy, cyp);
+    world.add_component<UiClipRect>(cy, UiClipRect{});
+
+    // Distinct sizes so each quad is identifiable in the recorded calls.
+    const auto a = world.create_entity();   // clip X, order 1
+    world.add_component<UiPanel>(a, clip_panel_at(0.0f, 0.0f, 0.1f, 1.0f, 1));
+    world.add_component<UiParent>(a, UiParent{cx});
+    const auto b = world.create_entity();   // clip Y, order 2
+    world.add_component<UiPanel>(b, clip_panel_at(0.0f, 0.0f, 0.2f, 1.0f, 2));
+    world.add_component<UiParent>(b, UiParent{cy});
+    const auto c = world.create_entity();   // clip X, order 3
+    world.add_component<UiPanel>(c, clip_panel_at(0.0f, 0.0f, 0.3f, 1.0f, 3));
+    world.add_component<UiParent>(c, UiParent{cx});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    // THE PROPERTY FIRST, and deliberately before the call-count assertions below.
+    //
+    // Flatten every quad across every call IN CALL ORDER: that sequence is the order the GPU
+    // rasterises them in, whatever the batching did. Widths ascend with authored order here
+    // (A 0.1 of a half-screen frame = 0.05, B 0.2 of the other half = 0.10, C 0.3 of the
+    // first half = 0.15), so the flattened widths must be strictly ascending. Under a
+    // group-by the flattened sequence is 0.05, 0.15, 0.10 and THIS is what goes red.
+    //
+    // A flatten rather than `ui_draws[0][0] < ui_draws[1][0]`, and asserted before the
+    // counts, both for the same reason: a group-by emits TWO calls, so an indexed form reads
+    // past the end and ABORTS instead of failing, and a count assertion placed first aborts
+    // the case before any ordering assertion is reached. Either arrangement would report
+    // "wrong number of draw calls", which does not say the HUD was reordered. This one names
+    // the bug.
+    std::vector<float> drawn_widths;
+    for (const auto& call : device.ui_draws)
+    {
+        for (const auto& q : call) { drawn_widths.push_back(q.rect.w); }
+    }
+    REQUIRE(drawn_widths.size() == 3);
+    INFO("flattened draw order (widths): " << drawn_widths[0] << ", " << drawn_widths[1]
+                                           << ", " << drawn_widths[2]);
+    REQUIRE(drawn_widths[0] < drawn_widths[1]);
+    REQUIRE(drawn_widths[1] < drawn_widths[2]);
+
+    // THREE calls, not two: the run A | B | C is never merged across B. A group-by gets this
+    // wrong in the other direction (two calls), so the count alone is ambiguous about which
+    // bug it caught -- which is why the property above comes first.
+    REQUIRE(device.ui_draws.size() == 3);
+    REQUIRE(device.ui_clips.size() == 3);
+    REQUIRE(device.ui_draws[0].size() == 1);
+    REQUIRE(device.ui_draws[1].size() == 1);
+    REQUIRE(device.ui_draws[2].size() == 1);
+
+    // Each with its own clip: X, Y, X.
+    REQUIRE(device.ui_clips[0].has_value());
+    REQUIRE(device.ui_clips[1].has_value());
+    REQUIRE(device.ui_clips[2].has_value());
+    REQUIRE(device.ui_clips[0]->x == Approx(0.0f));
+    REQUIRE(device.ui_clips[1]->x == Approx(0.5f));
+    REQUIRE(device.ui_clips[2]->x == Approx(0.0f));
+}
+
+TEST_CASE("RenderSystem emits no UI draw at all for a fully clipped-away subtree",
+          "[render][ui][clip]")
+{
+    // An empty intersection means nothing survives, so the pass spends neither a scissor
+    // nor a draw. Covers all three passes, because each has its own early-out.
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiImage;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    const auto    tex = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    // outer clips to the left half; inner clips to the right half of outer's frame pushed
+    // fully past it, so the intersection is empty.
+    const auto outer = world.create_entity();
+    UiPanel    op = clip_panel_at(0.0f, 0.0f, 0.5f, 1.0f, 0);
+    op.visible = false;
+    world.add_component<UiPanel>(outer, op);
+    world.add_component<UiClipRect>(outer, UiClipRect{});
+
+    const auto inner = world.create_entity();
+    UiPanel    ip = clip_panel_at(1.0f, 0.0f, 1.0f, 1.0f, 1);
+    ip.visible = false;
+    world.add_component<UiPanel>(inner, ip);
+    world.add_component<UiParent>(inner, UiParent{outer});
+    world.add_component<UiClipRect>(inner, UiClipRect{});
+
+    const auto panel = world.create_entity();
+    world.add_component<UiPanel>(panel, clip_panel_at(0.0f, 0.0f, 1.0f, 1.0f, 2));
+    world.add_component<UiParent>(panel, UiParent{inner});
+
+    const auto image = world.create_entity();
+    UiImage    im;
+    im.texture = tex;
+    world.add_component<UiImage>(image, im);
+    world.add_component<UiParent>(image, UiParent{inner});
+
+    const auto text = world.create_entity();
+    UiText     t;
+    t.font   = font_id;
+    t.text   = "A";
+    t.height = 0.1f;
+    world.add_component<UiText>(text, t);
+    world.add_component<UiParent>(text, UiParent{inner});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_draws.empty());
+    REQUIRE(device.ui_image_draws.empty());
+    REQUIRE(device.ui_text_draws.empty());
+}
+
+TEST_CASE("RenderSystem carries a clip to draw_ui_image and draw_ui_text too",
+          "[render][ui][clip]")
+{
+    // The image and text passes emit ONE call per element already, so a clip is one more
+    // field per call there rather than a grouping key. Both are asserted because they are
+    // independent call sites and a clip missed at either leaves a live-looking element
+    // painted outside its region.
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiImage;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    using mosaic::engine::ui::UiText;
+    AssetRegistry registry;
+    const auto    font_id = register_font(registry);
+    const auto    tex = register_white_texture(registry);
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto parent = world.create_entity();
+    UiPanel    pp = clip_panel_at(0.25f, 0.0f, 0.5f, 0.5f, 0);
+    pp.visible = false;
+    world.add_component<UiPanel>(parent, pp);
+    world.add_component<UiClipRect>(parent, UiClipRect{});
+
+    const auto image = world.create_entity();
+    UiImage    im;
+    im.texture = tex;
+    world.add_component<UiImage>(image, im);
+    world.add_component<UiParent>(image, UiParent{parent});
+
+    const auto text = world.create_entity();
+    UiText     t;
+    t.font   = font_id;
+    t.text   = "A";
+    t.height = 0.1f;
+    world.add_component<UiText>(text, t);
+    world.add_component<UiParent>(text, UiParent{parent});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_image_clips.size() == 1);
+    REQUIRE(device.ui_image_clips[0].has_value());
+    REQUIRE(device.ui_image_clips[0]->x == Approx(0.25f));
+    REQUIRE(device.ui_image_clips[0]->w == Approx(0.5f));
+
+    REQUIRE(device.ui_text_clips.size() == 1);
+    REQUIRE(device.ui_text_clips[0].has_value());
+    REQUIRE(device.ui_text_clips[0]->x == Approx(0.25f));
+    REQUIRE(device.ui_text_clips[0]->h == Approx(0.5f));
+}
+
+TEST_CASE("RenderSystem hands the device the INTERSECTION of two nested clips",
+          "[render][ui][clip]")
+{
+    // The draw half of U9b's decisive case, asserted at the device boundary rather than
+    // only on resolve_clip -- the draw path is its own call site and can regress on its own.
+    // The inner clip reaches outside its ancestor, so "use the innermost" gives 0.5 where
+    // the intersection gives 0.25.
+    using mosaic::engine::ui::UiClipRect;
+    using mosaic::engine::ui::UiPanel;
+    using mosaic::engine::ui::UiParent;
+    AssetRegistry registry;
+    World         world;
+    RenderSystem  rs;
+    add_camera(world, Vec3{0, 0, 5});
+
+    const auto outer = world.create_entity();
+    UiPanel    op = clip_panel_at(0.0f, 0.0f, 0.5f, 0.5f, 0);
+    op.visible = false;
+    world.add_component<UiPanel>(outer, op);
+    world.add_component<UiClipRect>(outer, UiClipRect{});
+
+    const auto inner = world.create_entity();
+    UiPanel    ip = clip_panel_at(0.5f, 0.5f, 1.0f, 1.0f, 1);
+    ip.visible = false;
+    world.add_component<UiPanel>(inner, ip);
+    world.add_component<UiParent>(inner, UiParent{outer});
+    world.add_component<UiClipRect>(inner, UiClipRect{});
+
+    const auto leaf = world.create_entity();
+    world.add_component<UiPanel>(leaf, clip_panel_at(0.0f, 0.0f, 1.0f, 1.0f, 2));
+    world.add_component<UiParent>(leaf, UiParent{inner});
+
+    FakeRenderDevice device;
+    rs.render(world, device, registry);
+
+    REQUIRE(device.ui_clips.size() == 1);
+    REQUIRE(device.ui_clips[0].has_value());
+    REQUIRE(device.ui_clips[0]->x == Approx(0.25f));
+    REQUIRE(device.ui_clips[0]->y == Approx(0.25f));
+    REQUIRE(device.ui_clips[0]->w == Approx(0.25f));  // NOT 0.5
+    REQUIRE(device.ui_clips[0]->h == Approx(0.25f));
 }

@@ -29,6 +29,7 @@
 #include "engine/vfx/screen_effect.hpp"
 #include "engine/render/font_texture_cache.hpp"
 #include "engine/ui/text_layout.hpp"
+#include "engine/ui/ui_clip_rect.hpp"
 #include "engine/ui/ui_hierarchy.hpp"
 #include "engine/ui/ui_text.hpp"
 #include "engine/ui/ui_panel.hpp"
@@ -498,8 +499,37 @@ public:
 
         // HUD pass: screen-space alpha-blended panels, drawn last (topmost, over the
         // screen-effect overlay). order-sorted so higher `order` draws on top.
+        //
+        // U9b MADE THIS PASS EMIT MORE THAN ONE CALL, and the way it does so is the one
+        // subtle thing in the slice. Each panel now carries its resolved clip, and the pass
+        // batches CONSECUTIVE RUNS of the sorted sequence that share a clip -- a run-length
+        // grouping, not a group-by.
+        //
+        // A GROUP-BY WOULD REORDER THE HUD. Collecting every clip's quads into its own
+        // bucket and then drawing bucket by bucket is the obvious implementation and it is
+        // wrong: for panels ordered A(clip 1), B(clip 2), C(clip 1) it draws A, C, then B,
+        // which puts B on top of C although C has the higher `order`. The run-length form
+        // emits [A], [B], [C] -- three calls instead of two, in exactly the authored z-order.
+        // The sort is the contract; batching may only ever merge NEIGHBOURS in it.
+        //
+        // The cost of that choice, stated rather than hidden: interleaved clips cost one
+        // draw call per run. A scene alternating clips between every panel gets one call per
+        // panel. That is the correct trade -- the alternative is drawing in the wrong order
+        // -- and authoring contiguous `order` ranges per clip region collapses it back to
+        // one call per region.
+        //
+        // A scene with NO UiClipRect anywhere resolves every clip to nullopt, so the whole
+        // pass is one run and emits the single draw_ui call it emitted before this feature,
+        // carrying no clip at all. That is what keeps U9a's "every existing call site is
+        // unchanged" true in practice and not just in the signature.
         {
-            std::vector<std::pair<int, UiQuad>> pending;
+            struct PendingPanel
+            {
+                int                                  order = 0;
+                UiQuad                               quad;
+                mosaic::engine::render::RenderDevice::UiClip clip;
+            };
+            std::vector<PendingPanel> pending;
             world.for_each<mosaic::engine::ui::UiPanel>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiPanel& p)
                 {
@@ -514,6 +544,14 @@ public:
                     // the trap this field exists to escape, so escaping it is a property of
                     // WHERE this line is.
                     if (!p.visible || p.alpha <= 0.0f) { return; }
+                    // A FULLY CLIPPED-AWAY PANEL EMITS NOTHING -- no quad, and so no draw
+                    // call of its own. Handing an empty clip to the device would be
+                    // correct (RenderDevice::UiClip says an empty clip draws nothing) but
+                    // would spend a scissor and a draw to produce no pixels, and would
+                    // make "the pass emitted no call" untestable.
+                    const mosaic::engine::render::RenderDevice::UiClip clip =
+                        mosaic::engine::ui::resolve_clip(world, e);
+                    if (clip.has_value() && mosaic::engine::ui::is_empty(*clip)) { return; }
                     const auto rect = mosaic::engine::ui::resolve_ui_rect(
                         world, e, mosaic::engine::ui::to_anchor(p.anchor), p.pos, p.size);
                     // Hover feedback is a render-time override: nothing writes to p.color,
@@ -526,19 +564,33 @@ public:
                     // early-out above. Both directions matter: an element authored at 0
                     // stays hidden whatever its ancestors say, and a container at 0 hides
                     // a child whose own alpha is 1.
-                    pending.push_back(
-                        {p.order,
-                         UiQuad{rect, app.color,
-                                app.alpha * mosaic::engine::ui::inherited_alpha(world, e)}});
+                    pending.push_back(PendingPanel{
+                        p.order,
+                        UiQuad{rect, app.color,
+                               app.alpha * mosaic::engine::ui::inherited_alpha(world, e)},
+                        clip});
                 });
             std::stable_sort(pending.begin(), pending.end(),
-                             [](const auto& l, const auto& r) { return l.first < r.first; });
-            if (!pending.empty())
+                             [](const auto& l, const auto& r) { return l.order < r.order; });
+            // The run-length emit the comment above argues for. `quads` accumulates one
+            // run; the run is flushed when the next panel's clip differs, and once more
+            // after the loop. Nothing is reordered: `pending` is consumed front to back in
+            // exactly the order the stable_sort left it.
+            std::vector<UiQuad> quads;
+            quads.reserve(pending.size());
+            for (std::size_t i = 0; i < pending.size(); ++i)
             {
-                std::vector<UiQuad> quads;
-                quads.reserve(pending.size());
-                for (auto& pr : pending) { quads.push_back(pr.second); }
-                device.draw_ui(quads);
+                if (!quads.empty() &&
+                    !mosaic::engine::ui::same_clip(pending[i].clip, pending[i - 1].clip))
+                {
+                    device.draw_ui(quads, pending[i - 1].clip);
+                    quads.clear();
+                }
+                quads.push_back(pending[i].quad);
+            }
+            if (!quads.empty())
+            {
+                device.draw_ui(quads, pending.back().clip);
             }
         }
 
@@ -548,12 +600,32 @@ public:
         // three HUD passes read alike. Unlike that pass this cannot batch into ONE call,
         // because each image carries its own texture handle, so the sort reorders the calls
         // rather than the quads inside one. Same call count as before.
+        //
+        // A CLIP NEEDS NO GROUPING KEY HERE, and this corrected a premise U9b was briefed
+        // with. The decomposition says this pass "groups by texture", which it does not: it
+        // emits ONE call per UiImage, each with its own texture, and merges nothing. So the
+        // clip is simply one more thing each call carries -- there is no batching for a
+        // second key to interact with, and no draw-order question of the kind the panel pass
+        // above has to answer. Should these calls ever be merged by texture, the clip must
+        // become a second key of that merge and the merge must stay run-length for the
+        // reason the panel pass states.
         {
-            std::vector<std::pair<int, std::pair<UiImageQuad, TextureHandle>>> pending;
+            struct PendingImage
+            {
+                int                                  order = 0;
+                UiImageQuad                          quad;
+                TextureHandle                        texture = 0;
+                mosaic::engine::render::RenderDevice::UiClip clip;
+            };
+            std::vector<PendingImage> pending;
             world.for_each<mosaic::engine::ui::UiImage>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiImage& im)
                 {
                     if (!im.visible || im.alpha <= 0.0f) { return; }
+                    // Fully clipped away -> no quad and no call, as in the panel pass.
+                    const mosaic::engine::render::RenderDevice::UiClip clip =
+                        mosaic::engine::ui::resolve_clip(world, e);
+                    if (clip.has_value() && mosaic::engine::ui::is_empty(*clip)) { return; }
                     // get_info rather than get: the aspect modes need the texture's pixel
                     // dimensions, and a non-zero handle guarantees they are non-zero.
                     const TextureInfo info = texture_cache_.get_info(im.texture, registry, device);
@@ -569,12 +641,12 @@ public:
                         im.sub_rect_size, im.fit_mode);
                     const auto app = mosaic::engine::ui::resolve_appearance(
                         mosaic::engine::ui::active_hover_style(world, e), im.tint, im.alpha);
-                    pending.push_back(
-                        {im.order,
-                         {UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color,
-                                      app.alpha
-                                          * mosaic::engine::ui::inherited_alpha(world, e)},
-                          info.handle}});
+                    pending.push_back(PendingImage{
+                        im.order,
+                        UiImageQuad{q.rect, q.u0, q.v0, q.u1, q.v1, app.color,
+                                    app.alpha
+                                        * mosaic::engine::ui::inherited_alpha(world, e)},
+                        info.handle, clip});
                 });
             // stable_sort ASCENDING, matching the panel pass: higher `order` is drawn last
             // and therefore appears on top, and equal orders keep `for_each` order. The
@@ -582,25 +654,43 @@ public:
             // documents the hit tie-break as agreeing with "the entity later in iteration
             // draws on top", which a plain sort would quietly break.
             std::stable_sort(pending.begin(), pending.end(),
-                             [](const auto& l, const auto& r) { return l.first < r.first; });
+                             [](const auto& l, const auto& r) { return l.order < r.order; });
             for (auto& pr : pending)
             {
-                device.draw_ui_image(std::vector<UiImageQuad>{pr.second.first},
-                                     pr.second.second);
+                device.draw_ui_image(std::vector<UiImageQuad>{pr.quad}, pr.texture, pr.clip);
             }
         }
 
         // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
         //
         // Collect/sort/draw as above. Each UiText already emits ONE call carrying all its
-        // glyphs, so like the image pass this reorders calls rather than merging them.
+        // glyphs, so like the image pass this reorders calls rather than merging them, and
+        // the clip is one more field per call rather than a grouping key.
+        //
+        // THE CLIP IS NOT THE FRAME, and this pass is where confusing the two would be
+        // easiest: it is the one pass that calls resolve_parent_frame directly, and hands
+        // that frame to layout_text, which LAYS THE GLYPHS OUT inside it. The clip comes
+        // from resolve_clip instead and is passed to the device untouched. If they were
+        // conflated, a clipped label would re-flow -- its glyphs would shrink into the clip
+        // instead of being masked by it -- which is precisely the resolve_parent_frame
+        // behaviour a clip must not have.
         {
-            std::vector<std::pair<int, std::pair<std::vector<UiGlyphQuad>, TextureHandle>>>
-                pending;
+            struct PendingText
+            {
+                int                                  order = 0;
+                std::vector<UiGlyphQuad>             quads;
+                TextureHandle                        atlas = 0;
+                mosaic::engine::render::RenderDevice::UiClip clip;
+            };
+            std::vector<PendingText> pending;
             world.for_each<mosaic::engine::ui::UiText>(
                 [&](mosaic::foundation::EntityID e, mosaic::engine::ui::UiText& t)
                 {
                     if (!t.visible || t.alpha <= 0.0f || t.text.empty()) { return; }
+                    // Fully clipped away -> no glyphs and no call, as in the passes above.
+                    const mosaic::engine::render::RenderDevice::UiClip clip =
+                        mosaic::engine::ui::resolve_clip(world, e);
+                    if (clip.has_value() && mosaic::engine::ui::is_empty(*clip)) { return; }
                     std::shared_ptr<mosaic::engine::ui::FontAtlas> font =
                         registry.load<mosaic::engine::ui::FontAtlas>(t.font);
                     if (!font) { return; }
@@ -625,13 +715,13 @@ public:
                     {
                         quads.push_back(UiGlyphQuad{q.rect, q.u0, q.v0, q.u1, q.v1, q.color, q.alpha});
                     }
-                    pending.push_back({t.order, {std::move(quads), atlas}});
+                    pending.push_back(PendingText{t.order, std::move(quads), atlas, clip});
                 });
             std::stable_sort(pending.begin(), pending.end(),
-                             [](const auto& l, const auto& r) { return l.first < r.first; });
+                             [](const auto& l, const auto& r) { return l.order < r.order; });
             for (auto& pr : pending)
             {
-                device.draw_ui_text(pr.second.first, pr.second.second);
+                device.draw_ui_text(pr.quads, pr.atlas, pr.clip);
             }
         }
     }

@@ -717,6 +717,40 @@ them as this list does.
   U9 needs only a wheel delta; `PointerState::down` is a single boolean today and widening it
   to a button mask is a change every provider and every hit-path consumer sees. **Depends on**
   a feature that needs a second button. Nothing does.
+- **No `UiClipRect` is authored in any scene, so U9b's feature is unexercised outside tests**
+  — found 2026-10-26 while shipping U9b. The engine path has 38 unit tests and 2 GPU tests;
+  the *authored* path — a clip region in a real scene, in the editor, at a real window size —
+  has nothing, and the renderer gate cannot stand in for it, because with no clip authored the
+  HUD emits exactly the command stream it emitted before the slice (exit 124, three `[INFO]`,
+  zero VUIDs, byte-identical `diff`). Deferred for a named risk rather than for time: the
+  obvious candidate is the demo's `hud_stack`, whose own comment stakes out "the three children
+  must EXACTLY tile the container -- no seam, no overlap, at any window size", and a clip whose
+  pixel edge rounds differently from the children's quads could open a one-pixel seam that no
+  test can see (the editor path is invisible to the gate). **Depends on** U9d, which the
+  decomposition already makes the home of the first authored region and the first eye check,
+  and on the pixel-edge rounding policy entry under Rendering being answered.
+- **The HUD image and text passes do NOT batch by texture, contrary to the U9 decomposition**
+  — found 2026-10-26 while shipping U9b, and recorded because a future slice will trip on it.
+  The decomposition states that those passes "already group `draw_ui_image` and `draw_ui_text`
+  calls by texture … a clip is one more grouping key"; they do not group or merge anything —
+  each emits **one call per element** carrying that element's own texture, and the sort reorders
+  calls rather than quads. U9b therefore needed no grouping key there (the clip is one more
+  field per call) and only the panel pass had a batching question. The deferred work is the
+  batching itself: merging those calls by texture would be a real win for a scene with many
+  images sharing an atlas. **It must be a RUN-LENGTH merge over the sorted sequence with the
+  clip as a second key**, for the reason the panel pass states in `render_system.hpp`: a
+  group-by reorders the HUD, putting a lower-order element on top of a higher-order one.
+  **Depends on** a scene with enough same-atlas HUD images for the call count to matter;
+  nothing today has one.
+- **Interleaved clips cost one `draw_ui` call per run** — found 2026-10-26 while shipping U9b,
+  and it is the stated price of correct draw order rather than a defect. The panel pass batches
+  only *consecutive* runs of the order-sorted sequence that share a clip, because merging
+  non-neighbours is what reorders the HUD. So panels whose clips alternate between every
+  element get one call per element. Deferred because the fix is not obvious and nothing needs
+  it: merging two non-adjacent runs is only safe when nothing between them can overlap either,
+  which is a per-pair rect test, and authoring contiguous `order` ranges per clip region
+  collapses the cost to one call per region with no code at all. **Depends on** a real scene
+  measuring enough UI draw calls for this to show up; today's demo emits one.
 - **A `clip_resolves` counter in `ui_layout_stats.hpp`** — non-goal of the 2026-10-26 U9
   decomposition. U9b adds a **second** parent-chain walk per element per pass, beside the one
   U8d measured and deliberately left uncounted. Deferred for the same reason U8d shipped no
