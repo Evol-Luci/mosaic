@@ -16,8 +16,8 @@ not re-add it.
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1546 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-26 |
-| Suite status | all passing (1546/1546, 3.8 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-26 |
+| Suite size | 1584 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-26 |
+| Suite status | all passing (1584/1584, 3.9 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-26 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -29,7 +29,7 @@ not re-add it.
 
 **U8 layout containers is COMPLETE** (U8a-U8e, [spec](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md)). **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms vs ~0.7 ms release); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame.
 
-**NEXT: U9 clipping and scroll regions** ([spec](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md)), chosen 2026-10-26 over U11: **U9a** a clip rect on `RenderDevice` (pixel-asserted, SHIPPED), **U9b** `UiClip` down the hierarchy for draw AND hit-test, **U9c** a wheel delta on `PointerState`, **U9d** `UiScroll`. **U11 runs in parallel** ([spec](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md)); U11a shipped the UTF-8 decode.
+**NEXT: U9 clipping/scroll** ([spec](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md)): **U9a** device clip rect and **U9b** `UiClipRect` down the hierarchy (draw AND hit-test) SHIPPED; next **U9c** a wheel delta on `PointerState`, **U9d** `UiScroll`. **U11** ([spec](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md)): U11a shipped the UTF-8 decode, U11b is word-wrap. **U9b and U11b both need `render_system.hpp` — do not run them concurrently.**
 
 **Owed: three eye checks, in ONE pass** — the uncovered "GLOW", the flow block at upper-centre (U8e), the `field_bool` checkbox. Sharpest: toggle `visible` on a selected `UiPanel`; no gate reaches it.
 
