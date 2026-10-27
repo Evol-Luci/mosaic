@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "engine/ui/utf8.hpp" // kReplacementCodepoint
+
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "third_party/stb/stb_truetype.h"
 
@@ -25,11 +27,27 @@ read_ttf(const std::string& bytes, float pixel_size)
     constexpr std::uint32_t kFirst = 32, kLast = 126;
     constexpr int kAtlasW = 512, kPad = 1;
 
+    // The cooked set: printable ASCII, plus U+FFFD *only if the font actually provides it*.
+    // layout_text draws U+FFFD for any printable codepoint the atlas lacks; baking it here is
+    // the one-codepoint addition U11a allows, not a general widening of the range.
+    //
+    // The test is stbtt_FindGlyphIndex != 0. A bbox/advance test would NOT do: for a font
+    // without U+FFFD, stb falls back to glyph 0 (.notdef), which in many fonts (the bundled
+    // DemoSans among them) is a drawn box with a real advance. Baking that would silently
+    // smuggle .notdef in under the name U+FFFD and defeat layout_text's '?' fallback.
+    std::vector<std::uint32_t> cooked;
+    cooked.reserve(kLast - kFirst + 2);
+    for (std::uint32_t cp = kFirst; cp <= kLast; ++cp) { cooked.push_back(cp); }
+    if (stbtt_FindGlyphIndex(&info, static_cast<int>(mosaic::engine::ui::kReplacementCodepoint)) != 0)
+    {
+        cooked.push_back(mosaic::engine::ui::kReplacementCodepoint);
+    }
+
     // Pass 1: metrics + shelf placement; compute atlas height.
     struct Placed { std::uint32_t cp; int gw, gh, px, py, x0, y0; float advance; };
     std::vector<Placed> placed;
     int cx = kPad, cy = kPad, row_h = 0;
-    for (std::uint32_t cp = kFirst; cp <= kLast; ++cp)
+    for (const std::uint32_t cp : cooked)
     {
         int adv = 0, lsb = 0;
         stbtt_GetCodepointHMetrics(&info, static_cast<int>(cp), &adv, &lsb);

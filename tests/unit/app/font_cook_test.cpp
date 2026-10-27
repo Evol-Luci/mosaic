@@ -59,6 +59,23 @@ TEST_CASE("read_ttf bakes ASCII glyph metrics from a TTF", "[app]")
             static_cast<std::size_t>(font->atlas.width) * font->atlas.height * 4u);
 }
 
+TEST_CASE("read_ttf bakes U+FFFD only when the font provides it", "[app]")
+{
+    // U11a adds U+FFFD to the cooked set as a one-codepoint addition beside 32..126, gated on
+    // stbtt_FindGlyphIndex. MEASURED for the bundled font (assets/fonts/DemoSans.ttf, which is
+    // byte-identical to this fixture -- same md5): FindGlyphIndex(U+FFFD) returns 0, so the
+    // font does NOT provide it, nothing extra is baked, and layout_text's resolution order
+    // falls through to '?'. This asserts that measured outcome.
+    //
+    // The gate must be the glyph index, not the bitmap box: stb resolves a missing codepoint
+    // to glyph 0 (.notdef), and in this font .notdef is a drawn 24x30 box with a real advance.
+    // A bbox-based gate would therefore bake .notdef as if it were U+FFFD.
+    const std::optional<FontAtlas> font = read_ttf(fixture_ttf(), 48.0f);
+    REQUIRE(font.has_value());
+    REQUIRE(font->glyphs.size() == 95);  // 32..126 and nothing else
+    REQUIRE(font->glyphs.find(0xFFFDu) == font->glyphs.end());
+}
+
 #include "engine/ui/font_atlas.hpp"
 
 using mosaic::app::cook_font;

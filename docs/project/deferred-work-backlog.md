@@ -748,6 +748,15 @@ them as this list does.
   every project — an asset-pipeline decision with its own size measurement, not a layout
   change. **Depends on** someone authoring a non-ASCII label and deciding the replacement
   glyph is not enough.
+- **A test fixture font that actually provides `U+FFFD`** — deferred during **U11a**, which
+  added the conditional `U+FFFD` cook. The cook's *present* branch is unexercised, because
+  `assets/fonts/DemoSans.ttf` and `tests/fixtures/LiberationSans-Regular.ttf` are the **same
+  file** (md5 `e09c3d83`), and `stbtt_FindGlyphIndex(U+FFFD)` returns **0** for it — so every
+  test takes the absent branch and falls through to `'?'`. The `U+FFFD`-present leg of
+  `read_ttf` and of `resolve_glyph` is covered only by reading the code. Deferred because
+  closing it means committing a second binary TTF fixture chosen for a glyph nothing yet
+  renders, which is a bigger decision than the gap. **Depends on** either that fixture, or
+  the wider codepoint range below making a non-ASCII font the normal case anyway.
 - **Bidirectional text and RTL scripts** — non-goal of the 2026-10-26 U11 decomposition.
   `layout_text` advances a single pen left to right; RTL needs a direction pass over runs
   before any placement. **Depends on** a project that needs it; this is a feature, not a gap.

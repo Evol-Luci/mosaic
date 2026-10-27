@@ -5,6 +5,7 @@
 
 #include "engine/ui/font_atlas.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/utf8.hpp"
 #include "foundation/math/vec2.hpp"
 #include "foundation/math/vec3.hpp"
 
@@ -17,6 +18,27 @@ struct TextQuad
     mosaic::foundation::math::Vec3 color;
     float alpha = 1.0f;
 };
+
+// Resolves one codepoint to the glyph that should be drawn for it, or nullptr for "draw
+// nothing". Used by BOTH of layout_text's passes, so the measure pass and the place pass
+// cannot disagree about which codepoints occupy space. See the U11a slice of the U11 spec.
+//
+// C0 controls and DEL keep the silent skip they have always had: a visible mark where the
+// author meant whitespace or nothing would be worse than dropping it. Every *printable*
+// codepoint the atlas lacks resolves, in order, to U+FFFD if the atlas has it (the cook bakes
+// it only when the font provides it), else to '?' (which every 32-126 atlas has), else to
+// nothing.
+inline const Glyph* resolve_glyph(const FontAtlas& font, std::uint32_t cp)
+{
+    if (cp < 0x20u || cp == 0x7Fu) { return nullptr; } // C0 + DEL: silently skipped
+    const auto it = font.glyphs.find(cp);
+    if (it != font.glyphs.end()) { return &it->second; }
+    const auto rep = font.glyphs.find(kReplacementCodepoint);
+    if (rep != font.glyphs.end()) { return &rep->second; }
+    const auto qm = font.glyphs.find(static_cast<std::uint32_t>('?'));
+    if (qm != font.glyphs.end()) { return &qm->second; }
+    return nullptr;
+}
 
 // Single-line, left-to-right layout in normalized screen space. See the U2b spec.
 inline std::vector<TextQuad> layout_text(const FontAtlas& font, const std::string& text,
@@ -33,12 +55,17 @@ inline std::vector<TextQuad> layout_text(const FontAtlas& font, const std::strin
     const float scale = (height * frame.h) / font.line_height;
     const float sx    = scale / aspect;            // atlas px -> normalized X (aspect-correct)
 
-    // Measure total advance width (present glyphs only).
+    // Decode to codepoints ONCE, then run both passes over the same codepoints. Iterating
+    // the std::string per byte dropped every byte of a multi-byte character and re-centred
+    // the string as if it had been shorter: a label authored "Cafe-with-acute" rendered as
+    // the three bytes "Caf".
+    const std::vector<std::uint32_t> codepoints = decode_utf8(text);
+
+    // Measure total advance width (drawable glyphs only, replacements included).
     float total_adv = 0.0f;
-    for (unsigned char c : text)
+    for (const std::uint32_t cp : codepoints)
     {
-        const auto it = font.glyphs.find(static_cast<std::uint32_t>(c));
-        if (it != font.glyphs.end()) { total_adv += it->second.advance; }
+        if (const Glyph* g = resolve_glyph(font, cp)) { total_adv += g->advance; }
     }
     const float w = total_adv * sx;
 
@@ -49,11 +76,11 @@ inline std::vector<TextQuad> layout_text(const FontAtlas& font, const std::strin
     float pen_x = box.x;
     const float baseline = box.y + font.ascent * scale;
 
-    for (unsigned char c : text)
+    for (const std::uint32_t cp : codepoints)
     {
-        const auto it = font.glyphs.find(static_cast<std::uint32_t>(c));
-        if (it == font.glyphs.end()) { continue; } // skip unknown codepoints entirely
-        const Glyph& g = it->second;
+        const Glyph* resolved = resolve_glyph(font, cp);
+        if (resolved == nullptr) { continue; } // a control character draws and advances nothing
+        const Glyph& g = *resolved;
         if (g.width > 0.0f && g.height > 0.0f)
         {
             TextQuad q;
