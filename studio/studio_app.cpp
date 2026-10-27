@@ -411,6 +411,11 @@ void StudioApp::draw_viewport(mosaic::engine::render::RenderDevice& device,
         sample.rect_min_y      = rect_min.y;
         sample.hovered         = ImGui::IsItemHovered();
         sample.button_down     = ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        // io.MouseWheel, not a GLFW scroll callback: ImGui's is frame-snapshotted and reset
+        // in NewFrame, so the two systems reading the provider within one tick cannot see
+        // different wheel values -- the same reason GetMousePos is used above. MouseWheelH
+        // (horizontal) is deliberately not sampled; backlogged.
+        sample.wheel           = ImGui::GetIO().MouseWheel;
         viewport_.set_pointer_sample(sample, play_.is_playing());
 
         // Click-to-select is the EDIT-mode behaviour, and it is gated so the two meanings of

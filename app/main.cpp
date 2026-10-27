@@ -67,6 +67,22 @@ namespace
 {
 std::atomic<bool> g_stop{false};
 void on_sigint(int) { g_stop.store(true); }
+
+// The wheel accumulator the GLFW scroll callback writes to, as a file-scope pointer for the
+// same reason g_stop above is file-scope: a GLFW callback is a plain C function pointer with
+// no captures, so the only ways to reach a stack object are a static or the window's user
+// pointer -- AND THE USER POINTER IS ALREADY OWNED. `VulkanRenderDevice` stores `this` there
+// (modules/render_vulkan/vulkan_render_device.cpp:364) and its framebuffer_resize_callback
+// casts it straight back and dereferences it with no null check (`:2785`). Writing our own
+// pointer into that slot made the first window resize of `mosaic run --window` write a bool
+// through a WheelAccumulator* reinterpreted as a VulkanRenderDevice*, and left the swapchain
+// never recreating. Nothing in the suite could see it: `ctest` creates no VkDevice, and the
+// renderer gate runs `mosaic editor`, a different code path that installs no scroll callback.
+// Pinned by a test that forbids glfwSetWindowUserPointer in this file.
+//
+// Single-window by construction (`mosaic run` creates exactly one), and only ever written
+// before the callback is installed, so there is no race with the callback that reads it.
+mosaic::app::WheelAccumulator* g_wheel = nullptr;
 } // namespace
 
 namespace mosaic::app
@@ -262,6 +278,11 @@ int main(int argc, char** argv)
     };
 
     GLFWwindow*                                            glfw_window = nullptr;
+    // Function-scoped for the same reason asset_registry below is: the pointer lambda reads
+    // it every tick and on_frame resets it every frame, and both outlive this scope's
+    // statements via pump.run(). GLFW's scroll is event-driven, so this is where the events
+    // land between polls -- see WheelAccumulator for why the reset lives in on_frame.
+    mosaic::app::WheelAccumulator                          wheel;
     std::unique_ptr<mosaic::engine::render::RenderDevice>  render_device;
     // Function-scoped so it outlives pump.run() below: the on_frame lambda captures it by
     // reference and resolves textures from it every frame. (Populated inside the window block.)
@@ -299,10 +320,10 @@ int main(int argc, char** argv)
 
     // One pointer provider shared by UiSystem and ClickNudgeSystem. They MUST agree
     // about the pointer within a tick, or the UI-claim arbitration breaks.
-    auto glfw_pointer = [&glfw_window]() -> mosaic::engine::ui::PointerState
+    auto glfw_pointer = [&glfw_window, &wheel]() -> mosaic::engine::ui::PointerState
     {
         // `inside = false`, not a bare {}: a zeroed state reads as a pointer AT the origin.
-        if (glfw_window == nullptr) { return {0.0f, 0.0f, false, false}; }
+        if (glfw_window == nullptr) { return {0.0f, 0.0f, false, false, 0.0f}; }
         // Three reads, then the POLICY -- which lives in window_pointer.hpp so it is testable
         // without a window, the same split studio/viewport.hpp makes for the editor's
         // provider. This lambda holds nothing but the GLFW calls.
@@ -312,7 +333,9 @@ int main(int argc, char** argv)
         glfwGetCursorPos(glfw_window, &mx, &my);
         const bool button_down =
             glfwGetMouseButton(glfw_window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-        return mosaic::app::window_pointer_state(mx, my, ww, wh, button_down);
+        // wheel.value() is a READ, never a take. This lambda is called twice per tick and
+        // the two callers must agree; the accumulator is reset by the frame loop instead.
+        return mosaic::app::window_pointer_state(mx, my, ww, wh, button_down, wheel.value());
     };
 
     auto render_system =
@@ -406,8 +429,36 @@ int main(int argc, char** argv)
             return 1;
         }
 
+        // The scroll callback is a plain C function pointer with no captures, so it reaches
+        // the accumulator through g_wheel -- NOT through glfwSetWindowUserPointer, which
+        // VulkanRenderDevice already owns. See g_wheel's comment: clobbering that slot
+        // corrupts memory on the first window resize, and no test in this repo can see it.
+        //
+        // Installed AFTER the device is created, so a failed render init tears the window
+        // down without a live callback holding a pointer into this scope, and after the
+        // device has installed its own framebuffer-size callback (a different slot, so the
+        // order is only about the failure path).
+        g_wheel = &wheel;
+        glfwSetScrollCallback(glfw_window, [](GLFWwindow* /*w*/, double /*xoffset*/,
+                                              double yoffset) {
+            // xoffset (horizontal wheel) is deliberately dropped -- backlogged; a second
+            // field with no reader is a second default to get wrong.
+            if (g_wheel != nullptr) { g_wheel->add(yoffset); }
+        });
+
         auto* device = render_device.get();
-        deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry] {
+        deps.on_frame = [glfw_window, device, &world, render_system, &asset_registry, &wheel,
+                         &loop] {
+            // BEFORE glfwPollEvents, and GATED ON loop.tick_count(). Both halves are the
+            // design, and WheelAccumulator's comment says why at length. In short: FramePump
+            // ticks and THEN calls on_frame, so clearing here clears what the ticks just saw
+            // and clears it before the poll that produces the next batch -- but `advance` runs
+            // ZERO ticks whenever the banked remainder is short, which jitter alone produces
+            // at the default 60/60 and which `--fps` above `--fixed-hz` makes the common case.
+            // An ungated clear would therefore drop notches at a rate set by an unrelated CLI
+            // flag. tick_count is read here, after advance, which is the only place that sees
+            // whether a tick actually ran.
+            wheel.drop_observed(loop.tick_count());
             glfwPollEvents();
             int fbw = 0, fbh = 0;
             glfwGetFramebufferSize(glfw_window, &fbw, &fbh);

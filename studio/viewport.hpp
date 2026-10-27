@@ -41,6 +41,13 @@ struct ViewportPointerSample
     // window sitting behind another; and an open modal, which clears HoveredWindow.
     bool  hovered = false;
     bool  button_down = false;                  // the raw left button, ungated
+    // ImGui::GetIO().MouseWheel: the wheel notches ImGui accumulated for THIS ImGui frame,
+    // positive away from the user. ImGui already does the accumulating and already resets it
+    // in NewFrame, so the editor needs no accumulator of its own -- the only reset here is
+    // the next frame's set_pointer_sample overwriting this sample, which is frame-loop
+    // driven, not read-driven. That matters because pointer_state is called twice per tick
+    // (UiSystem and ClickNudgeSystem) and they must agree; it is const, so it cannot consume.
+    float wheel = 0.0f;
 };
 
 // Tracks the Viewport panel's measured content size vs. the size last applied to the
@@ -139,6 +146,15 @@ public:
         // worked elsewhere. The default sample (Viewport closed, collapsed, or without a
         // texture) has hovered == false and so reads as absent rather than as (0,0).
         p.inside = pointer_.hovered;
+        // Gated on `hovered` exactly as `inside` is, and for the same reason: x/y are clamped
+        // to the panel, so a wheel reported while the cursor is over the Inspector would
+        // scroll whatever region sits under the clamped position inside the viewport. ImGui
+        // delivers io.MouseWheel to the whole frame regardless of which window is hovered,
+        // so without this gate every scroll anywhere in the editor would reach the game's UI.
+        // NOT gated on play_active, matching `inside`: a stopped editor still has a wheel,
+        // and conflating "no scroll" with "not playing" is the distinction `inside` exists to
+        // keep. `down` is the only field play mode suppresses.
+        p.wheel  = pointer_.hovered ? pointer_.wheel : 0.0f;
         return p;
     }
 

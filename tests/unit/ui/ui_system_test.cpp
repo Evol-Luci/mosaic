@@ -908,3 +908,44 @@ TEST_CASE("an invisible button does not block a visible button beneath it", "[ui
 
     REQUIRE(h.names_with_action("click") == std::vector<std::string>{"test_click"});
 }
+
+TEST_CASE("a non-zero wheel delta changes nothing in UiSystem", "[ui][input][wheel]")
+{
+    // THE REGRESSION U9c CAN INTRODUCE, and the only way to prove it is absent while nothing
+    // reads the field. U9c ships PointerState::wheel and both providers and NO consumer: the
+    // delta now arrives at UiSystem on every tick of a real windowed run, so if it perturbed
+    // hover, capture, the drag threshold or the emitted events, that would be a live bug in a
+    // slice whose whole claim is "nothing reads it yet".
+    //
+    // Deliberately a FULL press/release/hover cycle rather than a single assertion, because
+    // the ways a stray field could leak in are the stateful ones: press_consumed(), the
+    // capture, and the drag threshold all carry state between ticks.
+    using mosaic::engine::ui::UiHovered;
+
+    auto run = [](float wheel) {
+        Harness h;
+        h.ptr = PointerState{0.05f, 0.05f, false, true, wheel}; h.tick(); // hover, no press
+        const bool hovered = h.world.has_component<UiHovered>(h.button);
+        h.ptr = PointerState{0.05f, 0.05f, true, true, wheel};  h.tick(); // press inside
+        const bool consumed = h.press_consumed_for_test();
+        h.ptr = PointerState{0.05f, 0.05f, false, true, wheel}; h.tick(); // release -> click
+        struct Out { bool hovered; bool consumed;
+                     std::vector<std::string> clicks, drag_starts, drag_ends; };
+        return Out{hovered, consumed, h.names_with_action("click"),
+                   h.names_with_action("drag_start"), h.names_with_action("drag_end")};
+    };
+
+    const auto quiet   = run(0.0f);
+    const auto scrolled = run(7.5f); // a hard flick of the wheel, every tick
+
+    REQUIRE(scrolled.hovered == quiet.hovered);
+    REQUIRE(scrolled.consumed == quiet.consumed);
+    REQUIRE(scrolled.clicks == quiet.clicks);
+    REQUIRE(scrolled.drag_starts == quiet.drag_starts);
+    REQUIRE(scrolled.drag_ends == quiet.drag_ends);
+    // And the baseline is not vacuous: the quiet run really did click, so "identical" is a
+    // claim about live behaviour and not about two empty vectors.
+    REQUIRE(quiet.clicks == std::vector<std::string>{"test_click"});
+    REQUIRE(quiet.hovered);
+    REQUIRE(quiet.drag_starts.empty());
+}
