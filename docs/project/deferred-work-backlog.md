@@ -730,6 +730,35 @@ them as this list does.
 - **U10 keyboard, gamepad, and text input** — **blocked** on an editor input
   provider (recorded separately above). Starting it sooner would ship navigation
   nobody can drive, which is the mistake pointer input just fixed.
+- **SDF and multi-size font atlases** — non-goal of the 2026-10-26 U11 decomposition, and
+  the pillar spec said so first. A different atlas generation pipeline, a different fragment
+  shader, and a decision about whether it replaces or coexists with the bitmap path. It is
+  the one UI item that resembles the PBR arc in shape. **Depends on** a decision that it is
+  wanted at all, and then its own decomposition — it must not ride inside a word-wrap slice.
+- **Kerning** — non-goal of the 2026-10-26 U11 decomposition. `FontAtlas::glyphs` stores one
+  `advance` per glyph, so a kerned pair needs a second table from `stbtt_GetCodepointKernAdvance`
+  cooked beside it, plus a lookup in both of `layout_text`'s passes. Deferred because the
+  visible gain is small at HUD sizes and the cost is a new cooked table with its own version
+  bump. **Depends on** text large enough on screen for the pair spacing to read as wrong.
+- **Widening the cooked codepoint range beyond ASCII + `U+FFFD`** — non-goal of the
+  2026-10-26 U11 decomposition, and deliberately separated from the UTF-8 decoding it looks
+  like part of. `app/asset/font_cook.cpp:25` cooks 32-126; U11a adds `U+FFFD` alone so a
+  missing character is *visible*, which is the correctness half. Actually rendering `é`
+  needs a wider range, and that changes the atlas's pixel budget and the cooked asset for
+  every project — an asset-pipeline decision with its own size measurement, not a layout
+  change. **Depends on** someone authoring a non-ASCII label and deciding the replacement
+  glyph is not enough.
+- **Bidirectional text and RTL scripts** — non-goal of the 2026-10-26 U11 decomposition.
+  `layout_text` advances a single pen left to right; RTL needs a direction pass over runs
+  before any placement. **Depends on** a project that needs it; this is a feature, not a gap.
+- **Grapheme clusters and combining marks** — non-goal of the 2026-10-26 U11 decomposition.
+  U11a maps one codepoint to one glyph, so a combining accent renders as its own mark beside
+  the base character instead of over it. Deferred because correct handling needs per-glyph
+  positioning classes the atlas does not carry. **Depends on** the wider codepoint range
+  above; it cannot be observed until a combining mark can be drawn at all.
+- **UAX #14 line breaking** — non-goal of the 2026-10-26 U11 decomposition. U11b breaks on
+  spaces. Proper breaking needs the Unicode line-breaking property table, which is a data
+  dependency. **Depends on** text in a language where space-breaking is wrong (CJK, Thai).
 - **U11 text quality** — word-wrap and Unicode are reachable now (note
   `layout_text` currently *skips* unknown codepoints, so a non-atlas character
   silently shortens the string); SDF/multi-size atlases want their own
@@ -2348,7 +2377,7 @@ previous pass's re-rating (test selection) stands as written.
 | **The RenderGraph** | Medium (enabling, not user-visible). Trigger restated in the Rendering section: passes whose existence or order depends on per-frame scene content. |
 | **U8 layout containers** | **COMPLETE 2026-10-26 (five slices), and the open question was answered on the way: interactive-game UI IS near-term.** U8a (#260), **U8b** `visible` bool, **U8c** `UiGrid`/`UiFlow` and **U8d** the `parent -> children` index all resolved — see [the U8 remainder decomposition](../superpowers/specs/2026-10-25-u8-layout-remainder-decomposition.md). **U8d resolved with a MEASUREMENT AND NO CACHE**, which the decomposition pre-authorised: a 256-element inventory grid's whole layout pass is ~0.7 ms per frame optimised (~17 ms in debug, a 25x gap) and the shipped scene pays 306 component visits, so the trigger is now a committed counter (>~200,000 `visits`/frame) rather than an estimate. **What is left is what was deferred behind named blockers, not U8 work:** content-sized layout slots (blocked on "may layout block on asset loading?") and the editor layout-slot gizmo (independent; its promotion trigger was retired by U8c). **U8e (#317, 2026-10-26) closed it:** `UiFlow`'s default `axis` flipped to 1 and the flow block moved off the "GLOW" label, so the arc is **five slices, COMPLETE 2026-10-26**, not four. **So U8 is no longer the answer to "what is next"** — and because this row stood for the whole UI pillar, its completion left the table with no UI row at all. U9 and U11 are now rows of their own, below. |
 | **U9 clipping and scroll regions** (UI pillar) | **Added 2026-10-26 as the enabling candidate; CHOSEN by the human the same day and decomposed** — [U9 decomposition](../superpowers/specs/2026-10-26-u9-clipping-scroll-decomposition.md), four slices U9a-U9d. Medium, and it is a **renderer change before it is a UI change**: `engine/render/` contains no `scissor`, so the neutral `RenderDevice` has no hook to clip against. **Two claims in this row were wrong when first written, and the decomposition corrected both.** (1) The scissor is absent from the *interface*, not from the backend: `modules/render_vulkan/vulkan_render_device.cpp` has **four** full-extent dynamic `vkCmdSetScissor` sites (`:1999`, `:2445`, `:2533`, `:2634`) plus static pipeline scissor for the shadow map (`:4271`) — so the dynamic state exists and U9a is interface surface plus a per-draw set, which makes this **smaller** than the pillar spec's "most under-estimated item". The cited `grep -ri scissor engine/render/` had a denominator narrower than the claim: `modules/` is a separate tree. (2) "Three live UI items queued behind it" is **one** — a grid's overflow children, whose three candidate policies all need the hook; the `PointerState` "inside the window" widening **already shipped** (2026-10-12, `pointer.hpp:25`, both providers). What U9 needs from `PointerState` is a **wheel delta**, and multi-button is not in scope. |
-| **U11 text quality** (UI pillar) | **Added 2026-10-26 as the unblocked candidate, and it contains a live defect.** Medium. Needs no prerequisite — unlike U9 and U10. `layout_text` iterates the string as `unsigned char` and `continue`s on any codepoint the atlas lacks (`engine/ui/text_layout.hpp:54`), and the atlas is cooked for **codepoints 32-126 only** (`app/asset/font_cook.cpp:25`). Both the measure pass and the place pass skip alike, so a UTF-8 character arrives as separate bytes and is **silently dropped** — a label reading "Café" renders as "Caf" with the centring quietly recomputed to match, and no warning anywhere. Word-wrap is the other cheap half; SDF and multi-size atlases want their own decomposition rather than riding beside it. **The argument against taking it first:** nothing has authored a non-ASCII label, so the defect is latent. |
+| **U11 text quality** (UI pillar) | **Added 2026-10-26 as the unblocked candidate; DECOMPOSED the same day** ([U11 decomposition](../superpowers/specs/2026-10-26-u11-text-quality-decomposition.md), two slices U11a-U11b, taken in parallel with U9 because they share no files). **It contains a live defect.** Medium. Needs no prerequisite — unlike U9 and U10. `layout_text` iterates the string as `unsigned char` and `continue`s on any codepoint the atlas lacks (`engine/ui/text_layout.hpp:54`), and the atlas is cooked for **codepoints 32-126 only** (`app/asset/font_cook.cpp:25`). Both the measure pass and the place pass skip alike, so a UTF-8 character arrives as separate bytes and is **silently dropped** — a label reading "Café" renders as "Caf" with the centring quietly recomputed to match, and no warning anywhere. Word-wrap is the other cheap half; SDF and multi-size atlases want their own decomposition rather than riding beside it. **The argument against taking it first:** nothing has authored a non-ASCII label, so the defect is latent. |
 | **NAT traversal, encryption, compression** | High if shipping real multiplayer soon, else Low. Stands for the Networking pillar's gaps. |
 | **Package manager: network fetch, version constraints/dependency** | Medium. |
 | **Public marketplace** | Low today, High later: gated on an actual user base. |
