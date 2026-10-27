@@ -118,6 +118,11 @@ Mosaic renders crisp, deterministic bitmap text without runtime TrueType parsing
    - Accepts an optional parent container `frame`; text height scales relative to its parent container.
    - Corrects for viewport aspect ratio ($W / H$) so characters maintain uniform proportions across resolutions.
    - Handles whitespace character advancement without emitting empty geometry.
+   - Decodes UTF-8 to codepoints and draws a replacement glyph for a printable codepoint the
+     atlas lacks (U11a); honours `\n` and wraps at an optional `wrap_width`, breaking on spaces
+     and force-breaking a longer-than-the-width word between codepoints (U11b).
+   - Anchoring resolves **per line**, not over the block, so each line of a wrapped or
+     newline-separated label is centred or right-flushed on its own width.
 
 ---
 

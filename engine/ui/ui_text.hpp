@@ -11,7 +11,7 @@ namespace mosaic::engine::ui
 using mosaic::foundation::math::Vec2;
 using mosaic::foundation::math::Vec3;
 
-// A single line of screen-space HUD text. `font` is a "font" AssetID (FontAtlas).
+// A block of screen-space HUD text. `font` is a "font" AssetID (FontAtlas).
 // anchor is an int cast to ui::Anchor (clamped to TopLeft if out of range). pos is a
 // normalized offset from the anchor; height is the line height as a fraction of screen
 // height. A normal component: scripts can change `text`, `color`, `alpha`, `pos`.
@@ -22,6 +22,17 @@ struct UiText
     int   anchor = 0;
     Vec2  pos    = Vec2{0.0f, 0.0f};
     float height = 0.05f;
+    // Maximum line width before the text wraps, as a fraction of the PARENT FRAME'S width --
+    // the same units as `pos`, and the same relationship `height` has to the frame's height,
+    // so a wrapped label rescales with its container instead of keeping a screen-absolute
+    // width. `<= 0` means no wrap at all, which is the default and what every label authored
+    // before U11b relies on.
+    //
+    // A '\n' in `text` ALWAYS breaks a line, wrap width or not; this field only adds the
+    // automatic breaks. A single word longer than the width is force-broken between
+    // codepoints rather than allowed to overflow -- see break_lines in text_layout.hpp for
+    // why overflow was the wrong default once UiClipRect could mask it.
+    float wrap_width = 0.0f;
     Vec3  color  = Vec3{1.0f, 1.0f, 1.0f};
     float alpha  = 1.0f;
     // Z-order WITHIN THIS PASS: higher draws on top. Among equal orders the entity later in
@@ -48,6 +59,7 @@ void reflect(V& visitor, UiText& t)
     visitor.member("anchor", t.anchor);
     visitor.member("pos", t.pos);
     visitor.member("height", t.height);
+    visitor.member("wrap_width", t.wrap_width);
     visitor.member("color", t.color);
     visitor.member("alpha", t.alpha);
     visitor.member("order", t.order);

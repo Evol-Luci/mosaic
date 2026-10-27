@@ -198,6 +198,7 @@ add_executable(mosaic_unit_tests
   unit/ui/ui_button_reflection_test.cpp
   unit/ui/ui_system_test.cpp
   unit/ui/text_layout_test.cpp
+  unit/ui/text_layout_wrap_test.cpp
   unit/ui/utf8_test.cpp
   unit/ui/ui_text_reflection_test.cpp
   unit/ui/world_label_reflection_test.cpp

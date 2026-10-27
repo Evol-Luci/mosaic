@@ -21,6 +21,7 @@ TEST_CASE("UiText round-trips through reflection", "[ui][reflection]")
     t.anchor = 2; // TopRight
     t.pos    = Vec2{0.02f, 0.03f};
     t.height = 0.07f;
+    t.wrap_width = 0.42f; // non-default: 0 is the default, so a dropped field would read 0
     t.color  = Vec3{0.9f, 0.8f, 0.1f};
     t.alpha  = 0.75f;
     t.order  = 3;
@@ -37,6 +38,7 @@ TEST_CASE("UiText round-trips through reflection", "[ui][reflection]")
     REQUIRE(back.anchor == 2);
     REQUIRE(back.pos.y == Approx(0.03f));
     REQUIRE(back.height == Approx(0.07f));
+    REQUIRE(back.wrap_width == Approx(0.42f));
     REQUIRE(back.color.x == Approx(0.9f));
     REQUIRE(back.alpha == Approx(0.75f));
     REQUIRE(back.order == 3);

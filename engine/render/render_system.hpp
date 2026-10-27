@@ -661,7 +661,7 @@ public:
             }
         }
 
-        // HUD text pass: single-line UiText, drawn over panels + images (topmost). Uses aspect_.
+        // HUD text pass: UiText, drawn over panels + images (topmost). Uses aspect_.
         //
         // Collect/sort/draw as above. Each UiText already emits ONE call carrying all its
         // glyphs, so like the image pass this reorders calls rather than merging them, and
@@ -707,7 +707,7 @@ public:
                                                         app.alpha
                                                             * mosaic::engine::ui::inherited_alpha(
                                                                 world, e),
-                                                        frame);
+                                                        frame, t.wrap_width);
                     if (tq.empty()) { return; }
                     std::vector<UiGlyphQuad> quads;
                     quads.reserve(tq.size());

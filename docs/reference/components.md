@@ -319,6 +319,7 @@ Every built-in engine component, with its fields and their default values. Field
   - `x`: 0.000000
   - `y`: 0.000000
 - `height`: 0.050000
+- `wrap_width`: 0.000000
 - `color`
   - `x`: 1.000000
   - `y`: 1.000000
