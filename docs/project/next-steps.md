@@ -15,8 +15,8 @@ a row more often wrong than right teaches distrust of the stable ones. Do not re
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1594 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-27 |
-| Suite status | all passing (1594/1594, 4.1 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-27 |
+| Suite size | 1595 tests | `ctest --preset debug -N \| tail -1` (**build first** — see landmines) | 2026-10-27 |
+| Suite status | all passing (1595/1595, 4.4 s local) | `ctest --preset debug` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-27 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 

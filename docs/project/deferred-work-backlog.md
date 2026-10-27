@@ -841,15 +841,33 @@ them as this list does.
   text rather than reflowing it, so it needs its own decision about which end is dropped.
   **Depends on** the policy decision above being reopened; neither is worth doing while the
   only mode is "break and keep everything".
-- **Wrapping and newlines in world-space labels (`build_world_text`)** — deferred during
-  **U11b** (2026-10-27). `world_text.hpp:25` calls `layout_text` with the default
-  `wrap_width` of 0, so a `WorldLabel` still renders as one line; and its centring
-  (`max_x * 0.5f`, `cy0 = 0.5f` for "a local box ~1 line tall") assumes exactly one line, so
-  a multi-line block would be centred against one line's height and hang below its anchor.
-  Deferred because U11b's gates are all screen-space and widening them to the billboard path
-  would have doubled the slice. **Depends on** a `WorldLabel` long enough to want wrapping,
-  and on deciding whether the billboard's vertical centring follows the block or the first
-  line.
+- **World-space labels (`build_world_text`) are MULTI-LINE AS OF U11b, and their vertical
+  centring is wrong for it** — deferred 2026-10-27, with the reason corrected the same day
+  after supervision disproved the first one.
+  **DO NOT CITE THIS ENTRY AS "the billboard path is single-line". It is not, any more.**
+  `break_lines` splits at `'\n'` **unconditionally** — the wrap flag gates only the
+  *width-based* break — so a `WorldLabel` whose text contains a newline renders as two lines
+  **today**, with no `wrap_width` anywhere in the picture. Measured, not read:
+  `build_world_text` over `"AB"` gives 2 distinct vertex Y rows and over `"A\nB"` gives 4
+  (`tests/unit/ui/world_text_test.cpp` pins exactly that fact and deliberately nothing more).
+  **This is a behaviour change U11b introduced, not a pre-existing wart:** before U11b `'\n'`
+  was `< 0x20`, so `resolve_glyph` returned `nullptr` and the place loop's `continue` dropped
+  it — genuinely one line. It reached this caller through a *trailing defaulted parameter*, so
+  `world_text.hpp` is untouched in U11b's diff **and** its behaviour changed. That is the
+  characteristic risk of defaulting a parameter instead of touching the caller, and the diff
+  cannot show it to you.
+  **What is actually broken:** `cy0 = 0.5f` centres against "a local box ~1 line tall"
+  (`world_text.hpp:33`), so a multi-line block hangs below its anchor by half the extra block
+  height; `max_x * 0.5f` likewise takes the widest line and is fine. **Unobservable only
+  because no authored `WorldLabel` contains a newline** — not because it cannot happen.
+  Automatic wrapping on this path is a separate, smaller want: `world_text.hpp:25` passes the
+  default `wrap_width` of 0, so there is no width-based break and no parameter to set it with.
+  Deferred because U11b's gates are all screen-space, and because the fix needs a **design
+  decision, not just arithmetic**: does the billboard centre on the whole block, or keep the
+  first line on the anchor and grow downward? Pinning the current centring with a test was
+  considered and rejected — pinning arithmetic already known to be wrong makes it harder to
+  fix. **Depends on** that centring decision; the wrapping half additionally depends on a
+  `WorldLabel` long enough to want it.
 - **Line-spacing and per-line vertical alignment control** — deferred during **U11b**
   (2026-10-27). A line's vertical step is hard-wired to `font.line_height * scale`, i.e.
   exactly one em box, and a block is laid out top-down from its anchored box with no leading.

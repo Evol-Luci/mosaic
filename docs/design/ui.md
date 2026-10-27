@@ -113,8 +113,10 @@ Mosaic renders crisp, deterministic bitmap text without runtime TrueType parsing
    - Loaded into `AssetRegistry` from compiled `.font` payloads.
    - Holds the raw alpha pixels and lookup table for ASCII codepoint metrics.
 3. **Aspect-Correct Text Layout (`engine/ui/text_layout.hpp`):**
-   - `layout_text(text, atlas, frame, anchor, pos, height, screen_w, screen_h)` converts a string
-     into an array of positioned `UiTextQuad` vertices.
+   - `layout_text(atlas, text, anchor, pos, height, aspect, color, alpha, frame = {0,0,1,1},
+     wrap_width = 0)` converts a string into an array of positioned `TextQuad`s. (It has taken
+     a viewport `aspect` and an optional parent `frame` rather than `screen_w`/`screen_h` since
+     U2b; `wrap_width` arrived with U11b.)
    - Accepts an optional parent container `frame`; text height scales relative to its parent container.
    - Corrects for viewport aspect ratio ($W / H$) so characters maintain uniform proportions across resolutions.
    - Handles whitespace character advancement without emitting empty geometry.
@@ -314,6 +316,10 @@ Floating 3D in-game text (nameplates, damage numbers, objective markers) is impl
 - **Billboard Geometry (`engine/ui/world_text.hpp`):**
   - `build_world_text()` takes a string, font atlas, anchor position in world space, label size, and the camera's `right` and `up` unit vectors.
   - Emits camera-facing billboard triangles (`WorldGlyphVertex`) centered on the anchor point.
+  - Shares `layout_text`, so **a `'\n'` in the text breaks a line here too** (since U11b). It
+    passes the default `wrap_width` of 0, so there is no *automatic* wrapping — but it is not a
+    single-line path. Its vertical centring still assumes one line, so a multi-line label hangs
+    below its anchor; see the backlog entry before relying on either.
 - **Occluded Depth Testing:**
   - Unlike 2D HUD text, world-space text labels run with Vulkan depth testing enabled.
   - Labels are naturally occluded when behind solid geometry (terrain, walls), but depth writing is disabled so labels do not occlude other transparent objects.
