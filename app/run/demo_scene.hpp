@@ -61,6 +61,7 @@
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
+#include "engine/world/name.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
@@ -1110,6 +1111,12 @@ inline void build_default_scene(mosaic::engine::World& world)
             .color  = mosaic::foundation::math::Vec3{0.08f, 0.09f, 0.14f},
             .alpha  = 0.85f,
             .order  = 20});
+    // NAMED, and it is the only named entity in the demo: the Hierarchy falls back to
+    // "Entity <index>" without a Name, and an index is not something a human should have to
+    // hunt for when a verification pass asks them to select this region. Name is neither a
+    // Transform nor a script, so the four default-scene count tests are unaffected.
+    world.add_component<mosaic::engine::Name>(scroll_region,
+        mosaic::engine::Name{"Scroll region"});
     world.add_component<mosaic::engine::ui::UiClipRect>(scroll_region,
         mosaic::engine::ui::UiClipRect{});
     // content = 2.5 container-heights, so max_offset is 1.5 and there is visibly more to see
@@ -1135,7 +1142,7 @@ inline void build_default_scene(mosaic::engine::World& world)
         world.add_component<mosaic::engine::ui::UiPanel>(row,
             mosaic::engine::ui::UiPanel{
                 .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-                .pos    = mosaic::foundation::math::Vec2{0.06f, 0.40f + 0.34f * static_cast<float>(i)},
+                .pos    = mosaic::foundation::math::Vec2{0.06f, 0.55f + 0.34f * static_cast<float>(i)},
                 .size   = mosaic::foundation::math::Vec2{0.88f, 0.26f},
                 .color  = row_colors[i],
                 .alpha  = 1.0f,
@@ -1155,9 +1162,13 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<mosaic::engine::ui::UiText>(scroll_label,
         mosaic::engine::ui::UiText{
             .font   = kBuiltinFontId,
-            .text   = "SCROLL ME\nthe wheel moves this region and the rows below are clipped",
+            // Short on purpose: the `\n` forces one break and `wrap_width` wraps the rest to
+            // about two more lines, which must CLEAR the button below it. A longer string
+            // overlapped the button and made the eye check ambiguous about what it was
+            // looking at -- the arithmetic is in the record entry.
+            .text   = "SCROLL ME\nwheel scrolls this clipped box",
             .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.04f},
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.02f},
             .height = 0.1f,
             // Between `height` and `color`, because that is UiText's declaration order and a
             // designated init must match it -- which the compiler enforced here, and is the
@@ -1180,7 +1191,7 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<mosaic::engine::ui::UiPanel>(scroll_button,
         mosaic::engine::ui::UiPanel{
             .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.26f},
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.40f},
             .size   = mosaic::foundation::math::Vec2{0.88f, 0.10f},
             .color  = mosaic::foundation::math::Vec3{0.20f, 0.55f, 0.95f},
             .alpha  = 1.0f,
@@ -1188,10 +1199,20 @@ inline void build_default_scene(mosaic::engine::World& world)
     world.add_component<mosaic::engine::ui::UiButton>(scroll_button,
         mosaic::engine::ui::UiButton{
             .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
-            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.26f},
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.40f},
             .size   = mosaic::foundation::math::Vec2{0.88f, 0.10f},
             .event  = "scroll_demo_click",
             .order  = 22});
+    // WITHOUT THIS THE EYE CHECK IS IMPOSSIBLE, which is why it is here rather than being
+    // left to the HUD bar's example. `scroll_demo_click` is emitted as a script event that
+    // nothing subscribes to, so a click produces no visible effect of its own -- the only way
+    // a human can tell this button is still live is that HOVERING it brightens. Scroll it out
+    // of the clip and hovering where it was must do nothing: that is the U8b bug class, and
+    // it is only checkable because of this component.
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(scroll_button,
+        mosaic::engine::ui::UiHoverStyle{
+            .tint        = mosaic::foundation::math::Vec3{1.5f, 1.5f, 1.5f},
+            .alpha_scale = 1.0f});
     world.add_component<mosaic::engine::ui::UiParent>(scroll_button,
         mosaic::engine::ui::UiParent{scroll_region});
 
