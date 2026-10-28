@@ -907,8 +907,13 @@ them as this list does.
   considered and rejected — pinning arithmetic already known to be wrong makes it harder to
   fix. **Depends on** that centring decision; the wrapping half additionally depends on a
   `WorldLabel` long enough to want it.
-- **Pixel-snapping the scroll offset** — deferred during **U9d** (2026-10-27) as the
-  supervisor's ruling 1, with its trigger named. Nothing in the UI path snaps content to
+- **Pixel-snapping the scroll offset** — **DECLINED BY A HUMAN 2026-10-28, not merely
+  deferred.** The trigger named below was the eye pass, and it fired: a human scrolled the
+  demo region and judged the unsnapped text acceptable (verification pass item "shimmer" =
+  keep as is; no shimmer reported, and no further reasoning recorded). **Do not implement
+  snapping on the reasoning below alone** — it was weighed against a real observation and
+  lost. Reopen only on a NEW observation (another display, another scale factor, or a
+  region whose content moves faster). Original deferral, kept for the argument: Nothing in the UI path snaps content to
   pixels (verified: no rounding in `engine/ui/`, and `ui.vert` maps a normalized float rect
   straight to clip space), so a scrolled child lands on sub-pixel positions — and the font is
   a **bitmap** atlas, not SDF, so the predicted symptom is soft or shimmering glyphs while

@@ -66,6 +66,14 @@ inline Rect resolve_parent_frame(mosaic::engine::World& world,
     // amount), and doing it here keeps the one subtraction visibly the only thing a scroll
     // does, instead of hiding it upstream of arithmetic that would then have to be re-read
     // to confirm it only translated.
+    // NOT SNAPPED TO WHOLE PIXELS, AND THAT IS A DECISION A HUMAN MADE -- do not "fix" it.
+    // Nothing in the UI path snaps content to pixels and `ui.vert` maps a normalized float
+    // rect straight to clip space, so a scrolled child lands on sub-pixel positions and the
+    // font is a BITMAP atlas, not SDF. Snapping would mean plumbing the destination extent
+    // into a pass that deliberately knows nothing about a device. A human scrolled the demo
+    // region on 2026-10-28 and judged it acceptable unsnapped (verification pass, item
+    // "shimmer": keep as is). Reopen it only with a new observation, not on the reasoning
+    // alone -- the reasoning was already weighed and lost.
     frame.y -= scroll_shift_for_children(world, up->parent, parent_rect.h);
     return frame;
 }

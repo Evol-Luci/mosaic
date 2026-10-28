@@ -24,7 +24,7 @@ Rows must be slow-moving: do not re-add a `main` SHA row (#283).
 
 **U8, U9 and U11 are all COMPLETE.** The demo scene now authors a mid-right **scroll region** — the project's first `UiClipRect` — with clipping, scrolling, a button that scrolls out and a wrapped label. **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms debug vs ~0.7 ms release); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame. Tiers re-derived 2026-10-26 (#310-#318) and the 🟢/🟡 rows are all maintenance; queued are the `begin_frame` counter-reset seam (`🟡` row 5) and the duplicated `tests/gpu/` helpers (`🟢` row 4). [Tiers](deferred-work-backlog.md#effort-vs-impact).
 
-**Owed: FIVE eye checks in ONE pass; four are answerable in the scroll region** — clipping, scrolling + clamp, the scrolled-out button going dead (click where it was), the wrapped label. Fifth: `field_bool` — toggle `visible` on a selected `UiPanel`, no gate reaches it. Watch for **sub-pixel shimmer** on the scrolled text: the offset is deliberately unsnapped and seeing shimmer is the trigger to snap it.
+**Eye checks DONE** — six items, all passed 2026-10-28 ([record](../record/2026-10.md)). The scroll offset is **deliberately unsnapped and a human kept it that way**: do not add pixel snapping from the argument alone, it lost to an observation. Still unverified, because nothing authors them: a `WorldLabel` containing `\n` (vertical centring known wrong) and whether `'?'` reads as an error.
 
 ## Landmines
 
