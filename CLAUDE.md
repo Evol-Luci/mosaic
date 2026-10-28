@@ -28,15 +28,23 @@ conditional on a specific skill version.
 ## Where documentation goes
 
 The section above says where *deferred* work goes. This one says where everything
-else goes. They are one policy: three documents, three jobs. Putting content in
+else goes. They are one policy: **four documents, four jobs.** Putting content in
 the wrong one is how both the handoff and the backlog grew past the point of
 being readable.
 
 - **`docs/project/next-steps.md` — the handoff.** Pointers only, for an agent
-  starting cold: current state with the command that verifies each claim, the
-  next two or three slices with their gates, and the landmines. **Keep it under
-  8 KB**; if an update would push it over, the content belongs in the record.
-  Never append a dated narrative block here.
+  starting cold: current state with the command that verifies each claim, and
+  the next two or three slices with their gates. **Keep it under 8 KB**; if an
+  update would push it over, the content belongs in the record. Never append a
+  dated narrative block here.
+- **`docs/project/landmines.md` — the traps.** Things that waste an hour and that
+  reading the code will not reveal, each with the command or `file:line` that gets
+  you out. **It has its own document because it is the second thing here that
+  grows forever** — one entry per scar, and scars do not stop happening. It lived
+  in the handoff until 2026-10-28, by which point it was 5.6 KB of an 8.2 KB
+  document and the ceiling was squeezing the one section nobody wanted to cut.
+  Retire an entry only when the trap is *gone*, never for space, and record the
+  retirement.
 - **`docs/project/deferred-work-backlog.md` — pending work only.** One entry per
   separable follow-up, with why it was deferred and what it depends on. When an
   item ships, its narrative moves to the record and a **one-line stub** stays
@@ -48,10 +56,12 @@ being readable.
 
 `docs/updates/` is closed; do not add files there.
 
-**Why the split exists.** Only the record legitimately grows forever. Any
-document that mixes it with something else inherits unbounded growth, which is
-how the handoff and the backlog both broke within a week of each other. Do not
-fold narrative back into either of them.
+**Why the split exists.** The record and the landmine list are the two documents
+that legitimately grow forever. Any document that mixes one of them with
+something else inherits unbounded growth, which is how the handoff and the
+backlog both broke within a week of each other, and how the handoff then
+breached its ceiling a third time carrying landmines. Do not fold narrative back
+into any of them.
 
 **The tools exist, and are run deliberately** (not from a hook):
 `tools/docs/archive_next_steps.py` rolls old handoff entries into the record, and
