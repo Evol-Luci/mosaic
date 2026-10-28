@@ -5,6 +5,7 @@
 #include "engine/ui/ui_panel.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_rect.hpp"
+#include "engine/ui/ui_scroll.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/core/entity_id.hpp"
 
@@ -40,11 +41,41 @@ inline Rect resolve_parent_frame(mosaic::engine::World& world,
     // calls this function directly (the HUD text pass in render_system.hpp) and hands the
     // frame to layout_text. Hooking the wrapper would have laid out panels and images and
     // silently left every label where it was, with no existing test failing.
+    Rect frame = parent_rect;
     if (const std::optional<Rect> slot = slot_for_child(world, e, parent_rect))
     {
-        return *slot;
+        frame = *slot;
     }
-    return parent_rect;
+    // A SCROLL TRANSLATES THE FRAME AND TOUCHES NOTHING ELSE -- not x, not w, not h, and not
+    // the parent's own rect, which was already resolved above and is what the clip is taken
+    // from. That is why a scrolled child's width and height come out BIT-identical rather
+    // than merely close: resolve_in derives them from numbers this line never wrote.
+    //
+    // Measured against `parent_rect.h`, NOT `frame.h`, and the difference is load-bearing
+    // when a container carries both a UiStack and a UiScroll: `offset` is defined in
+    // container-heights, so one notch must move a child by the same distance whether the
+    // container divides its rect into three slots or none. Against `frame.h` the step would
+    // silently shrink with the slot count.
+    //
+    // SUBTRACTED, so a positive offset moves the content UP and the viewer sees further
+    // down -- matching the wheel sign PointerState::wheel documents (positive = away from
+    // the user = look further up the document), which apply_wheel_scroll negates once.
+    //
+    // Applied AFTER the slot rather than before: for a rigid translation the two are
+    // equivalent (translating a rect translates every slot it divides into by the same
+    // amount), and doing it here keeps the one subtraction visibly the only thing a scroll
+    // does, instead of hiding it upstream of arithmetic that would then have to be re-read
+    // to confirm it only translated.
+    // NOT SNAPPED TO WHOLE PIXELS, AND THAT IS A DECISION A HUMAN MADE -- do not "fix" it.
+    // Nothing in the UI path snaps content to pixels and `ui.vert` maps a normalized float
+    // rect straight to clip space, so a scrolled child lands on sub-pixel positions and the
+    // font is a BITMAP atlas, not SDF. Snapping would mean plumbing the destination extent
+    // into a pass that deliberately knows nothing about a device. A human scrolled the demo
+    // region on 2026-10-28 and judged it acceptable unsnapped (verification pass, item
+    // "shimmer": keep as is). Reopen it only with a new observation, not on the reasoning
+    // alone -- the reasoning was already weighed and lost.
+    frame.y -= scroll_shift_for_children(world, up->parent, parent_rect.h);
+    return frame;
 }
 
 // This element's screen rect, resolved within its parent frame.

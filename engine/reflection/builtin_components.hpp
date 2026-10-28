@@ -28,6 +28,7 @@
 #include "engine/ui/ui_button.hpp"
 #include "engine/ui/ui_parent.hpp"
 #include "engine/ui/ui_clip_rect.hpp"
+#include "engine/ui/ui_scroll.hpp"
 #include "engine/ui/ui_stack.hpp"
 #include "engine/ui/world_label.hpp"
 #include "engine/net/net_replicated.hpp"
@@ -79,6 +80,10 @@ inline void register_builtin_components(
     // scene file must be able to say "this container clips its children", and an
     // unregistered component would be silently dropped on save.
     types.register_component<mosaic::engine::ui::UiClipRect>(registry, "UiClipRect");
+    // Authored beside UiClipRect on a scrolling container. Both fields are
+    // container-height multiples; `offset` is clamped on read, so a scene file may hold
+    // any value without the renderer honouring an unreachable one.
+    types.register_component<mosaic::engine::ui::UiScroll>(registry, "UiScroll");
     types.register_component<mosaic::engine::ui::UiGrid>(registry, "UiGrid");
     types.register_component<mosaic::engine::ui::UiFlow>(registry, "UiFlow");
     types.register_component<mosaic::engine::ui::WorldLabel>(registry, "WorldLabel");

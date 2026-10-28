@@ -61,6 +61,7 @@
 #include "engine/render/render_system.hpp"
 #include "engine/transform/transform.hpp"
 #include "engine/transform/transform_system.hpp"
+#include "engine/world/name.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
 #include "foundation/math/vec3.hpp"
@@ -1073,6 +1074,147 @@ inline void build_default_scene(mosaic::engine::World& world)
             .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
             .alpha  = 1.0f,
             .order  = 1});
+
+    // ------------------------------------------------------------------ U9d: a scroll region
+    //
+    // THE FIRST AUTHORED CLIP REGION IN THIS PROJECT'S HISTORY, and it is authored for a
+    // reason that is not decoration: U9a shipped the device clip rect and U9b shipped
+    // `UiClipRect` down the hierarchy, and BOTH passed their renderer gate byte-identically
+    // because nothing in any scene ever set a clip. The gate was vacuous for both slices and
+    // said so. This region is what ends that -- it puts a real `vkCmdSetScissor` sub-rect on
+    // screen, where a scissor outside the render area would be a validation error that
+    // `ctest` cannot see.
+    //
+    // It is deliberately scoped to make FOUR owed eye checks answerable in one look:
+    //   * clipping      -- content is cut at the region's edge rather than drawn over its
+    //                      neighbours;
+    //   * scrolling     -- the wheel moves it, and it clamps at both ends;
+    //   * the hit filter-- the button below scrolls out of the clip and must stop responding,
+    //                      which is the U8b bug class (a faded visual over a live button);
+    //   * wrapped text  -- U11b shipped `\n` and word-wrap that NOTHING authored, so no human
+    //                      had seen either.
+    //
+    // NO TRANSFORM AND NO SCRIPT ON ANY ENTITY HERE, which is a constraint rather than an
+    // accident: three default-scene tests count Transforms and one counts scripts, and UI
+    // entities carry neither. Adding either would break four tests that have nothing to do
+    // with scrolling.
+    //
+    // Anchored mid-RIGHT because every other authored UI sits top-left, top-right or
+    // bottom-left; an overlap would make the eye check ambiguous about which feature it is
+    // looking at.
+    const auto scroll_region = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(scroll_region,
+        mosaic::engine::ui::UiPanel{
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::Right),
+            .pos    = mosaic::foundation::math::Vec2{0.03f, 0.0f},
+            .size   = mosaic::foundation::math::Vec2{0.26f, 0.30f},
+            .color  = mosaic::foundation::math::Vec3{0.08f, 0.09f, 0.14f},
+            .alpha  = 0.85f,
+            .order  = 20});
+    // NAMED, and it is the only named entity in the demo: the Hierarchy falls back to
+    // "Entity <index>" without a Name, and an index is not something a human should have to
+    // hunt for when a verification pass asks them to select this region. Name is neither a
+    // Transform nor a script, so the four default-scene count tests are unaffected.
+    world.add_component<mosaic::engine::Name>(scroll_region,
+        mosaic::engine::Name{"Scroll region"});
+    world.add_component<mosaic::engine::ui::UiClipRect>(scroll_region,
+        mosaic::engine::ui::UiClipRect{});
+    // content = 2.5 container-heights, so max_offset is 1.5 and there is visibly more to see
+    // than fits. `offset` starts at 0 so the scene opens unscrolled -- and because the
+    // subtraction is then of a literal 0.0f, every rect in here is bit-identical to what it
+    // would be with no UiScroll at all.
+    world.add_component<mosaic::engine::ui::UiScroll>(scroll_region,
+        mosaic::engine::ui::UiScroll{.offset = 0.0f, .content = 2.5f});
+
+    // Six rows spread down 2.5 container-heights. `pos` is a fraction of the PARENT FRAME, so
+    // a row at y > 1.0 starts below the region's bottom edge and is entirely clipped until
+    // scrolled to -- which is the clipping half of the eye check.
+    const mosaic::foundation::math::Vec3 row_colors[6] = {
+        mosaic::foundation::math::Vec3{0.85f, 0.35f, 0.35f},
+        mosaic::foundation::math::Vec3{0.85f, 0.65f, 0.30f},
+        mosaic::foundation::math::Vec3{0.45f, 0.80f, 0.40f},
+        mosaic::foundation::math::Vec3{0.35f, 0.70f, 0.85f},
+        mosaic::foundation::math::Vec3{0.55f, 0.45f, 0.90f},
+        mosaic::foundation::math::Vec3{0.90f, 0.45f, 0.70f}};
+    for (int i = 0; i < 6; ++i)
+    {
+        const auto row = world.create_entity();
+        world.add_component<mosaic::engine::ui::UiPanel>(row,
+            mosaic::engine::ui::UiPanel{
+                .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+                .pos    = mosaic::foundation::math::Vec2{0.06f, 0.55f + 0.34f * static_cast<float>(i)},
+                .size   = mosaic::foundation::math::Vec2{0.88f, 0.26f},
+                .color  = row_colors[i],
+                .alpha  = 1.0f,
+                .order  = 21});
+        world.add_component<mosaic::engine::ui::UiParent>(row,
+            mosaic::engine::ui::UiParent{scroll_region});
+    }
+
+    // THE WRAPPED LABEL. `\n` forces the first break and `wrap_width` wraps the rest, so one
+    // label exercises both halves of U11b. `wrap_width` is a fraction of the parent frame's
+    // width, matching `pos`; `height` is a fraction of its height.
+    //
+    // height = 0.1 is also the derivation behind kScrollNotch: layout_text maps a label's
+    // height to `height * frame.h` per line, so 0.1 container-heights of scroll is EXACTLY
+    // one line of this label. One notch, one line -- checkable arithmetic rather than a feel.
+    const auto scroll_label = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiText>(scroll_label,
+        mosaic::engine::ui::UiText{
+            .font   = kBuiltinFontId,
+            // Short on purpose: the `\n` forces one break and `wrap_width` wraps the rest to
+            // about two more lines, which must CLEAR the button below it. A longer string
+            // overlapped the button and made the eye check ambiguous about what it was
+            // looking at -- the arithmetic is in the record entry.
+            .text   = "SCROLL ME\nwheel scrolls this clipped box",
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.02f},
+            .height = 0.1f,
+            // Between `height` and `color`, because that is UiText's declaration order and a
+            // designated init must match it -- which the compiler enforced here, and is the
+            // whole reason this file's UI inits are designated rather than positional.
+            .wrap_width = 0.88f,
+            .color  = mosaic::foundation::math::Vec3{1.0f, 1.0f, 1.0f},
+            .alpha  = 1.0f,
+            .order  = 22});
+    world.add_component<mosaic::engine::ui::UiParent>(scroll_label,
+        mosaic::engine::ui::UiParent{scroll_region});
+
+    // A BUTTON THAT SCROLLS OUT OF VIEW, and the sharpest of the four checks: scroll it off
+    // the top, then click where it used to be. Nothing must happen. A clip that masked the
+    // visual but left the button live is precisely the U8b bug, and it was found by a human
+    // looking at a screenshot rather than by any test.
+    //
+    // Its panel and button live on the SAME entity, which is this project's ownership rule:
+    // a button owns the UI components on its own entity.
+    const auto scroll_button = world.create_entity();
+    world.add_component<mosaic::engine::ui::UiPanel>(scroll_button,
+        mosaic::engine::ui::UiPanel{
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.40f},
+            .size   = mosaic::foundation::math::Vec2{0.88f, 0.10f},
+            .color  = mosaic::foundation::math::Vec3{0.20f, 0.55f, 0.95f},
+            .alpha  = 1.0f,
+            .order  = 22});
+    world.add_component<mosaic::engine::ui::UiButton>(scroll_button,
+        mosaic::engine::ui::UiButton{
+            .anchor = static_cast<int>(mosaic::engine::ui::Anchor::TopLeft),
+            .pos    = mosaic::foundation::math::Vec2{0.06f, 0.40f},
+            .size   = mosaic::foundation::math::Vec2{0.88f, 0.10f},
+            .event  = "scroll_demo_click",
+            .order  = 22});
+    // WITHOUT THIS THE EYE CHECK IS IMPOSSIBLE, which is why it is here rather than being
+    // left to the HUD bar's example. `scroll_demo_click` is emitted as a script event that
+    // nothing subscribes to, so a click produces no visible effect of its own -- the only way
+    // a human can tell this button is still live is that HOVERING it brightens. Scroll it out
+    // of the clip and hovering where it was must do nothing: that is the U8b bug class, and
+    // it is only checkable because of this component.
+    world.add_component<mosaic::engine::ui::UiHoverStyle>(scroll_button,
+        mosaic::engine::ui::UiHoverStyle{
+            .tint        = mosaic::foundation::math::Vec3{1.5f, 1.5f, 1.5f},
+            .alpha_scale = 1.0f});
+    world.add_component<mosaic::engine::ui::UiParent>(scroll_button,
+        mosaic::engine::ui::UiParent{scroll_region});
 
     // A scripted, non-physics demo object: a green cube driven by kOrbitScript (see ScriptSystem).
     const auto orbiter = world.create_entity();

@@ -304,6 +304,11 @@ Every built-in engine component, with its fields and their default values. Field
 
 - `parent`: 0 (entity)
 
+## UiScroll
+
+- `offset`: 0.000000
+- `content`: 1.000000
+
 ## UiStack
 
 - `axis`: 0
