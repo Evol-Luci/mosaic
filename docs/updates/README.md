@@ -17,9 +17,10 @@ Eight is the final count.
   [`docs/record/`](../record/), one file per month. A dated narrative of recent work
   belongs there, as an appended section — not as a new file here, and not as a
   rewritten header at the top of the month's file.
+- **Traps that cost an hour** → [`landmines.md`](../project/landmines.md).
 - **Pending work** → [`deferred-work-backlog.md`](../project/deferred-work-backlog.md).
 - **The cold-start handoff** → [`next-steps.md`](../project/next-steps.md), pointers
   only, under a hard 8 KB ceiling.
 
-The three documents have three jobs, and `CLAUDE.md` explains why mixing them is
+The four documents have four jobs, and `CLAUDE.md` explains why mixing them is
 what broke the handoff and the backlog within a week of each other.
