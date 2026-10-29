@@ -19,11 +19,13 @@ See [The UI and input boundary](../architecture/boundaries.md#6-the-ui-and-input
 ```text
 UISubsystem
    ├── Layout & Geometry (Anchor enum, resolve_rect, resolve_in, layout_text)
+   ├── Layout Containers (UiStack, UiGrid, UiFlow: flow/grid/stack layout containers)
+   ├── Clipping & Scroll (UiClipRect, UiScroll, ui_scroll_input.hpp)
    ├── Image Presentation (ui_fit.hpp: resolve_image_quad -- sub-rects + Stretch/Fit/Fill)
    ├── Hit Resolution    (ui_hit.hpp: topmost_hit -- z-order overlap resolution)
    ├── Hierarchy         (UiParent, ui_hierarchy resolver, depth-capped cycle safety)
    ├── Asset Pipeline    (stb_truetype, font_cook, MOSAFNT1, FontAtlas)
-   ├── ECS Components    (UiPanel, UiText, UiImage, UiButton, UiParent, WorldLabel)
+   ├── ECS Components    (UiPanel, UiText, UiImage, UiButton, UiParent, UiClipRect, UiScroll, UiStack, UiGrid, UiFlow, UiHoverStyle, WorldLabel)
    ├── Render Passes     (draw_ui, draw_ui_image, draw_ui_text, draw_world_text, FontTextureCache)
    ├── World-Space Text  (build_world_text, WorldLabel, camera-facing billboard glyphs)
    └── Interaction       (PointerState seam, UiSystem, ScriptEvent dispatch)
@@ -136,10 +138,16 @@ All UI components are reflected via `ComponentReflection` and can be inspected, 
 |---|---|---|
 | `UiPanel` | `anchor`, `pos`, `size`, `color`, `alpha`, `order` | Flat solid-color rectangular HUD elements and container cards. |
 | `UiImage` | `texture` (`AssetID`), `anchor`, `pos`, `size`, `sub_rect_pos`, `sub_rect_size`, `fit_mode`, `tint`, `alpha`, `order` | Textured 2D sprites, icons, and decals. `sub_rect_*` select a region in **texture pixels** (zero size = whole texture), so one atlas serves many sprites; `fit_mode` is 0 Stretch / 1 Fit / 2 Fill. |
-| `UiText` | `text`, `font` (`AssetID`), `anchor`, `pos`, `size`, `color`, `alpha`, `order` | Aspect-correct formatted single-line text labels. |
-| `UiButton` | `anchor`, `pos`, `size`, `event` (`std::string`), `order` | Hit-test region that detects mouse interactions and fires events. `order` resolves overlaps: higher wins. |
+| `UiText` | `text`, `font` (`AssetID`), `anchor`, `pos`, `size`, `color`, `alpha`, `order`, `wrap_width` | Formatted text labels with multi-line `\n` and space word-wrapping. |
+| `UiButton` | `anchor`, `pos`, `size`, `event` (`std::string`), `order`, `visible` | Hit-test region that detects mouse interactions and fires events. `order` resolves overlaps: higher wins. |
 | `UiParent` | `parent` (`EntityID`) | Hierarchical link nesting this element within a parent container entity. |
-| `WorldLabel` | `font` (`AssetID`), `text`, `size`, `color`, `alpha`, `offset` | 3D camera-facing billboard text floating at entity's `WorldTransform`. |
+| `UiClipRect` | *(marker component)* | Container clipping marker; restricts child rendering and hit-testing to the container's resolved rect via scissor clipping. |
+| `UiScroll` | `offset`, `content` | Scrolling container in container-height multiples. Shifts child elements within the parent frame vertically; clamped on read and write. |
+| `UiStack` | `axis`, `spacing`, `padding` | Linear layout container partitioning child frames along a horizontal (0) or vertical (1) axis. |
+| `UiGrid` | `cols`, `rows`, `spacing`, `padding` | 2D uniform grid layout partitioning container frame into cells. |
+| `UiFlow` | `axis`, `per_line`, `spacing`, `padding` | Flow layout wrapping child elements along the primary axis. |
+| `UiHoverStyle` | `tint`, `alpha_scale` | Hover styling override multiplying color and alpha when hovered. |
+| `WorldLabel` | `font` (`AssetID`), `text`, `size`, `color`, `alpha`, `offset`, `visible` | 3D camera-facing billboard text floating at entity's `WorldTransform`. |
 
 ---
 
@@ -184,6 +192,7 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
        float y = 0.0f;      // Normalized cursor Y [0.0, 1.0]
        bool down = false;
        bool inside = true;  // is a pointer PRESENT over this surface at all?
+       float wheel = 0.0f;  // Wheel movement in notches (+ = up/away, reset by frame loop)
    };
    ```
    `inside` exists because "there is no pointer" and "the pointer is at the origin" are
@@ -191,6 +200,8 @@ The UI subsystem introduces Mosaic's first runtime user input pipeline while mai
    position inside any element anchored `TopLeft` at `{0,0}`, which is what a
    default-constructed `UiButton` is. Hit resolution treats `inside == false` as
    "nothing is hit", whatever the coordinates say.
+   `wheel` accumulates mouse wheel movement across frames; `UiSystem::update` consumes it via
+   `engine/ui/ui_scroll_input.hpp` to update `UiScroll` components.
 2. **Windowing Integration (`app/main.cpp`):**
    - In windowed mode, a lambda queries GLFW:
      ```cpp
@@ -305,7 +316,10 @@ HUD elements can nest hierarchically using `UiParent`:
 - **Hierarchy Resolution (`engine/ui/ui_hierarchy.hpp`):**
   - Walks the parent chain to accumulate transformed rects (`resolve_parent_frame`).
   - **Cycle Safety:** Chain traversal is capped at a maximum depth of 16 to guard against cyclical parent references.
+  - **Scrolling (`UiScroll`, U9d):** A parent entity carrying `UiScroll{offset, content}` vertically shifts its children's frame via `resolve_parent_frame`: `frame.y -= scroll_shift_for_children(world, parent, frame.h)`. Both fields are in container-height multiples, clamped on read and write.
   - Rects resolve via `resolve_ui_rect(world, entity, screen_w, screen_h)`.
+- **Clipping (`UiClipRect`, U9b):**
+  - Containers marked with `UiClipRect` intersect scissor rects down the hierarchy during drawing and button hit-testing. Children drawn or scrolled outside the container's bounds are masked and rendered non-clickable.
 - All render passes (panels, images, text) and `UiSystem` pointer hit-testing route through this unified resolver, ensuring child elements move, scale, and clip with their container.
 
 ---
