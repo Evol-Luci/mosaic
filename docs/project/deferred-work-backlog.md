@@ -91,9 +91,33 @@ deliberately left out.
   run id; deferred 2026-10-24 because it requires network access and an authenticated token
   in the check's environment. Declared in `UNVERIFIABLE_CLAIMS` in
   `tools/docs/check_next_steps_claims.py` and reported as skipped with that reason.
-- **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when
-  a `Value` changes without its `Checked` date being updated). Deferred 2026-10-24: needs git
-  history (`git log -S` / blame) per table cell, which is its own slice.
+- ~~**A staleness check on the `Checked` column of `next-steps.md`'s State table**~~ — SHIPPED
+  2026-10-30 as `tools/docs/check_checked_column_staleness.py`, see
+  [record](../record/2026-10.md#a-staleness-check-on-next-stepsmds-checked-column-and-the-stricter-rule-that-lost-to-its-own-history).
+- **A `Checked` date in the FUTURE relative to the newest commit examined is not detected.**
+  Named while designing the staleness check (2026-10-30) and ruled out of its scope by the
+  coordinator: the shipped property has exactly one failure mode, `Checked` older than the
+  commit that changed the `Value`, and a future date is a different smell with a different
+  cause (a hand-typed date, or a clock). Deferred because it needs its own decision about what
+  the reference date even is — the newest commit in the range is not the same thing as "now",
+  and on a PR authored across a timezone boundary the two disagree by a day. Depends on
+  nothing; the check already parses both dates, so it is a few lines once the rule is chosen.
+- **The staleness check covers only `next-steps.md`'s State table.** The backlog's own tier
+  tables and the record's tables carry no `Checked` column, so there is nothing to compare;
+  extending it would mean first deciding which of those columns are claims with a freshness
+  date at all. Deferred 2026-10-30 as a question about the documents, not about the checker.
+- **A renamed `Claim` escapes the staleness check.** Rows are matched by the `Claim` cell, so
+  renaming a claim reads as one removal plus one addition and its `Value` change is not
+  compared. Deliberate (there is no previous value under the new name, and renaming a claim is
+  restating it) but it is also the one way to change a `Value` and keep a stale date. Deferred
+  2026-10-30: closing it needs similarity matching between removed and added claims, and a
+  false match would red an honest rename.
+- **A PR deeper than the checkout's `fetch-depth: 50` degrades the staleness check's date
+  attribution to "today".** The attribution walks the commits in `base..HEAD` that touched the
+  document; past the shallow boundary that walk is incomplete, and an honest row dated when it
+  was authored could be judged against today instead. Deferred 2026-10-30: no PR in this
+  project has come close to 50 commits, and the fix (deepen on demand, or fail loudly when the
+  boundary is hit) wants evidence that it can happen before it is built.
 - **Splitting the record by subsystem instead of by month.** Monthly matches the existing
   archive and needs no judgement call per entry; by-subsystem reads better when revisiting
   one area. Revisit only if reading the record by subsystem becomes a real need.
@@ -2608,6 +2632,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 7 | **Decide whether a layout container should order a button-only child by `UiButton::order`.** | hours / Low-Medium — one branch in `child_layout_order`, but the work is the decision: `UiButton::order` is a hit-resolution z-order and the layout sort is a draw order, and `ui_order_check.hpp` exists because those two already disagree. Surfaced by U8c because a grid of clickable slots is the obvious authored shape. | A child carrying only a `UiButton` either sorts by its `order` or is documented as unorderable, and `a grid child carrying only a UiButton has no authorable layout order` is updated to assert whichever was chosen. | U8c, deferred 2026-10-25 |
 | 8 | **Override `field_bool` in `MarkdownFieldVisitor`, and re-check `component_reference.hpp`'s preamble.** | hours / Low — cosmetic, but it is the one place the `field_bool` slice left a sentence that now explains a *choice* as though it were a *limitation*: the generated page says `bool` and non-`float` numerics share `field_readonly` because "the underlying type isn't distinguishable from the callback alone", which stopped being true for `bool` on 2026-10-26. | `docs/reference/components.md` labels `bool` fields `(bool)` the way `field_entity`/`field_handle_asset` are already labelled, and the preamble sentence either goes or is rewritten as a choice. | #316, deferred 2026-10-26 |
 | 9 | **Decide the clip's pixel-edge rounding policy (round-to-nearest against round-outward).** | hours / Low-Medium — one `llround` against a `floor`/`ceil` pair in `clip_to_pixel_rect`; the work is the decision, and the symptom is a one-pixel seam at a scroll region's edge or half a clipped glyph. | A clip edge landing on a fractional pixel either keeps or drops the partially covered pixel, and a unit case in `ui_clip_pixel_rect_test.cpp` asserts whichever was chosen. | U9a, deferred 2026-10-26; depends on U9d for the observation |
+| 10 | **Decide what a `Checked` date in the FUTURE of the newest examined commit means, and whether `check_checked_column_staleness.py` should flag it.** | hours / Low — the checker already parses both dates; the work is choosing the reference ("now" and "the newest commit in the range" disagree by a day across a timezone boundary) and accepting that a date typed ahead of a planned verification is then red. | A State row dated after the newest commit that touched the document either earns a violation naming both dates or is documented as allowed, and a fixture in `tools/docs/test_check_checked_column_staleness.py` asserts whichever was chosen. | Slice 4, deferred 2026-10-30 on the coordinator's ruling |
 
 ### 🟡 Medium (a slice with its own spec and gate)
 
