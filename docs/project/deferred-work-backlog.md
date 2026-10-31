@@ -1077,14 +1077,40 @@ them as this list does.
   configuration exists to design against, and a Catch2 `SKIP` late in a case would mark the
   whole pixel test skipped, losing the signal it did pass. **Depends on:** someone wanting a
   release GPU build. Deferred 2026-10-30.
-- **Two mechanisms now answer one question: was validation on?** `VulkanHeadlessDevice::validation_enabled()`
-  (per-device, member) and `mosaic::render::vk::validation_messages_are_observed()` (process-global,
-  free function) exist because the two device types share no public surface — `VulkanRenderDevice`
-  is file-local to `vulkan_render_device.cpp`. A reader has to know which test uses which device to
-  know which to call. **Deferred because:** unifying them means either promoting
-  `VulkanRenderDevice` into the header (undoing a deliberate leak-free boundary) or demoting the
-  headless accessor to a global, and neither is obviously right. **Depends on:** nothing.
-  Deferred 2026-10-30.
+- **The value published into `g_validation_observed` is itself guarded by NOTHING, which is the
+  validation-vacuity defect one level up.** `validation_messages_are_observed()` (process-global
+  free function, `vulkan_render_device.cpp`) is now the sole thing standing between ten GPU tests
+  and a silent pass — and **a wrong value published into it is invisible with the layer present.**
+  Measured by the reviewer on 2026-10-30 against 401d027, two faults, both one line:
+  1. Publish the lie the header comment says it avoids — `store(validation_layer_enabled_, …)` →
+     `store(true, …)`, i.e. claim observation on messenger creation alone, which succeeds even
+     with no layer because the debug-utils extension is pushed unconditionally.
+     **MUTANT × layer ON → 12/12 PASS.** No test sees it.
+     MUTANT × layer OFF → 12/12 fail, but all ten offscreen cases fail at
+     `REQUIRE(validation_messages.empty())`: the new assertion passed vacuously and the
+     diagnosis regressed to the pre-2026-10-30 misleading message.
+  2. Add the removal of the accidental crutch — recategorise the "validation layer not available"
+     WARN at `vulkan_render_device.cpp:2891` from `"vulkan"` to `"vulkan_setup"`, so the capture
+     sink no longer collects it. **Both faults × layer OFF → 83% passed, 2 of 12 failed.** Ten
+     GPU tests report "validation observed and silent" having observed nothing.
+
+  The only two cases that caught it in either run are `headless_device_test.cpp` and
+  `offscreen_readback_test.cpp`, **because they read per-device state
+  (`VulkanHeadlessDevice::validation_enabled()`) rather than the global** — that is the control
+  that already works, and it is why the fix is the per-device shape rather than a second global
+  or a second global's test. The two mechanisms answering one question are therefore not a
+  tidiness problem: one of them is an independent source of truth and the other is a convention
+  held by one line of code and a code review.
+  **Gate:** a wrong publish value turns a test red **with the layer present** — today it turns
+  nothing red at all.
+  **Deferred because:** the honest guard is hard precisely because the flag *is* the observation,
+  so a test cannot check it against anything without a second, independent source; building that
+  source means either promoting the file-local `VulkanRenderDevice` into the header (undoing a
+  deliberate leak-free boundary — the header forward-declares `GLFWwindow` rather than including
+  it) or demoting the headless accessor to a global, which would delete the only control that
+  survived both mutants. **Depends on:** choosing between those two shapes. Raised and measured
+  2026-10-30 by the review of the slice that created the flag; see
+  [record](../record/2026-10.md#making-the-gpu-tests-zero-validation-assertion-non-vacuous-2026-10-30).
 - **The GPU tests assert zero validation messages with SYNCHRONIZATION validation off**, so a
   clean `ctest -L gpu` still says nothing about barriers, subpass dependencies or intra-frame
   read-after-write — the exact 2026-10-17 bloom finding, one layer down. `MOSAIC_VK_SYNC_VALIDATION`
@@ -2668,6 +2694,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 8 | **Decide whether to adopt `imgui_test_engine`** — the four Inspector write-back widgets are executed by nothing. | slice / Low-Medium, and the work is a DEPENDENCY DECISION, not code. `tests/unit/studio/` holds 19 test files and **no `inspector_test.cpp`**: `DragFloat`, `DragInt`, `InputText` and (since 2026-10-26) `Checkbox` each write back and set `changed_` with no test on the path. Exercising one needs a simulated multi-frame drag against ImGui's active-item state, which is what `imgui_test_engine` is for and which is **not vendored** (ImGui 1.91.5 arrives via `FetchContent`). The count grows by one with every new reflected field type, so the cost is monotonic — the same shape as 🟢 row 4. | Either the dep is vendored and deleting any one of those four `ImGui::` calls turns a test red, or the item moves to "Decided: no action" with a trigger. Today neither has happened and it reads as un-got-to. | #316, raised 2026-10-26 on a bullet that predates it |
 | 9 | ~~**Make `tests/gpu/`'s zero-validation-messages assertion non-vacuous.**~~ — **SHIPPED 2026-10-30.** Ten call sites (the eight named plus the two in `offscreen_ui_clip_hierarchy_test.cpp` that asserted nothing) now assert the layer was OBSERVED before asserting it was SILENT. | The premise was partly wrong: the seven sites already failed with the layer absent, by capturing the backend's own "not available" WARN — wrong cause, misleading message, and nothing pinned it. The real vacuity was `#ifndef NDEBUG` (0 occurrences of the layer name under `-DNDEBUG`). | Done: `VK_LOADER_LAYERS_DISABLE='*' ctest --preset debug -L gpu` takes **12/12** red (was 10/12) at `validation_messages_are_observed()`; deleting the publish with the layer ON takes 10/12 red. [Record](../record/2026-10.md#making-the-gpu-tests-zero-validation-assertion-non-vacuous-2026-10-30). | U9a, deferred 2026-10-26 |
 | 10 | **A viewport-texture readback seam, so the editor's UI path can be asserted in pixels.** | slice / Medium-High — it is the only way any test reaches the `vp_extent_` half of the UI passes, which today includes U9a's clip selector and every future per-viewport UI behaviour. The suite cannot currently tell a correct editor HUD from one scaled against the wrong extent. | A GPU test opens a viewport pass, draws a clipped quad into it, and reads those pixels back; writing `extent_` unconditionally in `ui_destination_extent()` turns it red. | U9a, deferred 2026-10-26 |
+| 11 | **Give `validation_messages_are_observed()`'s published VALUE a guard — the validation-vacuity defect one level up.** | slice / Medium-High — the flag is now the sole gate on ten GPU tests' "validation was on" claim, and it is unguarded. Reviewer-measured 2026-10-30 on 401d027: publishing `store(true, …)` instead of `store(validation_layer_enabled_, …)` is **12/12 PASS with the layer on**; add the removal of the accidental "not available" WARN crutch (recategorise it off `"vulkan"`) and **layer-off is 83% passed, 2 of 12 failed** — ten tests report validation observed and silent having observed nothing. | A wrong publish value turns a test red **with the layer present**. The control that already works is the two `VulkanHeadlessDevice` cases, which read per-device state and survived both mutants — hence the per-device shape, not a second global. | Review of the validation slice, 2026-10-30 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)
 

@@ -72,6 +72,17 @@ OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
 // count, or the count is decoration. Returns false in any build where the layer was
 // not enabled -- it never guesses from the extension or the messenger alone, because
 // the messenger is created either way.
+//
+// THAT CONJUNCTION IS A CONVENTION, NOT AN ENFORCED PROPERTY: the published value is
+// held by one line in setup_debug_messenger and by code review, and NO TEST GUARDS IT.
+// Measured 2026-10-30: publishing `true` unconditionally -- claiming observation on
+// messenger creation alone -- leaves all 12 GPU tests PASSING with the layer present,
+// and once the backend's "layer not available" WARN no longer lands in the capture
+// sink it leaves ten of them green having observed nothing. Do not read the paragraph
+// above as a guarantee. The fix is the per-device accessor shape that
+// VulkanHeadlessDevice::validation_enabled() already has -- the only check that caught
+// either fault -- and it is deferred-work-backlog.md, Rendering, "the value published
+// into g_validation_observed is itself guarded by NOTHING".
 bool validation_messages_are_observed() noexcept;
 
 // Create a Vulkan-backed RenderDevice that presents to `window`'s surface.
