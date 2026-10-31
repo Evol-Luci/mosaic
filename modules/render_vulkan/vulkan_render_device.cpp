@@ -16,6 +16,7 @@
 #include "foundation/logging/log.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -202,6 +203,15 @@ void vk_check(VkResult r, const char* what)
                                  std::to_string(static_cast<int>(r)));
     }
 }
+
+// Set by the MOST RECENT device's create_instance/setup_debug_messenger pair, and
+// read back through validation_messages_are_observed(). It exists because a test that
+// asserts "no validation messages" asserts NOTHING unless validation actually ran: a
+// release build elides the whole block below, and VK_LOADER_LAYERS_DISABLE removes the
+// layer from enumeration, and in both cases the message count is trivially zero. The
+// flag answers the only question that makes that count meaningful -- was the layer on
+// AND is its messenger routing to the engine log.
+std::atomic<bool> g_validation_observed{false};
 
 #ifndef NDEBUG
 // Route validation-layer messages to the engine log. Returns VK_FALSE so the
@@ -2868,6 +2878,10 @@ private:
         ci.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         ci.pApplicationInfo = &app;
 
+        // Outside the guard on purpose: in a build where the block below does not
+        // exist, the honest answer is "validation is not observed", not a stale true.
+        g_validation_observed.store(false, std::memory_order_relaxed);
+
 #ifndef NDEBUG
         extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 
@@ -2898,6 +2912,7 @@ private:
 
         if (validation_layer_available(validation_layer))
         {
+            validation_layer_enabled_ = true;
             ci.enabledLayerCount = 1;
             ci.ppEnabledLayerNames = &validation_layer;
             // Chaining the messenger info covers instance create/destroy too.
@@ -2944,6 +2959,11 @@ private:
         populate_debug_info(info);
         vk_check(create_debug_messenger(instance_, &info, &messenger_),
                  "vkCreateDebugUtilsMessengerEXT");
+        // BOTH conditions, and the messenger alone is not one of them: the debug-utils
+        // extension is pushed unconditionally above, so this messenger is created even
+        // when the layer is absent -- it just never has anything to report. Only the
+        // conjunction means "a VUID raised by this device would reach the engine log".
+        g_validation_observed.store(validation_layer_enabled_, std::memory_order_relaxed);
     }
 #endif
 
@@ -6132,6 +6152,7 @@ private:
     VkInstance instance_ = VK_NULL_HANDLE;
 #ifndef NDEBUG
     VkDebugUtilsMessengerEXT messenger_ = VK_NULL_HANDLE;
+    bool validation_layer_enabled_ = false;
 #endif
     VkSurfaceKHR surface_ = VK_NULL_HANDLE;
     VkPhysicalDevice physical_ = VK_NULL_HANDLE;
@@ -6381,6 +6402,11 @@ std::unique_ptr<mosaic::engine::render::RenderDevice>
 create_vulkan_render_device(GLFWwindow* window)
 {
     return std::make_unique<VulkanRenderDevice>(RenderTarget{WindowTarget{window}});
+}
+
+bool validation_messages_are_observed() noexcept
+{
+    return g_validation_observed.load(std::memory_order_relaxed);
 }
 
 OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,

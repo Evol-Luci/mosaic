@@ -1048,8 +1048,11 @@ them as this list does.
   frames rather than aliasing intra-frame, so omitting a reset causes unbounded vector/buffer
   growth rather than a wrong pixel. **Depends on:** a chunk-count inspection seam on
   `VulkanRenderDevice` or `OffscreenDevice`. Deferred 2026-10-24 (re-confirmed 2026-10-25).
-- **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared
-  header.** `ValidationCaptureSink`, `format_pixel`, `require_pixel_near`, and
+- **Extract the remaining duplicated `tests/gpu/` PIXEL-assertion helpers into a shared
+  header.** `ValidationCaptureSink` is no longer among them — it moved to
+  `tests/gpu/validation_capture.hpp` on 2026-10-30 as a by-product of the validation slice,
+  which deleted six copies. Still duplicated: `linear_to_srgb8`, `expected_srgb8`,
+  `format_pixel`, `pixel_at`, `require_pixel_near`, and
   `require_pixel_differs_from_background` are duplicated across the anonymous namespaces of
   `offscreen_particle_aliasing_test.cpp`, `offscreen_ribbon_aliasing_test.cpp`,
   `offscreen_world_text_aliasing_test.cpp`, `offscreen_hud_underlay_test.cpp`, and (since
@@ -1057,20 +1060,46 @@ them as this list does.
   2026-10-25 as a non-goal of the ribbon/world-text aliasing slice to keep that diff scoped strictly
   to the two new tests; re-confirmed 2026-10-26 by U9a, which duplicated them a fifth time rather
   than widen its own diff into a shared-header refactor. **Depends on:** nothing.
-- **`tests/gpu/`'s `REQUIRE(validation_messages.empty())` is conditional on the validation layer
-  being PRESENT, and no test can assert that it was.** Found 2026-10-26 during U9a. The backend
-  enables `VK_LAYER_KHRONOS_validation` only `#ifndef NDEBUG` *and* only when
-  `validation_layer_available()` returns true (`vulkan_render_device.cpp:2845`); when the layer is
-  absent the capture sink stays empty for the trivial reason and every such assertion passes
-  vacuously. This is the "asserting zero validation messages is vacuous unless you also assert the
-  layer was on" rule, unmet at **all eight assertion sites across seven of the ten GPU tests** (`grep -n 'validation_messages.empty()' tests/gpu/*.cpp`; `offscreen_ui_clip_test.cpp` makes two) — the figure was "five" when first written here, which was a count of neither — so a scissor outside
-  the render area could in principle reach CI's lavapipe step undetected, and only the renderer
-  gate (a manual read of a log) would catch it. **Depends on:** an inspection seam reporting
-  whether the layer was enabled — either a field on `OffscreenDevice` or an unconditional
-  `[INFO]` line at instance creation naming the layers actually enabled (the sync-validation line
-  is the precedent, and it logs only for the opt-in feature). Deferred because that is new
-  interface surface on the device, not a renderer change, and U9a was scoped to the clip
-  parameter.
+- ~~**`tests/gpu/`'s `REQUIRE(validation_messages.empty())` is conditional on the validation
+  layer being PRESENT, and no test can assert that it was.**~~ — SHIPPED 2026-10-30
+  (`validation_messages_are_observed()` plus `tests/gpu/validation_capture.hpp`; all 12 GPU
+  tests go red under `VK_LOADER_LAYERS_DISABLE='*'`, up from 10), see
+  [record](../record/2026-10.md#making-the-gpu-tests-zero-validation-assertion-non-vacuous-2026-10-30).
+  The premise was partly wrong and the record says how: the seven sites already failed when
+  the layer was absent, by accidentally capturing the backend's own "not available" WARN.
+- **A release-mode (NDEBUG) GPU build now FAILS the validation assertion rather than passing
+  vacuously, and that was a decision rather than a discovery.** `require_validation_observed_and_silent()`
+  asserts unconditionally, matching `headless_device_test.cpp` since 2026-10-24 and CI's
+  "vulkan-validationlayers is NOT optional" comment. Nobody builds that configuration today
+  (both local opt-in and CI use the `debug` preset), so failing is the honest outcome — but if
+  a release GPU build ever becomes a thing, the right shape is a VISIBLE skip of the validation
+  half while the pixel assertions still run, not a red suite. **Deferred because:** no such
+  configuration exists to design against, and a Catch2 `SKIP` late in a case would mark the
+  whole pixel test skipped, losing the signal it did pass. **Depends on:** someone wanting a
+  release GPU build. Deferred 2026-10-30.
+- **Two mechanisms now answer one question: was validation on?** `VulkanHeadlessDevice::validation_enabled()`
+  (per-device, member) and `mosaic::render::vk::validation_messages_are_observed()` (process-global,
+  free function) exist because the two device types share no public surface — `VulkanRenderDevice`
+  is file-local to `vulkan_render_device.cpp`. A reader has to know which test uses which device to
+  know which to call. **Deferred because:** unifying them means either promoting
+  `VulkanRenderDevice` into the header (undoing a deliberate leak-free boundary) or demoting the
+  headless accessor to a global, and neither is obviously right. **Depends on:** nothing.
+  Deferred 2026-10-30.
+- **The GPU tests assert zero validation messages with SYNCHRONIZATION validation off**, so a
+  clean `ctest -L gpu` still says nothing about barriers, subpass dependencies or intra-frame
+  read-after-write — the exact 2026-10-17 bloom finding, one layer down. `MOSAIC_VK_SYNC_VALIDATION`
+  is read only on the windowed/editor path's instance creation and no GPU test sets it.
+  **Deferred because:** sync validation is genuinely expensive and the GPU tests run in CI on
+  lavapipe, where a blanket enable risks the timing budget the #307 trial is being judged on.
+  **Depends on:** a measurement of what it costs on lavapipe for one case. Deferred 2026-10-30.
+- **`check_next_steps_claims.py`'s bare fallback counts GPU tests it should exclude.** Without
+  `--junit` it runs `ctest --preset debug -N` with no `-LE gpu`, so in a
+  `-DMOSAIC_ENABLE_GPU_TESTS=ON` build dir it reports Suite size off by exactly 12 and the
+  handoff looks stale when it is correct (hit 2026-10-30; now a landmine). CI is unaffected
+  because it passes `--junit` from the `-LE gpu` run. **Deferred because:** a one-line `-LE gpu`
+  on the fallback is probably right but it changes a guard that gates the handoff, and the
+  validation slice was not the place to re-argue what that guard counts. **Depends on:** nothing.
+  Deferred 2026-10-30.
 - **The UI clip's EDITOR-VIEWPORT branch is covered by no test.** Found 2026-10-26 while
   implementing U9a. `ui_destination_extent()` resolves the clip against
   `viewport_pass_open_ ? vp_extent_ : extent_`, because the three UI draws run in the viewport
@@ -2615,7 +2644,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 1 | ~~**`draw_particles` and `draw_ribbons` share the world-text backend shape.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#draw_particles-and-draw_ribbons-share-the-world-text-backend-shape). | — | — | PR #275 |
 | 2 | ~~**A per-test duration budget.**~~ — SHIPPED 2026-10-24, see [record](../record/2026-10.md#a-per-test-duration-budget). | — | — | PR #273, unblocked by #274 |
 | 3 | ~~**`execution.jobs` in the `debug` test preset (local `ctest -j`).**~~ — SHIPPED 2026-10-24 (`jobs: 8`), see [record](../record/2026-10.md#executionjobs-in-the-debug-test-preset-local-ctest--j). | — | — | PR #273 |
-| 4 | **Extract duplicated `tests/gpu/` pixel-assertion and validation-capture helpers into a shared header.** | hours / Low-Medium — pure maintenance, but the duplication is now **five** files and grows with every pixel test (slice 1's new gate deliberately needs none of them), so the cost is monotonic. | All five GPU test files stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 13 and passes. | PR #309 (deferred there as an explicit non-goal); count refreshed by U9a 2026-10-26 |
+| 4 | **Extract the remaining duplicated `tests/gpu/` pixel-assertion helpers into a shared header.** (The capture sink was shared out 2026-10-30; the pixel helpers were not.) | hours / Low-Medium — pure maintenance, but the duplication is now **five** files and grows with every pixel test, so the cost is monotonic. | All five GPU test files stop carrying their own `ValidationCaptureSink` / `format_pixel` / `require_pixel_*`; `ctest -L gpu` still discovers 10 and passes. | PR #309 (deferred there as an explicit non-goal); count refreshed by U9a 2026-10-26 |
 | 6 | **Hoist `read_repo_source` out of `viewport_test.cpp`'s anonymous namespace into a shared textual-pin helper.** | hours / Low — discoverability only. It is the repo's only textual source pin helper, so every such pin must live in `tests/unit/studio/viewport_test.cpp` regardless of what it pins: U9c's two `app/main.cpp` pins (the `drop_observed`/poll order and the window-user-pointer ban) sit under `tests/unit/studio/` for no reason but that. **The risk is what makes it deferred rather than done:** several existing pins depend on its exact normalisation behaviour — it applies `normalize_ws(code_only(...))`, i.e. comments stripped AND whitespace runs collapsed — and any move must preserve both. A pin that silently stops matching is a pin that passes forever (U9c nearly shipped one: a pin written with the source's own `=` alignment could never have matched the normalised text). | The helper lives in one shared header, the `app/`-pinning cases move out of `viewport_test.cpp`, and each moved pin is proven still able to FAIL by mutating the source it pins — not merely still green. | U9c, deferred 2026-10-27 on the coordinator's ruling |
 | 5 | ~~**`bool` fields are read-only in the Inspector (no `field_bool`).**~~ — SHIPPED 2026-10-26, see [record](../record/2026-10.md#bool-fields-are-read-only-in-the-inspector-no-field_bool). | — | — | PR #316 |
 | 6 | **Decide whether `find_order_disagreements` should skip an invisible button.** | hours / Low — one line of Console noise about a misroute that cannot happen; the work is the one-sentence decision about what the lint *means*, not the filter. | `UiButton{visible = false}` with an order that disagrees with its own panel's either earns a line or does not, and a test says which was intended. | U8b, deferred 2026-10-25 |
@@ -2637,7 +2666,7 @@ cycle) / multi-slice (needs its own decomposition). *Gate*: the observation that
 | 6 | **A staleness check on the `Checked` column of `next-steps.md`'s State table** (fail when a `Value` changes without its `Checked` date being updated). | slice / Medium — #290 made the *values* machine-checked but left the freshness claim on the honour system, which is the half that rotted for six weeks before. | A commit that edits a `Value` cell without bumping that row's `Checked` date fails CI; one that bumps both passes. | #290, deferred 2026-10-24 |
 | 7 | **Making the `CI test step` row in `next-steps.md` machine-checkable.** | slice / Low-Medium — the only State row still declared `UNVERIFIABLE`, so it is the one that can drift silently. Blocked on environment, not difficulty: the check needs `gh`, a run id, network and an authenticated token. | `check_next_steps_claims` reports 4 of 4 rows verified and 0 skipped. | #290, deferred 2026-10-24 |
 | 8 | **Decide whether to adopt `imgui_test_engine`** — the four Inspector write-back widgets are executed by nothing. | slice / Low-Medium, and the work is a DEPENDENCY DECISION, not code. `tests/unit/studio/` holds 19 test files and **no `inspector_test.cpp`**: `DragFloat`, `DragInt`, `InputText` and (since 2026-10-26) `Checkbox` each write back and set `changed_` with no test on the path. Exercising one needs a simulated multi-frame drag against ImGui's active-item state, which is what `imgui_test_engine` is for and which is **not vendored** (ImGui 1.91.5 arrives via `FetchContent`). The count grows by one with every new reflected field type, so the cost is monotonic — the same shape as 🟢 row 4. | Either the dep is vendored and deleting any one of those four `ImGui::` calls turns a test red, or the item moves to "Decided: no action" with a trigger. Today neither has happened and it reads as un-got-to. | #316, raised 2026-10-26 on a bullet that predates it |
-| 9 | **Make `tests/gpu/`'s zero-validation-messages assertion non-vacuous.** | slice / Medium — eight assertion sites across seven GPU tests assert `validation_messages.empty()` while the layer is enabled only `#ifndef NDEBUG` *and* only if `validation_layer_available()` says so, so all five pass for free wherever the layer is absent. A scissor outside the render area — exactly what U9a's clip could regress into — is a validation ERROR rather than a wrong pixel, and today only the renderer gate's manual log read would see it. **Slice 1 measured this biting (2026-10-30):** in a windowed editor run the layer reported a negative scissor offset three times and said **nothing** about an out-of-area extent, so even where it IS enabled it is not a complete oracle — which is why slice 1's own check is integer arithmetic (`scissor_in_render_area`) rather than a layer assertion. | The GPU tests assert the layer was ACTUALLY enabled before asserting no messages, and deliberately disabling the layer makes them fail rather than pass. | U9a, deferred 2026-10-26 |
+| 9 | ~~**Make `tests/gpu/`'s zero-validation-messages assertion non-vacuous.**~~ — **SHIPPED 2026-10-30.** Ten call sites (the eight named plus the two in `offscreen_ui_clip_hierarchy_test.cpp` that asserted nothing) now assert the layer was OBSERVED before asserting it was SILENT. | The premise was partly wrong: the seven sites already failed with the layer absent, by capturing the backend's own "not available" WARN — wrong cause, misleading message, and nothing pinned it. The real vacuity was `#ifndef NDEBUG` (0 occurrences of the layer name under `-DNDEBUG`). | Done: `VK_LOADER_LAYERS_DISABLE='*' ctest --preset debug -L gpu` takes **12/12** red (was 10/12) at `validation_messages_are_observed()`; deleting the publish with the layer ON takes 10/12 red. [Record](../record/2026-10.md#making-the-gpu-tests-zero-validation-assertion-non-vacuous-2026-10-30). | U9a, deferred 2026-10-26 |
 | 10 | **A viewport-texture readback seam, so the editor's UI path can be asserted in pixels.** | slice / Medium-High — it is the only way any test reaches the `vp_extent_` half of the UI passes, which today includes U9a's clip selector and every future per-viewport UI behaviour. The suite cannot currently tell a correct editor HUD from one scaled against the wrong extent. | A GPU test opens a viewport pass, draws a clipped quad into it, and reads those pixels back; writing `extent_` unconditionally in `ui_destination_extent()` turns it red. | U9a, deferred 2026-10-26 |
 
 ### 🔴 Large (needs its own decomposition, multi-slice)

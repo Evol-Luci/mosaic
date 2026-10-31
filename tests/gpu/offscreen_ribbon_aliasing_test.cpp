@@ -2,6 +2,7 @@
 
 #include "engine/render/render_device.hpp"
 #include "foundation/logging/log.hpp"
+#include "tests/gpu/validation_capture.hpp"
 #include "foundation/math/mat4.hpp"
 #include "foundation/math/vec3.hpp"
 
@@ -19,33 +20,6 @@
 
 namespace
 {
-
-class ValidationCaptureSink final : public mosaic::foundation::log::Sink
-{
-public:
-    void write(const mosaic::foundation::log::Record& record) noexcept override
-    {
-        console_.write(record);
-        if (record.category == "vulkan" &&
-            (record.level == mosaic::foundation::log::Level::Warn ||
-             record.level == mosaic::foundation::log::Level::Error))
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            messages_.emplace_back(record.message);
-        }
-    }
-
-    std::vector<std::string> messages() const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return messages_;
-    }
-
-private:
-    mosaic::foundation::log::ConsoleSink console_;
-    mutable std::mutex mutex_;
-    std::vector<std::string> messages_;
-};
 
 std::string format_pixel(const std::vector<std::uint8_t>& pixels,
                          std::uint32_t width,
@@ -192,9 +166,7 @@ TEST_CASE("gpu offscreen draw_ribbons keeps two per-frame calls at distinct posi
     constexpr std::uint32_t kControlX = 32;
     constexpr std::uint32_t kControlY = 96;
 
-    auto capture_sink = std::make_shared<ValidationCaptureSink>();
-    mosaic::foundation::log::clear_sinks();
-    mosaic::foundation::log::add_sink(capture_sink);
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
 
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
@@ -236,5 +208,5 @@ TEST_CASE("gpu offscreen draw_ribbons keeps two per-frame calls at distinct posi
 
     const std::vector<std::string> validation_messages = capture_sink->messages();
     mosaic::foundation::log::clear_sinks();
-    REQUIRE(validation_messages.empty());
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }

@@ -24,26 +24,23 @@ the PR otherwise. Re-verifying on the day the cell already names needs no edit.
 
 **No time-sensitive item is open.** The #307 GPU-test trial is **kept**: its two lavapipe steps are ordinary CI, so a red one is a finding. The Ubuntu-26 ICD pin re-check survives: backlog.
 
-**U8, U9 and U11 are all COMPLETE.** The demo scene now authors a mid-right **scroll region** — the project's first `UiClipRect` — with clipping, scrolling, a button that scrolls out and a wrapped label. **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms debug vs ~0.7 ms release); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame. Tiers re-derived 2026-10-26 (#310-#318) and the 🟢/🟡 rows are all maintenance. Beyond the two slices below, the next cheapest is the duplicated `tests/gpu/` helpers (`🟢` row 4). [Tiers](deferred-work-backlog.md#effort-vs-impact).
+**U8, U9 and U11 are all COMPLETE.** The demo scene now authors a mid-right **scroll region** — the project's first `UiClipRect` — with clipping, scrolling, a button that scrolls out and a wrapped label. **U8d shipped a measurement and NO cache:** never rule on a debug timing (~17 ms debug vs ~0.7 ms release); the trigger is a counter (`engine/ui/ui_layout_stats.hpp`) above ~200k `visits`/frame. Tiers re-derived 2026-10-26 (#310-#318) and the 🟢/🟡 rows are all maintenance. Beyond the slice below, the next cheapest is the duplicated `tests/gpu/` helpers (`🟢` row 4). [Tiers](deferred-work-backlog.md#effort-vs-impact).
 
 **Eye checks DONE** — six items, all passed 2026-10-28 ([record](../record/2026-10.md)). The scroll offset is **deliberately unsnapped and a human kept it that way**: do not add pixel snapping from the argument alone, it lost to an observation. Still unverified, because nothing authors them: a `WorldLabel` containing `\n` (vertical centring known wrong) and whether `'?'` reads as an error.
 
-### The next two slices, in order, each with the gate that ends it
+### The next slice, with the gate that ends it
 
-Ordered by how much they unblock, not by size. **The old slice 1 — making the renderer gate
-assert it reached a UI frame — SHIPPED 2026-10-30.** The gate that asserts a UI frame is now
-`ctest --test-dir <dir> -L gpu`; the GUI run's pass condition changed with it (see
-[landmines](landmines.md)), and the numbers are in the
+**Two of the four SHIPPED 2026-10-30.** The renderer gate now asserts it reached a UI frame —
+that gate is `ctest --test-dir <dir> -L gpu`, and the GUI run's pass condition changed with it
+(see [landmines](landmines.md));
 [record](../record/2026-10.md#slice-1--the-renderer-gate-learns-to-assert-it-reached-a-ui-frame-2026-10-30).
+And `tests/gpu/`'s zero-validation assertion is no longer vacuous: every GPU test asserts the
+layer was ON before asserting it was silent, so `VK_LOADER_LAYERS_DISABLE='*' ctest --preset
+debug -L gpu` takes all **12** red naming the layer. **What that slice did NOT close:** the
+value published into `g_validation_observed` is guarded by no test — see 🟡 row 11;
+[record](../record/2026-10.md#making-the-gpu-tests-zero-validation-assertion-non-vacuous-2026-10-30).
 
-1. **Make `tests/gpu/`'s zero-validation assertion non-vacuous.** Eight assertion sites across
-   seven GPU tests assert `validation_messages.empty()`, but the layer is enabled only
-   `#ifndef NDEBUG` *and* only when `validation_layer_available()` agrees — so they pass for
-   free wherever it is absent. Slice 1 measured this biting: in a windowed run the layer caught
-   a negative scissor offset and said **nothing** about an out-of-area extent.
-   **Gate:** the tests assert the layer was **actually enabled** before asserting no messages,
-   and deliberately disabling it makes them **fail rather than pass**.
-2. **Give the `begin_frame` per-call counter resets a behavioural test**
+1. **Give the `begin_frame` per-call counter resets a behavioural test**
    (`particle_calls_`, `ribbon_calls_`, `world_text_calls_`, `vulkan_render_device.cpp:1980-1982`).
    Only a source-text contract test covers them; it is the last non-latent route back to the
    per-frame buffer-aliasing class, and omitting a reset grows buffers without changing a pixel.

@@ -60,6 +60,20 @@ struct OffscreenDevice
 OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
                                                       std::uint32_t height);
 
+// Whether the most recently created Vulkan render device in this process had
+// VK_LAYER_KHRONOS_validation enabled AND a debug-utils messenger routing its
+// messages into the engine log under the "vulkan" category.
+//
+// EXISTS FOR THE GPU TESTS, and specifically so that "no validation messages" can
+// stop being a claim that is true for free. The layer is enabled only `#ifndef
+// NDEBUG` and only when the loader enumerates it, so a release build, a machine
+// without the layer package, or a run under VK_LOADER_LAYERS_DISABLE all produce a
+// message count of zero having checked nothing. Assert this BEFORE asserting the
+// count, or the count is decoration. Returns false in any build where the layer was
+// not enabled -- it never guesses from the extension or the messenger alone, because
+// the messenger is created either way.
+bool validation_messages_are_observed() noexcept;
+
 // Create a Vulkan-backed RenderDevice that presents to `window`'s surface.
 // `window` must outlive the returned device. Throws std::runtime_error on any
 // Vulkan/GLFW setup failure.
