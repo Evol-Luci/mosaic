@@ -12,6 +12,7 @@
 #include "modules/render_vulkan/vulkan_bloom_levels.hpp"
 #include "modules/render_vulkan/vulkan_swapchain_support.hpp"
 #include "modules/render_vulkan/vulkan_ui_clip.hpp"
+#include "modules/render_vulkan/vulkan_ui_draw_stats.hpp"
 #include "foundation/logging/log.hpp"
 
 #include <array>
@@ -279,9 +280,13 @@ bool validation_layer_available(const char* name)
 
 // Vulkan implementation of the neutral RenderDevice. Owns everything it creates
 // (except the window, owned by the app) and tears it down in reverse order.
-class VulkanRenderDevice final : public RenderDevice, public OffscreenReadback
+class VulkanRenderDevice final : public RenderDevice,
+                                public OffscreenReadback,
+                                public UiDrawStatsSource
 {
 public:
+    const UiDrawStats& ui_draw_stats() const override { return ui_draw_stats_; }
+
     explicit VulkanRenderDevice(RenderTarget target) : target_(target)
     {
         if (const auto* ot = std::get_if<OffscreenTarget>(&target_))
@@ -1858,6 +1863,21 @@ public:
         return viewport_pass_open_ ? vp_extent_ : extent_;
     }
 
+    // One UI draw got past its early returns and is about to record draw commands.
+    //
+    // The log line fires exactly once per device and exists for the GUI gate, which has
+    // no way to read a counter: a run killed by `timeout` never reaches a shutdown
+    // summary, so the evidence has to be emitted at the moment it becomes true. Grep for
+    // it to tell "the UI path ran" from "the process was still starting up".
+    void note_ui_draw_reached()
+    {
+        ++ui_draw_stats_.ui_draws;
+        if (ui_draw_stats_.ui_draws == 1)
+        {
+            mosaic::foundation::log::info("vulkan", "first UI draw recorded");
+        }
+    }
+
     // Narrow the scissor to `clip` for the draws that follow. No clip records NOTHING, so
     // an unclipped call's command stream is byte-identical to the one it recorded before
     // the clip parameter existed.
@@ -1867,6 +1887,36 @@ public:
         const VkExtent2D dest = ui_destination_extent();
         const mosaic::render::vk::ClipPixelRect px =
             mosaic::render::vk::clip_to_pixel_rect(*clip, dest.width, dest.height);
+        // Counted BEFORE the record, and in plain integers rather than by waiting for the
+        // validation layer: this is the one place every clipped UI draw's scissor passes
+        // through, and the assertion resting on it must not depend on a layer that is
+        // optional at runtime.
+        const std::uint64_t bad_before = ui_draw_stats_.out_of_area_scissors;
+        record_ui_clip_scissor(ui_draw_stats_, px, dest.width, dest.height);
+        if (ui_draw_stats_.clipped_ui_draws == 1)
+        {
+            mosaic::foundation::log::info("vulkan", "first clipped UI draw recorded");
+        }
+        // The GUI gate's only way to fail on a bad scissor. It is logged at ERROR, and at
+        // most once, so the gate's existing "zero VUID/ERROR/WARN" criterion catches it
+        // WITHOUT depending on the validation layer, which is not a complete oracle even
+        // where it IS enabled. Measured 2026-10-30 in a windowed editor run: a forced
+        // NEGATIVE offset raised VUID-vkCmdSetScissor-x-00595, and a forced OUT-OF-AREA
+        // extent raised nothing at all, in three consecutive runs. The silent one is
+        // explained by ui_destination_extent() returning vp_extent_ (1 x 1 in the editor)
+        // while the real render-pass area is larger, so the scissor is wrong against what
+        // this code believes the destination is and legal against what the driver checks.
+        // That divergence is a known gap with its own backlog entry; this check reports
+        // against the extent the clip was actually computed with, which is the one the
+        // pixels will follow.
+        if (ui_draw_stats_.out_of_area_scissors == 1 && bad_before == 0)
+        {
+            mosaic::foundation::log::error(
+                "vulkan",
+                "ui clip scissor OUT OF AREA: offset=({}, {}) extent=({} x {}) "
+                "render area={} x {}",
+                px.x, px.y, px.width, px.height, dest.width, dest.height);
+        }
         VkRect2D scissor{};
         scissor.offset = {px.x, px.y};
         scissor.extent = {px.width, px.height};
@@ -1896,6 +1946,7 @@ public:
 
         VkPipeline pipe = viewport_pass_open_ ? vp_ui_pipeline_ : ui_pipeline_;
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        note_ui_draw_reached();
         set_ui_clip(clip);
         for (const auto& q : quads)
         {
@@ -1926,6 +1977,7 @@ public:
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 ui_image_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0, nullptr);
+        note_ui_draw_reached();
         set_ui_clip(clip);
         for (const auto& q : quads)
         {
@@ -1955,6 +2007,7 @@ public:
         vkCmdBindPipeline(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
         vkCmdBindDescriptorSets(cmd_[frame_], VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 ui_text_pipeline_layout_, 0, 1, &textures_[tex_index].set, 0, nullptr);
+        note_ui_draw_reached();
         set_ui_clip(clip);
         for (const auto& q : quads)
         {
@@ -6318,6 +6371,8 @@ private:
     // nesting inside it. vp_clear_ carries the clear colour across that gap.
     bool            viewport_pass_requested_ = false;
     Color           vp_clear_{0.0f, 0.0f, 0.0f, 1.0f};
+
+    UiDrawStats     ui_draw_stats_{};
 };
 
 } // namespace
@@ -6334,7 +6389,8 @@ OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
     auto impl = std::make_unique<VulkanRenderDevice>(
         RenderTarget{OffscreenTarget{width, height}});
     OffscreenReadback* readback = impl.get();
-    return OffscreenDevice{std::move(impl), readback};
+    UiDrawStatsSource* ui_stats = impl.get();
+    return OffscreenDevice{std::move(impl), readback, ui_stats};
 }
 
 } // namespace mosaic::render::vk
