@@ -292,7 +292,8 @@ bool validation_layer_available(const char* name)
 // (except the window, owned by the app) and tears it down in reverse order.
 class VulkanRenderDevice final : public RenderDevice,
                                 public OffscreenReadback,
-                                public UiDrawStatsSource
+                                public UiDrawStatsSource,
+                                public StagingChunkInspector
 {
 public:
     const UiDrawStats& ui_draw_stats() const override { return ui_draw_stats_; }
@@ -2216,6 +2217,23 @@ public:
         last_rendered_frame_ = frame_;
         has_rendered_frame_ = true;
         frame_ = (frame_ + 1) % kFramesInFlight;
+    }
+
+    // The staging-chunk inspection seam (see StagingChunkInspector). Reports the SIZE of
+    // the per-call chunk vectors, not the per-call counters: the counters are reset every
+    // begin_frame, while a vector that grew because a reset was missed stays grown, so the
+    // sizes are what a missed reset is observable through.
+    StagingChunkCounts staging_chunk_counts() const override
+    {
+        StagingChunkCounts counts;
+        counts.frames_in_flight = static_cast<std::size_t>(kFramesInFlight);
+        for (int i = 0; i < kFramesInFlight; ++i)
+        {
+            counts.particle += particle_instances_[i].size();
+            counts.ribbon += ribbon_vertices_[i].size();
+            counts.world_text += world_text_vertices_[i].size();
+        }
+        return counts;
     }
 
     std::vector<std::uint8_t> read_pixels() override
@@ -6414,9 +6432,10 @@ OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
 {
     auto impl = std::make_unique<VulkanRenderDevice>(
         RenderTarget{OffscreenTarget{width, height}});
-    OffscreenReadback* readback = impl.get();
-    UiDrawStatsSource* ui_stats = impl.get();
-    return OffscreenDevice{std::move(impl), readback, ui_stats};
+    OffscreenReadback*     readback = impl.get();
+    UiDrawStatsSource*     ui_stats = impl.get();
+    StagingChunkInspector* chunks = impl.get();
+    return OffscreenDevice{std::move(impl), readback, ui_stats, chunks};
 }
 
 } // namespace mosaic::render::vk

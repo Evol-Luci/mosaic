@@ -347,11 +347,21 @@ TEST_CASE("every per-frame staging buffer is chunked per call", "[render]")
     // Latent-shape removal following #275 (where two draw_world_text calls in one frame
     // shared one buffer at offset 0 and the second overwrote the first before submit).
     //
-    // Why a source-level contract test is the gate here: nothing in the test suite
-    // creates a VkDevice, so the Vulkan backend cannot be executed by a test, and
-    // RenderSystem already batches all emitters into one draw_particles call and all
-    // trails into one draw_ribbons call per frame, so there is no engine-side batching
-    // bug or observable rendering artefact to make fail behaviourally.
+    // Why a source-level contract test is the gate here: the default suite creates no
+    // VkDevice, so it cannot execute the Vulkan backend, and RenderSystem already batches
+    // all emitters into one draw_particles call and all trails into one draw_ribbons call
+    // per frame, so there is no engine-side batching bug to make fail behaviourally.
+    //
+    // THE BEGIN_FRAME RESETS ARE NO LONGER ASSERTED HERE. They were, as three literal
+    // string searches, until a behavioural test took them over:
+    // tests/gpu/offscreen_staging_chunk_reset_test.cpp drives real frames on a real
+    // offscreen VulkanRenderDevice and requires the per-call chunk vectors stop growing,
+    // and deleting any one of the three resets turns exactly its own case red. The string
+    // searches were removed rather than kept alongside it, because they passed on a
+    // renamed counter and failed on a reformat -- a second assertion that is wrong in
+    // both directions is a liability, not a belt and braces. What is still asserted below
+    // is the part no GPU test covers behaviourally, since RenderSystem makes exactly one
+    // call per path per frame: that the chunked FORM is what the source has.
     const std::string src =
         mosaic::tests::normalize_ws(mosaic::tests::code_only(read_backend()));
 
@@ -379,10 +389,8 @@ TEST_CASE("every per-frame staging buffer is chunked per call", "[render]")
     REQUIRE(src.find("InstanceBuffer& ib = particle_instances_[frame_];") == std::string::npos);
     REQUIRE(src.find("InstanceBuffer& vb = ribbon_vertices_[frame_];") == std::string::npos);
 
-    // 3. All three counters are reset in begin_frame.
-    REQUIRE(src.find("particle_calls_[frame_] = 0;") != std::string::npos);
-    REQUIRE(src.find("ribbon_calls_[frame_] = 0;") != std::string::npos);
-    REQUIRE(src.find("world_text_calls_[frame_] = 0;") != std::string::npos);
+    // 3. (The per-frame counter resets: see the note at the top of this case --
+    //     tests/gpu/offscreen_staging_chunk_reset_test.cpp owns them now.)
 
     // 4. The members are declared as chunk lists.
     REQUIRE(src.find("std::array<std::vector<InstanceBuffer>, kFramesInFlight> particle_instances_")

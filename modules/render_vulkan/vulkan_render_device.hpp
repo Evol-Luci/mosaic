@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <variant>
@@ -50,11 +51,38 @@ public:
     virtual const UiDrawStats& ui_draw_stats() const = 0;
 };
 
+// Plain-integer counts of the PER-CALL staging chunks the backend keeps for the three
+// world-space draw paths, summed over every frame-in-flight slot. `frames_in_flight` is
+// reported so a caller can compute the expected total without knowing the backend's
+// constant.
+//
+// This exists so the per-call counter resets in begin_frame() can be asserted on
+// BEHAVIOUR. Dropping a reset grows these vectors every frame and does not change a
+// single pixel, so no pixel comparison can see it -- see
+// tests/gpu/offscreen_staging_chunk_reset_test.cpp.
+struct StagingChunkCounts
+{
+    std::size_t particle = 0;
+    std::size_t ribbon = 0;
+    std::size_t world_text = 0;
+    std::size_t frames_in_flight = 0;
+};
+
+// Implemented by the Vulkan render device, same shape as OffscreenReadback above: an
+// abstract class holding no Vulkan or GLFW type, handed out as a non-owning pointer.
+class StagingChunkInspector
+{
+public:
+    virtual ~StagingChunkInspector() = default;
+    virtual StagingChunkCounts staging_chunk_counts() const = 0;
+};
+
 struct OffscreenDevice
 {
     std::unique_ptr<mosaic::engine::render::RenderDevice> device;
     OffscreenReadback* readback = nullptr; // non-owning; points into *device
     UiDrawStatsSource* ui_stats = nullptr; // non-owning; points into *device
+    StagingChunkInspector* chunks = nullptr; // non-owning; points into *device
 };
 
 OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
