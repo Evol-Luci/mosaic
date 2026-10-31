@@ -2,6 +2,7 @@
 
 #include "engine/render/render_device.hpp"
 #include "foundation/logging/log.hpp"
+#include "tests/gpu/validation_capture.hpp"
 
 #include <algorithm>
 #include <array>
@@ -32,33 +33,6 @@ std::uint8_t linear_to_unorm8(float linear)
     const float clamped = std::clamp(linear, 0.0f, 1.0f);
     return static_cast<std::uint8_t>(std::lround(clamped * 255.0f));
 }
-
-class ValidationCaptureSink final : public mosaic::foundation::log::Sink
-{
-public:
-    void write(const mosaic::foundation::log::Record& record) noexcept override
-    {
-        console_.write(record);
-        if (record.category == "vulkan" &&
-            (record.level == mosaic::foundation::log::Level::Warn ||
-             record.level == mosaic::foundation::log::Level::Error))
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            messages_.emplace_back(record.message);
-        }
-    }
-
-    std::vector<std::string> messages() const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return messages_;
-    }
-
-private:
-    mosaic::foundation::log::ConsoleSink console_;
-    mutable std::mutex mutex_;
-    std::vector<std::string> messages_;
-};
 
 } // namespace
 
@@ -100,9 +74,7 @@ TEST_CASE("gpu offscreen VulkanRenderDevice clears and reads back 64x64 sRGB pix
         REQUIRE(computed == kExpectedSrgb8[c]);
     }
 
-    auto capture_sink = std::make_shared<ValidationCaptureSink>();
-    mosaic::foundation::log::clear_sinks();
-    mosaic::foundation::log::add_sink(capture_sink);
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
 
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
@@ -140,5 +112,5 @@ TEST_CASE("gpu offscreen VulkanRenderDevice clears and reads back 64x64 sRGB pix
 
     const std::vector<std::string> validation_messages = capture_sink->messages();
     mosaic::foundation::log::clear_sinks();
-    REQUIRE(validation_messages.empty());
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }

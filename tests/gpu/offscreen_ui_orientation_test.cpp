@@ -3,6 +3,7 @@
 #include "engine/render/render_device.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "foundation/logging/log.hpp"
+#include "tests/gpu/validation_capture.hpp"
 #include "foundation/math/vec3.hpp"
 
 #include <algorithm>
@@ -44,33 +45,6 @@ std::array<std::uint8_t, 4> expected_srgb8(float r, float g, float b, float a)
         linear_to_unorm8(a),
     };
 }
-
-class ValidationCaptureSink final : public mosaic::foundation::log::Sink
-{
-public:
-    void write(const mosaic::foundation::log::Record& record) noexcept override
-    {
-        console_.write(record);
-        if (record.category == "vulkan" &&
-            (record.level == mosaic::foundation::log::Level::Warn ||
-             record.level == mosaic::foundation::log::Level::Error))
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            messages_.emplace_back(record.message);
-        }
-    }
-
-    std::vector<std::string> messages() const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return messages_;
-    }
-
-private:
-    mosaic::foundation::log::ConsoleSink console_;
-    mutable std::mutex mutex_;
-    std::vector<std::string> messages_;
-};
 
 std::string format_pixel(const std::vector<std::uint8_t>& pixels,
                          std::uint32_t width,
@@ -151,9 +125,7 @@ TEST_CASE("gpu offscreen draw_ui places top-left origin quads in the expected co
     REQUIRE(expected_top_left == std::array<std::uint8_t, 4>{225, 188, 99, 255});
     REQUIRE(expected_bottom_right == std::array<std::uint8_t, 4>{137, 225, 240, 255});
 
-    auto capture_sink = std::make_shared<ValidationCaptureSink>();
-    mosaic::foundation::log::clear_sinks();
-    mosaic::foundation::log::add_sink(capture_sink);
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
 
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
@@ -216,5 +188,5 @@ TEST_CASE("gpu offscreen draw_ui places top-left origin quads in the expected co
 
     const std::vector<std::string> validation_messages = capture_sink->messages();
     mosaic::foundation::log::clear_sinks();
-    REQUIRE(validation_messages.empty());
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }

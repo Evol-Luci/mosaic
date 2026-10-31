@@ -7,6 +7,7 @@
 #include "engine/ui/ui_rect.hpp"
 #include "engine/world/world.hpp"
 #include "foundation/logging/log.hpp"
+#include "tests/gpu/validation_capture.hpp"
 #include "foundation/math/vec3.hpp"
 
 #include <algorithm>
@@ -160,6 +161,8 @@ TEST_CASE("gpu offscreen a clip resolved from a nested hierarchy masks to the IN
     REQUIRE(clip->x == 0.25f);
     REQUIRE(clip->w == 0.25f);
 
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
+
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
         REQUIRE(offscreen.device != nullptr);
@@ -225,6 +228,13 @@ TEST_CASE("gpu offscreen a clip resolved from a nested hierarchy masks to the IN
              << " (first at " << first_x << ", " << first_y << ")");
         REQUIRE(wrong == 0);
     }
+
+    // An intersected scissor is the arithmetic most likely to produce an out-of-area
+    // rect, and that is a validation error rather than a wrong pixel -- so the pixel
+    // loop above cannot see it. This case asserted none of it until 2026-10-29.
+    const std::vector<std::string> validation_messages = capture_sink->messages();
+    mosaic::foundation::log::clear_sinks();
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }
 
 // An empty intersection draws nothing at all -- and, just as importantly, does so without a
@@ -270,6 +280,10 @@ TEST_CASE("gpu offscreen an empty resolved clip leaves the surface untouched",
     REQUIRE(clip.has_value());
     REQUIRE(is_empty(*clip));
 
+    // The TEST_CASE comment above claims this happens "without a validation error". It
+    // did not capture one message until 2026-10-29, so that claim was unasserted.
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
+
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
         REQUIRE(offscreen.device != nullptr);
@@ -301,4 +315,10 @@ TEST_CASE("gpu offscreen an empty resolved clip leaves the surface untouched",
         INFO("non-clear pixels under an empty clip: " << non_clear);
         REQUIRE(non_clear == 0);
     }
+
+    // "Draws nothing" and "draws nothing legally" are different claims, and an empty
+    // scissor is exactly where a zero-extent rect could be submitted.
+    const std::vector<std::string> validation_messages = capture_sink->messages();
+    mosaic::foundation::log::clear_sinks();
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }

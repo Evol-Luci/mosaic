@@ -3,6 +3,7 @@
 #include "engine/render/render_device.hpp"
 #include "engine/ui/ui_rect.hpp"
 #include "foundation/logging/log.hpp"
+#include "tests/gpu/validation_capture.hpp"
 #include "foundation/math/vec3.hpp"
 
 #include <algorithm>
@@ -40,33 +41,6 @@ std::array<std::uint8_t, 4> expected_srgb8(float r, float g, float b, float a)
     return {linear_to_srgb8(r), linear_to_srgb8(g), linear_to_srgb8(b),
             linear_to_unorm8(a)};
 }
-
-class ValidationCaptureSink final : public mosaic::foundation::log::Sink
-{
-public:
-    void write(const mosaic::foundation::log::Record& record) noexcept override
-    {
-        console_.write(record);
-        if (record.category == "vulkan" &&
-            (record.level == mosaic::foundation::log::Level::Warn ||
-             record.level == mosaic::foundation::log::Level::Error))
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            messages_.emplace_back(record.message);
-        }
-    }
-
-    std::vector<std::string> messages() const
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return messages_;
-    }
-
-private:
-    mosaic::foundation::log::ConsoleSink console_;
-    mutable std::mutex mutex_;
-    std::vector<std::string> messages_;
-};
 
 std::array<std::uint8_t, 4> pixel_at(const std::vector<std::uint8_t>& pixels,
                                      std::uint32_t width,
@@ -159,9 +133,7 @@ TEST_CASE("gpu offscreen a clipped draw_ui masks pixels outside the clip and lea
     constexpr std::uint32_t kInsideX = 64, kInsideY = 32;
     constexpr std::uint32_t kOutsideX = 64, kOutsideY = 96;
 
-    auto capture_sink = std::make_shared<ValidationCaptureSink>();
-    mosaic::foundation::log::clear_sinks();
-    mosaic::foundation::log::add_sink(capture_sink);
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
 
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
@@ -316,9 +288,9 @@ TEST_CASE("gpu offscreen a clipped draw_ui masks pixels outside the clip and lea
     const std::vector<std::string> validation_messages = capture_sink->messages();
     mosaic::foundation::log::clear_sinks();
     // A scissor outside the render area is a validation ERROR, not a wrong pixel, so this
-    // is the half of the gate the pixel assertions above cannot express.
-    INFO("validation messages: " << validation_messages.size());
-    REQUIRE(validation_messages.empty());
+    // is the half of the gate the pixel assertions above cannot express -- and only while
+    // the layer is on, which the helper asserts first.
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }
 
 // An out-of-range clip must produce a VALID scissor, not a validation error. The pixel
@@ -343,9 +315,7 @@ TEST_CASE("gpu offscreen an out-of-range UI clip is clamped rather than invalid"
     const std::array<std::uint8_t, 4> expected_quad =
         expected_srgb8(kQuadColor.x, kQuadColor.y, kQuadColor.z, 1.0f);
 
-    auto capture_sink = std::make_shared<ValidationCaptureSink>();
-    mosaic::foundation::log::clear_sinks();
-    mosaic::foundation::log::add_sink(capture_sink);
+    auto capture_sink = mosaic::gpu_test::install_validation_capture();
 
     {
         OffscreenDevice offscreen = create_offscreen_vulkan_render_device(kWidth, kHeight);
@@ -375,6 +345,5 @@ TEST_CASE("gpu offscreen an out-of-range UI clip is clamped rather than invalid"
 
     const std::vector<std::string> validation_messages = capture_sink->messages();
     mosaic::foundation::log::clear_sinks();
-    INFO("validation messages: " << validation_messages.size());
-    REQUIRE(validation_messages.empty());
+    mosaic::gpu_test::require_validation_observed_and_silent(validation_messages);
 }
