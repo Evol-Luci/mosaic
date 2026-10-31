@@ -55,7 +55,7 @@ is the one edit here that costs an hour rather than saving one.
 
 - **The editor opens stopped.** No ticks, so lazily-created state (physics bodies, particles, trails) does not exist until Play. A trail records nothing for something that is not moving.
 
-- **A backend draw path called once per entity that reuses one per-frame buffer aliases itself.** All three staging paths allocate per call and reset in `begin_frame` (#275, #287), asserted in pixels by `tests/gpu/offscreen_*_aliasing_test.cpp`. Do not undo that.
+- **A backend draw path called once per entity that reuses one per-frame buffer aliases itself.** All three staging paths allocate per call and reset in `begin_frame` (#275, #287). The per-call allocation is asserted in pixels by `tests/gpu/offscreen_*_aliasing_test.cpp`; **the `begin_frame` resets are NOT pixel-observable** — dropping one grows buffers forever and changes no pixel, and on 2026-10-30 all three of those pixel tests stayed GREEN on each of the three mutants. The resets are asserted on chunk counts instead, through `StagingChunkInspector`, by `tests/gpu/offscreen_staging_chunk_reset_test.cpp`. Do not undo either half.
 
 - **After a squash merge leaves local `main` diverged, `git reset --keep origin/main`**, never `--hard`.
 

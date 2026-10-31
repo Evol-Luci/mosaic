@@ -1042,12 +1042,30 @@ them as this list does.
   template and the assertion is a few lines. Deferred because an unobservable fix cannot be verified.
 - ~~**Assert the per-frame buffer-aliasing class through the offscreen target.**~~ — SHIPPED 2026-10-24 for `draw_particles` (PR #303), see [record](../record/2026-10.md#assert-the-per-frame-buffer-aliasing-class-through-the-offscreen-target). The sibling paths remain, below.
 - ~~**`draw_ribbons` and `draw_world_text` aliasing are still unasserted**~~ — SHIPPED 2026-10-25 (`tests/gpu/offscreen_ribbon_aliasing_test.cpp`, `tests/gpu/offscreen_world_text_aliasing_test.cpp`), see [record](../record/2026-10.md#draw_ribbons-and-draw_world_text-per-call-buffer-aliasing-asserted-in-pixels-2026-10-25). The cross-frame `begin_frame` counter resets remain below.
-- **The `begin_frame` per-call counter resets (`particle_calls_`, `ribbon_calls_`,
-  `world_text_calls_` at `vulkan_render_device.cpp:1931-1933`) have only a source-text contract
-  test, not a behavioural one.** Un-reset counters allocate *distinct* buffers per call across
-  frames rather than aliasing intra-frame, so omitting a reset causes unbounded vector/buffer
-  growth rather than a wrong pixel. **Depends on:** a chunk-count inspection seam on
-  `VulkanRenderDevice` or `OffscreenDevice`. Deferred 2026-10-24 (re-confirmed 2026-10-25).
+- ~~**The `begin_frame` per-call counter resets have only a source-text contract test**~~ —
+  SHIPPED 2026-10-30. `StagingChunkInspector` on `OffscreenDevice` reports the per-call chunk
+  counts, and `tests/gpu/offscreen_staging_chunk_reset_test.cpp` requires they stop growing
+  across frames; deleting any one of the three resets turns exactly its own case red. The three
+  source-text `REQUIRE`s in `texture_colorspace_contract_test.cpp` were removed in the same
+  change. See
+  [record](../record/2026-10.md#the-begin_frame-per-call-counter-resets-get-a-behavioural-test-2026-10-30).
+- **Two of the sixteen GPU tests assert nothing about validation:**
+  `offscreen_staging_chunk_reset_test.cpp` and `offscreen_ui_frame_reached_test.cpp`. Every other
+  one calls `mosaic::gpu_test::require_validation_observed_and_silent()`. Both omissions were
+  reasoned, not accidental: the chunk-reset test's decisive assertion is on chunk counts, and the
+  UI-frame gate deliberately uses integer arithmetic because the layer caught only one of its two
+  injected faults (see the slice 1 record entry). But the consequence is that a run with the
+  layer disabled takes 14 of 16 red rather than 16, so "all GPU tests red = the layer is missing"
+  has two exceptions a reader has to know about. **Depends on nothing** —
+  `tests/gpu/validation_capture.hpp` landed 2026-10-30, so this is now adding two `#include`s
+  and two calls. Deferred 2026-10-30 only because neither test needs it to be load-bearing.
+- **The staging-chunk inspection seam is reachable only on an `OffscreenTarget` device.**
+  `create_offscreen_vulkan_render_device` hands out the `StagingChunkInspector*` on
+  `OffscreenDevice`; `create_vulkan_render_device(GLFWwindow*)` returns a bare
+  `unique_ptr<RenderDevice>` with nowhere to put one, so nothing can read chunk counts off the
+  real windowed device. Deferred 2026-10-30 because no caller wants it and widening that
+  factory's return type is a change to the app's interface, not to a test. **Depends on:** a
+  caller that actually needs it (a leak check on a live editor session would be one).
 - **Extract the remaining duplicated `tests/gpu/` PIXEL-assertion helpers into a shared
   header.** `ValidationCaptureSink` is no longer among them — it moved to
   `tests/gpu/validation_capture.hpp` on 2026-10-30 as a by-product of the validation slice,
