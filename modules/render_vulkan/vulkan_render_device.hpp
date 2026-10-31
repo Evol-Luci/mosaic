@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "engine/render/render_device.hpp"
+#include "modules/render_vulkan/vulkan_ui_draw_stats.hpp"
 
 struct GLFWwindow; // fwd-decl; no GLFW include leaks to callers
 
@@ -37,10 +38,23 @@ public:
     virtual std::vector<std::uint8_t> read_pixels() = 0;
 };
 
+// Implemented by the Vulkan render device on EITHER target. The counters are the only
+// way a test can assert that UI draws actually reached a command buffer; see
+// vulkan_ui_draw_stats.hpp for why that assertion had to be added.
+class UiDrawStatsSource
+{
+public:
+    virtual ~UiDrawStatsSource() = default;
+    // Cumulative over the device's whole life, not per frame: nothing resets them. A
+    // caller wanting a per-frame delta reads the counter before and after.
+    virtual const UiDrawStats& ui_draw_stats() const = 0;
+};
+
 struct OffscreenDevice
 {
     std::unique_ptr<mosaic::engine::render::RenderDevice> device;
     OffscreenReadback* readback = nullptr; // non-owning; points into *device
+    UiDrawStatsSource* ui_stats = nullptr; // non-owning; points into *device
 };
 
 OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
