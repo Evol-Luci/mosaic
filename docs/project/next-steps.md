@@ -15,8 +15,8 @@ the PR otherwise. Re-verifying on the day the cell already names needs no edit.
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1629 tests (+ **13** `-L gpu`, opt-in) | `ctest --preset debug -N -LE gpu \| tail -1` (**build first** — see [landmines](landmines.md)) | 2026-10-30 |
-| Suite status | all passing (1629/1629, 6.0 s local) | `ctest --preset debug -LE gpu` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-30 |
+| Suite size | 1629 tests (+ **16** `-L gpu`, opt-in) | `ctest --preset debug -N -LE gpu \| tail -1` (**build first** — see [landmines](landmines.md)) | 2026-10-31 |
+| Suite status | all passing (1629/1629, 4.2 s local) | `ctest --preset debug -LE gpu` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-31 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
