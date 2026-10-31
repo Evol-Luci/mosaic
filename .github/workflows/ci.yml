@@ -24,6 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # NOT the default depth of 1. The "next-steps Checked-column staleness check"
+          # below attributes each changed State `Value` to the AUTHOR DATE of the commit
+          # that changed it, so it needs this PR's own commits and their base present --
+          # at depth 1 there are no parents at all and the attribution would silently
+          # degrade to "today", which can red an honest PR authored two days earlier. On a
+          # `pull_request` event the checked-out merge commit's first parent IS the base,
+          # so 50 covers any PR this project has produced, and a bounded depth keeps the
+          # clone cheap (the whole repo is ~330 commits).
+          fetch-depth: 50
 
       - name: Runner environment (recorded beside every timing)
         # Standing diagnostic. Image, compiler and core count all move build timings, and the
@@ -59,6 +69,20 @@ jobs:
 
       - name: next-steps claims checker's own unit tests
         run: python3 -m unittest tools/docs/test_check_next_steps_claims.py
+
+      - name: next-steps Checked-column staleness checker's own unit tests
+        run: python3 -m unittest tools/docs/test_check_checked_column_staleness.py
+
+      - name: next-steps Checked-column staleness check
+        # Needs a base revision to diff the State table against, so it runs on
+        # `pull_request` only. A `push` to main has already been through the PR gate, and
+        # the alternative -- passing when no base resolves -- is the vacuous-pass defect
+        # class this project is busy removing elsewhere, so the script FAILS on an
+        # unresolvable base rather than skipping. Requires the checkout's fetch-depth: 50.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/docs/check_checked_column_staleness.py --base "${PR_BASE_SHA}"
 
       - name: Install Vulkan SDK components (loader + headers + glslc)
         run: |
