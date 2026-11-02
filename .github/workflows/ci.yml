@@ -212,9 +212,11 @@ jobs:
         # `-LE gpu` EXCLUDES the opt-in GPU tests, which this job also builds since the
         # lavapipe trial. It is a label, not a name match: tests/CMakeLists.txt tags them
         # via catch_discover_tests(... LABELS gpu). Both the `ctest -N` denominator and the
-        # run carry the same filter, so N stays 1462 against the 1462 `add_test` lines in
+        # run carry the same filter, so N matches the `add_test` lines in
         # mosaic_unit_tests-*_tests.cmake and O1 still means what it meant. The GPU tests
-        # get their own step, with their own N and their own generated file.
+        # get their own step, with their own N and their own generated file. No count is
+        # written down here on purpose: N is discovered in this job, and a literal in a
+        # comment is the one thing that cannot be checked by anything.
         run: |
           N="$(ctest --preset debug -N -LE gpu | sed -n 's/^Total Tests: *//p')"
           echo "discovered N=${N}"
@@ -239,11 +241,12 @@ jobs:
       # --- TRIAL (2026-10-24) ------------------------------------------------------------
       # The GPU tests run SEPARATELY from the suite above, and that is the whole design.
       # Folding them into the main ctest invocation would have broken two standing guards at
-      # once: check_ctest_run.py's O1 (one glob, 1462 add_test lines, vs. a discovered 1468)
-      # and check_next_steps_claims.py's Suite size / Suite status rows, which would then
-      # have to track a number no local default build produces. Split, each suite keeps an
-      # exact denominator and the handoff keeps saying 1462, which is what `ctest --preset
-      # debug -N` still prints without -DMOSAIC_ENABLE_GPU_TESTS=ON.
+      # once: check_ctest_run.py's O1 (one glob, 1462 add_test lines against a discovered
+      # 1468, as the counts stood on 2026-10-24) and check_next_steps_claims.py's Suite size
+      # / Suite status rows, which would then have to track a number no local default build
+      # produces. Split, each suite keeps an exact denominator and the handoff keeps quoting
+      # whatever `ctest --preset debug -N` prints WITHOUT -DMOSAIC_ENABLE_GPU_TESTS=ON. Both
+      # figures above are as-of the trial and have since moved; the split is what matters.
       - name: Lavapipe device identity (the measurement this trial exists for)
         # Prove WHICH device the tests will use before trusting anything they report. The
         # local probe's scratch ICD was Mesa 26.2.2 from Arch; the runner's was never
