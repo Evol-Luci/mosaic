@@ -69,4 +69,5 @@ than being pruned for space; see `CLAUDE.md`, "Where documentation goes".
 - **Traps that cost an hour:** [`landmines.md`](landmines.md) — read before trusting memory
 - Record of what happened: [`docs/record/`](../record/) (one file per month)
 - Pending work and tiers: [`deferred-work-backlog.md`](deferred-work-backlog.md)
+- Architectural evaluation and horizons: [`advancement-plans-and-evaluation.md`](advancement-plans-and-evaluation.md)
 - Designs: [`docs/superpowers/specs/`](../superpowers/specs/); plans: [`docs/superpowers/plans/`](../superpowers/plans/)
