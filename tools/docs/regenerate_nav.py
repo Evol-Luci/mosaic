@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerates the 6 auto-generated nav-group sections of docs/index.html from
+"""Regenerates the 8 auto-generated nav-group sections of docs/index.html from
 the actual docs/ tree. See docs/design/documentation-tooling.md for the marker
 convention and the group -> directory -> sort-mode table this drives from.
 

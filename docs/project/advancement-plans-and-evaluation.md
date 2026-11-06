@@ -381,7 +381,7 @@ This evaluation is permanently filed within the Mosaic documentation hub:
   - Status Handoff: [`docs/project/next-steps.md`](next-steps.md)
   - Trap Register: [`docs/project/landmines.md`](landmines.md)
   - Work Backlog: [`docs/project/deferred-work-backlog.md`](deferred-work-backlog.md)
-  - Historical Record: [`docs/record/2026-10.md`](../record/2026-10.md)
+  - Historical Record: [`docs/record/2026-10.md`](../record/2026-10.md) & [`docs/record/2026-11.md`](../record/2026-11.md)
   - Design Specs: [`docs/superpowers/specs/`](../superpowers/specs/)
 - **Rule of Re-Evaluation:**
   *If no further architectural, subsystem, or infrastructure changes have been made to the repository since the evaluation timestamp and commit reference above, this document remains authoritative and no new evaluation is required.*
