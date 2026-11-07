@@ -101,16 +101,31 @@ OffscreenDevice create_offscreen_vulkan_render_device(std::uint32_t width,
 // not enabled -- it never guesses from the extension or the messenger alone, because
 // the messenger is created either way.
 //
-// THAT CONJUNCTION IS A CONVENTION, NOT AN ENFORCED PROPERTY: the published value is
-// held by one line in setup_debug_messenger and by code review, and NO TEST GUARDS IT.
-// Measured 2026-10-30: publishing `true` unconditionally -- claiming observation on
-// messenger creation alone -- leaves all 12 GPU tests PASSING with the layer present,
-// and once the backend's "layer not available" WARN no longer lands in the capture
-// sink it leaves ten of them green having observed nothing. Do not read the paragraph
-// above as a guarantee. The fix is the per-device accessor shape that
-// VulkanHeadlessDevice::validation_enabled() already has -- the only check that caught
-// either fault -- and it is deferred-work-backlog.md, Rendering, "the value published
-// into g_validation_observed is itself guarded by NOTHING".
+// THE PUBLISHED VALUE IS GUARDED, since 2026-11-06, by
+// tests/gpu/validation_observed_flag_test.cpp. Keep it that way: before that test existed,
+// publishing `true` unconditionally -- claiming observation on messenger creation alone,
+// which happens either way -- left all 12 GPU tests PASSING with the layer present
+// (measured 2026-10-30), and with the backend's "layer not available" WARN out of the
+// capture sink it left ten of them green having observed nothing. With the guard in place
+// that same mutant turns exactly ONE of 17 red and the other 16 stay green, which is the
+// shape to expect if you break this line: the ten tests that CONSUME the flag cannot
+// detect a wrong value, because they only ever observe the enabled case, where
+// validation_layer_enabled_ is already true and the wrong line publishes the right answer
+// by accident.
+//
+// The guard works by comparing this value against two sources OUTSIDE this file -- the
+// loader's own vkEnumerateInstanceLayerProperties, and VK_LOADER_LAYERS_DISABLE, which the
+// loader reads at vkCreateInstance time so a test can flip "was the layer enabled" between
+// two devices in one process without touching code or uninstalling anything.
+//
+// An earlier version of this comment predicted the fix would be "the per-device accessor
+// shape that VulkanHeadlessDevice::validation_enabled() already has -- the only check that
+// caught either fault". That was the right observation with the wrong cause, and building
+// it would have produced a guard that still could not fail. What saved those two cases was
+// not per-device-ness; it was that they read a DIFFERENT VARIABLE set by a SECOND copy of
+// the layer-enablement logic, which a single-line edit over here does not reach. That is
+// redundancy, and it protects only until someone edits both copies. A per-device accessor
+// publishing a wrong value would be exactly as unguarded as this global one.
 bool validation_messages_are_observed() noexcept;
 
 // Create a Vulkan-backed RenderDevice that presents to `window`'s surface.
