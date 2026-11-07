@@ -289,6 +289,7 @@ if(MOSAIC_ENABLE_GPU_TESTS)
     gpu/offscreen_world_text_aliasing_test.cpp
     gpu/offscreen_hud_underlay_test.cpp
     gpu/offscreen_staging_chunk_reset_test.cpp
+    gpu/validation_observed_flag_test.cpp
   )
   target_link_libraries(mosaic_gpu_tests PRIVATE
     mosaic_render_vulkan

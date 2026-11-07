@@ -15,8 +15,8 @@ the PR otherwise. Re-verifying on the day the cell already names needs no edit.
 
 | Claim | Value | Verify with | Checked |
 |---|---|---|---|
-| Suite size | 1629 tests (+ **16** `-L gpu`, opt-in) | `ctest --preset debug -N -LE gpu \| tail -1` (**build first** — see [landmines](landmines.md)) | 2026-10-31 |
-| Suite status | all passing (1629/1629, 4.2 s local) | `ctest --preset debug -LE gpu` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-10-31 |
+| Suite size | 1629 tests (+ **17** `-L gpu`, opt-in) | `ctest --preset debug -N -LE gpu \| tail -1` (**build first** — see [landmines](landmines.md)) | 2026-11-06 |
+| Suite status | all passing (1629/1629, 4.5 s local) | `ctest --preset debug -LE gpu` (the preset carries `jobs: 8`; do NOT add `-j`) | 2026-11-06 |
 | CI test step | ~11-18 s (#289: 18 s, #291: 11 s, #292: 16 s) | `gh run view <id> --json jobs --jq '.jobs[].steps[] \| select(.name=="Unit tests")'` | 2026-10-24 |
 | Build | debug preset | `cmake --preset debug && cmake --build --preset debug -j"$(nproc)"` | 2026-10-23 |
 
@@ -51,12 +51,20 @@ gate flipped and re-run by a reviewer against unmodified code. In order:
    the handoff asked for was a 7-false-positives-for-1-real-defect trade. Do not tighten it.
    [record](../record/2026-10.md#a-staleness-check-on-next-stepsmds-checked-column-and-the-stricter-rule-that-lost-to-its-own-history)
 
-**Picking the next one is an open decision, not a backlog lookup.** Three candidates the four
-slices themselves surfaced, each already carrying a gate: 🟡 row 11 (the value published into
-`g_validation_observed` is guarded by no test — the vacuity defect one level up, and the one
-thing slice 2 did *not* close), 🟡 row 10 (a viewport-texture readback seam, which is also what
-would diagnose the `1 x 1` editor extent slice 1 found), and 🟢 row 4 (the remaining duplicated
-`tests/gpu/` pixel helpers). [Tiers](deferred-work-backlog.md#effort-vs-impact).
+**🟡 row 11 then SHIPPED 2026-11-06** — the value published into `g_validation_observed` is now
+guarded by `tests/gpu/validation_observed_flag_test.cpp`, which compares it against the loader
+rather than against Mosaic code. `store(true, …)` turns exactly 1 of 17 red and the other 16
+stay green: **the ten tests that consume the flag cannot police it**, because they only ever
+observe the enabled case, where the wrong line publishes the right answer by accident. The
+recorded premise ("use the per-device accessor shape") was wrong — that is redundancy, not a
+guard. [record](../record/2026-11.md#the-validation-observed-flag-gets-a-guard-that-can-actually-fail-2026-11-06)
+
+**Picking the next one is an open decision, not a backlog lookup.** Two candidates remain, each
+already carrying a gate: 🟡 row 10 (a viewport-texture readback seam, which is also what would
+diagnose the `1 x 1` editor extent slice 1 found — and the only route to the `vp_extent_` half
+of the UI passes, which no test reaches) and 🟢 row 4 (the remaining duplicated `tests/gpu/`
+pixel helpers, now that the capture sink is shared out).
+[Tiers](deferred-work-backlog.md#effort-vs-impact).
 
 ## Landmines
 

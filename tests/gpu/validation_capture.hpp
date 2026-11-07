@@ -23,6 +23,14 @@
 //
 // So the order below matters and is the point: assert that validation was OBSERVED,
 // then assert it was SILENT.
+//
+// WHAT THIS FILE CANNOT DO, so nobody mistakes it for the whole defence: the ten cases
+// that come through here only ever run with the layer ENABLED, where
+// validation_layer_enabled_ is already true. A wrong published value -- `store(true, …)`
+// in setup_debug_messenger -- is therefore the correct value by accident here, and all ten
+// stay green on it (measured 2026-10-30, and again 2026-11-06 with the suite at 17). The
+// flag these assertions rest on is guarded by tests/gpu/validation_observed_flag_test.cpp
+// and by nothing in this header.
 
 #include "foundation/logging/log.hpp"
 #include "modules/render_vulkan/vulkan_render_device.hpp"
